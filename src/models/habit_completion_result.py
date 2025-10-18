@@ -1,0 +1,35 @@
+"""Result model for habit completion responses."""
+
+from pydantic import BaseModel, Field
+from src.models.reward import Reward
+from src.models.reward_progress import RewardProgress
+
+
+class HabitCompletionResult(BaseModel):
+    """Response model for habit completion containing all relevant data."""
+
+    habit_confirmed: bool = Field(..., description="Whether habit was successfully logged")
+    habit_name: str = Field(..., description="Name of the completed habit")
+    reward: Reward | None = Field(default=None, description="Reward received (if any)")
+    streak_count: int = Field(..., description="Current streak for this habit")
+    cumulative_progress: RewardProgress | None = Field(default=None, description="Progress on cumulative reward (if applicable)")
+    motivational_quote: str | None = Field(default=None, description="Optional motivational message")
+    got_reward: bool = Field(default=False, description="Whether a non-none reward was received")
+    total_weight_applied: float = Field(..., description="Total weight used in calculation")
+
+    class Config:
+        """Pydantic configuration."""
+        json_schema_extra = {
+            "example": {
+                "habit_confirmed": True,
+                "habit_name": "Walking",
+                "reward": {
+                    "name": "Coffee at favorite cafe",
+                    "type": "cumulative",
+                    "is_cumulative": True
+                },
+                "streak_count": 5,
+                "got_reward": True,
+                "total_weight_applied": 1.5
+            }
+        }

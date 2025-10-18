@@ -1,0 +1,55 @@
+[project]
+name = "habit-reward"
+version = "1.0.0"
+description = "Gamified habit-reward system with Telegram bot and Streamlit dashboard"
+authors = [
+    { name = "Your Name", email = "your.email@example.com" }
+]
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+keywords = ["habit", "tracking", "gamification", "telegram", "bot", "rewards"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "python-telegram-bot>=20.6",
+    "pyairtable>=2.2.0",
+    "openai>=1.3.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "streamlit>=1.28.0",
+    "python-dotenv>=1.0.0",
+    "plotly>=5.18.0",
+    "pandas>=2.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+]
+
+[project.scripts]
+habit-bot = "src.bot.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.14.1",
+]
