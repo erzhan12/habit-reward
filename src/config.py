@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
+    # i18n Configuration
+    supported_languages: list[str] = ["en", "ru", "kk"]
+    default_language: str = "en"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

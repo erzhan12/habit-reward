@@ -6,6 +6,8 @@ from telegram.ext import ContextTypes
 from src.services.streak_service import streak_service
 from src.airtable.repositories import user_repository, habit_repository
 from src.bot.formatters import format_streaks_message
+from src.bot.messages import msg
+from src.bot.language import get_message_language
 
 
 async def streaks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -13,19 +15,20 @@ async def streaks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Handle /streaks command - show current streaks for all habits.
     """
     telegram_id = str(update.effective_user.id)
+    lang = get_message_language(telegram_id, update)
 
     # Validate user exists
     user = user_repository.get_by_telegram_id(telegram_id)
     if not user:
         await update.message.reply_text(
-            "❌ User not found. Please contact admin to register."
+            msg('ERROR_USER_NOT_FOUND', lang)
         )
         return
 
     # Check if user is active
     if not user.active:
         await update.message.reply_text(
-            "❌ Your account is not active. Please contact admin."
+            msg('ERROR_USER_INACTIVE', lang)
         )
         return
 
@@ -34,7 +37,7 @@ async def streaks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not streaks_dict:
         await update.message.reply_text(
-            "No habits logged yet. Use /habit_done to start building your streaks!"
+            msg('ERROR_NO_HABITS_LOGGED', lang)
         )
         return
 
@@ -46,5 +49,5 @@ async def streaks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             habits_with_names[habit_id] = (habit.name, streak_count)
 
     # Format and send message
-    message = format_streaks_message(habits_with_names)
+    message = format_streaks_message(habits_with_names, lang)
     await update.message.reply_text(message, parse_mode="Markdown")

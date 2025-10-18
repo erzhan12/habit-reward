@@ -16,6 +16,8 @@ from src.bot.handlers.reward_handlers import (
 )
 from src.bot.handlers.streak_handler import streaks_command
 from src.airtable.repositories import user_repository
+from src.bot.messages import msg
+from src.bot.language import get_message_language, detect_language_from_telegram
 
 # Configure logging
 setup_logging()
@@ -29,29 +31,35 @@ async def start_command(update: Update, context):
     # Validate user exists
     user = user_repository.get_by_telegram_id(telegram_id)
     if not user:
+        lang = get_message_language(telegram_id, update)
         await update.message.reply_text(
-            "❌ User not found. Please contact admin to register."
+            msg('ERROR_USER_NOT_FOUND', lang)
         )
         return
+
+    # Auto-detect and set language if not already set
+    if not user.language or user.language == 'en':
+        detected_lang = detect_language_from_telegram(update)
+        if detected_lang != 'en' and detected_lang != user.language:
+            try:
+                user_repository.update(user.id, {"language": detected_lang})
+                user.language = detected_lang
+                logger.info(f"Updated language for user {telegram_id} to {detected_lang}")
+            except Exception as e:
+                logger.warning(f"Failed to update user language: {e}")
+
+    # Get final language for messages
+    lang = user.language if user.language else 'en'
 
     # Check if user is active
     if not user.active:
         await update.message.reply_text(
-            "❌ Your account is not active. Please contact admin."
+            msg('ERROR_USER_INACTIVE', lang)
         )
         return
 
     await update.message.reply_text(
-        "🎯 *Welcome to Habit Reward System!*\n\n"
-        "Track your habits and earn rewards!\n\n"
-        "*Available commands:*\n"
-        "/habit_done - Log a completed habit\n"
-        "/streaks - View your current streaks\n"
-        "/list_rewards - See all available rewards\n"
-        "/my_rewards - Check your reward progress\n"
-        "/claim_reward <name> - Claim an achieved reward\n"
-        "/set_reward_status <name> <status> - Update reward status\n"
-        "/help - Show this help message",
+        msg('HELP_START_MESSAGE', lang),
         parse_mode="Markdown"
     )
 
@@ -59,38 +67,25 @@ async def start_command(update: Update, context):
 async def help_command(update: Update, context):
     """Handle /help command."""
     telegram_id = str(update.effective_user.id)
+    lang = get_message_language(telegram_id, update)
 
     # Validate user exists
     user = user_repository.get_by_telegram_id(telegram_id)
     if not user:
         await update.message.reply_text(
-            "❌ User not found. Please contact admin to register."
+            msg('ERROR_USER_NOT_FOUND', lang)
         )
         return
 
     # Check if user is active
     if not user.active:
         await update.message.reply_text(
-            "❌ Your account is not active. Please contact admin."
+            msg('ERROR_USER_INACTIVE', lang)
         )
         return
 
     await update.message.reply_text(
-        "🎯 <b>Habit Reward System Help</b>\n\n"
-        "<b>Core Commands:</b>\n"
-        "/habit_done - Log a habit completion and earn rewards\n"
-        "/streaks - View your current streaks for all habits\n\n"
-        "<b>Reward Commands:</b>\n"
-        "/list_rewards - List all available rewards\n"
-        "/my_rewards - View your cumulative reward progress\n"
-        "/claim_reward &lt;name&gt; - Mark an achieved reward as completed\n"
-        "/set_reward_status &lt;name&gt; &lt;status&gt; - Manually update reward status\n\n"
-        "<b>How it works:</b>\n"
-        "1. Complete a habit using /habit_done\n"
-        "2. Build streaks by completing habits daily\n"
-        "3. Earn reward pieces (cumulative rewards)\n"
-        "4. Claim rewards when you have enough pieces\n\n"
-        "Your streak multiplier increases your chances of getting rewards!",
+        msg('HELP_COMMAND_MESSAGE', lang),
         parse_mode="HTML"
     )
 

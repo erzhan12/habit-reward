@@ -5,14 +5,16 @@ from src.models.reward_progress import RewardProgress
 from src.models.reward import Reward, RewardType
 from src.models.habit_log import HabitLog
 from src.config import settings
+from src.bot.messages import msg
 
 
-def format_habit_completion_message(result: HabitCompletionResult) -> str:
+def format_habit_completion_message(result: HabitCompletionResult, language: str = 'en') -> str:
     """
     Format habit completion result into a user-friendly message.
 
     Args:
         result: HabitCompletionResult object
+        language: Language code for translations
 
     Returns:
         Formatted message string
@@ -20,31 +22,33 @@ def format_habit_completion_message(result: HabitCompletionResult) -> str:
     message_parts = []
 
     # Habit confirmation
-    message_parts.append(f"✅ *Habit completed:* {result.habit_name}")
+    message_parts.append(msg('SUCCESS_HABIT_COMPLETED', language, habit_name=result.habit_name))
 
     # Streak status
     fire_emoji = "🔥" * min(result.streak_count, 5)
-    message_parts.append(f"{fire_emoji} *Streak:* {result.streak_count} days")
+    message_parts.append(f"{fire_emoji} " + msg('FORMAT_STREAK', language, streak_count=result.streak_count))
 
     # Reward result
     if result.got_reward and result.reward:
         if result.reward.type == RewardType.CUMULATIVE:
-            message_parts.append(f"\n🎁 *Reward:* {result.reward.name}")
+            message_parts.append("\n" + msg('FORMAT_REWARD', language, reward_name=result.reward.name))
             if result.cumulative_progress:
                 progress_bar = create_progress_bar(
                     result.cumulative_progress.pieces_earned,
                     result.cumulative_progress.pieces_required
                 )
                 message_parts.append(
-                    f"📊 Progress: {progress_bar} "
-                    f"{result.cumulative_progress.pieces_earned}/{result.cumulative_progress.pieces_required}"
+                    msg('FORMAT_PROGRESS', language,
+                        progress_bar=progress_bar,
+                        pieces_earned=result.cumulative_progress.pieces_earned,
+                        pieces_required=result.cumulative_progress.pieces_required)
                 )
                 if result.cumulative_progress.actionable_now:
-                    message_parts.append("⏳ *Reward achieved!* You can claim it now!")
+                    message_parts.append(msg('INFO_REWARD_ACTIONABLE', language))
         else:
-            message_parts.append(f"\n🎁 *Reward:* {result.reward.name}")
+            message_parts.append("\n" + msg('FORMAT_REWARD', language, reward_name=result.reward.name))
     else:
-        message_parts.append("\n❌ No reward this time - keep going!")
+        message_parts.append("\n" + msg('INFO_NO_REWARD', language))
 
     # Motivational quote (if present)
     if result.motivational_quote:
@@ -53,13 +57,14 @@ def format_habit_completion_message(result: HabitCompletionResult) -> str:
     return "\n".join(message_parts)
 
 
-def format_reward_progress_message(progress: RewardProgress, reward: Reward) -> str:
+def format_reward_progress_message(progress: RewardProgress, reward: Reward, language: str = 'en') -> str:
     """
     Format reward progress into a message.
 
     Args:
         progress: RewardProgress object
         reward: Reward object
+        language: Language code for translations
 
     Returns:
         Formatted message string
@@ -72,29 +77,30 @@ def format_reward_progress_message(progress: RewardProgress, reward: Reward) -> 
     message = (
         f"{progress.status_emoji} *{reward.name}*\n"
         f"📊 {progress_bar} {progress.pieces_earned}/{progress.pieces_required}\n"
-        f"Status: {progress.status.value}"
+        f"{msg('FORMAT_STATUS', language, status=progress.status.value)}"
     )
 
     if progress.actionable_now:
-        message += "\n⏳ *Ready to claim!*"
+        message += "\n" + msg('FORMAT_READY_TO_CLAIM', language)
 
     return message
 
 
-def format_streaks_message(streaks: dict[str, tuple[str, int]]) -> str:
+def format_streaks_message(streaks: dict[str, tuple[str, int]], language: str = 'en') -> str:
     """
     Format streaks dictionary into a message.
 
     Args:
         streaks: Dictionary mapping habit_id to (habit_name, streak_count)
+        language: Language code for translations
 
     Returns:
         Formatted message string
     """
     if not streaks:
-        return "No habits logged yet. Start building your streaks!"
+        return msg('FORMAT_NO_STREAKS', language)
 
-    message_parts = ["🔥 *Your Current Streaks:*\n"]
+    message_parts = [msg('HEADER_STREAKS', language)]
 
     # Sort by streak count (descending)
     sorted_streaks = sorted(
@@ -110,20 +116,21 @@ def format_streaks_message(streaks: dict[str, tuple[str, int]]) -> str:
     return "\n".join(message_parts)
 
 
-def format_rewards_list_message(rewards: list[Reward]) -> str:
+def format_rewards_list_message(rewards: list[Reward], language: str = 'en') -> str:
     """
     Format list of rewards into a message.
 
     Args:
         rewards: List of Reward objects
+        language: Language code for translations
 
     Returns:
         Formatted message string
     """
     if not rewards:
-        return "No rewards configured yet."
+        return msg('FORMAT_NO_REWARDS_YET', language)
 
-    message_parts = ["🎁 *Available Rewards:*\n"]
+    message_parts = [msg('HEADER_REWARDS_LIST', language)]
 
     for reward in rewards:
         type_emoji = {
@@ -143,21 +150,22 @@ def format_rewards_list_message(rewards: list[Reward]) -> str:
     return "\n".join(message_parts)
 
 
-def format_habit_logs_message(logs: list[HabitLog], habits: dict[str, str]) -> str:
+def format_habit_logs_message(logs: list[HabitLog], habits: dict[str, str], language: str = 'en') -> str:
     """
     Format habit logs into a message.
 
     Args:
         logs: List of HabitLog objects
         habits: Dictionary mapping habit_id to habit_name
+        language: Language code for translations
 
     Returns:
         Formatted message string
     """
     if not logs:
-        return "No habit logs found."
+        return msg('FORMAT_NO_LOGS', language)
 
-    message_parts = ["📋 *Recent Habit Completions:*\n"]
+    message_parts = [msg('HEADER_HABIT_LOGS', language)]
 
     for log in logs[:settings.recent_logs_limit]:  # Show only last N
         habit_name = habits.get(log.habit_id, "Unknown habit")

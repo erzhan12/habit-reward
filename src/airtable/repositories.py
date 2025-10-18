@@ -44,7 +44,8 @@ class UserRepository(BaseRepository):
             "telegram_id": user.telegram_id,
             "name": user.name,
             "weight": user.weight,
-            "active": user.active
+            "active": user.active,
+            "language": user.language
         })
         return User(**self._record_to_dict(record))
 

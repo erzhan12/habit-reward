@@ -1,0 +1,318 @@
+"""Centralized message management with multi-lingual support.
+
+This module provides a Django-compatible approach to message management that will
+allow easy migration to Django's gettext i18n framework in the future.
+"""
+
+from src.config import settings
+
+
+class Messages:
+    """Message constants with multi-lingual support."""
+
+    # Error Messages - User Validation
+    ERROR_USER_NOT_FOUND = "❌ User not found. Please contact admin to register."
+    ERROR_USER_INACTIVE = "❌ Your account is not active. Please contact admin."
+
+    # Error Messages - Entity Not Found
+    ERROR_NO_HABITS = "No active habits found. Please add habits first."
+    ERROR_NO_HABITS_LOGGED = "No habits logged yet. Use /habit_done to start building your streaks!"
+    ERROR_HABIT_NOT_FOUND = "Habit not found. Please try again."
+    ERROR_REWARD_NOT_FOUND = "Reward '{reward_name}' not found."
+    ERROR_NO_MATCH_HABIT = "I couldn't match your text to any known habit. Please select from the list using /habit_done again."
+
+    # Error Messages - Validation
+    ERROR_INVALID_STATUS = "Invalid status. Use: pending, achieved, or completed"
+    ERROR_GENERAL = "Error: {error}"
+
+    # Info Messages
+    INFO_NO_REWARD_PROGRESS = "No reward progress yet. Keep completing habits!"
+    INFO_NO_REWARD = "❌ No reward this time - keep going!"
+    INFO_REWARD_ACTIONABLE = "⏳ *Reward achieved!* You can claim it now!"
+    INFO_FEATURE_COMING_SOON = "🎁 *Add New Reward*\n\nThis feature will guide you through creating a new reward.\nFor now, please add rewards directly in Airtable.\n\nComing soon: conversational reward creation!"
+    INFO_CANCELLED = "Habit logging cancelled."
+    INFO_MULTIPLE_HABITS = "I also detected: {other_habits}. Use /habit_done to log those separately."
+
+    # Usage/Help Messages
+    HELP_CLAIM_REWARD_USAGE = "Usage: /claim_reward <reward_name>\nExample: /claim_reward Coffee at favorite cafe"
+    HELP_SET_STATUS_USAGE = "Usage: /set_reward_status <reward_name> <status>\nStatus options: pending, achieved, completed\nExample: /set_reward_status Coffee pending"
+    HELP_HABIT_SELECTION = "Which habit did you complete? 🎯\n\nSelect from the list below:"
+    HELP_CUSTOM_TEXT = "Please type what habit you completed:"
+
+    # Success Messages
+    SUCCESS_HABIT_COMPLETED = "✅ *Habit completed:* {habit_name}"
+    SUCCESS_REWARD_CLAIMED = "✅ Reward claimed: *{reward_name}*\nStatus: {status}\n\nCongratulations! 🎉"
+    SUCCESS_STATUS_UPDATED = "✅ Reward status updated: *{reward_name}*\nNew status: {status}"
+
+    # Headers/Titles
+    HEADER_REWARD_PROGRESS = "🎁 *Your Reward Progress:*\n"
+    HEADER_STREAKS = "🔥 *Your Current Streaks:*\n"
+    HEADER_REWARDS_LIST = "🎁 *Available Rewards:*\n"
+    HEADER_HABIT_LOGS = "📋 *Recent Habit Completions:*\n"
+
+    # Welcome/Help Messages
+    HELP_START_MESSAGE = """🎯 *Welcome to Habit Reward System!*
+
+Track your habits and earn rewards!
+
+*Available commands:*
+/habit_done - Log a completed habit
+/streaks - View your current streaks
+/list_rewards - See all available rewards
+/my_rewards - Check your reward progress
+/claim_reward <name> - Claim an achieved reward
+/set_reward_status <name> <status> - Update reward status
+/help - Show this help message"""
+
+    HELP_COMMAND_MESSAGE = """🎯 <b>Habit Reward System Help</b>
+
+<b>Core Commands:</b>
+/habit_done - Log a habit completion and earn rewards
+/streaks - View your current streaks for all habits
+
+<b>Reward Commands:</b>
+/list_rewards - List all available rewards
+/my_rewards - View your cumulative reward progress
+/claim_reward &lt;name&gt; - Mark an achieved reward as completed
+/set_reward_status &lt;name&gt; &lt;status&gt; - Manually update reward status
+
+<b>How it works:</b>
+1. Complete a habit using /habit_done
+2. Build streaks by completing habits daily
+3. Earn reward pieces (cumulative rewards)
+4. Claim rewards when you have enough pieces
+
+Your streak multiplier increases your chances of getting rewards!"""
+
+    # Formatter Messages
+    FORMAT_STREAK = "🔥 *Streak:* {streak_count} days"
+    FORMAT_REWARD = "🎁 *Reward:* {reward_name}"
+    FORMAT_PROGRESS = "📊 Progress: {progress_bar} {pieces_earned}/{pieces_required}"
+    FORMAT_STATUS = "Status: {status}"
+    FORMAT_READY_TO_CLAIM = "⏳ *Ready to claim!*"
+    FORMAT_NO_REWARDS_YET = "No rewards configured yet."
+    FORMAT_NO_STREAKS = "No habits logged yet. Start building your streaks!"
+    FORMAT_NO_LOGS = "No habit logs found."
+
+    # Translations dictionary for Phase 1
+    _TRANSLATIONS = {
+        'ru': {
+            # Error Messages - User Validation
+            'ERROR_USER_NOT_FOUND': "❌ Пользователь не найден. Обратитесь к администратору для регистрации.",
+            'ERROR_USER_INACTIVE': "❌ Ваш аккаунт не активен. Обратитесь к администратору.",
+
+            # Error Messages - Entity Not Found
+            'ERROR_NO_HABITS': "Активные привычки не найдены. Сначала добавьте привычки.",
+            'ERROR_NO_HABITS_LOGGED': "Привычки ещё не зарегистрированы. Используйте /habit_done для начала!",
+            'ERROR_HABIT_NOT_FOUND': "Привычка не найдена. Попробуйте ещё раз.",
+            'ERROR_REWARD_NOT_FOUND': "Награда '{reward_name}' не найдена.",
+            'ERROR_NO_MATCH_HABIT': "Не удалось сопоставить ваш текст с известной привычкой. Выберите из списка, используя /habit_done.",
+
+            # Error Messages - Validation
+            'ERROR_INVALID_STATUS': "Неверный статус. Используйте: pending, achieved или completed",
+            'ERROR_GENERAL': "Ошибка: {error}",
+
+            # Info Messages
+            'INFO_NO_REWARD_PROGRESS': "Прогресс по наградам отсутствует. Продолжайте выполнять привычки!",
+            'INFO_NO_REWARD': "❌ В этот раз награды нет - продолжайте!",
+            'INFO_REWARD_ACTIONABLE': "⏳ *Награда достигнута!* Вы можете забрать её сейчас!",
+            'INFO_FEATURE_COMING_SOON': "🎁 *Добавить новую награду*\n\nЭта функция проведёт вас через создание новой награды.\nПока что добавляйте награды в Airtable.\n\nСкоро: создание наград через бота!",
+            'INFO_CANCELLED': "Регистрация привычки отменена.",
+            'INFO_MULTIPLE_HABITS': "Также обнаружены: {other_habits}. Используйте /habit_done для их регистрации.",
+
+            # Usage/Help Messages
+            'HELP_CLAIM_REWARD_USAGE': "Использование: /claim_reward <название_награды>\nПример: /claim_reward Кофе в любимом кафе",
+            'HELP_SET_STATUS_USAGE': "Использование: /set_reward_status <название_награды> <статус>\nВарианты статуса: pending, achieved, completed\nПример: /set_reward_status Кофе pending",
+            'HELP_HABIT_SELECTION': "Какую привычку вы выполнили? 🎯\n\nВыберите из списка ниже:",
+            'HELP_CUSTOM_TEXT': "Напишите, какую привычку вы выполнили:",
+
+            # Success Messages
+            'SUCCESS_HABIT_COMPLETED': "✅ *Привычка выполнена:* {habit_name}",
+            'SUCCESS_REWARD_CLAIMED': "✅ Награда получена: *{reward_name}*\nСтатус: {status}\n\nПоздравляем! 🎉",
+            'SUCCESS_STATUS_UPDATED': "✅ Статус награды обновлён: *{reward_name}*\nНовый статус: {status}",
+
+            # Headers/Titles
+            'HEADER_REWARD_PROGRESS': "🎁 *Ваш прогресс по наградам:*\n",
+            'HEADER_STREAKS': "🔥 *Ваши текущие серии:*\n",
+            'HEADER_REWARDS_LIST': "🎁 *Доступные награды:*\n",
+            'HEADER_HABIT_LOGS': "📋 *Недавние выполнения привычек:*\n",
+
+            # Welcome/Help Messages
+            'HELP_START_MESSAGE': """🎯 *Добро пожаловать в систему наград за привычки!*
+
+Отслеживайте привычки и получайте награды!
+
+*Доступные команды:*
+/habit_done - Зарегистрировать выполненную привычку
+/streaks - Посмотреть текущие серии
+/list_rewards - Посмотреть все доступные награды
+/my_rewards - Проверить прогресс по наградам
+/claim_reward <название> - Забрать достигнутую награду
+/set_reward_status <название> <статус> - Обновить статус награды
+/help - Показать это сообщение помощи""",
+
+            'HELP_COMMAND_MESSAGE': """🎯 <b>Помощь по системе наград за привычки</b>
+
+<b>Основные команды:</b>
+/habit_done - Зарегистрировать выполнение привычки и получить награды
+/streaks - Посмотреть текущие серии для всех привычек
+
+<b>Команды наград:</b>
+/list_rewards - Показать все доступные награды
+/my_rewards - Посмотреть накопленный прогресс по наградам
+/claim_reward &lt;название&gt; - Отметить достигнутую награду как завершённую
+/set_reward_status &lt;название&gt; &lt;статус&gt; - Вручную обновить статус награды
+
+<b>Как это работает:</b>
+1. Выполняйте привычки через /habit_done
+2. Создавайте серии, выполняя привычки ежедневно
+3. Зарабатывайте части наград (накопительные награды)
+4. Забирайте награды, когда наберёте достаточно частей
+
+Множитель серий увеличивает шансы получения наград!""",
+
+            # Formatter Messages
+            'FORMAT_STREAK': "🔥 *Серия:* {streak_count} дней",
+            'FORMAT_REWARD': "🎁 *Награда:* {reward_name}",
+            'FORMAT_PROGRESS': "📊 Прогресс: {progress_bar} {pieces_earned}/{pieces_required}",
+            'FORMAT_STATUS': "Статус: {status}",
+            'FORMAT_READY_TO_CLAIM': "⏳ *Готово к получению!*",
+            'FORMAT_NO_REWARDS_YET': "Награды ещё не настроены.",
+            'FORMAT_NO_STREAKS': "Привычки ещё не зарегистрированы. Начните создавать серии!",
+            'FORMAT_NO_LOGS': "Записи о привычках не найдены.",
+        },
+        'kk': {
+            # Error Messages - User Validation
+            'ERROR_USER_NOT_FOUND': "❌ Пайдаланушы табылмады. Тіркелу үшін әкімшіге хабарласыңыз.",
+            'ERROR_USER_INACTIVE': "❌ Сіздің аккаунтыңыз белсенді емес. Әкімшіге хабарласыңыз.",
+
+            # Error Messages - Entity Not Found
+            'ERROR_NO_HABITS': "Белсенді әдеттер табылмады. Алдымен әдеттер қосыңыз.",
+            'ERROR_NO_HABITS_LOGGED': "Әдеттер әлі тіркелмеген. Бастау үшін /habit_done пайдаланыңыз!",
+            'ERROR_HABIT_NOT_FOUND': "Әдет табылмады. Қайталап көріңіз.",
+            'ERROR_REWARD_NOT_FOUND': "'{reward_name}' сыйлығы табылмады.",
+            'ERROR_NO_MATCH_HABIT': "Мәтініңізді белгілі әдетпен сәйкестендіру мүмкін болмады. /habit_done арқылы тізімнен таңдаңыз.",
+
+            # Error Messages - Validation
+            'ERROR_INVALID_STATUS': "Қате статус. Мыналарды пайдаланыңыз: pending, achieved немесе completed",
+            'ERROR_GENERAL': "Қате: {error}",
+
+            # Info Messages
+            'INFO_NO_REWARD_PROGRESS': "Сыйлық бойынша прогресс жоқ. Әдеттерді орындауды жалғастырыңыз!",
+            'INFO_NO_REWARD': "❌ Бұл жолы сыйлық жоқ - жалғастырыңыз!",
+            'INFO_REWARD_ACTIONABLE': "⏳ *Сыйлық қол жеткізілді!* Оны қазір алуға болады!",
+            'INFO_FEATURE_COMING_SOON': "🎁 *Жаңа сыйлық қосу*\n\nБұл функция жаңа сыйлық жасауға жетелейді.\nҚазірше Airtable арқылы сыйлықтар қосыңыз.\n\nЖақында: бот арқылы сыйлықтар жасау!",
+            'INFO_CANCELLED': "Әдетті тіркеу болдырылмады.",
+            'INFO_MULTIPLE_HABITS': "Сондай-ақ табылды: {other_habits}. Оларды тіркеу үшін /habit_done пайдаланыңыз.",
+
+            # Usage/Help Messages
+            'HELP_CLAIM_REWARD_USAGE': "Пайдалану: /claim_reward <сыйлық_аты>\nМысал: /claim_reward Сүйікті кафеде кофе",
+            'HELP_SET_STATUS_USAGE': "Пайдалану: /set_reward_status <сыйлық_аты> <статус>\nСтатус нұсқалары: pending, achieved, completed\nМысал: /set_reward_status Кофе pending",
+            'HELP_HABIT_SELECTION': "Қандай әдетті орындадыңыз? 🎯\n\nТөмендегі тізімнен таңдаңыз:",
+            'HELP_CUSTOM_TEXT': "Қандай әдетті орындағаныңызды жазыңыз:",
+
+            # Success Messages
+            'SUCCESS_HABIT_COMPLETED': "✅ *Әдет орындалды:* {habit_name}",
+            'SUCCESS_REWARD_CLAIMED': "✅ Сыйлық алынды: *{reward_name}*\nСтатус: {status}\n\nКұттықтаймыз! 🎉",
+            'SUCCESS_STATUS_UPDATED': "✅ Сыйлық статусы жаңартылды: *{reward_name}*\nЖаңа статус: {status}",
+
+            # Headers/Titles
+            'HEADER_REWARD_PROGRESS': "🎁 *Сіздің сыйлық бойынша прогресс:*\n",
+            'HEADER_STREAKS': "🔥 *Сіздің ағымдағы сериялар:*\n",
+            'HEADER_REWARDS_LIST': "🎁 *Қолжетімді сыйлықтар:*\n",
+            'HEADER_HABIT_LOGS': "📋 *Соңғы орындалған әдеттер:*\n",
+
+            # Welcome/Help Messages
+            'HELP_START_MESSAGE': """🎯 *Әдеттер үшін сыйлықтар жүйесіне қош келдіңіз!*
+
+Әдеттерді қадағалаңыз және сыйлықтар алыңыз!
+
+*Қолжетімді команdalар:*
+/habit_done - Орындалған әдетті тіркеу
+/streaks - Ағымдағы сериялар көру
+/list_rewards - Барлық қолжетімді сыйлықтарды көру
+/my_rewards - Сыйлықтар бойынша прогресті тексеру
+/claim_reward <атау> - Қол жеткізілген сыйлықты алу
+/set_reward_status <атау> <статус> - Сыйлық статусын жаңарту
+/help - Осы анықтаманы көрсету""",
+
+            'HELP_COMMAND_MESSAGE': """🎯 <b>Әдеттер үшін сыйлықтар жүйесі бойынша анықтама</b>
+
+<b>Негізгі командалар:</b>
+/habit_done - Әдет орындауды тіркеу және сыйлықтар алу
+/streaks - Барлық әдеттер үшін ағымдағы сериялар көру
+
+<b>Сыйлықтар командалары:</b>
+/list_rewards - Барлық қолжетімді сыйлықтарды көрсету
+/my_rewards - Жинақталған сыйлық прогресін көру
+/claim_reward &lt;атау&gt; - Қол жеткізілген сыйлықты аяқталған деп белгілеу
+/set_reward_status &lt;атау&gt; &lt;статус&gt; - Сыйлық статусын қолмен жаңарту
+
+<b>Бұл қалай жұмыс істейді:</b>
+1. /habit_done арқылы әдеттерді орындаңыз
+2. Әдеттерді күн сайын орындау арқылы сериялар жасаңыз
+3. Сыйлық бөліктерін жинаңыз (жинақталатын сыйлықтар)
+4. Жеткілікті бөліктер жинағанда сыйлықтарды алыңыз
+
+Сериялар көбейткіші сыйлық алу мүмкіндігін арттырады!""",
+
+            # Formatter Messages
+            'FORMAT_STREAK': "🔥 *Серия:* {streak_count} күн",
+            'FORMAT_REWARD': "🎁 *Сыйлық:* {reward_name}",
+            'FORMAT_PROGRESS': "📊 Прогресс: {progress_bar} {pieces_earned}/{pieces_required}",
+            'FORMAT_STATUS': "Статус: {status}",
+            'FORMAT_READY_TO_CLAIM': "⏳ *Алуға дайын!*",
+            'FORMAT_NO_REWARDS_YET': "Сыйлықтар әлі конфигурацияланбаған.",
+            'FORMAT_NO_STREAKS': "Әдеттер әлі тіркелмеген. Сериялар жасауды бастаңыз!",
+            'FORMAT_NO_LOGS': "Әдеттер туралы жазбалар табылмады.",
+        }
+    }
+
+    @classmethod
+    def get(cls, key: str, lang: str = 'en', **kwargs) -> str:
+        """
+        Get translated message by key.
+
+        Args:
+            key: Message constant name (e.g., 'ERROR_USER_NOT_FOUND')
+            lang: Language code (e.g., 'en', 'ru', 'kk')
+            **kwargs: Format arguments for string interpolation
+
+        Returns:
+            Translated and formatted message string
+        """
+        # Normalize language code
+        lang = lang.lower()[:2]
+
+        # Check if language is supported
+        if lang not in settings.supported_languages:
+            lang = settings.default_language
+
+        # Get message from translations or fallback to English default
+        if lang != 'en' and lang in cls._TRANSLATIONS:
+            message = cls._TRANSLATIONS[lang].get(key)
+            if message:
+                return message.format(**kwargs) if kwargs else message
+
+        # Fallback to English (class attribute)
+        message = getattr(cls, key, f"[Missing message: {key}]")
+        return message.format(**kwargs) if kwargs else message
+
+
+def msg(key: str, lang: str = 'en', **kwargs) -> str:
+    """
+    Convenience function for getting translated messages.
+
+    Args:
+        key: Message constant name
+        lang: Language code
+        **kwargs: Format arguments
+
+    Returns:
+        Translated message string
+
+    Example:
+        msg('ERROR_USER_NOT_FOUND', 'ru')
+        msg('ERROR_REWARD_NOT_FOUND', 'en', reward_name='Coffee')
+    """
+    return Messages.get(key, lang, **kwargs)

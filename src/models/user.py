@@ -11,6 +11,7 @@ class User(BaseModel):
     name: str = Field(..., description="User display name")
     weight: float = Field(default=1.0, description="User multiplier for reward calculations")
     active: bool = Field(default=False, description="Whether user is active (default False for security)")
+    language: str = Field(default='en', description="User's preferred language (ISO 639-1 code)")
 
     @field_validator('telegram_id', mode='before')
     @classmethod
@@ -33,6 +34,14 @@ class User(BaseModel):
             return False
         return v
 
+    @field_validator('language', mode='before')
+    @classmethod
+    def validate_language_code(cls, v):
+        """Validate and normalize language code to lowercase ISO 639-1 format."""
+        if v is None:
+            return 'en'
+        return str(v).lower()[:2]  # Ensure 2-letter lowercase code
+
     class Config:
         """Pydantic configuration."""
         json_schema_extra = {
@@ -40,6 +49,7 @@ class User(BaseModel):
                 "telegram_id": "123456789",
                 "name": "John Doe",
                 "weight": 1.0,
-                "active": True
+                "active": True,
+                "language": "en"
             }
         }
