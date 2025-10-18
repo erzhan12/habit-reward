@@ -46,7 +46,6 @@ uv sync
 ### Users
 - telegram_id (Single line text)
 - name (Single line text)
-- weight (Number, default: 1)
 - active (Checkbox)
 
 ### Habits

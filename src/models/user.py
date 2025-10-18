@@ -9,7 +9,6 @@ class User(BaseModel):
     id: str | None = None  # Airtable record ID
     telegram_id: str = Field(..., description="Unique Telegram user ID")
     name: str = Field(..., description="User display name")
-    weight: float = Field(default=1.0, description="User multiplier for reward calculations")
     active: bool = Field(default=False, description="Whether user is active (default False for security)")
     language: str = Field(default='en', description="User's preferred language (ISO 639-1 code)")
 
@@ -48,7 +47,6 @@ class User(BaseModel):
             "example": {
                 "telegram_id": "123456789",
                 "name": "John Doe",
-                "weight": 1.0,
                 "active": True,
                 "language": "en"
             }

@@ -1,5 +1,6 @@
 """Handler for /habit_done command with conversation flow."""
 
+import logging
 from telegram import Update
 from telegram.ext import (
     ContextTypes,
@@ -18,6 +19,9 @@ from src.airtable.repositories import user_repository
 from src.bot.messages import msg
 from src.bot.language import get_message_language
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 # Conversation states
 AWAITING_HABIT_SELECTION = 1
 
@@ -29,38 +33,50 @@ async def habit_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     Shows inline keyboard with active habits or allows custom text input.
     """
     telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+    logger.info(f"📨 Received /habit_done command from user {telegram_id} (@{username})")
     lang = get_message_language(telegram_id, update)
 
     # Validate user exists
     user = user_repository.get_by_telegram_id(telegram_id)
     if not user:
+        logger.warning(f"⚠️ User {telegram_id} not found in database")
         await update.message.reply_text(
             msg('ERROR_USER_NOT_FOUND', lang)
         )
+        logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
         return ConversationHandler.END
 
     # Check if user is active
     if not user.active:
+        logger.warning(f"⚠️ User {telegram_id} is inactive")
         await update.message.reply_text(
             msg('ERROR_USER_INACTIVE', lang)
         )
+        logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return ConversationHandler.END
 
     # Get all active habits
     habits = habit_service.get_all_active_habits()
+    logger.info(f"🔍 Found {len(habits)} active habits for user {telegram_id}")
 
     if not habits:
+        logger.warning(f"⚠️ No active habits found for user {telegram_id}")
         await update.message.reply_text(
             msg('ERROR_NO_HABITS', lang)
         )
+        logger.info(f"📤 Sent ERROR_NO_HABITS message to {telegram_id}")
         return ConversationHandler.END
 
     # Build and send keyboard
     keyboard = build_habit_selection_keyboard(habits)
+    habit_names = [h.name for h in habits]
+    logger.info(f"✅ Showing habit selection keyboard to {telegram_id} with habits: {habit_names}")
     await update.message.reply_text(
         msg('HELP_HABIT_SELECTION', lang),
         reply_markup=keyboard
     )
+    logger.info(f"📤 Sent habit selection keyboard to {telegram_id}")
 
     return AWAITING_HABIT_SELECTION
 
@@ -76,30 +92,39 @@ async def habit_selected_callback(
     await query.answer()
 
     telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
     lang = get_message_language(telegram_id, update)
     callback_data = query.data
+    
+    logger.info(f"🖱️ Received callback '{callback_data}' from user {telegram_id} (@{username})")
 
     if callback_data == "habit_custom":
         # User wants to enter custom text
+        logger.info(f"✏️ User {telegram_id} chose custom text input")
         await query.edit_message_text(
             msg('HELP_CUSTOM_TEXT', lang)
         )
+        logger.info(f"📤 Sent custom text prompt to {telegram_id}")
         return AWAITING_HABIT_SELECTION
 
     # Extract habit_id from callback_data
     if callback_data.startswith("habit_"):
         habit_id = callback_data.replace("habit_", "")
+        logger.info(f"🎯 User {telegram_id} selected habit_id: {habit_id}")
 
         # Get habit by ID
         habits = habit_service.get_all_active_habits()
         habit = next((h for h in habits if h.id == habit_id), None)
 
         if not habit:
+            logger.error(f"❌ Habit {habit_id} not found for user {telegram_id}")
             await query.edit_message_text(msg('ERROR_HABIT_NOT_FOUND', lang))
+            logger.info(f"📤 Sent ERROR_HABIT_NOT_FOUND message to {telegram_id}")
             return ConversationHandler.END
 
         # Process habit completion
         try:
+            logger.info(f"⚙️ Processing habit completion for user {telegram_id}, habit '{habit.name}'")
             result = habit_service.process_habit_completion(
                 user_telegram_id=telegram_id,
                 habit_name=habit.name
@@ -107,13 +132,17 @@ async def habit_selected_callback(
 
             # Format and send response
             message = format_habit_completion_message(result, lang)
+            logger.info(f"✅ Habit '{habit.name}' completed successfully for user {telegram_id}. Points earned: {result.points_earned}, Current streak: {result.current_streak}")
             await query.edit_message_text(
                 text=message,
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
+            logger.info(f"📤 Sent habit completion success message to {telegram_id}")
 
         except ValueError as e:
+            logger.error(f"❌ Error processing habit completion for user {telegram_id}: {str(e)}")
             await query.edit_message_text(msg('ERROR_GENERAL', lang, error=str(e)))
+            logger.info(f"📤 Sent error message to {telegram_id}")
 
         return ConversationHandler.END
 
@@ -125,26 +154,34 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     Handle custom text input for habit classification.
     """
     telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
     lang = get_message_language(telegram_id, update)
     user_text = update.message.text
+
+    logger.info(f"📨 Received custom text from user {telegram_id} (@{username}): '{user_text}'")
 
     # Get all active habits
     habits = habit_service.get_all_active_habits()
     habit_names = [h.name for h in habits]
 
     # Use NLP to classify
+    logger.info(f"🤖 Using NLP to classify text '{user_text}' against habits: {habit_names}")
     matched_habits = nlp_service.classify_habit_from_text(user_text, habit_names)
 
     if not matched_habits:
+        logger.warning(f"⚠️ No habits matched for user {telegram_id} with text: '{user_text}'")
         await update.message.reply_text(
             msg('ERROR_NO_MATCH_HABIT', lang)
         )
+        logger.info(f"📤 Sent ERROR_NO_MATCH_HABIT message to {telegram_id}")
         return ConversationHandler.END
 
     # Process first matched habit (can be extended to process all)
     habit_name = matched_habits[0]
+    logger.info(f"✅ Matched habits for user {telegram_id}: {matched_habits}. Processing first: '{habit_name}'")
 
     try:
+        logger.info(f"⚙️ Processing habit completion for user {telegram_id}, habit '{habit_name}'")
         result = habit_service.process_habit_completion(
             user_telegram_id=telegram_id,
             habit_name=habit_name
@@ -152,20 +189,26 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         # Format and send response
         message = format_habit_completion_message(result, lang)
+        logger.info(f"✅ Habit '{habit_name}' completed successfully for user {telegram_id}. Points earned: {result.points_earned}, Current streak: {result.current_streak}")
         await update.message.reply_text(
             text=message,
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
+        logger.info(f"📤 Sent habit completion success message to {telegram_id}")
 
         # If multiple habits matched, notify user
         if len(matched_habits) > 1:
+            logger.info(f"ℹ️ Multiple habits matched for user {telegram_id}: {matched_habits[1:]}")
             await update.message.reply_text(
                 msg('INFO_MULTIPLE_HABITS', lang,
                     other_habits=', '.join(matched_habits[1:]))
             )
+            logger.info(f"📤 Sent multiple habits notification to {telegram_id}")
 
     except ValueError as e:
+        logger.error(f"❌ Error processing habit completion for user {telegram_id}: {str(e)}")
         await update.message.reply_text(msg('ERROR_GENERAL', lang, error=str(e)))
+        logger.info(f"📤 Sent error message to {telegram_id}")
 
     return ConversationHandler.END
 
@@ -173,8 +216,11 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the conversation."""
     telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+    logger.info(f"📨 Received /cancel command from user {telegram_id} (@{username})")
     lang = get_message_language(telegram_id, update)
     await update.message.reply_text(msg('INFO_CANCELLED', lang))
+    logger.info(f"📤 Sent conversation cancelled message to {telegram_id}")
     return ConversationHandler.END
 
 

@@ -52,7 +52,7 @@ def format_habit_completion_message(result: HabitCompletionResult, language: str
 
     # Motivational quote (if present)
     if result.motivational_quote:
-        message_parts.append(f"\n💭 _{result.motivational_quote}_")
+        message_parts.append(f"\n💭 <i>{result.motivational_quote}</i>")
 
     return "\n".join(message_parts)
 
@@ -75,7 +75,7 @@ def format_reward_progress_message(progress: RewardProgress, reward: Reward, lan
     )
 
     message = (
-        f"{progress.status_emoji} *{reward.name}*\n"
+        f"{progress.status_emoji} <b>{reward.name}</b>\n"
         f"📊 {progress_bar} {progress.pieces_earned}/{progress.pieces_required}\n"
         f"{msg('FORMAT_STATUS', language, status=progress.status.value)}"
     )
@@ -111,7 +111,7 @@ def format_streaks_message(streaks: dict[str, tuple[str, int]], language: str = 
 
     for habit_id, (habit_name, streak_count) in sorted_streaks:
         fire_emoji = "🔥" * min(streak_count, 5)
-        message_parts.append(f"{fire_emoji} *{habit_name}:* {streak_count} days")
+        message_parts.append(f"{fire_emoji} <b>{habit_name}:</b> {streak_count} days")
 
     return "\n".join(message_parts)
 
@@ -140,7 +140,7 @@ def format_rewards_list_message(rewards: list[Reward], language: str = 'en') -> 
             RewardType.CUMULATIVE: "📦"
         }.get(reward.type, "❓")
 
-        reward_info = f"{type_emoji} *{reward.name}*"
+        reward_info = f"{type_emoji} <b>{reward.name}</b>"
 
         if reward.is_cumulative and reward.pieces_required:
             reward_info += f" ({reward.pieces_required} pieces)"

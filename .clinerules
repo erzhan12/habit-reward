@@ -1,0 +1,27 @@
+# Project-specific rules for Claude/Cursor AI
+
+## Python Execution
+- Always use `uv run python` or `uv run python3` instead of bare `python` or `python3` commands
+- For installing packages, use `uv add <package>` instead of `pip install`
+- For running scripts, use `uv run <script>` instead of direct execution
+- The project uses uv for dependency management (see uv.lock and pyproject.toml)
+
+## Project Context
+- This is a Telegram bot for habit tracking with reward system
+- The bot uses Airtable as the backend database
+- Multi-language support: English (en), Russian (ru), Kazakh (kk)
+- Main entry points:
+  - Bot: `uv run python src/bot/main.py` or `make bot`
+  - Dashboard: `uv run python src/dashboard/app.py` or `make dashboard`
+- Tests: Use `uv run pytest` or `make test`
+
+## Code Style
+- Follow existing patterns in the codebase
+- Use type hints where appropriate
+- Keep message strings in `src/bot/messages.py` for multi-language support
+- Use HTML parse mode for Telegram messages (not Markdown) to avoid underscore issues in commands
+
+## Testing
+- Always run tests after making changes: `make test`
+- Run linting before committing: `make lint`
+

@@ -28,8 +28,8 @@ class Messages:
     # Info Messages
     INFO_NO_REWARD_PROGRESS = "No reward progress yet. Keep completing habits!"
     INFO_NO_REWARD = "❌ No reward this time - keep going!"
-    INFO_REWARD_ACTIONABLE = "⏳ *Reward achieved!* You can claim it now!"
-    INFO_FEATURE_COMING_SOON = "🎁 *Add New Reward*\n\nThis feature will guide you through creating a new reward.\nFor now, please add rewards directly in Airtable.\n\nComing soon: conversational reward creation!"
+    INFO_REWARD_ACTIONABLE = "⏳ <b>Reward achieved!</b> You can claim it now!"
+    INFO_FEATURE_COMING_SOON = "🎁 <b>Add New Reward</b>\n\nThis feature will guide you through creating a new reward.\nFor now, please add rewards directly in Airtable.\n\nComing soon: conversational reward creation!"
     INFO_CANCELLED = "Habit logging cancelled."
     INFO_MULTIPLE_HABITS = "I also detected: {other_habits}. Use /habit_done to log those separately."
 
@@ -40,28 +40,28 @@ class Messages:
     HELP_CUSTOM_TEXT = "Please type what habit you completed:"
 
     # Success Messages
-    SUCCESS_HABIT_COMPLETED = "✅ *Habit completed:* {habit_name}"
-    SUCCESS_REWARD_CLAIMED = "✅ Reward claimed: *{reward_name}*\nStatus: {status}\n\nCongratulations! 🎉"
-    SUCCESS_STATUS_UPDATED = "✅ Reward status updated: *{reward_name}*\nNew status: {status}"
+    SUCCESS_HABIT_COMPLETED = "✅ <b>Habit completed:</b> {habit_name}"
+    SUCCESS_REWARD_CLAIMED = "✅ Reward claimed: <b>{reward_name}</b>\nStatus: {status}\n\nCongratulations! 🎉"
+    SUCCESS_STATUS_UPDATED = "✅ Reward status updated: <b>{reward_name}</b>\nNew status: {status}"
 
     # Headers/Titles
-    HEADER_REWARD_PROGRESS = "🎁 *Your Reward Progress:*\n"
-    HEADER_STREAKS = "🔥 *Your Current Streaks:*\n"
-    HEADER_REWARDS_LIST = "🎁 *Available Rewards:*\n"
-    HEADER_HABIT_LOGS = "📋 *Recent Habit Completions:*\n"
+    HEADER_REWARD_PROGRESS = "🎁 <b>Your Reward Progress:</b>\n"
+    HEADER_STREAKS = "🔥 <b>Your Current Streaks:</b>\n"
+    HEADER_REWARDS_LIST = "🎁 <b>Available Rewards:</b>\n"
+    HEADER_HABIT_LOGS = "📋 <b>Recent Habit Completions:</b>\n"
 
     # Welcome/Help Messages
-    HELP_START_MESSAGE = """🎯 *Welcome to Habit Reward System!*
+    HELP_START_MESSAGE = """🎯 <b>Welcome to Habit Reward System!</b>
 
 Track your habits and earn rewards!
 
-*Available commands:*
+<b>Available commands:</b>
 /habit_done - Log a completed habit
 /streaks - View your current streaks
 /list_rewards - See all available rewards
 /my_rewards - Check your reward progress
-/claim_reward <name> - Claim an achieved reward
-/set_reward_status <name> <status> - Update reward status
+/claim_reward &lt;name&gt; - Claim an achieved reward
+/set_reward_status &lt;name&gt; &lt;status&gt; - Update reward status
 /help - Show this help message"""
 
     HELP_COMMAND_MESSAGE = """🎯 <b>Habit Reward System Help</b>
@@ -85,11 +85,11 @@ Track your habits and earn rewards!
 Your streak multiplier increases your chances of getting rewards!"""
 
     # Formatter Messages
-    FORMAT_STREAK = "🔥 *Streak:* {streak_count} days"
-    FORMAT_REWARD = "🎁 *Reward:* {reward_name}"
+    FORMAT_STREAK = "🔥 <b>Streak:</b> {streak_count} days"
+    FORMAT_REWARD = "🎁 <b>Reward:</b> {reward_name}"
     FORMAT_PROGRESS = "📊 Progress: {progress_bar} {pieces_earned}/{pieces_required}"
     FORMAT_STATUS = "Status: {status}"
-    FORMAT_READY_TO_CLAIM = "⏳ *Ready to claim!*"
+    FORMAT_READY_TO_CLAIM = "⏳ <b>Ready to claim!</b>"
     FORMAT_NO_REWARDS_YET = "No rewards configured yet."
     FORMAT_NO_STREAKS = "No habits logged yet. Start building your streaks!"
     FORMAT_NO_LOGS = "No habit logs found."
@@ -115,8 +115,8 @@ Your streak multiplier increases your chances of getting rewards!"""
             # Info Messages
             'INFO_NO_REWARD_PROGRESS': "Прогресс по наградам отсутствует. Продолжайте выполнять привычки!",
             'INFO_NO_REWARD': "❌ В этот раз награды нет - продолжайте!",
-            'INFO_REWARD_ACTIONABLE': "⏳ *Награда достигнута!* Вы можете забрать её сейчас!",
-            'INFO_FEATURE_COMING_SOON': "🎁 *Добавить новую награду*\n\nЭта функция проведёт вас через создание новой награды.\nПока что добавляйте награды в Airtable.\n\nСкоро: создание наград через бота!",
+            'INFO_REWARD_ACTIONABLE': "⏳ <b>Награда достигнута!</b> Вы можете забрать её сейчас!",
+            'INFO_FEATURE_COMING_SOON': "🎁 <b>Добавить новую награду</b>\n\nЭта функция проведёт вас через создание новой награды.\nПока что добавляйте награды в Airtable.\n\nСкоро: создание наград через бота!",
             'INFO_CANCELLED': "Регистрация привычки отменена.",
             'INFO_MULTIPLE_HABITS': "Также обнаружены: {other_habits}. Используйте /habit_done для их регистрации.",
 
@@ -127,28 +127,28 @@ Your streak multiplier increases your chances of getting rewards!"""
             'HELP_CUSTOM_TEXT': "Напишите, какую привычку вы выполнили:",
 
             # Success Messages
-            'SUCCESS_HABIT_COMPLETED': "✅ *Привычка выполнена:* {habit_name}",
-            'SUCCESS_REWARD_CLAIMED': "✅ Награда получена: *{reward_name}*\nСтатус: {status}\n\nПоздравляем! 🎉",
-            'SUCCESS_STATUS_UPDATED': "✅ Статус награды обновлён: *{reward_name}*\nНовый статус: {status}",
+            'SUCCESS_HABIT_COMPLETED': "✅ <b>Привычка выполнена:</b> {habit_name}",
+            'SUCCESS_REWARD_CLAIMED': "✅ Награда получена: <b>{reward_name}</b>\nСтатус: {status}\n\nПоздравляем! 🎉",
+            'SUCCESS_STATUS_UPDATED': "✅ Статус награды обновлён: <b>{reward_name}</b>\nНовый статус: {status}",
 
             # Headers/Titles
-            'HEADER_REWARD_PROGRESS': "🎁 *Ваш прогресс по наградам:*\n",
-            'HEADER_STREAKS': "🔥 *Ваши текущие серии:*\n",
-            'HEADER_REWARDS_LIST': "🎁 *Доступные награды:*\n",
-            'HEADER_HABIT_LOGS': "📋 *Недавние выполнения привычек:*\n",
+            'HEADER_REWARD_PROGRESS': "🎁 <b>Ваш прогресс по наградам:</b>\n",
+            'HEADER_STREAKS': "🔥 <b>Ваши текущие серии:</b>\n",
+            'HEADER_REWARDS_LIST': "🎁 <b>Доступные награды:</b>\n",
+            'HEADER_HABIT_LOGS': "📋 <b>Недавние выполнения привычек:</b>\n",
 
             # Welcome/Help Messages
-            'HELP_START_MESSAGE': """🎯 *Добро пожаловать в систему наград за привычки!*
+            'HELP_START_MESSAGE': """🎯 <b>Добро пожаловать в систему наград за привычки!</b>
 
 Отслеживайте привычки и получайте награды!
 
-*Доступные команды:*
+<b>Доступные команды:</b>
 /habit_done - Зарегистрировать выполненную привычку
 /streaks - Посмотреть текущие серии
 /list_rewards - Посмотреть все доступные награды
 /my_rewards - Проверить прогресс по наградам
-/claim_reward <название> - Забрать достигнутую награду
-/set_reward_status <название> <статус> - Обновить статус награды
+/claim_reward &lt;название&gt; - Забрать достигнутую награду
+/set_reward_status &lt;название&gt; &lt;статус&gt; - Обновить статус награды
 /help - Показать это сообщение помощи""",
 
             'HELP_COMMAND_MESSAGE': """🎯 <b>Помощь по системе наград за привычки</b>
@@ -172,11 +172,11 @@ Your streak multiplier increases your chances of getting rewards!"""
 Множитель серий увеличивает шансы получения наград!""",
 
             # Formatter Messages
-            'FORMAT_STREAK': "🔥 *Серия:* {streak_count} дней",
-            'FORMAT_REWARD': "🎁 *Награда:* {reward_name}",
+            'FORMAT_STREAK': "🔥 <b>Серия:</b> {streak_count} дней",
+            'FORMAT_REWARD': "🎁 <b>Награда:</b> {reward_name}",
             'FORMAT_PROGRESS': "📊 Прогресс: {progress_bar} {pieces_earned}/{pieces_required}",
             'FORMAT_STATUS': "Статус: {status}",
-            'FORMAT_READY_TO_CLAIM': "⏳ *Готово к получению!*",
+            'FORMAT_READY_TO_CLAIM': "⏳ <b>Готово к получению!</b>",
             'FORMAT_NO_REWARDS_YET': "Награды ещё не настроены.",
             'FORMAT_NO_STREAKS': "Привычки ещё не зарегистрированы. Начните создавать серии!",
             'FORMAT_NO_LOGS': "Записи о привычках не найдены.",
@@ -200,8 +200,8 @@ Your streak multiplier increases your chances of getting rewards!"""
             # Info Messages
             'INFO_NO_REWARD_PROGRESS': "Сыйлық бойынша прогресс жоқ. Әдеттерді орындауды жалғастырыңыз!",
             'INFO_NO_REWARD': "❌ Бұл жолы сыйлық жоқ - жалғастырыңыз!",
-            'INFO_REWARD_ACTIONABLE': "⏳ *Сыйлық қол жеткізілді!* Оны қазір алуға болады!",
-            'INFO_FEATURE_COMING_SOON': "🎁 *Жаңа сыйлық қосу*\n\nБұл функция жаңа сыйлық жасауға жетелейді.\nҚазірше Airtable арқылы сыйлықтар қосыңыз.\n\nЖақында: бот арқылы сыйлықтар жасау!",
+            'INFO_REWARD_ACTIONABLE': "⏳ <b>Сыйлық қол жеткізілді!</b> Оны қазір алуға болады!",
+            'INFO_FEATURE_COMING_SOON': "🎁 <b>Жаңа сыйлық қосу</b>\n\nБұл функция жаңа сыйлық жасауға жетелейді.\nҚазірше Airtable арқылы сыйлықтар қосыңыз.\n\nЖақында: бот арқылы сыйлықтар жасау!",
             'INFO_CANCELLED': "Әдетті тіркеу болдырылмады.",
             'INFO_MULTIPLE_HABITS': "Сондай-ақ табылды: {other_habits}. Оларды тіркеу үшін /habit_done пайдаланыңыз.",
 
@@ -212,28 +212,28 @@ Your streak multiplier increases your chances of getting rewards!"""
             'HELP_CUSTOM_TEXT': "Қандай әдетті орындағаныңызды жазыңыз:",
 
             # Success Messages
-            'SUCCESS_HABIT_COMPLETED': "✅ *Әдет орындалды:* {habit_name}",
-            'SUCCESS_REWARD_CLAIMED': "✅ Сыйлық алынды: *{reward_name}*\nСтатус: {status}\n\nКұттықтаймыз! 🎉",
-            'SUCCESS_STATUS_UPDATED': "✅ Сыйлық статусы жаңартылды: *{reward_name}*\nЖаңа статус: {status}",
+            'SUCCESS_HABIT_COMPLETED': "✅ <b>Әдет орындалды:</b> {habit_name}",
+            'SUCCESS_REWARD_CLAIMED': "✅ Сыйлық алынды: <b>{reward_name}</b>\nСтатус: {status}\n\nКұттықтаймыз! 🎉",
+            'SUCCESS_STATUS_UPDATED': "✅ Сыйлық статусы жаңартылды: <b>{reward_name}</b>\nЖаңа статус: {status}",
 
             # Headers/Titles
-            'HEADER_REWARD_PROGRESS': "🎁 *Сіздің сыйлық бойынша прогресс:*\n",
-            'HEADER_STREAKS': "🔥 *Сіздің ағымдағы сериялар:*\n",
-            'HEADER_REWARDS_LIST': "🎁 *Қолжетімді сыйлықтар:*\n",
-            'HEADER_HABIT_LOGS': "📋 *Соңғы орындалған әдеттер:*\n",
+            'HEADER_REWARD_PROGRESS': "🎁 <b>Сіздің сыйлық бойынша прогресс:</b>\n",
+            'HEADER_STREAKS': "🔥 <b>Сіздің ағымдағы сериялар:</b>\n",
+            'HEADER_REWARDS_LIST': "🎁 <b>Қолжетімді сыйлықтар:</b>\n",
+            'HEADER_HABIT_LOGS': "📋 <b>Соңғы орындалған әдеттер:</b>\n",
 
             # Welcome/Help Messages
-            'HELP_START_MESSAGE': """🎯 *Әдеттер үшін сыйлықтар жүйесіне қош келдіңіз!*
+            'HELP_START_MESSAGE': """🎯 <b>Әдеттер үшін сыйлықтар жүйесіне қош келдіңіз!</b>
 
 Әдеттерді қадағалаңыз және сыйлықтар алыңыз!
 
-*Қолжетімді команdalар:*
+<b>Қолжетімді команdalар:</b>
 /habit_done - Орындалған әдетті тіркеу
 /streaks - Ағымдағы сериялар көру
 /list_rewards - Барлық қолжетімді сыйлықтарды көру
 /my_rewards - Сыйлықтар бойынша прогресті тексеру
-/claim_reward <атау> - Қол жеткізілген сыйлықты алу
-/set_reward_status <атау> <статус> - Сыйлық статусын жаңарту
+/claim_reward &lt;атау&gt; - Қол жеткізілген сыйлықты алу
+/set_reward_status &lt;атау&gt; &lt;статус&gt; - Сыйлық статусын жаңарту
 /help - Осы анықтаманы көрсету""",
 
             'HELP_COMMAND_MESSAGE': """🎯 <b>Әдеттер үшін сыйлықтар жүйесі бойынша анықтама</b>
@@ -257,11 +257,11 @@ Your streak multiplier increases your chances of getting rewards!"""
 Сериялар көбейткіші сыйлық алу мүмкіндігін арттырады!""",
 
             # Formatter Messages
-            'FORMAT_STREAK': "🔥 *Серия:* {streak_count} күн",
-            'FORMAT_REWARD': "🎁 *Сыйлық:* {reward_name}",
+            'FORMAT_STREAK': "🔥 <b>Серия:</b> {streak_count} күн",
+            'FORMAT_REWARD': "🎁 <b>Сыйлық:</b> {reward_name}",
             'FORMAT_PROGRESS': "📊 Прогресс: {progress_bar} {pieces_earned}/{pieces_required}",
             'FORMAT_STATUS': "Статус: {status}",
-            'FORMAT_READY_TO_CLAIM': "⏳ *Алуға дайын!*",
+            'FORMAT_READY_TO_CLAIM': "⏳ <b>Алуға дайын!</b>",
             'FORMAT_NO_REWARDS_YET': "Сыйлықтар әлі конфигурацияланбаған.",
             'FORMAT_NO_STREAKS': "Әдеттер әлі тіркелмеген. Сериялар жасауды бастаңыз!",
             'FORMAT_NO_LOGS': "Әдеттер туралы жазбалар табылмады.",

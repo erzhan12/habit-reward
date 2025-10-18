@@ -41,14 +41,13 @@ class HabitService:
         1. Verify user exists in Users table by telegram_id
         2. Get habit (from selection or NLP classification)
         3. Pull habit weight from Habits table
-        4. Pull user weight from Users table
-        5. Calculate current streak for this specific habit
-        6. Calculate total_weight multiplier
-        7. Fetch all active rewards
-        8. Run weighted random draw
-        9. If cumulative reward: update Reward Progress, check if achieved
-        10. Log entry to Habit Log with all calculated values
-        11. Return response object with habit confirmation, reward result, streak status
+        4. Calculate current streak for this specific habit
+        5. Calculate total_weight multiplier
+        6. Fetch all active rewards
+        7. Run weighted random draw
+        8. If cumulative reward: update Reward Progress, check if achieved
+        9. Log entry to Habit Log with all calculated values
+        10. Return response object with habit confirmation, reward result, streak status
 
         Args:
             user_telegram_id: Telegram ID of the user
@@ -73,27 +72,25 @@ class HabitService:
             logger.error(f"Habit '{habit_name}' not found")
             raise ValueError(f"Habit '{habit_name}' not found")
 
-        # 3 & 4. Pull weights
+        # 3. Pull habit weight
         habit_weight = habit.weight
-        user_weight = user.weight
 
-        # 5. Calculate current streak
+        # 4. Calculate current streak
         streak_count = self.streak_service.calculate_streak(user.id, habit.id)
 
-        # 6. Calculate total_weight multiplier
+        # 5. Calculate total_weight multiplier
         total_weight = self.reward_service.calculate_total_weight(
             habit_weight=habit_weight,
-            user_weight=user_weight,
             streak_count=streak_count
         )
 
-        # 7 & 8. Fetch active rewards and run weighted random draw
+        # 6 & 7. Fetch active rewards and run weighted random draw
         selected_reward = self.reward_service.select_reward(total_weight)
 
         # Determine if user got a meaningful reward
         got_reward = selected_reward.type != RewardType.NONE
 
-        # 9. If cumulative reward: update progress
+        # 8. If cumulative reward: update progress
         cumulative_progress = None
         if selected_reward.is_cumulative and got_reward:
             cumulative_progress = self.reward_service.update_cumulative_progress(
@@ -101,7 +98,7 @@ class HabitService:
                 reward_id=selected_reward.id
             )
 
-        # 10. Log entry to Habit Log
+        # 9. Log entry to Habit Log
         habit_log = HabitLog(
             user_id=user.id,
             habit_id=habit.id,
@@ -115,7 +112,7 @@ class HabitService:
         )
         self.habit_log_repo.create(habit_log)
 
-        # 11. Return response object
+        # 10. Return response object
         return HabitCompletionResult(
             habit_confirmed=True,
             habit_name=habit.name,

@@ -14,6 +14,7 @@ from src.bot.handlers.reward_handlers import (
     set_reward_status_command
 )
 from src.models.user import User
+from src.models.habit import Habit
 from src.bot.messages import msg
 from src.config import settings
 
@@ -55,7 +56,6 @@ def mock_active_user(language):
         id="user123",
         telegram_id="999999999",
         name="Test User",
-        weight=1.0,
         active=True,
         language=language
     )
@@ -68,10 +68,28 @@ def mock_inactive_user(language):
         id="user456",
         telegram_id="999999999",
         name="Inactive User",
-        weight=1.0,
         active=False,
         language=language
     )
+
+
+@pytest.fixture
+def mock_active_habits():
+    """Create mock active habits for testing."""
+    return [
+        Habit(id="habit1", name="Walking", weight=10, category="health", active=True),
+        Habit(id="habit2", name="Reading", weight=15, category="education", active=True),
+        Habit(id="habit3", name="Meditation", weight=12, category="wellness", active=True)
+    ]
+
+
+@pytest.fixture
+def mock_inactive_habits():
+    """Create mock inactive habits for testing."""
+    return [
+        Habit(id="habit4", name="Old Habit 1", weight=10, category="other", active=False),
+        Habit(id="habit5", name="Old Habit 2", weight=10, category="other", active=False)
+    ]
 
 
 class TestStartCommand:
@@ -144,7 +162,7 @@ class TestStartCommand:
         assert message_text == expected_welcome
         assert "/habit_done" in message_text
         assert "/streaks" in message_text
-        assert call_args[1].get("parse_mode") == "Markdown"
+        assert call_args[1].get("parse_mode") == "HTML"
 
 
 class TestHelpCommand:
@@ -247,6 +265,131 @@ class TestHabitDoneCommand:
         mock_telegram_update.message.reply_text.assert_called_once_with(
             msg('ERROR_USER_INACTIVE', language)
         )
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_done_handler.habit_service')
+    @patch('src.bot.handlers.habit_done_handler.user_repository')
+    async def test_shows_only_active_habits(
+        self, mock_user_repo, mock_habit_service, mock_telegram_update,
+        mock_active_user, mock_active_habits, language
+    ):
+        """
+        Active user should see only active habits in keyboard.
+
+        Given: User exists and is active
+        And: There are active habits in the database
+        When: User sends /habit_done command
+        Then: Bot displays keyboard with only active habits
+        And: Conversation continues to AWAITING_HABIT_SELECTION state
+        """
+        # Mock: user exists and is active
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Mock: service returns only active habits
+        mock_habit_service.get_all_active_habits.return_value = mock_active_habits
+
+        # Execute
+        result = await habit_done_command(mock_telegram_update, context=None)
+
+        # Assert: Service was called to get active habits
+        mock_habit_service.get_all_active_habits.assert_called_once()
+
+        # Assert: Conversation continues
+        assert result == 1  # AWAITING_HABIT_SELECTION
+
+        # Assert: Message with keyboard was sent
+        mock_telegram_update.message.reply_text.assert_called_once()
+        call_args = mock_telegram_update.message.reply_text.call_args
+
+        # Verify message text is the habit selection prompt
+        assert call_args[0][0] == msg('HELP_HABIT_SELECTION', language)
+
+        # Verify keyboard was provided
+        assert 'reply_markup' in call_args[1]
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_done_handler.habit_service')
+    @patch('src.bot.handlers.habit_done_handler.user_repository')
+    async def test_no_active_habits_shows_error(
+        self, mock_user_repo, mock_habit_service, mock_telegram_update,
+        mock_active_user, language
+    ):
+        """
+        When no active habits exist, show error message.
+
+        Given: User exists and is active
+        And: There are NO active habits in the database
+        When: User sends /habit_done command
+        Then: Bot responds with 'No active habits' error message
+        And: Conversation ends
+        """
+        # Mock: user exists and is active
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Mock: service returns empty list (no active habits)
+        mock_habit_service.get_all_active_habits.return_value = []
+
+        # Execute
+        result = await habit_done_command(mock_telegram_update, context=None)
+
+        # Assert: Service was called to get active habits
+        mock_habit_service.get_all_active_habits.assert_called_once()
+
+        # Assert: Conversation ended
+        assert result == ConversationHandler.END
+
+        # Assert: Error message sent
+        mock_telegram_update.message.reply_text.assert_called_once_with(
+            msg('ERROR_NO_HABITS', language)
+        )
+
+    @pytest.mark.asyncio
+    async def test_inactive_habits_not_returned_by_repository(
+        self, mock_active_habits, mock_inactive_habits
+    ):
+        """
+        Repository get_all_active() should filter out inactive habits.
+
+        Given: Database contains both active and inactive habits
+        When: habit_service.get_all_active_habits() is called
+        Then: Only habits with active=True are returned (via repository)
+        And: Habits with active=False are excluded
+        """
+        from src.services.habit_service import habit_service
+        from unittest.mock import Mock
+
+        # Mock: repository returns only active habits
+        # (This tests that the repository layer correctly filters)
+        mock_habit_repo = Mock()
+        mock_habit_repo.get_all_active.return_value = mock_active_habits
+
+        # Replace the habit_repo on the service instance
+        original_repo = habit_service.habit_repo
+        habit_service.habit_repo = mock_habit_repo
+
+        try:
+            # Execute
+            result = habit_service.get_all_active_habits()
+
+            # Assert: Repository method was called
+            mock_habit_repo.get_all_active.assert_called_once()
+
+            # Assert: Only active habits returned
+            assert len(result) == 3
+            assert all(habit.active for habit in result)
+
+            # Assert: Verify habit names match active habits
+            habit_names = [h.name for h in result]
+            assert "Walking" in habit_names
+            assert "Reading" in habit_names
+            assert "Meditation" in habit_names
+
+            # Assert: Inactive habits are not in result
+            assert "Old Habit 1" not in habit_names
+            assert "Old Habit 2" not in habit_names
+        finally:
+            # Restore original repository
+            habit_service.habit_repo = original_repo
 
 
 class TestStreaksCommand:

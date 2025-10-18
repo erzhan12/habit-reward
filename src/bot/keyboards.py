@@ -23,13 +23,13 @@ def build_habit_selection_keyboard(habits: list[Habit]) -> InlineKeyboardMarkup:
         )
         keyboard.append([button])
 
-    # Add custom text option
-    keyboard.append([
-        InlineKeyboardButton(
-            text="📝 Enter custom text",
-            callback_data="habit_custom"
-        )
-    ])
+    # Add custom text option (commented out for now)
+    # keyboard.append([
+    #     InlineKeyboardButton(
+    #         text="📝 Enter custom text",
+    #         callback_data="habit_custom"
+    #     )
+    # ])
 
     return InlineKeyboardMarkup(keyboard)
 

@@ -21,26 +21,24 @@ class RewardService:
 
     def calculate_total_weight(
         self,
-        habit_weight: float,
-        user_weight: float,
+        habit_weight: int,
         streak_count: int
     ) -> float:
         """
         Calculate total weight multiplier for reward selection.
 
-        Formula: total_weight = habit_weight × user_weight × streak_multiplier
+        Formula: total_weight = habit_weight × streak_multiplier
         Where: streak_multiplier = 1 + (streak_count × 0.1)
 
         Args:
-            habit_weight: Weight of the habit
-            user_weight: Weight/multiplier of the user
+            habit_weight: Weight of the habit (integer 1-100)
             streak_count: Current streak count for this habit
 
         Returns:
             Total weight multiplier
         """
         streak_multiplier = 1 + (streak_count * settings.streak_multiplier_rate)
-        total_weight = habit_weight * user_weight * streak_multiplier
+        total_weight = habit_weight * streak_multiplier
         return total_weight
 
     def select_reward(self, total_weight: float) -> Reward:

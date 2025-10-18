@@ -8,7 +8,7 @@ class Habit(BaseModel):
 
     id: str | None = None  # Airtable record ID
     name: str = Field(..., description="Habit name")
-    weight: float = Field(default=1.0, description="Habit base weight for reward calculations")
+    weight: int = Field(default=10, ge=1, le=100, description="Habit base weight for reward calculations (1-100)")
     category: str | None = Field(default=None, description="Habit category (e.g., health, productivity)")
     active: bool = Field(default=True, description="Whether habit is active")
 
@@ -17,7 +17,7 @@ class Habit(BaseModel):
         json_schema_extra = {
             "example": {
                 "name": "Walking",
-                "weight": 1.0,
+                "weight": 10,
                 "category": "health",
                 "active": True
             }

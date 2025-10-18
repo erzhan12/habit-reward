@@ -26,8 +26,8 @@ def create_mock_log(streak_count: int, last_completed_date: date):
         user_id="user123",
         habit_id="habit123",
         streak_count=streak_count,
-        habit_weight=1.0,
-        total_weight_applied=1.0,
+        habit_weight=10,
+        total_weight_applied=11.0,
         last_completed_date=last_completed_date
     )
 

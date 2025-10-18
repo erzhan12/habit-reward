@@ -153,7 +153,7 @@ Each habit maintains its own streak:
 ### Reward Weight Formula
 
 ```
-total_weight = habit_weight × user_weight × streak_multiplier
+total_weight = habit_weight × streak_multiplier
 where streak_multiplier = 1 + (streak_count × 0.1)
 ```
 

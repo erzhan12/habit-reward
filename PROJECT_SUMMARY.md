@@ -181,7 +181,7 @@ habit_reward/
 
 ### 2. Weighted Random Reward Selection
 ```python
-total_weight = habit_weight × user_weight × (1 + streak × 0.1)
+total_weight = habit_weight × (1 + streak × 0.1)
 selected = random.choices(rewards, weights=[r.weight * total_weight])
 ```
 

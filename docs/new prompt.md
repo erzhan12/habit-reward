@@ -19,10 +19,9 @@ I am the only user for now, but the system should be scalable for multiple users
 4. If custom text is provided:
    - Use OpenAI GPT to classify the input and match to the closest habit from the Airtable Habits table.
 5. Once the habit is identified:
-   - Pull the habit’s weight.
-   - Pull the user's weight from Users table.
+   - Pull the habit's weight.
    - Calculate streak multiplier (default: `1 + (streak × 0.1)`).
-   - Total reward multiplier = `habit_weight × user_weight × streak_multiplier`.
+   - Total reward multiplier = `habit_weight × streak_multiplier`.
 6. Pull all active rewards from Airtable:
    - Include rewards of type `none` to simulate "no reward"
    - Include cumulative rewards (`is_cumulative = true`)
@@ -43,7 +42,7 @@ I am the only user for now, but the system should be scalable for multiple users
 📊 **Airtable Tables & Key Fields**
 
 1. **Users**
-   - `telegram_id`, `name`, `weight`, `active`, etc.
+   - `telegram_id`, `name`, `active`, etc.
 
 2. **Habits**
    - `name`, `weight`, `category`, `active`, etc.

@@ -32,35 +32,32 @@ class TestWeightCalculation:
     def test_basic_weight_calculation(self, reward_service):
         """Test basic weight calculation without streak."""
         total_weight = reward_service.calculate_total_weight(
-            habit_weight=1.0,
-            user_weight=1.0,
+            habit_weight=10,
             streak_count=1
         )
 
-        # 1.0 * 1.0 * (1 + 1*0.1) = 1.0 * 1.0 * 1.1 = 1.1
-        assert total_weight == pytest.approx(1.1)
+        # 10 * (1 + 1*0.1) = 10 * 1.1 = 11.0
+        assert total_weight == pytest.approx(11.0)
 
     def test_weight_with_high_streak(self, reward_service):
         """Test weight calculation with high streak."""
         total_weight = reward_service.calculate_total_weight(
-            habit_weight=1.0,
-            user_weight=1.0,
+            habit_weight=10,
             streak_count=10
         )
 
-        # 1.0 * 1.0 * (1 + 10*0.1) = 1.0 * 1.0 * 2.0 = 2.0
-        assert total_weight == pytest.approx(2.0)
+        # 10 * (1 + 10*0.1) = 10 * 2.0 = 20.0
+        assert total_weight == pytest.approx(20.0)
 
     def test_weight_with_habit_multiplier(self, reward_service):
         """Test weight calculation with habit multiplier."""
         total_weight = reward_service.calculate_total_weight(
-            habit_weight=2.0,
-            user_weight=1.5,
+            habit_weight=20,
             streak_count=5
         )
 
-        # 2.0 * 1.5 * (1 + 5*0.1) = 2.0 * 1.5 * 1.5 = 4.5
-        assert total_weight == pytest.approx(4.5)
+        # 20 * (1 + 5*0.1) = 20 * 1.5 = 30.0
+        assert total_weight == pytest.approx(30.0)
 
 
 class TestRewardSelection:
@@ -69,14 +66,14 @@ class TestRewardSelection:
     def test_select_reward_from_multiple(self, reward_service, mock_reward_repo):
         """Test weighted random selection."""
         mock_rewards = [
-            Reward(id="r1", name="Reward 1", weight=1.0, type=RewardType.VIRTUAL),
-            Reward(id="r2", name="Reward 2", weight=2.0, type=RewardType.REAL),
-            Reward(id="r3", name="No Reward", weight=5.0, type=RewardType.NONE)
+            Reward(id="r1", name="Reward 1", weight=10, type=RewardType.VIRTUAL),
+            Reward(id="r2", name="Reward 2", weight=20, type=RewardType.REAL),
+            Reward(id="r3", name="No Reward", weight=50, type=RewardType.NONE)
         ]
         mock_reward_repo.get_all_active.return_value = mock_rewards
 
         with patch.object(reward_service, 'reward_repo', mock_reward_repo):
-            selected = reward_service.select_reward(total_weight=1.0)
+            selected = reward_service.select_reward(total_weight=10.0)
 
         assert selected in mock_rewards
 
@@ -85,7 +82,7 @@ class TestRewardSelection:
         mock_reward_repo.get_all_active.return_value = []
 
         with patch.object(reward_service, 'reward_repo', mock_reward_repo):
-            selected = reward_service.select_reward(total_weight=1.0)
+            selected = reward_service.select_reward(total_weight=10.0)
 
         assert selected.type == RewardType.NONE
         assert selected.name == "No reward"
@@ -99,7 +96,7 @@ class TestCumulativeProgress:
         mock_reward = Reward(
             id="r1",
             name="Cumulative Reward",
-            weight=1.0,
+            weight=10,
             type=RewardType.CUMULATIVE,
             is_cumulative=True,
             pieces_required=10,
@@ -141,7 +138,7 @@ class TestCumulativeProgress:
         mock_reward = Reward(
             id="r1",
             name="Cumulative Reward",
-            weight=1.0,
+            weight=10,
             type=RewardType.CUMULATIVE,
             is_cumulative=True,
             pieces_required=10,

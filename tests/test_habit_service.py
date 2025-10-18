@@ -23,7 +23,6 @@ def mock_user():
         id="user123",
         telegram_id="123456789",
         name="Test User",
-        weight=1.0,
         active=True
     )
 
@@ -34,7 +33,7 @@ def mock_habit():
     return Habit(
         id="habit123",
         name="Walking",
-        weight=1.0,
+        weight=10,
         category="health",
         active=True
     )
@@ -46,7 +45,7 @@ def mock_reward():
     return Reward(
         id="reward123",
         name="Coffee",
-        weight=1.0,
+        weight=10,
         type=RewardType.REAL,
         is_cumulative=False
     )
@@ -164,7 +163,7 @@ class TestHabitCompletion:
         none_reward = Reward(
             id="reward_none",
             name="No reward",
-            weight=1.0,
+            weight=10,
             type=RewardType.NONE,
             is_cumulative=False
         )
@@ -189,8 +188,8 @@ class TestHabitCompletion:
     def test_get_all_active_habits(self, habit_service):
         """Test getting all active habits."""
         mock_habits = [
-            Habit(id="h1", name="Walking", weight=1.0, active=True),
-            Habit(id="h2", name="Reading", weight=1.0, active=True)
+            Habit(id="h1", name="Walking", weight=10, active=True),
+            Habit(id="h2", name="Reading", weight=10, active=True)
         ]
 
         with patch.object(habit_service.habit_repo, 'get_all_active', return_value=mock_habits):

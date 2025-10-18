@@ -50,7 +50,6 @@ CREATE TABLE users (
     telegram_id VARCHAR(50) UNIQUE,
     username VARCHAR(150) UNIQUE,
     email VARCHAR(254),
-    weight DECIMAL DEFAULT 1.0,
     active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP,
     updated_at TIMESTAMP

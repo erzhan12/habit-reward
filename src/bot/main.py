@@ -27,14 +27,18 @@ logger = logging.getLogger(__name__)
 async def start_command(update: Update, context):
     """Handle /start command."""
     telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+    logger.info(f"📨 Received /start command from user {telegram_id} (@{username})")
 
     # Validate user exists
     user = user_repository.get_by_telegram_id(telegram_id)
     if not user:
+        logger.warning(f"⚠️ User {telegram_id} not found in database")
         lang = get_message_language(telegram_id, update)
         await update.message.reply_text(
             msg('ERROR_USER_NOT_FOUND', lang)
         )
+        logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
         return
 
     # Auto-detect and set language if not already set
@@ -53,41 +57,53 @@ async def start_command(update: Update, context):
 
     # Check if user is active
     if not user.active:
+        logger.warning(f"⚠️ User {telegram_id} is inactive")
         await update.message.reply_text(
             msg('ERROR_USER_INACTIVE', lang)
         )
+        logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return
 
+    logger.info(f"✅ Sending start/help message to user {telegram_id} in language: {lang}")
     await update.message.reply_text(
         msg('HELP_START_MESSAGE', lang),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
+    logger.info(f"📤 Sent HELP_START_MESSAGE to {telegram_id}")
 
 
 async def help_command(update: Update, context):
     """Handle /help command."""
     telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+    logger.info(f"📨 Received /help command from user {telegram_id} (@{username})")
     lang = get_message_language(telegram_id, update)
 
     # Validate user exists
     user = user_repository.get_by_telegram_id(telegram_id)
     if not user:
+        logger.warning(f"⚠️ User {telegram_id} not found in database")
         await update.message.reply_text(
             msg('ERROR_USER_NOT_FOUND', lang)
         )
+        logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
         return
 
     # Check if user is active
     if not user.active:
+        logger.warning(f"⚠️ User {telegram_id} is inactive")
         await update.message.reply_text(
             msg('ERROR_USER_INACTIVE', lang)
         )
+        logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return
 
+    logger.info(f"✅ Sending help message to user {telegram_id} in language: {lang}")
     await update.message.reply_text(
         msg('HELP_COMMAND_MESSAGE', lang),
         parse_mode="HTML"
     )
+    logger.info(f"📤 Sent HELP_COMMAND_MESSAGE to {telegram_id}")
 
 
 def main():

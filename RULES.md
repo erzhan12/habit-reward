@@ -128,6 +128,76 @@ message = format_rewards_list_message(rewards, lang)
 message = format_reward_progress_message(progress, reward, lang)
 ```
 
+### Telegram Message Formatting
+
+**CRITICAL**: All Telegram bot messages MUST use HTML formatting (not Markdown). Always set `parse_mode="HTML"` when sending messages.
+
+#### HTML Formatting Rules
+
+Use HTML tags for text formatting:
+- **Bold**: `<b>text</b>` or `<strong>text</strong>`
+- **Italic**: `<i>text</i>` or `<em>text</em>`
+- **Underline**: `<u>text</u>`
+- **Code**: `<code>text</code>`
+- **Pre-formatted**: `<pre>text</pre>`
+- **Links**: `<a href="URL">text</a>`
+
+#### Character Escaping
+
+HTML special characters MUST be escaped:
+- `<` → `&lt;`
+- `>` → `&gt;`
+- `&` → `&amp;`
+
+**No need to escape**: underscores, dots, hyphens, or parentheses (unlike Markdown)
+
+#### Implementation Pattern
+
+```python
+# ✅ Good - Always use HTML
+await update.message.reply_text(
+    msg('SUCCESS_HABIT_COMPLETED', lang, habit_name=habit.name),
+    parse_mode="HTML"
+)
+
+# ✅ Good - Escape HTML special characters when needed
+reward_name = "Coffee & Tea"
+message = f"<b>Reward:</b> {reward_name.replace('&', '&amp;')}"
+await update.message.reply_text(message, parse_mode="HTML")
+
+# ❌ Bad - Never use Markdown
+await update.message.reply_text(
+    "*Bold text*",
+    parse_mode="Markdown"  # Don't use Markdown!
+)
+
+# ❌ Bad - Missing parse_mode
+await update.message.reply_text(
+    "<b>Bold text</b>"  # Won't render without parse_mode="HTML"
+)
+```
+
+#### Message Constants
+
+All message constants in `src/bot/messages.py` use HTML formatting:
+
+```python
+# Example message constants
+SUCCESS_HABIT_COMPLETED = "✅ <b>Habit completed:</b> {habit_name}"
+HEADER_STREAKS = "🔥 <b>Your Current Streaks:</b>\n"
+INFO_REWARD_ACTIONABLE = "⏳ <b>Reward achieved!</b> You can claim it now!"
+```
+
+#### Why HTML Over Markdown?
+
+1. **No escaping headaches**: No need to escape underscores, dots, hyphens in text
+2. **More reliable**: Better rendering consistency in Telegram
+3. **Clearer syntax**: HTML tags are more explicit than Markdown symbols
+4. **Better control**: More formatting options available
+5. **Standard**: HTML is a widely understood standard
+
+See Telegram Bot API documentation for full HTML formatting reference.
+
 ### Django Migration Path
 
 The current dictionary-based approach is designed for easy migration to Django's `gettext` i18n framework:
@@ -145,6 +215,121 @@ ERROR_USER_NOT_FOUND = _("User not found...")
 ```
 
 See `docs/features/0002_PLAN.md` for full Django migration guide.
+
+## Logging Pattern
+
+**CRITICAL**: All Telegram bot command handlers MUST include comprehensive info-level logging to track user messages and bot reactions. This provides visibility into user interactions, helps with debugging, and creates an audit trail.
+
+### Implementation Pattern
+
+```python
+import logging
+
+# At module level
+logger = logging.getLogger(__name__)
+
+async def my_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /my_command."""
+    # 1. Log incoming message with user context
+    telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+    logger.info(f"📨 Received /my_command from user {telegram_id} (@{username})")
+    
+    # 2. Log any user input/parameters
+    if context.args:
+        user_input = " ".join(context.args)
+        logger.info(f"📝 User {telegram_id} provided input: '{user_input}'")
+    
+    # 3. Log validation failures
+    user = user_repository.get_by_telegram_id(telegram_id)
+    if not user:
+        logger.warning(f"⚠️ User {telegram_id} not found in database")
+        await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
+        logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
+        return
+    
+    # 4. Log processing steps
+    logger.info(f"⚙️ Processing command for user {telegram_id}")
+    result = some_service.process_data(user.id)
+    
+    # 5. Log success with relevant metrics
+    logger.info(f"✅ Command completed successfully for user {telegram_id}. Result: {result}")
+    
+    # 6. Log outgoing messages
+    await update.message.reply_text(formatted_message)
+    logger.info(f"📤 Sent success message to {telegram_id}")
+    
+    # 7. Log errors with full context
+    except ValueError as e:
+        logger.error(f"❌ Error processing command for user {telegram_id}: {str(e)}")
+        await update.message.reply_text(msg('ERROR_GENERAL', lang, error=str(e)))
+        logger.info(f"📤 Sent error message to {telegram_id}")
+```
+
+### Logging Emoji Legend
+
+Use these emojis consistently for easy log scanning:
+
+- 📨 - Incoming message/command from user
+- 🖱️ - User interaction (callback/button click)
+- ✏️ - User choosing text input
+- 🎯 - User selection (habit, reward, etc.)
+- 🎁 - User attempting to claim reward
+- 🔄 - User attempting to change status
+- 📝 - User input/parameters logged
+- 🔍 - Search/query results
+- 🤖 - AI/NLP processing
+- ⚙️ - Processing/operation in progress
+- ✅ - Success/completion
+- 🔥 - Streak information
+- ℹ️ - Informational message
+- ⚠️ - Warning (validation failure, not found, etc.)
+- ❌ - Error
+- 📤 - Outgoing message/response to user
+
+### What to Log
+
+**Always log:**
+1. **Incoming commands/messages**: User ID, username, command name, and any parameters
+2. **User input**: Text messages, callback data, button selections
+3. **Validation failures**: User not found, inactive user, invalid input
+4. **Processing steps**: Key operations being performed
+5. **Success metrics**: Points earned, streaks, status changes, counts
+6. **Outgoing messages**: What message was sent to the user
+7. **Errors**: Full error context with user ID
+
+**Never log:**
+- Sensitive data (passwords, tokens, API keys)
+- Personal information beyond user ID and username
+- Full message objects (too verbose)
+
+### Files Following This Pattern
+
+All bot handlers now include comprehensive logging:
+- `src/bot/main.py` - `/start`, `/help` commands
+- `src/bot/handlers/habit_done_handler.py` - `/habit_done` flow with custom text and NLP
+- `src/bot/handlers/reward_handlers.py` - All reward commands
+- `src/bot/handlers/streak_handler.py` - `/streaks` command
+
+See `LOGGING_ENHANCEMENT_SUMMARY.md` for detailed documentation and `LOGGING_EXAMPLES.md` for real-world examples.
+
+### Benefits
+
+1. **Complete Visibility**: Every user interaction is logged with context
+2. **Debugging**: Easy to trace issues and understand user flows
+3. **Monitoring**: Track user engagement and command usage
+4. **Performance**: Identify slow operations or bottlenecks
+5. **Audit Trail**: Complete record of user actions and bot responses
+6. **User Context**: Always includes Telegram ID and username for correlation
+
+### For New Commands
+
+When creating new bot commands, copy the logging pattern from existing handlers:
+- Start with incoming message log
+- Log each decision point and processing step
+- Log all outgoing messages
+- Use consistent emoji indicators
+- Include user context in every log
 
 ## Repository Pattern
 

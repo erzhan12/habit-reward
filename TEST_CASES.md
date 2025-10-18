@@ -148,7 +148,7 @@ Use this to track which data you've created during testing:
 
 ## TEST CASE 1: USER MANAGEMENT
 
-**Objective**: Test the **application's user management logic** - Does the code correctly retrieve users from Airtable, enforce the active flag, and apply user weight multipliers in calculations?
+**Objective**: Test the **application's user management logic** - Does the code correctly retrieve users from Airtable and enforce the active flag?
 
 **What We're Testing**: The Python repository/service layer (`src/repositories/user_repository.py`, `src/services/user_service.py`, `src/services/reward_service.py`), NOT your data entry skills in Airtable
 
@@ -195,7 +195,7 @@ Bot response:
 
 ```
 
-**Status**: [ ] PASS [ ] FAIL [ ] BLOCKED
+**Status**: [X] PASS [ ] FAIL [ ] BLOCKED
 
 ---
 
@@ -246,7 +246,7 @@ Bot /habit_done response:
 
 ```
 
-**Status**: [ ] PASS [ ] FAIL [ ] BLOCKED
+**Status**: [X] PASS [ ] FAIL [ ] BLOCKED
 
 ---
 
@@ -286,71 +286,11 @@ Habit Log checked: [ ] No new entries [ ] Entries created (BUG!)
 
 ```
 
-**Status**: [ ] PASS [ ] FAIL [ ] BLOCKED
+**Status**: [X] PASS [ ] FAIL [ ] BLOCKED
 
 **Restore After Test**:
 ```
 [IMPORTANT: Open Airtable Users table and CHECK the active box for your user again]
-[Restart bot]
-```
-
----
-
-### TC1.4: User Weight Affects Calculations (Modify Your Weight)
-
-**What This Tests**:
-- ✅ Does `reward_service.py` use user weight in the formula?
-- ✅ Is the math correct: `habit_weight × user_weight × streak_multiplier`?
-- ✅ Does changing your weight in Airtable affect calculations?
-
-**Preconditions**:
-- Your user is active (active=checked) in Airtable
-- Bot is running
-
-**Test Steps**:
-
-**Part A: Baseline with weight=1.0**
-1. Make sure your user has weight=1.0 in Airtable
-2. Send `/habit_done` → select "Meditation" (weight 1.0)
-3. Open Airtable → Habit Log table
-4. Find the entry you just created
-5. Note the `total_weight_applied` value (should be 1.1 for streak=1)
-
-**Part B: Change weight to 2.0**
-6. Open Airtable → Users table
-7. Find YOUR user record
-8. Change `weight` from 1.0 to **2.0**
-9. Restart bot: `python src/bot/telegram_bot.py`
-10. Send `/habit_done` → select "Meditation" again (same habit)
-11. Check new entry in Habit Log
-12. Note new `total_weight_applied`
-
-**Expected Results**:
-- ✓ First completion (weight 1.0): total_weight_applied = 1.0 × 1.0 × 1.1 = **1.1**
-- ✓ Second completion (weight 2.0): total_weight_applied = 1.0 × 2.0 × 1.1 = **2.2**
-- ✓ User weight change reflected in calculations
-- ✓ Higher weight increases reward probability
-
-**Actual Results**:
-```
-Part A Results:
-First completion total_weight_applied: __________
-Expected: 1.1
-Match: [ ] YES [ ] NO
-
-Part B Results:
-Second completion total_weight_applied: __________
-Expected: 2.2
-Match: [ ] YES [ ] NO
-
-Weight change working: [ ] YES [ ] NO
-```
-
-**Status**: [ ] PASS [ ] FAIL [ ] BLOCKED
-
-**Restore After Test**:
-```
-[IMPORTANT: Set your user weight back to 1.0 in Airtable Users table]
 [Restart bot]
 ```
 
@@ -361,11 +301,10 @@ TC1 validates that the **Python application code** correctly:
 - ✅ Detects missing users and shows errors
 - ✅ Retrieves active users from Airtable
 - ✅ Enforces business rules (active flag)
-- ✅ Applies user weight in mathematical calculations
 
 **Advantages of this approach**:
 - Uses YOUR real Telegram account (no need for multiple accounts)
-- Tests realistic user lifecycle: not exists → active → inactive → weight changes
+- Tests realistic user lifecycle: not exists → active → inactive
 - Each test builds on the previous state
 - Easy to execute and verify
 
@@ -433,7 +372,7 @@ Missing/Extra habits:
 
 ```
 
-**Status**: [ ] PASS [ ] FAIL [ ] BLOCKED
+**Status**: [X] PASS [ ] FAIL [ ] BLOCKED
 
 ---
 
@@ -1038,9 +977,9 @@ Streak reset correctly: [ ] YES [ ] NO
 **Test Steps**:
 1. Complete a habit to establish streak = 1
 2. Check Habit Log → `total_weight_applied`
-3. Calculate: habit_weight × user_weight × (1 + 1 × 0.1) = expected
+3. Calculate: habit_weight × (1 + 1 × 0.1) = expected
 4. Repeat for streak = 5 (manipulate date to create)
-5. Calculate: habit_weight × user_weight × (1 + 5 × 0.1) = expected
+5. Calculate: habit_weight × (1 + 5 × 0.1) = expected
 
 **Expected Results**:
 - ✓ Streak 1: multiplier = 1.1
@@ -1050,7 +989,7 @@ Streak reset correctly: [ ] YES [ ] NO
 
 **Actual Results**:
 ```
-Test Case: Habit "Meditation" (weight 1.0), User weight 1.0
+Test Case: Habit "Meditation" (weight 1.0)
 
 Streak | Expected Multiplier | Expected Total Weight | Actual Total Weight | Match?
 -------|--------------------|-----------------------|---------------------|-------
@@ -1162,7 +1101,7 @@ Notes:
 
 ## TEST CASE 6: WEIGHT CALCULATION & MULTIPLIERS
 
-**Objective**: Verify total weight formula: habit_weight × user_weight × streak_multiplier
+**Objective**: Verify total weight formula: habit_weight × streak_multiplier
 
 ---
 
@@ -1223,77 +1162,6 @@ Doubling effect confirmed: [ ] YES [ ] NO
 ```
 
 **Status**: [ ] PASS [ ] FAIL [ ] BLOCKED
-
----
-
-### TC6.3: Power User Weight Multiplier
-
-**Preconditions**:
-- Switch to "Power User" (telegram_id 987654321, weight 2.0)
-
-**Test Steps**:
-1. Change .env DEFAULT_USER_TELEGRAM_ID = 987654321
-2. Restart bot
-3. Complete "Coding Practice" (weight 2.0) for first time (streak = 1)
-4. Check total_weight_applied
-5. Expected: 2.0 × 2.0 × 1.1 = 4.4
-
-**Expected Results**:
-- ✓ total_weight_applied = 4.4
-- ✓ User weight of 2.0 doubles the result
-
-**Actual Results**:
-```
-total_weight_applied: __________
-Expected: 4.4
-
-Match: [ ] YES [ ] NO
-
-Power User multiplier working: [ ] YES [ ] NO
-```
-
-**Status**: [ ] PASS [ ] FAIL [ ] BLOCKED
-
----
-
-### TC6.4: Combined High Weights Scenario
-
-**Preconditions**:
-- Power User (weight 2.0)
-- High-weight habit
-- High streak
-
-**Test Steps**:
-1. Using Power User (weight 2.0)
-2. Complete "Morning Exercise" (weight 2.0)
-3. Manipulate to create streak = 5
-4. Complete habit again
-5. Expected: 2.0 × 2.0 × (1 + 5 × 0.1) = 2.0 × 2.0 × 1.5 = 6.0
-
-**Expected Results**:
-- ✓ total_weight_applied = 6.0
-- ✓ All multipliers combine correctly
-
-**Actual Results**:
-```
-total_weight_applied: __________
-Expected: 6.0
-
-Combined multipliers correct: [ ] YES [ ] NO
-
-Notes:
-
-
-
-
-```
-
-**Status**: [ ] PASS [ ] FAIL [ ] BLOCKED
-
-**Restore After Test**:
-```
-[Reminder: Set .env back to DEFAULT_USER_TELEGRAM_ID=123456789]
-```
 
 ---
 
@@ -2764,7 +2632,7 @@ System continues functioning: [ ] YES [ ] NO
 **Expected Results**:
 - ✓ New streak = 101
 - ✓ Streak multiplier = 1 + (101 × 0.1) = 11.1
-- ✓ total_weight_applied = habit_weight × user_weight × 11.1
+- ✓ total_weight_applied = habit_weight × 11.1
 - ✓ Very high reward probability
 - ✓ No overflow errors
 
@@ -3005,61 +2873,22 @@ Progress persisted: [ ] YES [ ] NO
 
 ---
 
-### TC13.3: User Weight Changes Affect Future Calculations
-
-**Preconditions**:
-- Test User with weight 1.0
-
-**Test Steps**:
-1. Complete "Meditation" (weight 1.0) with streak 1
-2. Check total_weight_applied (should be 1.1)
-3. Open Airtable → Users table
-4. Change Test User weight to 2.0
-5. Restart bot
-6. Complete "Meditation" again (assuming same day, so streak still 1)
-7. Check new total_weight_applied
-
-**Expected Results**:
-- ✓ First completion: 1.0 × 1.0 × 1.1 = 1.1
-- ✓ After user weight change: 1.0 × 2.0 × 1.1 = 2.2
-- ✓ Weight change reflected in calculations
-
-**Actual Results**:
-```
-First total_weight_applied: __________
-Expected: 1.1
-
-Second total_weight_applied: __________
-Expected: 2.2
-
-Weight change effective: [ ] YES [ ] NO
-```
-
-**Status**: [ ] PASS [ ] FAIL [ ] BLOCKED
-
-**Restore After Test**:
-```
-[Set Test User weight back to 1.0]
-```
-
----
-
-### TC13.4: Habit Weight Changes Affect Future Calculations
+### TC13.3: Habit Weight Changes Affect Future Calculations
 
 **Preconditions**:
 - Habit "Reading" with weight 1.5
 
 **Test Steps**:
-1. Complete "Reading" with user weight 1.0, streak 1
-2. Check total_weight_applied (should be 1.65)
+1. Complete "Reading" with streak 1
+2. Check total_weight_applied (should be 1.5 × 1.1 = 1.65)
 3. Change "Reading" habit weight to 3.0 in Airtable
 4. Restart bot
 5. Complete "Reading" again (next day for streak 2)
 6. Check new total_weight_applied
 
 **Expected Results**:
-- ✓ First: 1.5 × 1.0 × 1.1 = 1.65
-- ✓ Second: 3.0 × 1.0 × 1.2 = 3.6
+- ✓ First: 1.5 × 1.1 = 1.65
+- ✓ Second: 3.0 × 1.2 = 3.6
 - ✓ Habit weight change reflected
 
 **Actual Results**:
@@ -3082,7 +2911,7 @@ Change effective: [ ] YES [ ] NO
 
 ---
 
-### TC13.5: Data Consistency Between Bot and Dashboard
+### TC13.4: Data Consistency Between Bot and Dashboard
 
 **Preconditions**:
 - Bot and dashboard both running
@@ -3400,7 +3229,7 @@ Rewards (1) ──→ (Many) Reward Progress
 
 ### Key Formulas
 - **Streak Multiplier**: `1 + (streak_count × 0.1)`
-- **Total Weight**: `habit_weight × user_weight × streak_multiplier`
+- **Total Weight**: `habit_weight × streak_multiplier`
 - **Progress Percent**: `(pieces_earned / pieces_required) × 100`
 
 ### Status Emoji Legend

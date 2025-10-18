@@ -42,7 +42,7 @@ The implementation is **excellent** and closely follows the plan with high code 
 - ✅ Algorithm matches plan specification exactly
 
 **Reward Service (src/services/reward_service.py):**
-- ✅ `calculate_total_weight()` - Correct formula: `habit_weight × user_weight × (1 + streak_count × 0.1)`
+- ✅ `calculate_total_weight()` - Correct formula: `habit_weight × (1 + streak_count × 0.1)`
 - ✅ `select_reward()` - Proper weighted random selection using `random.choices()`
 - ✅ `update_cumulative_progress()` - Correct cumulative logic with status updates
 - ✅ `mark_reward_completed()` - Claim functionality with validation
