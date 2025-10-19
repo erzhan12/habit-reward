@@ -43,11 +43,13 @@ class HabitService:
         3. Pull habit weight from Habits table
         4. Calculate current streak for this specific habit
         5. Calculate total_weight multiplier
-        6. Fetch all active rewards
-        7. Run weighted random draw
+        6. Get today's awarded rewards (to prevent duplicate awards)
+        7. Fetch all active rewards and run weighted random draw (excluding today's awards)
         8. If cumulative reward: update Reward Progress, check if achieved
         9. Log entry to Habit Log with all calculated values
         10. Return response object with habit confirmation, reward result, streak status
+
+        Note: No reward (cumulative or non-cumulative) can be awarded twice in the same day.
 
         Args:
             user_telegram_id: Telegram ID of the user
@@ -84,8 +86,16 @@ class HabitService:
             streak_count=streak_count
         )
 
-        # 6 & 7. Fetch active rewards and run weighted random draw
-        selected_reward = self.reward_service.select_reward(total_weight)
+        # 6. Get today's awarded rewards to prevent duplicates
+        todays_awarded_rewards = self.reward_service.get_todays_awarded_rewards(user.id)
+        logger.info(f"Today's awarded rewards for user={user.id}: {len(todays_awarded_rewards)} rewards")
+
+        # 7. Fetch active rewards and run weighted random draw (excluding today's awards)
+        selected_reward = self.reward_service.select_reward(
+            total_weight=total_weight,
+            user_id=user.id,
+            exclude_reward_ids=todays_awarded_rewards
+        )
 
         # Determine if user got a meaningful reward
         got_reward = selected_reward.type != RewardType.NONE

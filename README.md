@@ -252,7 +252,6 @@ OUTPUT: reward_progress
 2. progress.pieces_earned += 1
 3. IF progress.pieces_earned >= reward.pieces_required:
      progress.status = "⏳ Achieved"
-     progress.actionable_now = True
 4. ELSE:
      progress.status = "🕒 Pending"
 5. RETURN progress

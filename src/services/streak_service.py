@@ -65,6 +65,33 @@ class StreakService:
         last_log = self.habit_log_repo.get_last_log_for_habit(user_id, habit_id)
         return last_log.last_completed_date if last_log else None
 
+    def get_current_streak(self, user_id: str, habit_id: str) -> int:
+        """
+        Get the CURRENT streak for a habit (for display purposes).
+
+        This differs from calculate_streak() which returns what the NEXT streak
+        will be when logging a new habit.
+
+        Logic:
+        - If last_completed_date is today: return current streak (still active)
+        - If last_completed_date is yesterday or earlier: return current streak (may be broken)
+
+        Args:
+            user_id: Airtable record ID of the user
+            habit_id: Airtable record ID of the habit
+
+        Returns:
+            Current streak count (0 if never completed)
+        """
+        last_log = self.habit_log_repo.get_last_log_for_habit(user_id, habit_id)
+
+        # Never completed this habit
+        if last_log is None:
+            return 0
+
+        # Return the streak from the most recent log
+        return last_log.streak_count
+
     def get_all_streaks_for_user(self, user_id: str) -> dict[str, int]:
         """
         Get current streaks for all habits for a user.
@@ -84,7 +111,10 @@ class StreakService:
         for log in logs:
             if log.habit_id not in processed_habits:
                 processed_habits.add(log.habit_id)
-                streak = self.calculate_streak(user_id, log.habit_id)
+                # Use get_current_streak instead of calculate_streak
+                # calculate_streak is for determining the NEXT streak when logging
+                # get_current_streak is for displaying the CURRENT streak status
+                streak = self.get_current_streak(user_id, log.habit_id)
                 habit_streaks[log.habit_id] = streak
 
         return habit_streaks

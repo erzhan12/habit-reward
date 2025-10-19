@@ -86,7 +86,6 @@ CREATE TABLE reward_progress (
     reward_id UUID REFERENCES rewards(id),
     pieces_earned INTEGER DEFAULT 0,
     status VARCHAR(20), -- 'pending', 'achieved', 'completed'
-    actionable_now BOOLEAN DEFAULT FALSE,
     updated_at TIMESTAMP
 );
 

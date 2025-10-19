@@ -132,7 +132,7 @@ async def habit_selected_callback(
 
             # Format and send response
             message = format_habit_completion_message(result, lang)
-            logger.info(f"✅ Habit '{habit.name}' completed successfully for user {telegram_id}. Points earned: {result.points_earned}, Current streak: {result.current_streak}")
+            logger.info(f"✅ Habit '{habit.name}' completed successfully for user {telegram_id}. Total weight: {result.total_weight_applied}, Current streak: {result.streak_count}")
             await query.edit_message_text(
                 text=message,
                 parse_mode="HTML"
@@ -189,7 +189,7 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         # Format and send response
         message = format_habit_completion_message(result, lang)
-        logger.info(f"✅ Habit '{habit_name}' completed successfully for user {telegram_id}. Points earned: {result.points_earned}, Current streak: {result.current_streak}")
+        logger.info(f"✅ Habit '{habit_name}' completed successfully for user {telegram_id}. Total weight: {result.total_weight_applied}, Current streak: {result.streak_count}")
         await update.message.reply_text(
             text=message,
             parse_mode="HTML"

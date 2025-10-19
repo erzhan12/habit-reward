@@ -157,6 +157,13 @@ class RewardRepository(BaseRepository):
     def _record_to_reward(self, record: dict[str, Any]) -> Reward:
         """Convert Airtable record to Reward model."""
         fields = self._record_to_dict(record)
+        # Handle numeric fields that might come as arrays
+        if isinstance(fields.get("weight"), list):
+            fields["weight"] = fields["weight"][0] if fields["weight"] else None
+        if isinstance(fields.get("pieces_required"), list):
+            fields["pieces_required"] = fields["pieces_required"][0] if fields["pieces_required"] else None
+        if isinstance(fields.get("piece_value"), list):
+            fields["piece_value"] = fields["piece_value"][0] if fields["piece_value"] else None
         fields["type"] = RewardType(fields.get("type", "none"))
         return Reward(**fields)
 
@@ -166,7 +173,7 @@ class RewardProgressRepository(BaseRepository):
 
     def __init__(self):
         """Initialize RewardProgressRepository."""
-        super().__init__("Reward Progress")
+        super().__init__("RewardProgress")
 
     def create(self, progress: RewardProgress) -> RewardProgress:
         """Create a new reward progress entry."""
@@ -174,8 +181,6 @@ class RewardProgressRepository(BaseRepository):
             "user_id": [progress.user_id],
             "reward_id": [progress.reward_id],
             "pieces_earned": progress.pieces_earned,
-            "status": progress.status.value,
-            "actionable_now": progress.actionable_now,
             "pieces_required": progress.pieces_required
         })
         return self._record_to_progress(record)
@@ -206,7 +211,7 @@ class RewardProgressRepository(BaseRepository):
     def get_achieved_by_user(self, user_id: str) -> list[RewardProgress]:
         """Get all achieved (actionable) rewards for a user."""
         all_progress = self.get_all_by_user(user_id)
-        return [p for p in all_progress if p.actionable_now]
+        return [p for p in all_progress if p.status == RewardStatus.ACHIEVED]
 
     def update(self, progress_id: str, updates: dict[str, Any]) -> RewardProgress:
         """Update reward progress fields."""
@@ -221,6 +226,11 @@ class RewardProgressRepository(BaseRepository):
             fields["user_id"] = fields["user_id"][0] if fields["user_id"] else None
         if isinstance(fields.get("reward_id"), list):
             fields["reward_id"] = fields["reward_id"][0] if fields["reward_id"] else None
+        # Handle numeric fields that might come as arrays
+        if isinstance(fields.get("pieces_earned"), list):
+            fields["pieces_earned"] = fields["pieces_earned"][0] if fields["pieces_earned"] else None
+        if isinstance(fields.get("pieces_required"), list):
+            fields["pieces_required"] = fields["pieces_required"][0] if fields["pieces_required"] else None
         # Parse status enum
         status_value = fields.get("status", "🕒 Pending")
         fields["status"] = RewardStatus(status_value)
@@ -232,7 +242,7 @@ class HabitLogRepository(BaseRepository):
 
     def __init__(self):
         """Initialize HabitLogRepository."""
-        super().__init__("Habit Log")
+        super().__init__("HabitLog")
 
     def create(self, log: HabitLog) -> HabitLog:
         """Create a new habit log entry."""
@@ -242,7 +252,6 @@ class HabitLogRepository(BaseRepository):
             "timestamp": log.timestamp.isoformat(),
             "got_reward": log.got_reward,
             "streak_count": log.streak_count,
-            "habit_weight": log.habit_weight,
             "total_weight_applied": log.total_weight_applied,
             "last_completed_date": log.last_completed_date.isoformat()
         }
@@ -274,6 +283,46 @@ class HabitLogRepository(BaseRepository):
                 result.append(self._record_to_log(record))
         return result
 
+    def get_todays_logs_by_user(self, user_id: str, target_date: date | None = None) -> list[HabitLog]:
+        """
+        Get today's habit log entries for a user.
+
+        Args:
+            user_id: Airtable record ID of the user
+            target_date: Optional date to query (defaults to today)
+
+        Returns:
+            List of HabitLog entries for the specified date
+        """
+        if target_date is None:
+            target_date = date.today()
+
+        logger.debug(f"Fetching logs for user={user_id} on date={target_date}")
+        records = self.table.all()
+        result = []
+        for record in records:
+            fields = record.get("fields", {})
+            record_user_ids = fields.get("user_id", [])
+
+            # Check if this log belongs to the user
+            if user_id not in record_user_ids:
+                continue
+
+            # Check if last_completed_date matches target_date
+            record_date_str = fields.get("last_completed_date")
+            if record_date_str:
+                # Parse the date string
+                if isinstance(record_date_str, str):
+                    record_date = date.fromisoformat(record_date_str)
+                else:
+                    record_date = record_date_str
+
+                if record_date == target_date:
+                    result.append(self._record_to_log(record))
+
+        logger.debug(f"Found {len(result)} logs for user={user_id} on date={target_date}")
+        return result
+
     def _record_to_log(self, record: dict[str, Any]) -> HabitLog:
         """Convert Airtable record to HabitLog model."""
         fields = self._record_to_dict(record)
@@ -284,6 +333,13 @@ class HabitLogRepository(BaseRepository):
             fields["habit_id"] = fields["habit_id"][0] if fields["habit_id"] else None
         if isinstance(fields.get("reward_id"), list):
             fields["reward_id"] = fields["reward_id"][0] if fields.get("reward_id") else None
+        # Handle numeric fields that might come as arrays
+        if isinstance(fields.get("habit_weight"), list):
+            fields["habit_weight"] = fields["habit_weight"][0] if fields["habit_weight"] else None
+        if isinstance(fields.get("streak_count"), list):
+            fields["streak_count"] = fields["streak_count"][0] if fields["streak_count"] else None
+        if isinstance(fields.get("total_weight_applied"), list):
+            fields["total_weight_applied"] = fields["total_weight_applied"][0] if fields["total_weight_applied"] else None
         # Parse datetime fields
         if isinstance(fields.get("timestamp"), str):
             fields["timestamp"] = datetime.fromisoformat(fields["timestamp"])

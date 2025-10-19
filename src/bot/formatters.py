@@ -1,7 +1,7 @@
 """Message formatting functions for Telegram bot responses."""
 
 from src.models.habit_completion_result import HabitCompletionResult
-from src.models.reward_progress import RewardProgress
+from src.models.reward_progress import RewardProgress, RewardStatus
 from src.models.reward import Reward, RewardType
 from src.models.habit_log import HabitLog
 from src.config import settings
@@ -43,7 +43,7 @@ def format_habit_completion_message(result: HabitCompletionResult, language: str
                         pieces_earned=result.cumulative_progress.pieces_earned,
                         pieces_required=result.cumulative_progress.pieces_required)
                 )
-                if result.cumulative_progress.actionable_now:
+                if result.cumulative_progress.status == RewardStatus.ACHIEVED:
                     message_parts.append(msg('INFO_REWARD_ACTIONABLE', language))
         else:
             message_parts.append("\n" + msg('FORMAT_REWARD', language, reward_name=result.reward.name))
@@ -80,7 +80,7 @@ def format_reward_progress_message(progress: RewardProgress, reward: Reward, lan
         f"{msg('FORMAT_STATUS', language, status=progress.status.value)}"
     )
 
-    if progress.actionable_now:
+    if progress.status == RewardStatus.ACHIEVED:
         message += "\n" + msg('FORMAT_READY_TO_CLAIM', language)
 
     return message

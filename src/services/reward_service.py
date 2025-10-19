@@ -2,7 +2,7 @@
 
 import random
 import logging
-from src.airtable.repositories import reward_repository, reward_progress_repository
+from src.airtable.repositories import reward_repository, reward_progress_repository, habit_log_repository
 from src.models.reward import Reward, RewardType
 from src.models.reward_progress import RewardProgress, RewardStatus
 from src.config import settings
@@ -18,6 +18,7 @@ class RewardService:
         """Initialize RewardService with repositories."""
         self.reward_repo = reward_repository
         self.progress_repo = reward_progress_repository
+        self.habit_log_repo = habit_log_repository
 
     def calculate_total_weight(
         self,
@@ -41,23 +42,34 @@ class RewardService:
         total_weight = habit_weight * streak_multiplier
         return total_weight
 
-    def select_reward(self, total_weight: float) -> Reward:
+    def select_reward(
+        self,
+        total_weight: float,
+        user_id: str | None = None,
+        exclude_reward_ids: list[str] | None = None
+    ) -> Reward:
         """
         Perform weighted random reward selection.
 
         Algorithm:
         1. Fetch all active rewards (including type="none" and cumulative)
-        2. Calculate adjusted weights for each reward using total_weight multiplier
-        3. Perform weighted random selection using random.choices()
-        4. Return selected reward
+        2. Filter out any rewards in exclude_reward_ids list
+        3. Calculate adjusted weights for each reward using total_weight multiplier
+        4. Perform weighted random selection using random.choices()
+        5. Return selected reward
 
         Args:
             total_weight: Total weight multiplier from calculate_total_weight()
+            user_id: Optional user ID for logging purposes
+            exclude_reward_ids: Optional list of reward IDs to exclude from selection
 
         Returns:
             Selected reward (may be type="none")
         """
-        logger.info(f"Selecting reward with total_weight={total_weight}")
+        logger.info(f"Selecting reward with total_weight={total_weight}, user_id={user_id}")
+        if exclude_reward_ids:
+            logger.info(f"Excluding {len(exclude_reward_ids)} rewards from selection")
+
         rewards = self.reward_repo.get_all_active()
 
         if not rewards:
@@ -71,6 +83,23 @@ class RewardService:
             )
 
         logger.debug(f"Found {len(rewards)} active rewards")
+
+        # Filter out excluded rewards
+        if exclude_reward_ids:
+            original_count = len(rewards)
+            rewards = [r for r in rewards if r.id not in exclude_reward_ids]
+            logger.info(f"After exclusion: {len(rewards)} rewards remaining (filtered out {original_count - len(rewards)})")
+
+        # If all rewards are excluded, return "none" reward
+        if not rewards:
+            logger.warning("All rewards excluded, returning 'none' reward")
+            return Reward(
+                name="No reward",
+                weight=1.0,
+                type=RewardType.NONE,
+                is_cumulative=False
+            )
+
         # Calculate adjusted weights
         adjusted_weights = [reward.weight * total_weight for reward in rewards]
 
@@ -79,6 +108,35 @@ class RewardService:
         logger.info(f"Selected reward: {selected_reward.name} (type: {selected_reward.type})")
 
         return selected_reward
+
+    def get_todays_awarded_rewards(self, user_id: str) -> list[str]:
+        """
+        Get list of reward IDs that were already awarded today.
+
+        This ensures no reward (cumulative or non-cumulative) can be awarded
+        multiple times in the same day.
+
+        Args:
+            user_id: Airtable record ID of the user
+
+        Returns:
+            List of reward IDs that were awarded today
+        """
+        logger.info(f"Fetching today's awarded rewards for user={user_id}")
+
+        # Get today's logs for this user
+        todays_logs = self.habit_log_repo.get_todays_logs_by_user(user_id)
+
+        # Filter for entries where a reward was actually awarded
+        awarded_reward_ids = []
+        for log in todays_logs:
+            if log.got_reward and log.reward_id:
+                awarded_reward_ids.append(log.reward_id)
+
+        logger.info(f"Found {len(awarded_reward_ids)} rewards awarded today for user={user_id}")
+        logger.debug(f"Today's awarded reward IDs: {awarded_reward_ids}")
+
+        return awarded_reward_ids
 
     def update_cumulative_progress(
         self,
@@ -92,7 +150,7 @@ class RewardService:
         1. Get or create reward progress entry
         2. Increment pieces_earned by 1
         3. Check if pieces_earned >= pieces_required
-        4. If met: update status to "⏳ Achieved" and set actionable_now = True
+        4. If met: update status to "⏳ Achieved"
         5. Otherwise: keep status as "🕒 Pending"
         6. Update progress_percent
         7. Save and return progress
@@ -120,7 +178,6 @@ class RewardService:
                 reward_id=reward_id,
                 pieces_earned=0,
                 status=RewardStatus.PENDING,
-                actionable_now=False,
                 pieces_required=reward.pieces_required
             )
             progress = self.progress_repo.create(progress)
@@ -128,21 +185,11 @@ class RewardService:
         # Increment pieces earned
         new_pieces = progress.pieces_earned + 1
 
-        # Check if reward is achieved
-        if reward.pieces_required and new_pieces >= reward.pieces_required:
-            new_status = RewardStatus.ACHIEVED
-            actionable = True
-        else:
-            new_status = progress.status  # Keep current status
-            actionable = False
-
-        # Update in database
+        # Update in database - Airtable will automatically calculate status field
         updated_progress = self.progress_repo.update(
             progress.id,
             {
-                "pieces_earned": new_pieces,
-                "status": new_status.value,
-                "actionable_now": actionable
+                "pieces_earned": new_pieces
             }
         )
 
@@ -169,10 +216,7 @@ class RewardService:
 
         updated_progress = self.progress_repo.update(
             progress.id,
-            {
-                "status": RewardStatus.COMPLETED.value,
-                "actionable_now": False
-            }
+            {}
         )
 
         return updated_progress
@@ -185,31 +229,30 @@ class RewardService:
     ) -> RewardProgress:
         """
         Manually set reward status (admin function).
+        
+        Note: In Airtable, the status field is calculated automatically.
+        This method is kept for compatibility but will not update the status field
+        as it's managed by Airtable's calculated field functionality.
 
         Args:
             user_id: Airtable record ID of the user
             reward_id: Airtable record ID of the reward
-            status: New status to set
+            status: New status to set (ignored - calculated by Airtable)
 
         Returns:
-            Updated RewardProgress object
+            Current RewardProgress object
         """
         progress = self.progress_repo.get_by_user_and_reward(user_id, reward_id)
 
         if not progress:
             raise ValueError("Reward progress not found")
 
-        actionable = status == RewardStatus.ACHIEVED
-
-        updated_progress = self.progress_repo.update(
-            progress.id,
-            {
-                "status": status.value,
-                "actionable_now": actionable
-            }
-        )
-
-        return updated_progress
+        # Status is calculated by Airtable, so we just return the current progress
+        # If you need to force a status change, you would need to modify the
+        # pieces_earned field to trigger the Airtable calculation
+        logger.warning(f"Status field is calculated by Airtable. Current status: {progress.status}")
+        
+        return progress
 
     def get_active_rewards(self) -> list[Reward]:
         """

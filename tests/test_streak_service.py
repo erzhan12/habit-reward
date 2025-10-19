@@ -96,3 +96,78 @@ class TestStreakCalculation:
             last_date = streak_service.get_last_completed_date("user123", "habit123")
 
         assert last_date is None
+
+    def test_get_all_streaks_multi_habit_different_completion_dates(self, streak_service, mock_habit_log_repo):
+        """
+        Test BUG: Multiple habits with different last completion dates.
+
+        Scenario:
+        - Day 1: User logs both "pushups" and "drinking water"
+        - Day 2: User logs only "pushups" (not "drinking water")
+        - Day 2: User checks /streaks command
+
+        Expected behavior:
+        - Pushups: streak = 2 (logged on Day 1 and Day 2)
+        - Drinking water: streak = 1 (only logged on Day 1, NOT on Day 2)
+
+        Bug behavior (before fix):
+        - Pushups: streak = 2 ✓
+        - Drinking water: streak = 2 ✗ (incorrectly incremented because last_date was yesterday)
+        """
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+
+        # Habit A "pushups": logged yesterday (Day 1) with streak=1, then logged today (Day 2) with streak=2
+        habit_a_id = "habit_pushups"
+        habit_a_log = HabitLog(
+            user_id="user123",
+            habit_id=habit_a_id,
+            streak_count=2,  # Current streak after Day 2 logging
+            habit_weight=10,
+            total_weight_applied=11.0,
+            last_completed_date=today  # Last logged TODAY (Day 2)
+        )
+
+        # Habit B "drinking water": logged yesterday (Day 1) with streak=1, NOT logged today (Day 2)
+        habit_b_id = "habit_water"
+        habit_b_log = HabitLog(
+            user_id="user123",
+            habit_id=habit_b_id,
+            streak_count=1,  # Current streak after Day 1 logging
+            habit_weight=10,
+            total_weight_applied=11.0,
+            last_completed_date=yesterday  # Last logged YESTERDAY (Day 1), NOT today
+        )
+
+        # Mock get_logs_by_user to return both habits
+        mock_habit_log_repo.get_logs_by_user.return_value = [habit_a_log, habit_b_log]
+
+        # Mock get_last_log_for_habit to return the appropriate log for each habit
+        def mock_get_last_log(user_id, habit_id):
+            if habit_id == habit_a_id:
+                return habit_a_log
+            elif habit_id == habit_b_id:
+                return habit_b_log
+            return None
+
+        mock_habit_log_repo.get_last_log_for_habit.side_effect = mock_get_last_log
+
+        with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+            streaks = streak_service.get_all_streaks_for_user("user123")
+
+        # Assertions
+        assert habit_a_id in streaks, "Pushups should be in streaks"
+        assert habit_b_id in streaks, "Drinking water should be in streaks"
+
+        # CRITICAL: Pushups logged today, so streak should be current value (2)
+        assert streaks[habit_a_id] == 2, "Pushups streak should be 2 (logged Day 1 and Day 2)"
+
+        # CRITICAL BUG TEST: Drinking water last logged YESTERDAY (not today)
+        # When checking current streaks (not logging a new habit), this should show 1, NOT 2
+        # The bug is that calculate_streak() increments when last_date==yesterday,
+        # which is correct when LOGGING a new habit, but INCORRECT when just CHECKING streaks
+        assert streaks[habit_b_id] == 1, (
+            "Drinking water streak should be 1 (only logged Day 1, not Day 2). "
+            "BUG: calculate_streak() incorrectly increments to 2 when last_date is yesterday, "
+            "even though we're not logging a new completion today."
+        )

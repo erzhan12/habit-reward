@@ -51,7 +51,7 @@ I am the only user for now, but the system should be scalable for multiple users
    - `name`, `weight`, `type` (virtual, real, none, cumulative), `is_cumulative`, `pieces_required`, `piece_value`
 
 4. **Reward Progress**
-   - `user_id`, `reward_id`, `pieces_earned`, `status` (Pending, Achieved, Completed), `progress_percent`, `status_emoji`, `actionable_now`
+   - `user_id`, `reward_id`, `pieces_earned`, `status` (Pending, Achieved, Completed), `progress_percent`, `status_emoji`
 
 5. **Habit Log**
    - `user_id`, `habit_id`, `timestamp`, `reward_id`, `got_reward`, `streak_count`, `habit_weight`, `total_weight_applied`

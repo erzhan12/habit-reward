@@ -19,7 +19,6 @@ class RewardProgress(BaseModel):
     reward_id: str = Field(..., description="Link to Rewards table (Airtable record ID)")
     pieces_earned: int = Field(default=0, description="Number of pieces earned so far")
     status: RewardStatus = Field(default=RewardStatus.PENDING, description="Current status of reward")
-    actionable_now: bool = Field(default=False, description="Whether reward can be claimed")
     pieces_required: int | None = Field(default=None, description="Cached from reward for calculations")
 
     @computed_field
@@ -44,7 +43,6 @@ class RewardProgress(BaseModel):
                 "reward_id": "recYYYYYYYYYYYYYY",
                 "pieces_earned": 7,
                 "pieces_required": 10,
-                "status": "🕒 Pending",
-                "actionable_now": False
+                "status": "🕒 Pending"
             }
         }

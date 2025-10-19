@@ -87,7 +87,7 @@ def render_progress_card(progress):
             target_value = (progress.pieces_required or 0) * reward.piece_value
             st.caption(f"Value: ${total_value:.2f} / ${target_value:.2f}")
 
-        if progress.actionable_now:
+        if progress.status == RewardStatus.ACHIEVED:
             st.success("⏳ Ready to claim!")
 
         st.divider()

@@ -114,9 +114,9 @@ This is the audit trail that populates automatically.
 - [X] `.env` file contains valid TELEGRAM_BOT_TOKEN
 - [X] `.env` file contains valid LLM_API_KEY (OpenAI)
 - [X] `.env` DEFAULT_USER_TELEGRAM_ID = 123456789
-- [ ] Telegram bot is running (`python src/bot/telegram_bot.py`)
+- [X] Telegram bot is running (`python src/bot/telegram_bot.py`)
 - [X] Can access bot in Telegram by username
-- [ ] Streamlit dashboard accessible (`streamlit run src/dashboard/app.py`)
+- [X] Streamlit dashboard accessible (`streamlit run src/dashboard/app.py`)
 
 **Your Setup Notes:**
 ```
@@ -1192,7 +1192,6 @@ Doubling effect confirmed: [ ] YES [ ] NO
   - pieces_earned = 1
   - pieces_required = 10
   - status = "🕒 Pending"
-  - actionable_now = false
 
 **Actual Results**:
 ```
@@ -1207,7 +1206,7 @@ Reward Progress entry created: [ ] YES [ ] NO
 
 pieces_earned: __________
 status: __________
-actionable_now: [ ] true [ ] false
+status: [ ] 🕒 Pending [ ] ⏳ Achieved [ ] ✅ Completed
 
 All correct: [ ] YES [ ] NO
 ```
@@ -1229,7 +1228,7 @@ All correct: [ ] YES [ ] NO
 **Expected Results**:
 - ✓ Each piece increments pieces_earned by 1
 - ✓ status remains "🕒 Pending" while < 10 pieces
-- ✓ actionable_now remains false
+- ✓ status remains "🕒 Pending"
 - ✓ Progress shown in bot: "You have X/10 pieces"
 
 **Actual Results**:
@@ -1267,7 +1266,6 @@ All increments correct: [ ] YES [ ] NO
 - ✓ Reward Progress entry updated:
   - pieces_earned = 10 (or more if random gave extra)
   - status = "⏳ Achieved"
-  - actionable_now = true
 
 **Actual Results**:
 ```
@@ -1278,7 +1276,7 @@ Bot message:
 
 pieces_earned: __________
 status: __________
-actionable_now: [ ] true [ ] false
+status: [ ] 🕒 Pending [ ] ⏳ Achieved [ ] ✅ Completed
 
 Achievement triggered correctly: [ ] YES [ ] NO
 
@@ -1338,7 +1336,6 @@ Free Coffee shown as achieved: [ ] YES [ ] NO
 - ✓ Bot confirms: "Congratulations! You've claimed your 'Free Coffee' reward!"
 - ✓ Reward Progress updated:
   - status = "✅ Completed"
-  - actionable_now = false
   - pieces_earned remains 10 (doesn't reset)
 
 **Actual Results**:
@@ -1349,7 +1346,7 @@ Bot response:
 
 
 status after claim: __________
-actionable_now after claim: [ ] true [ ] false
+status after claim: [ ] 🕒 Pending [ ] ⏳ Achieved [ ] ✅ Completed
 
 Claim successful: [ ] YES [ ] NO
 
@@ -1482,7 +1479,7 @@ Notes:
 **Expected Results**:
 - ✓ New entry created on first award
 - ✓ Initial status = "🕒 Pending"
-- ✓ actionable_now = false
+- ✓ status = "🕒 Pending"
 - ✓ pieces_earned = 1
 - ✓ pieces_required = 20
 
@@ -1493,7 +1490,7 @@ Entry created on first piece: [ ] YES [ ] NO
 Initial status: __________
 Expected: 🕒 Pending
 
-Initial actionable_now: [ ] true [ ] false
+Initial status: [ ] 🕒 Pending [ ] ⏳ Achieved [ ] ✅ Completed
 Expected: false
 
 Correct initial state: [ ] YES [ ] NO
@@ -1515,7 +1512,7 @@ Correct initial state: [ ] YES [ ] NO
 
 **Expected Results**:
 - ✓ status changes from "🕒 Pending" to "⏳ Achieved"
-- ✓ actionable_now changes from false to true
+- ✓ status changes from "🕒 Pending" to "⏳ Achieved"
 - ✓ Bot message includes celebration/notification
 
 **Actual Results**:
@@ -1523,8 +1520,8 @@ Correct initial state: [ ] YES [ ] NO
 Status before: __________
 Status after: __________
 
-actionable_now before: __________
-actionable_now after: __________
+status before: __________
+status after: __________
 
 Transition correct: [ ] YES [ ] NO
 
@@ -1547,7 +1544,7 @@ Bot notification received: [ ] YES [ ] NO
 
 **Expected Results**:
 - ✓ status changes from "⏳ Achieved" to "✅ Completed"
-- ✓ actionable_now changes from true to false
+- ✓ status changes from "⏳ Achieved" to "✅ Completed"
 - ✓ pieces_earned remains unchanged (doesn't reset)
 
 **Actual Results**:
@@ -1555,8 +1552,8 @@ Bot notification received: [ ] YES [ ] NO
 Status before claim: __________
 Status after claim: __________
 
-actionable_now before claim: __________
-actionable_now after claim: __________
+status before claim: __________
+status after claim: __________
 
 pieces_earned before: __________
 pieces_earned after: __________
@@ -1581,7 +1578,7 @@ Transition correct: [ ] YES [ ] NO
 
 **Expected Results**:
 - ✓ status changes to "🕒 Pending"
-- ✓ actionable_now = false
+- ✓ status = "🕒 Pending"
 - ✓ pieces_earned MAY reset to 0 (depending on implementation)
 - ✓ Bot confirms change
 
@@ -1593,7 +1590,7 @@ Bot response:
 
 
 Status after reset: __________
-actionable_now: __________
+status: __________
 pieces_earned: __________
 
 Manual reset working: [ ] YES [ ] NO
@@ -1905,7 +1902,7 @@ Piece counts accurate: [ ] YES [ ] NO
 **Expected Results**:
 - ✓ Bot confirms claim: "Congratulations! You've claimed..."
 - ✓ Reward status changes to "✅ Completed"
-- ✓ actionable_now becomes false
+- ✓ status becomes "✅ Completed"
 
 **Actual Results**:
 ```

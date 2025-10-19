@@ -352,6 +352,38 @@ Business logic lives in services (`src/services/`):
 
 Services coordinate between repositories and contain no direct Airtable calls.
 
+### Streak Service Pattern
+
+**CRITICAL**: The `StreakService` has two distinct methods for different use cases:
+
+1. **`calculate_streak(user_id, habit_id)`** - Used when LOGGING a new habit
+   - Returns what the NEXT streak will be after logging
+   - If `last_completed_date == yesterday`: increments streak (consecutive day)
+   - If `last_completed_date == today`: returns current streak (already logged today)
+   - If `last_completed_date < yesterday`: resets to 1 (streak broken)
+   - Used by: `habit_service.py` when processing habit completion
+
+2. **`get_current_streak(user_id, habit_id)`** - Used when DISPLAYING current streak status
+   - Returns the CURRENT streak from the most recent log
+   - Does NOT increment or calculate - just retrieves stored value
+   - Used by: `get_all_streaks_for_user()` for the `/streaks` command
+
+**Why Two Methods?**
+
+Bug discovered (2025-10): Using `calculate_streak()` for display caused incorrect results:
+- Day 1: User logs "pushups" and "water" (both streak=1)
+- Day 2: User logs only "pushups" (streak=2)
+- Day 2: User checks `/streaks`
+  - **Expected**: pushups=2, water=1
+  - **Bug**: pushups=2, water=2 (incorrectly incremented because last_date was yesterday)
+
+**Solution**: Created `get_current_streak()` that simply returns the stored streak value without any date-based calculation. This is correct for display purposes because the streak value in the log already represents the accurate state at the time of last completion.
+
+**Files Modified**:
+- `src/services/streak_service.py:68-93` - Added `get_current_streak()` method
+- `src/services/streak_service.py:117` - Changed `get_all_streaks_for_user()` to use `get_current_streak()`
+- `tests/test_streak_service.py:100-173` - Added comprehensive test for multi-habit scenario
+
 ## Import Pattern
 
 When importing repositories, always use:

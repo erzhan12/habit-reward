@@ -67,7 +67,6 @@ uv sync
 - reward_id (Link to Rewards)
 - pieces_earned (Number)
 - status (Single select: 🕒 Pending, ⏳ Achieved, ✅ Completed)
-- actionable_now (Checkbox)
 - pieces_required (Number)
 
 ### Habit Log
