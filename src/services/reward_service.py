@@ -79,7 +79,7 @@ class RewardService:
                 name="No reward",
                 weight=1.0,
                 type=RewardType.NONE,
-                is_cumulative=False
+                pieces_required=1
             )
 
         logger.debug(f"Found {len(rewards)} active rewards")
@@ -97,7 +97,7 @@ class RewardService:
                 name="No reward",
                 weight=1.0,
                 type=RewardType.NONE,
-                is_cumulative=False
+                pieces_required=1
             )
 
         # Calculate adjusted weights
@@ -138,22 +138,21 @@ class RewardService:
 
         return awarded_reward_ids
 
-    def update_cumulative_progress(
+    def update_reward_progress(
         self,
         user_id: str,
         reward_id: str
     ) -> RewardProgress:
         """
-        Update progress for a cumulative reward.
+        Update progress for any reward (unified system).
 
         Algorithm:
         1. Get or create reward progress entry
         2. Increment pieces_earned by 1
-        3. Check if pieces_earned >= pieces_required
-        4. If met: update status to "⏳ Achieved"
-        5. Otherwise: keep status as "🕒 Pending"
-        6. Update progress_percent
-        7. Save and return progress
+        3. Airtable formula automatically calculates status:
+           - If pieces_earned >= pieces_required: status = "⏳ Achieved"
+           - Otherwise: status = "🕒 Pending"
+        4. Save and return progress
 
         Args:
             user_id: Airtable record ID of the user
@@ -163,13 +162,13 @@ class RewardService:
             Updated RewardProgress object
         """
         # Get or create progress
-        logger.info(f"Updating cumulative progress for user={user_id}, reward={reward_id}")
+        logger.info(f"Updating reward progress for user={user_id}, reward={reward_id}")
         progress = self.progress_repo.get_by_user_and_reward(user_id, reward_id)
         reward = self.reward_repo.get_by_id(reward_id)
 
-        if not reward or not reward.is_cumulative:
-            logger.error(f"Reward {reward_id} is not cumulative or doesn't exist")
-            raise ValueError("Reward is not cumulative or doesn't exist")
+        if not reward:
+            logger.error(f"Reward {reward_id} doesn't exist")
+            raise ValueError("Reward doesn't exist")
 
         if progress is None:
             # Create new progress entry
@@ -178,7 +177,8 @@ class RewardService:
                 reward_id=reward_id,
                 pieces_earned=0,
                 status=RewardStatus.PENDING,
-                pieces_required=reward.pieces_required
+                pieces_required=reward.pieces_required,
+                claimed=False
             )
             progress = self.progress_repo.create(progress)
 
@@ -195,9 +195,9 @@ class RewardService:
 
         return updated_progress
 
-    def mark_reward_completed(self, user_id: str, reward_id: str) -> RewardProgress:
+    def mark_reward_claimed(self, user_id: str, reward_id: str) -> RewardProgress:
         """
-        Mark a reward as completed (claimed by user).
+        Mark a reward as claimed by user.
 
         Args:
             user_id: Airtable record ID of the user
@@ -205,6 +205,9 @@ class RewardService:
 
         Returns:
             Updated RewardProgress object
+
+        Raises:
+            ValueError: If progress not found or reward not in ACHIEVED status
         """
         progress = self.progress_repo.get_by_user_and_reward(user_id, reward_id)
 
@@ -212,47 +215,16 @@ class RewardService:
             raise ValueError("Reward progress not found")
 
         if progress.status != RewardStatus.ACHIEVED:
-            raise ValueError("Reward must be in 'Achieved' status to be marked completed")
+            raise ValueError("Reward must be in 'Achieved' status to be claimed")
 
+        # Update claimed field - Airtable formula will update status to "✅ Claimed"
         updated_progress = self.progress_repo.update(
             progress.id,
-            {}
+            {"claimed": True}
         )
 
         return updated_progress
 
-    def set_reward_status(
-        self,
-        user_id: str,
-        reward_id: str,
-        status: RewardStatus
-    ) -> RewardProgress:
-        """
-        Manually set reward status (admin function).
-        
-        Note: In Airtable, the status field is calculated automatically.
-        This method is kept for compatibility but will not update the status field
-        as it's managed by Airtable's calculated field functionality.
-
-        Args:
-            user_id: Airtable record ID of the user
-            reward_id: Airtable record ID of the reward
-            status: New status to set (ignored - calculated by Airtable)
-
-        Returns:
-            Current RewardProgress object
-        """
-        progress = self.progress_repo.get_by_user_and_reward(user_id, reward_id)
-
-        if not progress:
-            raise ValueError("Reward progress not found")
-
-        # Status is calculated by Airtable, so we just return the current progress
-        # If you need to force a status change, you would need to modify the
-        # pieces_earned field to trigger the Airtable calculation
-        logger.warning(f"Status field is calculated by Airtable. Current status: {progress.status}")
-        
-        return progress
 
     def get_active_rewards(self) -> list[Reward]:
         """

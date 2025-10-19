@@ -1,11 +1,10 @@
 """Unit tests for Airtable repositories."""
 
 import pytest
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from unittest.mock import Mock, patch
 
 from src.airtable.repositories import HabitLogRepository
-from src.models.habit_log import HabitLog
 
 
 @pytest.fixture

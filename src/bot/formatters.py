@@ -28,25 +28,22 @@ def format_habit_completion_message(result: HabitCompletionResult, language: str
     fire_emoji = "🔥" * min(result.streak_count, 5)
     message_parts.append(f"{fire_emoji} " + msg('FORMAT_STREAK', language, streak_count=result.streak_count))
 
-    # Reward result
+    # Reward result - all rewards now show progress
     if result.got_reward and result.reward:
-        if result.reward.type == RewardType.CUMULATIVE:
-            message_parts.append("\n" + msg('FORMAT_REWARD', language, reward_name=result.reward.name))
-            if result.cumulative_progress:
-                progress_bar = create_progress_bar(
-                    result.cumulative_progress.pieces_earned,
-                    result.cumulative_progress.pieces_required
-                )
-                message_parts.append(
-                    msg('FORMAT_PROGRESS', language,
-                        progress_bar=progress_bar,
-                        pieces_earned=result.cumulative_progress.pieces_earned,
-                        pieces_required=result.cumulative_progress.pieces_required)
-                )
-                if result.cumulative_progress.status == RewardStatus.ACHIEVED:
-                    message_parts.append(msg('INFO_REWARD_ACTIONABLE', language))
-        else:
-            message_parts.append("\n" + msg('FORMAT_REWARD', language, reward_name=result.reward.name))
+        message_parts.append("\n" + msg('FORMAT_REWARD', language, reward_name=result.reward.name))
+        if result.cumulative_progress:
+            progress_bar = create_progress_bar(
+                result.cumulative_progress.pieces_earned,
+                result.cumulative_progress.pieces_required
+            )
+            message_parts.append(
+                msg('FORMAT_PROGRESS', language,
+                    progress_bar=progress_bar,
+                    pieces_earned=result.cumulative_progress.pieces_earned,
+                    pieces_required=result.cumulative_progress.pieces_required)
+            )
+            if result.cumulative_progress.status == RewardStatus.ACHIEVED:
+                message_parts.append(msg('INFO_REWARD_ACTIONABLE', language))
     else:
         message_parts.append("\n" + msg('INFO_NO_REWARD', language))
 
@@ -136,13 +133,12 @@ def format_rewards_list_message(rewards: list[Reward], language: str = 'en') -> 
         type_emoji = {
             RewardType.VIRTUAL: "💎",
             RewardType.REAL: "🎁",
-            RewardType.NONE: "❌",
-            RewardType.CUMULATIVE: "📦"
+            RewardType.NONE: "❌"
         }.get(reward.type, "❓")
 
         reward_info = f"{type_emoji} <b>{reward.name}</b>"
 
-        if reward.is_cumulative and reward.pieces_required:
+        if reward.pieces_required > 1:
             reward_info += f" ({reward.pieces_required} pieces)"
 
         message_parts.append(reward_info)
@@ -194,7 +190,7 @@ def create_progress_bar(current: int, total: int, length: int | None = None) -> 
     """
     if length is None:
         length = settings.progress_bar_length
-        
+
     if total == 0:
         return "░" * length
 
@@ -202,3 +198,40 @@ def create_progress_bar(current: int, total: int, length: int | None = None) -> 
     filled = min(filled, length)  # Cap at length
 
     return "█" * filled + "░" * (length - filled)
+
+
+def format_claim_success_with_progress(
+    reward_name: str,
+    progress_list: list[RewardProgress],
+    rewards_dict: dict[str, Reward],
+    language: str = 'en'
+) -> str:
+    """
+    Format success message after claiming reward, including updated reward progress summary.
+
+    Args:
+        reward_name: Name of the reward that was just claimed
+        progress_list: List of all RewardProgress objects for the user
+        rewards_dict: Dictionary mapping reward_id to Reward object
+        language: Language code for translations
+
+    Returns:
+        Formatted message string with success header and updated progress
+    """
+    message_parts = []
+
+    # Success header
+    message_parts.append(msg('SUCCESS_REWARD_CLAIMED_HEADER', language, reward_name=reward_name))
+    message_parts.append("\n" + "─" * 30)
+
+    # Updated progress header
+    message_parts.append(msg('HEADER_UPDATED_REWARD_PROGRESS', language))
+
+    # Format each progress entry
+    for progress in progress_list:
+        reward = rewards_dict.get(progress.reward_id)
+        if reward:
+            progress_msg = format_reward_progress_message(progress, reward, language)
+            message_parts.append("\n" + progress_msg)
+
+    return "\n".join(message_parts)

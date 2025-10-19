@@ -47,7 +47,7 @@ def mock_reward():
         name="Coffee",
         weight=10,
         type=RewardType.REAL,
-        is_cumulative=False
+        pieces_required=1
     )
 
 
@@ -72,12 +72,27 @@ class TestHabitCompletion:
         mock_reward
     ):
         """Test successful habit completion flow."""
+        from src.models.reward_progress import RewardProgress, RewardStatus
+        
         # Setup mocks
         mock_user_repo.get_by_telegram_id.return_value = mock_user
         mock_habit_repo.get_by_name.return_value = mock_habit
         mock_streak_service.calculate_streak.return_value = 5
         mock_reward_service.calculate_total_weight.return_value = 1.5
         mock_reward_service.select_reward.return_value = mock_reward
+        mock_reward_service.get_todays_awarded_rewards.return_value = []
+        
+        # Mock reward progress return
+        mock_progress = RewardProgress(
+            id="prog1",
+            user_id=mock_user.id,
+            reward_id=mock_reward.id,
+            pieces_earned=1,
+            status=RewardStatus.ACHIEVED,
+            pieces_required=1,
+            claimed=False
+        )
+        mock_reward_service.update_reward_progress.return_value = mock_progress
 
         # Execute
         with patch.object(habit_service, 'user_repo', mock_user_repo), \
@@ -158,6 +173,7 @@ class TestHabitCompletion:
         mock_habit_repo.get_by_name.return_value = mock_habit
         mock_streak_service.calculate_streak.return_value = 3
         mock_reward_service.calculate_total_weight.return_value = 1.3
+        mock_reward_service.get_todays_awarded_rewards.return_value = []
 
         # Create none reward
         none_reward = Reward(
@@ -165,7 +181,7 @@ class TestHabitCompletion:
             name="No reward",
             weight=10,
             type=RewardType.NONE,
-            is_cumulative=False
+            pieces_required=1
         )
         mock_reward_service.select_reward.return_value = none_reward
 

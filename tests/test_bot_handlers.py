@@ -10,8 +10,7 @@ from src.bot.handlers.habit_done_handler import habit_done_command
 from src.bot.handlers.streak_handler import streaks_command
 from src.bot.handlers.reward_handlers import (
     my_rewards_command,
-    claim_reward_command,
-    set_reward_status_command
+    claim_reward_command
 )
 from src.models.user import User
 from src.models.habit import Habit
@@ -483,36 +482,5 @@ class TestClaimRewardCommand:
         )
 
 
-class TestSetRewardStatusCommand:
-    """Test /set_reward_status command handler with multi-language support."""
-
-    @pytest.fixture
-    def mock_context(self):
-        """Create mock context with args."""
-        context = Mock()
-        context.args = ["Coffee", "achieved"]
-        return context
-
-    @pytest.mark.asyncio
-    @patch('src.bot.handlers.reward_handlers.user_repository')
-    async def test_user_not_found(self, mock_user_repo, mock_telegram_update, mock_context, language):
-        """User not found should return error in user's language."""
-        mock_user_repo.get_by_telegram_id.return_value = None
-
-        await set_reward_status_command(mock_telegram_update, context=mock_context)
-
-        mock_telegram_update.message.reply_text.assert_called_once_with(
-            msg('ERROR_USER_NOT_FOUND', language)
-        )
-
-    @pytest.mark.asyncio
-    @patch('src.bot.handlers.reward_handlers.user_repository')
-    async def test_user_inactive(self, mock_user_repo, mock_telegram_update, mock_inactive_user, mock_context, language):
-        """Inactive user should be blocked from /set_reward_status with localized message."""
-        mock_user_repo.get_by_telegram_id.return_value = mock_inactive_user
-
-        await set_reward_status_command(mock_telegram_update, context=mock_context)
-
-        mock_telegram_update.message.reply_text.assert_called_once_with(
-            msg('ERROR_USER_INACTIVE', language)
-        )
+# Note: set_reward_status_command has been deprecated and removed in Feature 0005
+# Status is now automatically computed by Airtable based on pieces_earned and claimed fields

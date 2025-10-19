@@ -1,7 +1,7 @@
 """Habit log model for tracking habit completions."""
 
 from datetime import datetime, date
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class HabitLog(BaseModel):
@@ -18,9 +18,8 @@ class HabitLog(BaseModel):
     total_weight_applied: float = Field(..., description="Total calculated weight (habit × user × streak multiplier)")
     last_completed_date: date = Field(default_factory=date.today, description="Date of completion (for streak tracking)")
 
-    class Config:
-        """Pydantic configuration."""
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "user_id": "recXXXXXXXXXXXXXX",
                 "habit_id": "recYYYYYYYYYYYYYY",
@@ -32,3 +31,4 @@ class HabitLog(BaseModel):
                 "last_completed_date": "2024-01-15"
             }
         }
+    )

@@ -10,11 +10,11 @@ from src.bot.handlers.habit_done_handler import habit_done_conversation
 from src.bot.handlers.reward_handlers import (
     list_rewards_command,
     my_rewards_command,
-    claim_reward_command,
-    set_reward_status_command,
+    claim_reward_conversation,
     add_reward_command
 )
 from src.bot.handlers.streak_handler import streaks_command
+from src.bot.handlers.settings_handler import settings_conversation
 from src.airtable.repositories import user_repository
 from src.bot.messages import msg
 from src.bot.language import get_message_language, detect_language_from_telegram
@@ -121,12 +121,14 @@ def main():
     # Add reward handlers
     application.add_handler(CommandHandler("list_rewards", list_rewards_command))
     application.add_handler(CommandHandler("my_rewards", my_rewards_command))
-    application.add_handler(CommandHandler("claim_reward", claim_reward_command))
-    application.add_handler(CommandHandler("set_reward_status", set_reward_status_command))
+    application.add_handler(claim_reward_conversation)
     application.add_handler(CommandHandler("add_reward", add_reward_command))
 
     # Add streak handler
     application.add_handler(CommandHandler("streaks", streaks_command))
+
+    # Add settings handler
+    application.add_handler(settings_conversation)
 
     # Start the bot
     logger.info("Starting bot...")

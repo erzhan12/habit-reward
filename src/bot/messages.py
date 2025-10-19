@@ -32,23 +32,26 @@ class Messages:
     INFO_FEATURE_COMING_SOON = "🎁 <b>Add New Reward</b>\n\nThis feature will guide you through creating a new reward.\nFor now, please add rewards directly in Airtable.\n\nComing soon: conversational reward creation!"
     INFO_CANCELLED = "Habit logging cancelled."
     INFO_MULTIPLE_HABITS = "I also detected: {other_habits}. Use /habit_done to log those separately."
+    INFO_NO_REWARDS_TO_CLAIM = "You have no rewards ready to claim yet. Keep logging habits to earn rewards!"
 
     # Usage/Help Messages
     HELP_CLAIM_REWARD_USAGE = "Usage: /claim_reward <reward_name>\nExample: /claim_reward Coffee at favorite cafe"
-    HELP_SET_STATUS_USAGE = "Usage: /set_reward_status <reward_name> <status>\nStatus options: pending, achieved, completed\nExample: /set_reward_status Coffee pending"
     HELP_HABIT_SELECTION = "Which habit did you complete? 🎯\n\nSelect from the list below:"
     HELP_CUSTOM_TEXT = "Please type what habit you completed:"
+    HELP_SELECT_REWARD_TO_CLAIM = "🎁 <b>Select a reward to claim:</b>"
 
     # Success Messages
     SUCCESS_HABIT_COMPLETED = "✅ <b>Habit completed:</b> {habit_name}"
     SUCCESS_REWARD_CLAIMED = "✅ Reward claimed: <b>{reward_name}</b>\nStatus: {status}\n\nCongratulations! 🎉"
     SUCCESS_STATUS_UPDATED = "✅ Reward status updated: <b>{reward_name}</b>\nNew status: {status}"
+    SUCCESS_REWARD_CLAIMED_HEADER = "✅ <b>Reward claimed:</b> {reward_name}"
 
     # Headers/Titles
     HEADER_REWARD_PROGRESS = "🎁 <b>Your Reward Progress:</b>\n"
     HEADER_STREAKS = "🔥 <b>Your Current Streaks:</b>\n"
     HEADER_REWARDS_LIST = "🎁 <b>Available Rewards:</b>\n"
     HEADER_HABIT_LOGS = "📋 <b>Recent Habit Completions:</b>\n"
+    HEADER_UPDATED_REWARD_PROGRESS = "\n📊 <b>Your updated reward progress:</b>"
 
     # Welcome/Help Messages
     HELP_START_MESSAGE = """🎯 <b>Welcome to Habit Reward System!</b>
@@ -60,8 +63,8 @@ Track your habits and earn rewards!
 /streaks - View your current streaks
 /list_rewards - See all available rewards
 /my_rewards - Check your reward progress
-/claim_reward &lt;name&gt; - Claim an achieved reward
-/set_reward_status &lt;name&gt; &lt;status&gt; - Update reward status
+/claim_reward - Claim an achieved reward
+/settings - Change language and preferences
 /help - Show this help message"""
 
     HELP_COMMAND_MESSAGE = """🎯 <b>Habit Reward System Help</b>
@@ -73,8 +76,10 @@ Track your habits and earn rewards!
 <b>Reward Commands:</b>
 /list_rewards - List all available rewards
 /my_rewards - View your cumulative reward progress
-/claim_reward &lt;name&gt; - Mark an achieved reward as completed
-/set_reward_status &lt;name&gt; &lt;status&gt; - Manually update reward status
+/claim_reward - Mark an achieved reward as completed
+
+<b>Settings:</b>
+/settings - Change language and preferences
 
 <b>How it works:</b>
 1. Complete a habit using /habit_done
@@ -93,6 +98,14 @@ Your streak multiplier increases your chances of getting rewards!"""
     FORMAT_NO_REWARDS_YET = "No rewards configured yet."
     FORMAT_NO_STREAKS = "No habits logged yet. Start building your streaks!"
     FORMAT_NO_LOGS = "No habit logs found."
+
+    # Settings Menu
+    SETTINGS_MENU = "⚙️ <b>Settings</b>\n\nSelect an option:"
+    SETTINGS_SELECT_LANGUAGE = "🌐 Select Language"
+    SETTINGS_BACK = "← Back to Settings"
+
+    # Language Selection
+    LANGUAGE_SELECTION_MENU = "🌐 <b>Select Language</b>\n\nChoose your preferred language:"
 
     # Translations dictionary for Phase 1
     _TRANSLATIONS = {
@@ -119,23 +132,26 @@ Your streak multiplier increases your chances of getting rewards!"""
             'INFO_FEATURE_COMING_SOON': "🎁 <b>Добавить новую награду</b>\n\nЭта функция проведёт вас через создание новой награды.\nПока что добавляйте награды в Airtable.\n\nСкоро: создание наград через бота!",
             'INFO_CANCELLED': "Регистрация привычки отменена.",
             'INFO_MULTIPLE_HABITS': "Также обнаружены: {other_habits}. Используйте /habit_done для их регистрации.",
+            'INFO_NO_REWARDS_TO_CLAIM': "У вас пока нет наград для получения. Продолжайте регистрировать привычки, чтобы заработать награды!",
 
             # Usage/Help Messages
             'HELP_CLAIM_REWARD_USAGE': "Использование: /claim_reward <название_награды>\nПример: /claim_reward Кофе в любимом кафе",
-            'HELP_SET_STATUS_USAGE': "Использование: /set_reward_status <название_награды> <статус>\nВарианты статуса: pending, achieved, completed\nПример: /set_reward_status Кофе pending",
             'HELP_HABIT_SELECTION': "Какую привычку вы выполнили? 🎯\n\nВыберите из списка ниже:",
             'HELP_CUSTOM_TEXT': "Напишите, какую привычку вы выполнили:",
+            'HELP_SELECT_REWARD_TO_CLAIM': "🎁 <b>Выберите награду для получения:</b>",
 
             # Success Messages
             'SUCCESS_HABIT_COMPLETED': "✅ <b>Привычка выполнена:</b> {habit_name}",
             'SUCCESS_REWARD_CLAIMED': "✅ Награда получена: <b>{reward_name}</b>\nСтатус: {status}\n\nПоздравляем! 🎉",
             'SUCCESS_STATUS_UPDATED': "✅ Статус награды обновлён: <b>{reward_name}</b>\nНовый статус: {status}",
+            'SUCCESS_REWARD_CLAIMED_HEADER': "✅ <b>Награда получена:</b> {reward_name}",
 
             # Headers/Titles
             'HEADER_REWARD_PROGRESS': "🎁 <b>Ваш прогресс по наградам:</b>\n",
             'HEADER_STREAKS': "🔥 <b>Ваши текущие серии:</b>\n",
             'HEADER_REWARDS_LIST': "🎁 <b>Доступные награды:</b>\n",
             'HEADER_HABIT_LOGS': "📋 <b>Недавние выполнения привычек:</b>\n",
+            'HEADER_UPDATED_REWARD_PROGRESS': "\n📊 <b>Ваш обновлённый прогресс по наградам:</b>",
 
             # Welcome/Help Messages
             'HELP_START_MESSAGE': """🎯 <b>Добро пожаловать в систему наград за привычки!</b>
@@ -147,8 +163,8 @@ Your streak multiplier increases your chances of getting rewards!"""
 /streaks - Посмотреть текущие серии
 /list_rewards - Посмотреть все доступные награды
 /my_rewards - Проверить прогресс по наградам
-/claim_reward &lt;название&gt; - Забрать достигнутую награду
-/set_reward_status &lt;название&gt; &lt;статус&gt; - Обновить статус награды
+/claim_reward - Забрать достигнутую награду
+/settings - Изменить язык и настройки
 /help - Показать это сообщение помощи""",
 
             'HELP_COMMAND_MESSAGE': """🎯 <b>Помощь по системе наград за привычки</b>
@@ -160,8 +176,10 @@ Your streak multiplier increases your chances of getting rewards!"""
 <b>Команды наград:</b>
 /list_rewards - Показать все доступные награды
 /my_rewards - Посмотреть накопленный прогресс по наградам
-/claim_reward &lt;название&gt; - Отметить достигнутую награду как завершённую
-/set_reward_status &lt;название&gt; &lt;статус&gt; - Вручную обновить статус награды
+/claim_reward - Отметить достигнутую награду как завершённую
+
+<b>Настройки:</b>
+/settings - Изменить язык и настройки
 
 <b>Как это работает:</b>
 1. Выполняйте привычки через /habit_done
@@ -180,6 +198,14 @@ Your streak multiplier increases your chances of getting rewards!"""
             'FORMAT_NO_REWARDS_YET': "Награды ещё не настроены.",
             'FORMAT_NO_STREAKS': "Привычки ещё не зарегистрированы. Начните создавать серии!",
             'FORMAT_NO_LOGS': "Записи о привычках не найдены.",
+
+            # Settings Menu
+            'SETTINGS_MENU': "⚙️ <b>Настройки</b>\n\nВыберите опцию:",
+            'SETTINGS_SELECT_LANGUAGE': "🌐 Выбрать язык",
+            'SETTINGS_BACK': "← Назад в настройки",
+
+            # Language Selection
+            'LANGUAGE_SELECTION_MENU': "🌐 <b>Выбрать язык</b>\n\nВыберите предпочитаемый язык:",
         },
         'kk': {
             # Error Messages - User Validation
@@ -204,23 +230,26 @@ Your streak multiplier increases your chances of getting rewards!"""
             'INFO_FEATURE_COMING_SOON': "🎁 <b>Жаңа сыйлық қосу</b>\n\nБұл функция жаңа сыйлық жасауға жетелейді.\nҚазірше Airtable арқылы сыйлықтар қосыңыз.\n\nЖақында: бот арқылы сыйлықтар жасау!",
             'INFO_CANCELLED': "Әдетті тіркеу болдырылмады.",
             'INFO_MULTIPLE_HABITS': "Сондай-ақ табылды: {other_habits}. Оларды тіркеу үшін /habit_done пайдаланыңыз.",
+            'INFO_NO_REWARDS_TO_CLAIM': "Әлі алуға дайын сыйлықтарыңыз жоқ. Сыйлықтар табу үшін әдеттерді тіркеуді жалғастырыңыз!",
 
             # Usage/Help Messages
             'HELP_CLAIM_REWARD_USAGE': "Пайдалану: /claim_reward <сыйлық_аты>\nМысал: /claim_reward Сүйікті кафеде кофе",
-            'HELP_SET_STATUS_USAGE': "Пайдалану: /set_reward_status <сыйлық_аты> <статус>\nСтатус нұсқалары: pending, achieved, completed\nМысал: /set_reward_status Кофе pending",
             'HELP_HABIT_SELECTION': "Қандай әдетті орындадыңыз? 🎯\n\nТөмендегі тізімнен таңдаңыз:",
             'HELP_CUSTOM_TEXT': "Қандай әдетті орындағаныңызды жазыңыз:",
+            'HELP_SELECT_REWARD_TO_CLAIM': "🎁 <b>Алатын сыйлықты таңдаңыз:</b>",
 
             # Success Messages
             'SUCCESS_HABIT_COMPLETED': "✅ <b>Әдет орындалды:</b> {habit_name}",
             'SUCCESS_REWARD_CLAIMED': "✅ Сыйлық алынды: <b>{reward_name}</b>\nСтатус: {status}\n\nКұттықтаймыз! 🎉",
             'SUCCESS_STATUS_UPDATED': "✅ Сыйлық статусы жаңартылды: <b>{reward_name}</b>\nЖаңа статус: {status}",
+            'SUCCESS_REWARD_CLAIMED_HEADER': "✅ <b>Сыйлық алынды:</b> {reward_name}",
 
             # Headers/Titles
             'HEADER_REWARD_PROGRESS': "🎁 <b>Сіздің сыйлық бойынша прогресс:</b>\n",
             'HEADER_STREAKS': "🔥 <b>Сіздің ағымдағы сериялар:</b>\n",
             'HEADER_REWARDS_LIST': "🎁 <b>Қолжетімді сыйлықтар:</b>\n",
             'HEADER_HABIT_LOGS': "📋 <b>Соңғы орындалған әдеттер:</b>\n",
+            'HEADER_UPDATED_REWARD_PROGRESS': "\n📊 <b>Сіздің жаңартылған сыйлық прогресі:</b>",
 
             # Welcome/Help Messages
             'HELP_START_MESSAGE': """🎯 <b>Әдеттер үшін сыйлықтар жүйесіне қош келдіңіз!</b>
@@ -232,8 +261,8 @@ Your streak multiplier increases your chances of getting rewards!"""
 /streaks - Ағымдағы сериялар көру
 /list_rewards - Барлық қолжетімді сыйлықтарды көру
 /my_rewards - Сыйлықтар бойынша прогресті тексеру
-/claim_reward &lt;атау&gt; - Қол жеткізілген сыйлықты алу
-/set_reward_status &lt;атау&gt; &lt;статус&gt; - Сыйлық статусын жаңарту
+/claim_reward - Қол жеткізілген сыйлықты алу
+/settings - Тілді және параметрлерді өзгерту
 /help - Осы анықтаманы көрсету""",
 
             'HELP_COMMAND_MESSAGE': """🎯 <b>Әдеттер үшін сыйлықтар жүйесі бойынша анықтама</b>
@@ -245,10 +274,12 @@ Your streak multiplier increases your chances of getting rewards!"""
 <b>Сыйлықтар командалары:</b>
 /list_rewards - Барлық қолжетімді сыйлықтарды көрсету
 /my_rewards - Жинақталған сыйлық прогресін көру
-/claim_reward &lt;атау&gt; - Қол жеткізілген сыйлықты аяқталған деп белгілеу
-/set_reward_status &lt;атау&gt; &lt;статус&gt; - Сыйлық статусын қолмен жаңарту
+/claim_reward - Қол жеткізілген сыйлықты аяқталған деп белгілеу
 
-<b>Бұл қалай жұмыс істейді:</b>
+<b>Параметрлер:</b>
+/settings - Тілді және параметрлерді өзгерту
+
+<b>Бұл қалай жұмысістейді:</b>
 1. /habit_done арқылы әдеттерді орындаңыз
 2. Әдеттерді күн сайын орындау арқылы сериялар жасаңыз
 3. Сыйлық бөліктерін жинаңыз (жинақталатын сыйлықтар)
@@ -265,6 +296,14 @@ Your streak multiplier increases your chances of getting rewards!"""
             'FORMAT_NO_REWARDS_YET': "Сыйлықтар әлі конфигурацияланбаған.",
             'FORMAT_NO_STREAKS': "Әдеттер әлі тіркелмеген. Сериялар жасауды бастаңыз!",
             'FORMAT_NO_LOGS': "Әдеттер туралы жазбалар табылмады.",
+
+            # Settings Menu
+            'SETTINGS_MENU': "⚙️ <b>Параметрлер</b>\n\nОпцияны таңдаңыз:",
+            'SETTINGS_SELECT_LANGUAGE': "🌐 Тілді таңдау",
+            'SETTINGS_BACK': "← Параметрлерге оралу",
+
+            # Language Selection
+            'LANGUAGE_SELECTION_MENU': "🌐 <b>Тілді таңдау</b>\n\nҚалаған тіліңізді таңдаңыз:",
         }
     }
 

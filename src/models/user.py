@@ -1,6 +1,6 @@
 """User model representing users in the system."""
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class User(BaseModel):
@@ -41,9 +41,8 @@ class User(BaseModel):
             return 'en'
         return str(v).lower()[:2]  # Ensure 2-letter lowercase code
 
-    class Config:
-        """Pydantic configuration."""
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "telegram_id": "123456789",
                 "name": "John Doe",
@@ -51,3 +50,4 @@ class User(BaseModel):
                 "language": "en"
             }
         }
+    )

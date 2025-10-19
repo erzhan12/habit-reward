@@ -47,7 +47,7 @@ def render_actionable_rewards(user_id: str):
                     use_container_width=True
                 ):
                     try:
-                        reward_service.mark_reward_completed(user_id, reward.id)
+                        reward_service.mark_reward_claimed(user_id, reward.id)
                         st.success(f"Claimed: {reward.name}!")
                         st.rerun()
                     except ValueError as e:

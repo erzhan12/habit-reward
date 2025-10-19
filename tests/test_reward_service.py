@@ -95,10 +95,9 @@ class TestCumulativeProgress:
         """Test creating new progress entry."""
         mock_reward = Reward(
             id="r1",
-            name="Cumulative Reward",
+            name="Multi-piece Reward",
             weight=10,
-            type=RewardType.CUMULATIVE,
-            is_cumulative=True,
+            type=RewardType.REAL,
             pieces_required=10,
             piece_value=1.0
         )
@@ -130,19 +129,18 @@ class TestCumulativeProgress:
 
         with patch.object(reward_service, 'reward_repo', mock_reward_repo), \
              patch.object(reward_service, 'progress_repo', mock_progress_repo):
-            updated = reward_service.update_cumulative_progress("user123", "r1")
+            updated = reward_service.update_reward_progress("user123", "r1")
 
         assert updated.pieces_earned == 1
         assert updated.status == RewardStatus.PENDING
 
     def test_achieve_cumulative_reward(self, reward_service, mock_reward_repo, mock_progress_repo):
-        """Test achieving cumulative reward when pieces met."""
+        """Test achieving reward when pieces requirement met."""
         mock_reward = Reward(
             id="r1",
-            name="Cumulative Reward",
+            name="Multi-piece Reward",
             weight=10,
-            type=RewardType.CUMULATIVE,
-            is_cumulative=True,
+            type=RewardType.REAL,
             pieces_required=10,
             piece_value=1.0
         )
@@ -176,42 +174,43 @@ class TestCumulativeProgress:
 
         with patch.object(reward_service, 'reward_repo', mock_reward_repo), \
              patch.object(reward_service, 'progress_repo', mock_progress_repo):
-            updated = reward_service.update_cumulative_progress("user123", "r1")
+            updated = reward_service.update_reward_progress("user123", "r1")
 
         assert updated.pieces_earned == 10
         assert updated.status == RewardStatus.ACHIEVED
-        assert updated.status == RewardStatus.ACHIEVED
 
-    def test_mark_reward_completed(self, reward_service, mock_progress_repo):
-        """Test marking reward as completed."""
+    def test_mark_reward_claimed(self, reward_service, mock_progress_repo):
+        """Test marking reward as claimed."""
         achieved_progress = RewardProgress(
             id="prog1",
             user_id="user123",
             reward_id="r1",
             pieces_earned=10,
             status=RewardStatus.ACHIEVED,
-            pieces_required=10
+            pieces_required=10,
+            claimed=False
         )
         mock_progress_repo.get_by_user_and_reward.return_value = achieved_progress
 
         def mock_update(progress_id, updates):
-            # For mark_reward_completed, no fields are updated (empty updates dict)
-            # Status remains as it was (ACHIEVED)
+            # When claimed=True is set, Airtable formula updates status to CLAIMED
             return RewardProgress(
                 id=progress_id,
                 user_id="user123",
                 reward_id="r1",
                 pieces_earned=10,
-                status=RewardStatus.ACHIEVED,
-                pieces_required=10
+                status=RewardStatus.CLAIMED,
+                pieces_required=10,
+                claimed=True
             )
 
         mock_progress_repo.update.side_effect = mock_update
 
         with patch.object(reward_service, 'progress_repo', mock_progress_repo):
-            updated = reward_service.mark_reward_completed("user123", "r1")
+            updated = reward_service.mark_reward_claimed("user123", "r1")
 
-        # Since status is now calculated by Airtable and we're not updating any fields,
-        # the status remains ACHIEVED (the test would need to be updated when we implement
-        # a proper field to trigger the COMPLETED status in Airtable)
-        assert updated.status == RewardStatus.ACHIEVED
+        # Verify update was called with claimed=True
+        mock_progress_repo.update.assert_called_once_with("prog1", {"claimed": True})
+        # Status should be CLAIMED after claiming
+        assert updated.status == RewardStatus.CLAIMED
+        assert updated.claimed is True

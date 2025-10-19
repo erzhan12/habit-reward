@@ -25,10 +25,8 @@ class RewardRepository(BaseRepository):
             "name": reward.name,
             "weight": reward.weight,
             "type": reward.type.value,
-            "is_cumulative": reward.is_cumulative
+            "pieces_required": reward.pieces_required
         }
-        if reward.pieces_required is not None:
-            data["pieces_required"] = reward.pieces_required
         if reward.piece_value is not None:
             data["piece_value"] = reward.piece_value
 

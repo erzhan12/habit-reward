@@ -1,18 +1,18 @@
 """Reward progress model for tracking cumulative reward completion."""
 
 from enum import Enum
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, ConfigDict
 
 
 class RewardStatus(str, Enum):
-    """Status of cumulative reward progress."""
+    """Status of reward progress."""
     PENDING = "🕒 Pending"
     ACHIEVED = "⏳ Achieved"
-    COMPLETED = "✅ Completed"
+    CLAIMED = "✅ Claimed"
 
 
 class RewardProgress(BaseModel):
-    """Model for tracking progress toward cumulative rewards."""
+    """Model for tracking progress toward rewards."""
 
     id: str | None = None  # Airtable record ID
     user_id: str = Field(..., description="Link to Users table (Airtable record ID)")
@@ -20,6 +20,7 @@ class RewardProgress(BaseModel):
     pieces_earned: int = Field(default=0, description="Number of pieces earned so far")
     status: RewardStatus = Field(default=RewardStatus.PENDING, description="Current status of reward")
     pieces_required: int | None = Field(default=None, description="Cached from reward for calculations")
+    claimed: bool = Field(default=False, description="Whether user has claimed this reward")
 
     @computed_field
     @property
@@ -35,9 +36,8 @@ class RewardProgress(BaseModel):
         """Get emoji for current status."""
         return self.status.value.split()[0]
 
-    class Config:
-        """Pydantic configuration."""
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "user_id": "recXXXXXXXXXXXXXX",
                 "reward_id": "recYYYYYYYYYYYYYY",
@@ -46,3 +46,4 @@ class RewardProgress(BaseModel):
                 "status": "🕒 Pending"
             }
         }
+    )

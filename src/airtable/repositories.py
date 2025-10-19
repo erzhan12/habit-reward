@@ -123,10 +123,8 @@ class RewardRepository(BaseRepository):
             "name": reward.name,
             "weight": reward.weight,
             "type": reward.type.value,
-            "is_cumulative": reward.is_cumulative
+            "pieces_required": reward.pieces_required
         }
-        if reward.pieces_required is not None:
-            data["pieces_required"] = reward.pieces_required
         if reward.piece_value is not None:
             data["piece_value"] = reward.piece_value
 
@@ -161,9 +159,12 @@ class RewardRepository(BaseRepository):
         if isinstance(fields.get("weight"), list):
             fields["weight"] = fields["weight"][0] if fields["weight"] else None
         if isinstance(fields.get("pieces_required"), list):
-            fields["pieces_required"] = fields["pieces_required"][0] if fields["pieces_required"] else None
+            fields["pieces_required"] = fields["pieces_required"][0] if fields["pieces_required"] else 1
         if isinstance(fields.get("piece_value"), list):
             fields["piece_value"] = fields["piece_value"][0] if fields["piece_value"] else None
+        # Default pieces_required to 1 if not present
+        if "pieces_required" not in fields or fields["pieces_required"] is None:
+            fields["pieces_required"] = 1
         fields["type"] = RewardType(fields.get("type", "none"))
         return Reward(**fields)
 
@@ -180,8 +181,8 @@ class RewardProgressRepository(BaseRepository):
         record = self.table.create({
             "user_id": [progress.user_id],
             "reward_id": [progress.reward_id],
-            "pieces_earned": progress.pieces_earned,
-            "pieces_required": progress.pieces_required
+            "pieces_earned": progress.pieces_earned
+            # Note: pieces_required is a computed field in Airtable (from linked Reward)
         })
         return self._record_to_progress(record)
 
@@ -231,6 +232,8 @@ class RewardProgressRepository(BaseRepository):
             fields["pieces_earned"] = fields["pieces_earned"][0] if fields["pieces_earned"] else None
         if isinstance(fields.get("pieces_required"), list):
             fields["pieces_required"] = fields["pieces_required"][0] if fields["pieces_required"] else None
+        # Handle claimed field (checkbox)
+        fields["claimed"] = fields.get("claimed", False)
         # Parse status enum
         status_value = fields.get("status", "🕒 Pending")
         fields["status"] = RewardStatus(status_value)

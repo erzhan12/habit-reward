@@ -2,20 +2,29 @@
 
 import logging
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import (
+    ContextTypes,
+    ConversationHandler,
+    CommandHandler,
+    CallbackQueryHandler
+)
 
 from src.services.reward_service import reward_service
 from src.airtable.repositories import user_repository, reward_repository
 from src.bot.formatters import (
     format_reward_progress_message,
-    format_rewards_list_message
+    format_rewards_list_message,
+    format_claim_success_with_progress
 )
-from src.models.reward_progress import RewardStatus
+from src.bot.keyboards import build_claimable_rewards_keyboard
 from src.bot.messages import msg
 from src.bot.language import get_message_language
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Conversation states
+AWAITING_REWARD_SELECTION = 1
 
 
 async def list_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -85,24 +94,17 @@ async def my_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     logger.info(f"📤 Sent reward progress to {telegram_id}")
 
 
-async def claim_reward_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /claim_reward <reward_name> command."""
+async def claim_reward_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Start /claim_reward conversation flow.
+
+    Shows inline keyboard with achieved rewards or informative message if none.
+    """
     telegram_id = str(update.effective_user.id)
     username = update.effective_user.username or "N/A"
     logger.info(f"📨 Received /claim_reward command from user {telegram_id} (@{username})")
     lang = get_message_language(telegram_id, update)
 
-    if not context.args:
-        logger.warning(f"⚠️ User {telegram_id} called /claim_reward without arguments")
-        await update.message.reply_text(
-            msg('HELP_CLAIM_REWARD_USAGE', lang)
-        )
-        logger.info(f"📤 Sent usage help to {telegram_id}")
-        return
-
-    reward_name = " ".join(context.args)
-    logger.info(f"🎁 User {telegram_id} attempting to claim reward: '{reward_name}'")
-
     # Validate user exists
     user = user_repository.get_by_telegram_id(telegram_id)
     if not user:
@@ -111,7 +113,7 @@ async def claim_reward_command(update: Update, context: ContextTypes.DEFAULT_TYP
             msg('ERROR_USER_NOT_FOUND', lang)
         )
         logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
-        return
+        return ConversationHandler.END
 
     # Check if user is active
     if not user.active:
@@ -120,129 +122,134 @@ async def claim_reward_command(update: Update, context: ContextTypes.DEFAULT_TYP
             msg('ERROR_USER_INACTIVE', lang)
         )
         logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
-        return
+        return ConversationHandler.END
 
-    # Get reward by name
-    reward = reward_repository.get_by_name(reward_name)
-    if not reward:
-        logger.warning(f"⚠️ Reward '{reward_name}' not found for user {telegram_id}")
-        await update.message.reply_text(
-            msg('ERROR_REWARD_NOT_FOUND', lang, reward_name=reward_name)
-        )
-        logger.info(f"📤 Sent ERROR_REWARD_NOT_FOUND message to {telegram_id}")
-        return
+    # Get achieved rewards
+    achieved_rewards = reward_service.get_actionable_rewards(user.id)
+    logger.info(f"🔍 Found {len(achieved_rewards)} achieved rewards for user {telegram_id}")
 
-    try:
-        # Mark as completed
-        logger.info(f"⚙️ Marking reward '{reward_name}' as completed for user {telegram_id}")
-        updated_progress = reward_service.mark_reward_completed(user.id, reward.id)
+    if not achieved_rewards:
+        logger.info(f"ℹ️ No achieved rewards found for user {telegram_id}")
+        await update.message.reply_text(msg('INFO_NO_REWARDS_TO_CLAIM', lang))
+        logger.info(f"📤 Sent INFO_NO_REWARDS_TO_CLAIM message to {telegram_id}")
+        return ConversationHandler.END
 
-        logger.info(f"✅ Reward '{reward_name}' claimed successfully by user {telegram_id}. Status: {updated_progress.status.value}")
-        await update.message.reply_text(
-            msg('SUCCESS_REWARD_CLAIMED', lang,
-                reward_name=reward.name,
-                status=updated_progress.status.value),
-            parse_mode="HTML"
-        )
-        logger.info(f"📤 Sent success message to {telegram_id}")
+    # Build rewards dictionary for keyboard
+    rewards_dict = _get_rewards_dict(achieved_rewards)
 
-    except ValueError as e:
-        logger.error(f"❌ Error claiming reward for user {telegram_id}: {str(e)}")
-        await update.message.reply_text(
-            msg('ERROR_GENERAL', lang, error=str(e))
-        )
-        logger.info(f"📤 Sent error message to {telegram_id}")
+    # Build and send keyboard
+    keyboard = build_claimable_rewards_keyboard(achieved_rewards, rewards_dict, lang)
+    logger.info(f"✅ Showing claimable rewards keyboard to {telegram_id} with {len(achieved_rewards)} rewards")
+    await update.message.reply_text(
+        msg('HELP_SELECT_REWARD_TO_CLAIM', lang),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    logger.info(f"📤 Sent claimable rewards keyboard to {telegram_id}")
+
+    return AWAITING_REWARD_SELECTION
 
 
-async def set_reward_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /set_reward_status <reward_name> <status> command."""
+async def claim_reward_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """
+    Handle reward selection from inline keyboard.
+    """
+    query = update.callback_query
+    await query.answer()
+
     telegram_id = str(update.effective_user.id)
     username = update.effective_user.username or "N/A"
-    logger.info(f"📨 Received /set_reward_status command from user {telegram_id} (@{username})")
     lang = get_message_language(telegram_id, update)
+    callback_data = query.data
 
-    if len(context.args) < 2:
-        logger.warning(f"⚠️ User {telegram_id} called /set_reward_status with insufficient arguments")
-        await update.message.reply_text(
-            msg('HELP_SET_STATUS_USAGE', lang)
-        )
-        logger.info(f"📤 Sent usage help to {telegram_id}")
-        return
+    logger.info(f"🖱️ Received callback '{callback_data}' from user {telegram_id} (@{username})")
 
-    status_str = context.args[-1].lower()
-    reward_name = " ".join(context.args[:-1])
-    logger.info(f"🔄 User {telegram_id} attempting to set reward '{reward_name}' status to '{status_str}'")
+    # Extract reward_id from callback_data
+    if callback_data.startswith("claim_reward_"):
+        reward_id = callback_data.replace("claim_reward_", "")
+        logger.info(f"🎁 User {telegram_id} selected reward_id: {reward_id}")
 
-    # Map status string to enum
-    status_map = {
-        "pending": RewardStatus.PENDING,
-        "achieved": RewardStatus.ACHIEVED,
-        "completed": RewardStatus.COMPLETED
-    }
+        # Validate user exists and is active
+        user = user_repository.get_by_telegram_id(telegram_id)
+        if not user:
+            logger.error(f"❌ User {telegram_id} not found in database")
+            await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
+            logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
+            return ConversationHandler.END
 
-    if status_str not in status_map:
-        logger.warning(f"⚠️ Invalid status '{status_str}' provided by user {telegram_id}")
-        await update.message.reply_text(
-            msg('ERROR_INVALID_STATUS', lang)
-        )
-        logger.info(f"📤 Sent ERROR_INVALID_STATUS message to {telegram_id}")
-        return
+        if not user.active:
+            logger.error(f"❌ User {telegram_id} is inactive")
+            await query.edit_message_text(msg('ERROR_USER_INACTIVE', lang))
+            logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
+            return ConversationHandler.END
 
-    new_status = status_map[status_str]
+        # Get reward details for logging
+        reward = reward_repository.get_by_id(reward_id)
+        reward_name = reward.name if reward else reward_id
 
-    # Validate user exists
-    user = user_repository.get_by_telegram_id(telegram_id)
-    if not user:
-        logger.warning(f"⚠️ User {telegram_id} not found in database")
-        await update.message.reply_text(
-            msg('ERROR_USER_NOT_FOUND', lang)
-        )
-        logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
-        return
+        try:
+            # Mark reward as claimed
+            logger.info(f"⚙️ Marking reward '{reward_name}' as claimed for user {telegram_id}")
+            updated_progress = reward_service.mark_reward_claimed(user.id, reward_id)
 
-    # Check if user is active
-    if not user.active:
-        logger.warning(f"⚠️ User {telegram_id} is inactive")
-        await update.message.reply_text(
-            msg('ERROR_USER_INACTIVE', lang)
-        )
-        logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
-        return
+            # Fetch updated progress
+            progress_list = reward_service.get_user_reward_progress(user.id)
+            rewards_dict = _get_rewards_dict(progress_list)
 
-    # Get reward by name
-    reward = reward_repository.get_by_name(reward_name)
-    if not reward:
-        logger.warning(f"⚠️ Reward '{reward_name}' not found for user {telegram_id}")
-        await update.message.reply_text(
-            msg('ERROR_REWARD_NOT_FOUND', lang, reward_name=reward_name)
-        )
-        logger.info(f"📤 Sent ERROR_REWARD_NOT_FOUND message to {telegram_id}")
-        return
+            # Format and send response
+            message = format_claim_success_with_progress(
+                reward_name,
+                progress_list,
+                rewards_dict,
+                lang
+            )
+            logger.info(f"✅ Reward '{reward_name}' claimed successfully by user {telegram_id}. Status: {updated_progress.status.value}")
+            await query.edit_message_text(
+                text=message,
+                parse_mode="HTML"
+            )
+            logger.info(f"📤 Sent claim success message with updated progress to {telegram_id}")
 
-    try:
-        # Set status
-        logger.info(f"⚙️ Setting reward '{reward_name}' status to '{new_status.value}' for user {telegram_id}")
-        updated_progress = reward_service.set_reward_status(
-            user.id,
-            reward.id,
-            new_status
-        )
+        except ValueError as e:
+            logger.error(f"❌ Error claiming reward for user {telegram_id}: {str(e)}")
+            await query.edit_message_text(msg('ERROR_GENERAL', lang, error=str(e)))
+            logger.info(f"📤 Sent error message to {telegram_id}")
 
-        logger.info(f"✅ Reward '{reward_name}' status updated successfully for user {telegram_id} to {updated_progress.status.value}")
-        await update.message.reply_text(
-            msg('SUCCESS_STATUS_UPDATED', lang,
-                reward_name=reward.name,
-                status=updated_progress.status.value),
-            parse_mode="HTML"
-        )
-        logger.info(f"📤 Sent success message to {telegram_id}")
+        return ConversationHandler.END
 
-    except ValueError as e:
-        logger.error(f"❌ Error setting reward status for user {telegram_id}: {str(e)}")
-        await update.message.reply_text(
-            msg('ERROR_GENERAL', lang, error=str(e))
-        )
-        logger.info(f"📤 Sent error message to {telegram_id}")
+    return ConversationHandler.END
+
+
+def _get_rewards_dict(progress_list: list) -> dict:
+    """
+    Get rewards dictionary from progress list.
+
+    Args:
+        progress_list: List of RewardProgress objects
+
+    Returns:
+        Dictionary mapping reward_id to Reward object
+    """
+    rewards_dict = {}
+    for progress in progress_list:
+        reward = reward_repository.get_by_id(progress.reward_id)
+        if reward:
+            rewards_dict[progress.reward_id] = reward
+    return rewards_dict
+
+
+async def cancel_claim_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel the claim reward conversation."""
+    telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+    logger.info(f"📨 Received /cancel command from user {telegram_id} (@{username})")
+    lang = get_message_language(telegram_id, update)
+    await update.message.reply_text(msg('INFO_CANCELLED', lang))
+    logger.info(f"📤 Sent conversation cancelled message to {telegram_id}")
+    return ConversationHandler.END
 
 
 async def add_reward_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -258,3 +265,15 @@ async def add_reward_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode="HTML"
     )
     logger.info(f"📤 Sent feature coming soon message to {telegram_id}")
+
+
+# Build conversation handler for claim_reward
+claim_reward_conversation = ConversationHandler(
+    entry_points=[CommandHandler("claim_reward", claim_reward_command)],
+    states={
+        AWAITING_REWARD_SELECTION: [
+            CallbackQueryHandler(claim_reward_callback, pattern="^claim_reward_")
+        ]
+    },
+    fallbacks=[CommandHandler("cancel", cancel_claim_handler)]
+)

@@ -1,6 +1,6 @@
 """Result model for habit completion responses."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from src.models.reward import Reward
 from src.models.reward_progress import RewardProgress
 
@@ -17,19 +17,19 @@ class HabitCompletionResult(BaseModel):
     got_reward: bool = Field(default=False, description="Whether a non-none reward was received")
     total_weight_applied: float = Field(..., description="Total weight used in calculation")
 
-    class Config:
-        """Pydantic configuration."""
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "habit_confirmed": True,
                 "habit_name": "Walking",
                 "reward": {
                     "name": "Coffee at favorite cafe",
-                    "type": "cumulative",
-                    "is_cumulative": True
+                    "type": "real",
+                    "pieces_required": 10
                 },
                 "streak_count": 5,
                 "got_reward": True,
                 "total_weight_applied": 1.5
             }
         }
+    )

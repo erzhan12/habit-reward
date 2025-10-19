@@ -1,6 +1,6 @@
 """Habit model representing trackable habits."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class Habit(BaseModel):
@@ -12,9 +12,8 @@ class Habit(BaseModel):
     category: str | None = Field(default=None, description="Habit category (e.g., health, productivity)")
     active: bool = Field(default=True, description="Whether habit is active")
 
-    class Config:
-        """Pydantic configuration."""
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "Walking",
                 "weight": 10,
@@ -22,3 +21,4 @@ class Habit(BaseModel):
                 "active": True
             }
         }
+    )

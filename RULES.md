@@ -342,6 +342,38 @@ All database operations go through repository classes in `src/airtable/repositor
 
 Never query Airtable directly from handlers or services. Always use the repository layer.
 
+### Airtable Computed Fields
+
+**CRITICAL**: Never attempt to set computed/formula fields when creating or updating Airtable records.
+
+**Common Computed Fields**:
+- `RewardProgress.pieces_required` - Formula field that looks up value from linked Reward record
+- `RewardProgress.status` - Formula field that computes status based on progress
+
+**Pattern**: Only set editable fields in repository create/update methods:
+
+```python
+# ✅ Good - Only set editable fields
+record = self.table.create({
+    "user_id": [progress.user_id],
+    "reward_id": [progress.reward_id],
+    "pieces_earned": progress.pieces_earned
+    # pieces_required is computed from linked Reward
+})
+
+# ❌ Bad - Trying to set computed field
+record = self.table.create({
+    "user_id": [progress.user_id],
+    "reward_id": [progress.reward_id],
+    "pieces_earned": progress.pieces_earned,
+    "pieces_required": progress.pieces_required  # ERROR: Computed field!
+})
+```
+
+**Error to watch for**: `422 Client Error: INVALID_VALUE_FOR_COLUMN - Field cannot accept a value because the field is computed`
+
+**Files affected**: `src/airtable/repositories.py:178` (RewardProgressRepository.create)
+
 ## Service Layer
 
 Business logic lives in services (`src/services/`):
@@ -473,6 +505,185 @@ Checklist:
 2. ✅ Manual testing of affected features in TEST_CASES.md
 3. ✅ Bot starts without errors: `python src/bot/main.py`
 4. ✅ No regressions in existing functionality
+
+## Unified Reward System
+
+**CRITICAL**: The reward system uses a unified cumulative approach where ALL rewards track progress. There is no distinction between "cumulative" and "non-cumulative" rewards.
+
+### Core Concepts
+
+**All rewards are cumulative with `pieces_required`**:
+- Instant rewards: `pieces_required = 1` (claimable immediately after earning 1 piece)
+- Multi-piece rewards: `pieces_required > 1` (requires multiple completions before claimable)
+
+**3-State Status Workflow**:
+1. **🕒 Pending**: `pieces_earned < pieces_required` - User is making progress
+2. **⏳ Achieved**: `pieces_earned >= pieces_required && !claimed` - Ready to claim
+3. **✅ Claimed**: `claimed == true` - User has claimed the reward
+
+**Status is fully computed by Airtable formula** - Never set status manually in code.
+
+### Data Models
+
+**src/models/reward.py**:
+- `pieces_required: int = Field(default=1)` - Required for ALL rewards
+- `piece_value: float | None` - Monetary value per piece
+- Removed: `is_cumulative` field (no longer needed)
+- Removed: `RewardType.CUMULATIVE` enum value
+
+**src/models/reward_progress.py**:
+- `claimed: bool = Field(default=False)` - Whether user has claimed this reward
+- `status: RewardStatus` - Computed by Airtable based on pieces_earned and claimed
+- Status enum: `PENDING`, `ACHIEVED`, `CLAIMED` (renamed from COMPLETED)
+
+### Service Layer Pattern
+
+**src/services/reward_service.py**:
+
+```python
+# Always use update_reward_progress() for ANY reward (not just cumulative)
+reward_progress = reward_service.update_reward_progress(
+    user_id=user.id,
+    reward_id=reward.id
+)
+
+# When user claims a reward
+reward_service.mark_reward_claimed(user_id, reward_id)
+# This sets claimed=True, Airtable formula updates status to "✅ Claimed"
+```
+
+**Key methods**:
+- `update_reward_progress()` - Increments pieces_earned for any reward
+- `mark_reward_claimed()` - Sets claimed=True when user claims achieved reward
+
+**Removed methods** (as of Feature 0006):
+- `update_cumulative_progress()` - renamed to `update_reward_progress()`
+- `mark_reward_completed()` - renamed to `mark_reward_claimed()`
+- `set_reward_status()` - status is now fully computed by Airtable
+
+**src/services/habit_service.py**:
+```python
+# Always update progress for ANY reward that was awarded
+if got_reward:
+    reward_progress = self.reward_service.update_reward_progress(
+        user_id=user.id,
+        reward_id=selected_reward.id
+    )
+```
+
+### Repository Pattern
+
+**src/airtable/repositories.py**:
+
+RewardRepository:
+- Removed `is_cumulative` field from create/update operations
+- `pieces_required` defaults to 1 if not present in Airtable
+
+RewardProgressRepository:
+- Added `claimed` field handling in `_record_to_progress()`
+- Status enum parsing updated to support CLAIMED status
+
+### Bot Handlers
+
+**src/bot/handlers/reward_handlers.py**:
+- Use `mark_reward_claimed()` instead of `mark_reward_completed()`
+- Status is read-only, computed by Airtable
+
+**src/bot/formatters.py**:
+- Always show progress for any reward (not just cumulative)
+- Check `pieces_required > 1` instead of `is_cumulative`
+- Removed `RewardType.CUMULATIVE` from emoji mapping
+
+### Airtable Schema Requirements
+
+**RewardProgress table**:
+- Add `claimed` field (Checkbox, default: unchecked)
+- Update `status` formula:
+  ```
+  IF(
+    {claimed},
+    "✅ Claimed",
+    IF(
+      {pieces_earned} >= {pieces_required},
+      "⏳ Achieved",
+      "🕒 Pending"
+    )
+  )
+  ```
+
+**Rewards table**:
+- Set `pieces_required = 1` for all existing instant rewards
+- Remove `is_cumulative` field (optional, after code deployment)
+
+### Migration from Old System
+
+**Before Feature 0005**:
+- Dual types: cumulative vs non-cumulative rewards
+- Only cumulative rewards created RewardProgress entries
+- 4-state status with "🌱 Just started"
+- `mark_reward_completed()` had broken implementation (empty dict)
+
+**After Feature 0005**:
+- Unified: all rewards are cumulative with pieces_required
+- ALL rewards create RewardProgress entries
+- 3-state status: PENDING → ACHIEVED → CLAIMED
+- `mark_reward_claimed()` properly sets claimed=True
+
+### Common Patterns
+
+**Creating instant reward** (awarded once):
+```python
+reward = Reward(
+    name="Coffee break",
+    type=RewardType.REAL,
+    pieces_required=1,  # Instant
+    weight=1.0
+)
+```
+
+**Creating multi-piece reward** (requires 10 completions):
+```python
+reward = Reward(
+    name="Massage session",
+    type=RewardType.REAL,
+    pieces_required=10,  # Collect 10 pieces
+    piece_value=5.0,     # Each piece worth $5
+    weight=1.0
+)
+```
+
+**Checking if reward is claimable**:
+```python
+# Check progress status (computed by Airtable)
+if progress.status == RewardStatus.ACHIEVED:
+    # User can claim this reward
+    pass
+```
+
+### Files Modified in Feature 0005
+
+- `src/models/reward.py` - Removed is_cumulative, made pieces_required required
+- `src/models/reward_progress.py` - Added claimed field, renamed status
+- `src/airtable/repositories.py` - Updated field handling
+- `src/services/reward_service.py` - Renamed methods, fixed claiming
+- `src/services/habit_service.py` - Always update progress for all rewards
+- `src/bot/formatters.py` - Removed cumulative conditionals
+- `src/bot/handlers/reward_handlers.py` - Updated method names, deprecated set_status
+
+See `docs/features/0005_PLAN.md` for full implementation details.
+
+### Feature 0006: Removed /set_reward_status Command
+
+**Date**: 2025-10-20
+
+**Reason**: The `/set_reward_status` command became obsolete after Feature 0005 unified the reward system. Reward status is now fully computed by Airtable based on `pieces_earned`, `pieces_required`, and `claimed` fields. Manual status updates are no longer needed or supported.
+
+**Files Modified**:
+- `src/bot/main.py` - Removed command handler registration and import
+- `src/bot/handlers/reward_handlers.py` - Removed `set_reward_status_command()` function (lines 256-330)
+- `src/bot/messages.py` - Removed `HELP_SET_STATUS_USAGE` constant and all references to `/set_reward_status` in help text (English, Russian, Kazakh)
+
+**Migration Path**: Users should use `/claim_reward` to mark achieved rewards as claimed. Status changes automatically based on progress.
 
 ## Future Django Migration
 

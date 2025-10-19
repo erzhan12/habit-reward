@@ -2,7 +2,9 @@
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from src.models.habit import Habit
+from src.models.reward import Reward
 from src.models.reward_progress import RewardProgress
+from src.bot.messages import msg
 
 
 def build_habit_selection_keyboard(habits: list[Habit]) -> InlineKeyboardMarkup:
@@ -79,4 +81,88 @@ def build_actionable_rewards_keyboard(rewards: list[RewardProgress]) -> InlineKe
         )
         keyboard.append([button])
 
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_claimable_rewards_keyboard(
+    progress_list: list[RewardProgress],
+    rewards_dict: dict[str, 'Reward'],
+    language: str = 'en'
+) -> InlineKeyboardMarkup | None:
+    """
+    Build inline keyboard for claiming achieved rewards with reward names.
+
+    Args:
+        progress_list: List of achieved RewardProgress objects
+        rewards_dict: Dictionary mapping reward_id to Reward object
+        language: Language code (not currently used, reserved for future use)
+
+    Returns:
+        InlineKeyboardMarkup with claim buttons or None if no rewards
+    """
+    if not progress_list:
+        return None
+
+    keyboard = []
+    for progress in progress_list:
+        reward = rewards_dict.get(progress.reward_id)
+        if reward:
+            # Format: "Reward Name (X/Y pieces)"
+            button_text = f"{reward.name} ({progress.pieces_earned}/{progress.pieces_required})"
+            button = InlineKeyboardButton(
+                text=button_text,
+                callback_data=f"claim_reward_{progress.reward_id}"
+            )
+            keyboard.append([button])
+
+    return InlineKeyboardMarkup(keyboard) if keyboard else None
+
+
+def build_settings_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for settings menu.
+
+    Args:
+        language: Language code for translating button text
+
+    Returns:
+        InlineKeyboardMarkup with settings options
+    """
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('SETTINGS_SELECT_LANGUAGE', language),
+            callback_data="settings_language"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_language_selection_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for language selection.
+
+    Args:
+        language: Language code for translating back button text
+
+    Returns:
+        InlineKeyboardMarkup with language options
+    """
+    keyboard = [
+        [InlineKeyboardButton(
+            text="🇬🇧 English",
+            callback_data="lang_en"
+        )],
+        [InlineKeyboardButton(
+            text="🇰🇿 Қазақша",
+            callback_data="lang_kk"
+        )],
+        [InlineKeyboardButton(
+            text="🇷🇺 Русский",
+            callback_data="lang_ru"
+        )],
+        [InlineKeyboardButton(
+            text=msg('SETTINGS_BACK', language),
+            callback_data="settings_back"
+        )]
+    ]
     return InlineKeyboardMarkup(keyboard)

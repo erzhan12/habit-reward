@@ -100,10 +100,10 @@ class HabitService:
         # Determine if user got a meaningful reward
         got_reward = selected_reward.type != RewardType.NONE
 
-        # 8. If cumulative reward: update progress
-        cumulative_progress = None
-        if selected_reward.is_cumulative and got_reward:
-            cumulative_progress = self.reward_service.update_cumulative_progress(
+        # 8. Update reward progress for ANY reward (unified system)
+        reward_progress = None
+        if got_reward:
+            reward_progress = self.reward_service.update_reward_progress(
                 user_id=user.id,
                 reward_id=selected_reward.id
             )
@@ -128,7 +128,7 @@ class HabitService:
             habit_name=habit.name,
             reward=selected_reward if got_reward else None,
             streak_count=streak_count,
-            cumulative_progress=cumulative_progress,
+            cumulative_progress=reward_progress,
             motivational_quote=None,  # Can be added later
             got_reward=got_reward,
             total_weight_applied=total_weight
