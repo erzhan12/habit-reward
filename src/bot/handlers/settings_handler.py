@@ -179,12 +179,14 @@ settings_conversation = ConversationHandler(
     entry_points=[CommandHandler("settings", settings_command)],
     states={
         AWAITING_SETTINGS_SELECTION: [
-            CallbackQueryHandler(select_language_callback, pattern="^settings_language$")
+            CallbackQueryHandler(select_language_callback, pattern="^settings_language$"),
+            CallbackQueryHandler(lambda u, c: ConversationHandler.END, pattern="^menu_back$")
         ],
         AWAITING_LANGUAGE_SELECTION: [
             CallbackQueryHandler(change_language_callback, pattern="^lang_(en|kk|ru)$"),
             CallbackQueryHandler(back_to_settings_callback, pattern="^settings_back$")
         ]
     },
-    fallbacks=[]
+    fallbacks=[],
+    allow_reentry=True
 )

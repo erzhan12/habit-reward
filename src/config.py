@@ -42,5 +42,21 @@ class Settings(BaseSettings):
     )
 
 
+# Predefined habit categories with emojis
+HABIT_CATEGORIES = [
+    ("health", "🏃 Health"),
+    ("productivity", "💼 Productivity"),
+    ("social", "👥 Social"),
+    ("learning", "📚 Learning"),
+    ("fitness", "💪 Fitness"),
+    ("mindfulness", "🧘 Mindfulness")
+]
+
+# Habit validation limits
+HABIT_NAME_MAX_LENGTH = 100
+HABIT_WEIGHT_MIN = 1
+HABIT_WEIGHT_MAX = 100
+
+
 # Global settings instance
 settings = Settings()

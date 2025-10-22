@@ -63,7 +63,12 @@ async def streaks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"🔥 User {telegram_id} - Habit '{habit.name}': {streak_count} day streak")
 
     # Format and send message
+    from src.bot.keyboards import build_back_to_menu_keyboard
     message = format_streaks_message(habits_with_names, lang)
     logger.info(f"✅ Sending streak information for {len(habits_with_names)} habits to user {telegram_id}")
-    await update.message.reply_text(message, parse_mode="HTML")
+    await update.message.reply_text(
+        message,
+        reply_markup=build_back_to_menu_keyboard(lang),
+        parse_mode="HTML"
+    )
     logger.info(f"📤 Sent streaks message to {telegram_id}")

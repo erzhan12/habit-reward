@@ -7,6 +7,11 @@ from telegram.ext import Application, CommandHandler
 from src.config import settings
 from src.utils.logging import setup_logging
 from src.bot.handlers.habit_done_handler import habit_done_conversation
+from src.bot.handlers.habit_management_handler import (
+    add_habit_conversation,
+    edit_habit_conversation,
+    remove_habit_conversation
+)
 from src.bot.handlers.reward_handlers import (
     list_rewards_command,
     my_rewards_command,
@@ -14,6 +19,7 @@ from src.bot.handlers.reward_handlers import (
     add_reward_command
 )
 from src.bot.handlers.streak_handler import streaks_command
+from src.bot.handlers.menu_handler import get_menu_handlers
 from src.bot.handlers.settings_handler import settings_conversation
 from src.airtable.repositories import user_repository
 from src.bot.messages import msg
@@ -29,6 +35,10 @@ async def start_command(update: Update, context):
     telegram_id = str(update.effective_user.id)
     username = update.effective_user.username or "N/A"
     logger.info(f"📨 Received /start command from user {telegram_id} (@{username})")
+
+    # Clear navigation stack on /start (fresh start)
+    from src.bot.navigation import clear_navigation
+    clear_navigation(context)
 
     # Validate user exists
     user = user_repository.get_by_telegram_id(telegram_id)
@@ -64,12 +74,19 @@ async def start_command(update: Update, context):
         logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return
 
-    logger.info(f"✅ Sending start/help message to user {telegram_id} in language: {lang}")
-    await update.message.reply_text(
-        msg('HELP_START_MESSAGE', lang),
+    logger.info(f"✅ Sending start menu to user {telegram_id} in language: {lang}")
+    from src.bot.keyboards import build_start_menu_keyboard
+    from src.bot.navigation import push_navigation
+
+    sent_message = await update.message.reply_text(
+        msg('START_MENU_TITLE', lang),
+        reply_markup=build_start_menu_keyboard(lang),
         parse_mode="HTML"
     )
-    logger.info(f"📤 Sent HELP_START_MESSAGE to {telegram_id}")
+
+    # Push initial navigation state
+    push_navigation(context, sent_message.message_id, 'start', lang)
+    logger.info(f"📤 Sent START_MENU to {telegram_id}")
 
 
 async def help_command(update: Update, context):
@@ -99,8 +116,10 @@ async def help_command(update: Update, context):
         return
 
     logger.info(f"✅ Sending help message to user {telegram_id} in language: {lang}")
+    from src.bot.keyboards import build_back_to_menu_keyboard
     await update.message.reply_text(
         msg('HELP_COMMAND_MESSAGE', lang),
+        reply_markup=build_back_to_menu_keyboard(lang),
         parse_mode="HTML"
     )
     logger.info(f"📤 Sent HELP_COMMAND_MESSAGE to {telegram_id}")
@@ -118,6 +137,11 @@ def main():
     # Add conversation handler for habit_done
     application.add_handler(habit_done_conversation)
 
+    # Add habit management conversation handlers
+    application.add_handler(add_habit_conversation)
+    application.add_handler(edit_habit_conversation)
+    application.add_handler(remove_habit_conversation)
+
     # Add reward handlers
     application.add_handler(CommandHandler("list_rewards", list_rewards_command))
     application.add_handler(CommandHandler("my_rewards", my_rewards_command))
@@ -129,6 +153,10 @@ def main():
 
     # Add settings handler
     application.add_handler(settings_conversation)
+
+    # Register menu callbacks
+    for handler in get_menu_handlers():
+        application.add_handler(handler)
 
     # Start the bot
     logger.info("Starting bot...")

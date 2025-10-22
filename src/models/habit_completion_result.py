@@ -14,6 +14,9 @@ class HabitCompletionResult(BaseModel):
     streak_count: int = Field(..., description="Current streak for this habit")
     cumulative_progress: RewardProgress | None = Field(default=None, description="Progress on cumulative reward (if applicable)")
     motivational_quote: str | None = Field(default=None, description="Optional motivational message")
+    # Boolean flag indicating if user received a meaningful reward (not "none" type)
+    # Used for: reward deduplication, progress tracking, analytics, and user feedback
+    # True = real/virtual/cumulative reward awarded, False = "none" reward (no actual reward)
     got_reward: bool = Field(default=False, description="Whether a non-none reward was received")
     total_weight_applied: float = Field(..., description="Total weight used in calculation")
 

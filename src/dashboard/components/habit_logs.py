@@ -32,6 +32,9 @@ def render_habit_logs(user_id: str, limit: int = 50):
             "Date": log.last_completed_date.strftime("%Y-%m-%d"),
             "Habit": habit_name,
             "Streak": f"🔥 {log.streak_count}",
+            # Visual indicator showing if user received a meaningful reward
+            # ✅ = got_reward=True (real/virtual/cumulative reward awarded)
+            # ❌ = got_reward=False (no reward or "none" type reward)
             "Got Reward": "✅" if log.got_reward else "❌",
             "Total Weight": f"{log.total_weight_applied:.2f}",
             "Time": log.timestamp.strftime("%H:%M")
@@ -54,6 +57,9 @@ def render_habit_logs(user_id: str, limit: int = 50):
         st.metric("Total Completions", len(logs))
 
     with col2:
+        # Calculate reward rate based on got_reward field
+        # This shows what percentage of habit completions resulted in meaningful rewards
+        # got_reward=True means the user received a real reward (not "none" type)
         rewards_earned = sum(1 for log in logs if log.got_reward)
         reward_rate = (rewards_earned / len(logs) * 100) if logs else 0
         st.metric("Reward Rate", f"{reward_rate:.1f}%")

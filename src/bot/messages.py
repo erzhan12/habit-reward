@@ -53,6 +53,13 @@ class Messages:
     HEADER_HABIT_LOGS = "📋 <b>Recent Habit Completions:</b>\n"
     HEADER_UPDATED_REWARD_PROGRESS = "\n📊 <b>Your updated reward progress:</b>"
 
+    # Start/Menu Titles and Buttons
+    START_MENU_TITLE = "🏠 <b>Main Menu</b>\nSelect an option:"
+    HABITS_MENU_TITLE = "🧩 <b>Habits</b>\nChoose an action:"
+    REWARDS_MENU_TITLE = "🎁 <b>Rewards</b>\nChoose an action:"
+    MENU_BACK = "« Back"
+    MENU_CLOSE = "✖ Close"
+
     # Welcome/Help Messages
     HELP_START_MESSAGE = """🎯 <b>Welcome to Habit Reward System!</b>
 
@@ -60,6 +67,9 @@ Track your habits and earn rewards!
 
 <b>Available commands:</b>
 /habit_done - Log a completed habit
+/add_habit - Create a new habit
+/edit_habit - Modify an existing habit
+/remove_habit - Remove a habit
 /streaks - View your current streaks
 /list_rewards - See all available rewards
 /my_rewards - Check your reward progress
@@ -73,6 +83,11 @@ Track your habits and earn rewards!
 /habit_done - Log a habit completion and earn rewards
 /streaks - View your current streaks for all habits
 
+<b>Habit Management:</b>
+/add_habit - Create a new habit
+/edit_habit - Modify an existing habit
+/remove_habit - Remove a habit (soft delete)
+
 <b>Reward Commands:</b>
 /list_rewards - List all available rewards
 /my_rewards - View your cumulative reward progress
@@ -82,10 +97,11 @@ Track your habits and earn rewards!
 /settings - Change language and preferences
 
 <b>How it works:</b>
-1. Complete a habit using /habit_done
-2. Build streaks by completing habits daily
-3. Earn reward pieces (cumulative rewards)
-4. Claim rewards when you have enough pieces
+1. Create habits using /add_habit or manage existing ones
+2. Complete habits using /habit_done
+3. Build streaks by completing habits daily
+4. Earn reward pieces (cumulative rewards)
+5. Claim rewards when you have enough pieces
 
 Your streak multiplier increases your chances of getting rewards!"""
 
@@ -98,6 +114,28 @@ Your streak multiplier increases your chances of getting rewards!"""
     FORMAT_NO_REWARDS_YET = "No rewards configured yet."
     FORMAT_NO_STREAKS = "No habits logged yet. Start building your streaks!"
     FORMAT_NO_LOGS = "No habit logs found."
+
+    # Habit Management Messages
+    HELP_ADD_HABIT_NAME_PROMPT = "Please enter the name for your new habit:"
+    HELP_ADD_HABIT_WEIGHT_PROMPT = "Select the weight for this habit (1-100). Weight affects reward chances:"
+    HELP_ADD_HABIT_CATEGORY_PROMPT = "Select a category for this habit:"
+    HELP_ADD_HABIT_CONFIRM = "Review your new habit:\n<b>Name:</b> {name}\n<b>Weight:</b> {weight}\n<b>Category:</b> {category}\n\nCreate this habit?"
+    SUCCESS_HABIT_CREATED = "✅ Habit '<b>{name}</b>' created successfully!"
+    ERROR_HABIT_NAME_TOO_LONG = "❌ Habit name is too long (max 100 characters)."
+    ERROR_HABIT_NAME_EMPTY = "❌ Habit name cannot be empty."
+    ERROR_WEIGHT_INVALID = "❌ Invalid weight. Please select a value between 1-100."
+    HELP_EDIT_HABIT_SELECT = "Select a habit to edit:"
+    HELP_EDIT_HABIT_NAME_PROMPT = "Current name: <b>{current_name}</b>\n\nEnter new name:"
+    HELP_EDIT_HABIT_WEIGHT_PROMPT = "Current weight: <b>{current_weight}</b>\n\nSelect new weight:"
+    HELP_EDIT_HABIT_CATEGORY_PROMPT = "Current category: <b>{current_category}</b>\n\nSelect new category:"
+    HELP_EDIT_HABIT_CONFIRM = "Review changes:\n<b>Name:</b> {old_name} → {new_name}\n<b>Weight:</b> {old_weight} → {new_weight}\n<b>Category:</b> {old_category} → {new_category}\n\nSave changes?"
+    SUCCESS_HABIT_UPDATED = "✅ Habit '<b>{name}</b>' updated successfully!"
+    HELP_REMOVE_HABIT_SELECT = "Select a habit to remove:"
+    HELP_REMOVE_HABIT_CONFIRM = "Are you sure you want to remove '<b>{name}</b>'?\n\n⚠️ This will deactivate the habit. Your history will be preserved."
+    SUCCESS_HABIT_REMOVED = "✅ Habit '<b>{name}</b>' removed successfully."
+    ERROR_NO_HABITS_TO_EDIT = "❌ You don't have any habits to edit."
+    ERROR_NO_HABITS_TO_REMOVE = "❌ You don't have any habits to remove."
+    INFO_HABIT_CANCEL = "❌ Habit operation cancelled."
 
     # Settings Menu
     SETTINGS_MENU = "⚙️ <b>Settings</b>\n\nSelect an option:"
@@ -153,6 +191,13 @@ Your streak multiplier increases your chances of getting rewards!"""
             'HEADER_HABIT_LOGS': "📋 <b>Недавние выполнения привычек:</b>\n",
             'HEADER_UPDATED_REWARD_PROGRESS': "\n📊 <b>Ваш обновлённый прогресс по наградам:</b>",
 
+            # Start/Menu Titles and Buttons
+            'START_MENU_TITLE': "🏠 <b>Главное меню</b>\nВыберите действие:",
+            'HABITS_MENU_TITLE': "🧩 <b>Привычки</b>\nВыберите действие:",
+            'REWARDS_MENU_TITLE': "🎁 <b>Награды</b>\nВыберите действие:",
+            'MENU_BACK': "« Назад",
+            'MENU_CLOSE': "✖ Закрыть",
+
             # Welcome/Help Messages
             'HELP_START_MESSAGE': """🎯 <b>Добро пожаловать в систему наград за привычки!</b>
 
@@ -160,6 +205,9 @@ Your streak multiplier increases your chances of getting rewards!"""
 
 <b>Доступные команды:</b>
 /habit_done - Зарегистрировать выполненную привычку
+/add_habit - Создать новую привычку
+/edit_habit - Изменить существующую привычку
+/remove_habit - Удалить привычку
 /streaks - Посмотреть текущие серии
 /list_rewards - Посмотреть все доступные награды
 /my_rewards - Проверить прогресс по наградам
@@ -173,6 +221,11 @@ Your streak multiplier increases your chances of getting rewards!"""
 /habit_done - Зарегистрировать выполнение привычки и получить награды
 /streaks - Посмотреть текущие серии для всех привычек
 
+<b>Управление привычками:</b>
+/add_habit - Создать новую привычку
+/edit_habit - Изменить существующую привычку
+/remove_habit - Удалить привычку (мягкое удаление)
+
 <b>Команды наград:</b>
 /list_rewards - Показать все доступные награды
 /my_rewards - Посмотреть накопленный прогресс по наградам
@@ -182,10 +235,11 @@ Your streak multiplier increases your chances of getting rewards!"""
 /settings - Изменить язык и настройки
 
 <b>Как это работает:</b>
-1. Выполняйте привычки через /habit_done
-2. Создавайте серии, выполняя привычки ежедневно
-3. Зарабатывайте части наград (накопительные награды)
-4. Забирайте награды, когда наберёте достаточно частей
+1. Создавайте привычки через /add_habit или управляйте существующими
+2. Выполняйте привычки через /habit_done
+3. Создавайте серии, выполняя привычки ежедневно
+4. Зарабатывайте части наград (накопительные награды)
+5. Забирайте награды, когда наберёте достаточно частей
 
 Множитель серий увеличивает шансы получения наград!""",
 
@@ -198,6 +252,28 @@ Your streak multiplier increases your chances of getting rewards!"""
             'FORMAT_NO_REWARDS_YET': "Награды ещё не настроены.",
             'FORMAT_NO_STREAKS': "Привычки ещё не зарегистрированы. Начните создавать серии!",
             'FORMAT_NO_LOGS': "Записи о привычках не найдены.",
+
+            # Habit Management Messages
+            'HELP_ADD_HABIT_NAME_PROMPT': "Введите название для новой привычки:",
+            'HELP_ADD_HABIT_WEIGHT_PROMPT': "Выберите вес для этой привычки (1-100). Вес влияет на шансы получения наград:",
+            'HELP_ADD_HABIT_CATEGORY_PROMPT': "Выберите категорию для этой привычки:",
+            'HELP_ADD_HABIT_CONFIRM': "Проверьте вашу новую привычку:\n<b>Название:</b> {name}\n<b>Вес:</b> {weight}\n<b>Категория:</b> {category}\n\nСоздать эту привычку?",
+            'SUCCESS_HABIT_CREATED': "✅ Привычка '<b>{name}</b>' успешно создана!",
+            'ERROR_HABIT_NAME_TOO_LONG': "❌ Название привычки слишком длинное (макс. 100 символов).",
+            'ERROR_HABIT_NAME_EMPTY': "❌ Название привычки не может быть пустым.",
+            'ERROR_WEIGHT_INVALID': "❌ Неверный вес. Выберите значение от 1 до 100.",
+            'HELP_EDIT_HABIT_SELECT': "Выберите привычку для редактирования:",
+            'HELP_EDIT_HABIT_NAME_PROMPT': "Текущее название: <b>{current_name}</b>\n\nВведите новое название:",
+            'HELP_EDIT_HABIT_WEIGHT_PROMPT': "Текущий вес: <b>{current_weight}</b>\n\nВыберите новый вес:",
+            'HELP_EDIT_HABIT_CATEGORY_PROMPT': "Текущая категория: <b>{current_category}</b>\n\nВыберите новую категорию:",
+            'HELP_EDIT_HABIT_CONFIRM': "Проверьте изменения:\n<b>Название:</b> {old_name} → {new_name}\n<b>Вес:</b> {old_weight} → {new_weight}\n<b>Категория:</b> {old_category} → {new_category}\n\nСохранить изменения?",
+            'SUCCESS_HABIT_UPDATED': "✅ Привычка '<b>{name}</b>' успешно обновлена!",
+            'HELP_REMOVE_HABIT_SELECT': "Выберите привычку для удаления:",
+            'HELP_REMOVE_HABIT_CONFIRM': "Вы уверены, что хотите удалить '<b>{name}</b>'?\n\n⚠️ Это деактивирует привычку. Ваша история будет сохранена.",
+            'SUCCESS_HABIT_REMOVED': "✅ Привычка '<b>{name}</b>' успешно удалена.",
+            'ERROR_NO_HABITS_TO_EDIT': "❌ У вас нет привычек для редактирования.",
+            'ERROR_NO_HABITS_TO_REMOVE': "❌ У вас нет привычек для удаления.",
+            'INFO_HABIT_CANCEL': "❌ Операция с привычкой отменена.",
 
             # Settings Menu
             'SETTINGS_MENU': "⚙️ <b>Настройки</b>\n\nВыберите опцию:",
@@ -251,6 +327,13 @@ Your streak multiplier increases your chances of getting rewards!"""
             'HEADER_HABIT_LOGS': "📋 <b>Соңғы орындалған әдеттер:</b>\n",
             'HEADER_UPDATED_REWARD_PROGRESS': "\n📊 <b>Сіздің жаңартылған сыйлық прогресі:</b>",
 
+            # Start/Menu Titles and Buttons
+            'START_MENU_TITLE': "🏠 <b>Басты мәзір</b>\nӘрекетті таңдаңыз:",
+            'HABITS_MENU_TITLE': "🧩 <b>Әдеттер</b>\nӘрекетті таңдаңыз:",
+            'REWARDS_MENU_TITLE': "🎁 <b>Сыйлықтар</b>\nӘрекетті таңдаңыз:",
+            'MENU_BACK': "« Артқа",
+            'MENU_CLOSE': "✖ Жабу",
+
             # Welcome/Help Messages
             'HELP_START_MESSAGE': """🎯 <b>Әдеттер үшін сыйлықтар жүйесіне қош келдіңіз!</b>
 
@@ -258,6 +341,9 @@ Your streak multiplier increases your chances of getting rewards!"""
 
 <b>Қолжетімді команdalар:</b>
 /habit_done - Орындалған әдетті тіркеу
+/add_habit - Жаңа әдет жасау
+/edit_habit - Қолданыстағы әдетті өзгерту
+/remove_habit - Әдетті жою
 /streaks - Ағымдағы сериялар көру
 /list_rewards - Барлық қолжетімді сыйлықтарды көру
 /my_rewards - Сыйлықтар бойынша прогресті тексеру
@@ -271,6 +357,11 @@ Your streak multiplier increases your chances of getting rewards!"""
 /habit_done - Әдет орындауды тіркеу және сыйлықтар алу
 /streaks - Барлық әдеттер үшін ағымдағы сериялар көру
 
+<b>Әдеттерді басқару:</b>
+/add_habit - Жаңа әдет жасау
+/edit_habit - Қолданыстағы әдетті өзгерту
+/remove_habit - Әдетті жою (жұмсақ жою)
+
 <b>Сыйлықтар командалары:</b>
 /list_rewards - Барлық қолжетімді сыйлықтарды көрсету
 /my_rewards - Жинақталған сыйлық прогресін көру
@@ -280,10 +371,11 @@ Your streak multiplier increases your chances of getting rewards!"""
 /settings - Тілді және параметрлерді өзгерту
 
 <b>Бұл қалай жұмысістейді:</b>
-1. /habit_done арқылы әдеттерді орындаңыз
-2. Әдеттерді күн сайын орындау арқылы сериялар жасаңыз
-3. Сыйлық бөліктерін жинаңыз (жинақталатын сыйлықтар)
-4. Жеткілікті бөліктер жинағанда сыйлықтарды алыңыз
+1. /add_habit арқылы әдеттер жасаңыз немесе қолданыстағыларды басқарыңыз
+2. /habit_done арқылы әдеттерді орындаңыз
+3. Әдеттерді күн сайын орындау арқылы сериялар жасаңыз
+4. Сыйлық бөліктерін жинаңыз (жинақталатын сыйлықтар)
+5. Жеткілікті бөліктер жинағанда сыйлықтарды алыңыз
 
 Сериялар көбейткіші сыйлық алу мүмкіндігін арттырады!""",
 
@@ -296,6 +388,28 @@ Your streak multiplier increases your chances of getting rewards!"""
             'FORMAT_NO_REWARDS_YET': "Сыйлықтар әлі конфигурацияланбаған.",
             'FORMAT_NO_STREAKS': "Әдеттер әлі тіркелмеген. Сериялар жасауды бастаңыз!",
             'FORMAT_NO_LOGS': "Әдеттер туралы жазбалар табылмады.",
+
+            # Habit Management Messages
+            'HELP_ADD_HABIT_NAME_PROMPT': "Жаңа әдеттің атын енгізіңіз:",
+            'HELP_ADD_HABIT_WEIGHT_PROMPT': "Осы әдет үшін салмақты таңдаңыз (1-100). Салмақ сыйлық мүмкіндігіне әсер етеді:",
+            'HELP_ADD_HABIT_CATEGORY_PROMPT': "Осы әдет үшін санатты таңдаңыз:",
+            'HELP_ADD_HABIT_CONFIRM': "Жаңа әдетіңізді тексеріңіз:\n<b>Аты:</b> {name}\n<b>Салмақ:</b> {weight}\n<b>Санат:</b> {category}\n\nОсы әдетті жасау керек пе?",
+            'SUCCESS_HABIT_CREATED': "✅ '<b>{name}</b>' әдеті сәтті жасалды!",
+            'ERROR_HABIT_NAME_TOO_LONG': "❌ Әдет атауы тым ұзын (макс. 100 таңба).",
+            'ERROR_HABIT_NAME_EMPTY': "❌ Әдет атауы бос болуы мүмкін емес.",
+            'ERROR_WEIGHT_INVALID': "❌ Қате салмақ. 1-ден 100-ге дейін мән таңдаңыз.",
+            'HELP_EDIT_HABIT_SELECT': "Өңдеу үшін әдетті таңдаңыз:",
+            'HELP_EDIT_HABIT_NAME_PROMPT': "Ағымдағы аты: <b>{current_name}</b>\n\nЖаңа атын енгізіңіз:",
+            'HELP_EDIT_HABIT_WEIGHT_PROMPT': "Ағымдағы салмақ: <b>{current_weight}</b>\n\nЖаңа салмақты таңдаңыз:",
+            'HELP_EDIT_HABIT_CATEGORY_PROMPT': "Ағымдағы санат: <b>{current_category}</b>\n\nЖаңа санатты таңдаңыз:",
+            'HELP_EDIT_HABIT_CONFIRM': "Өзгерістерді тексеріңіз:\n<b>Аты:</b> {old_name} → {new_name}\n<b>Салмақ:</b> {old_weight} → {new_weight}\n<b>Санат:</b> {old_category} → {new_category}\n\nӨзгерістерді сақтау керек пе?",
+            'SUCCESS_HABIT_UPDATED': "✅ '<b>{name}</b>' әдеті сәтті жаңартылды!",
+            'HELP_REMOVE_HABIT_SELECT': "Жою үшін әдетті таңдаңыз:",
+            'HELP_REMOVE_HABIT_CONFIRM': "Сіз '<b>{name}</b>' жоюға сенімдісіз бе?\n\n⚠️ Бұл әдетті белсенсіз етеді. Тарихыңыз сақталады.",
+            'SUCCESS_HABIT_REMOVED': "✅ '<b>{name}</b>' әдеті сәтті жойылды.",
+            'ERROR_NO_HABITS_TO_EDIT': "❌ Өңдеуге әдеттеріңіз жоқ.",
+            'ERROR_NO_HABITS_TO_REMOVE': "❌ Жоюға әдеттеріңіз жоқ.",
+            'INFO_HABIT_CANCEL': "❌ Әдет операциясы болдырылмады.",
 
             # Settings Menu
             'SETTINGS_MENU': "⚙️ <b>Параметрлер</b>\n\nОпцияны таңдаңыз:",

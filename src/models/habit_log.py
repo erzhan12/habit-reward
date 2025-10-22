@@ -12,6 +12,9 @@ class HabitLog(BaseModel):
     habit_id: str = Field(..., description="Link to Habits table (Airtable record ID)")
     timestamp: datetime = Field(default_factory=datetime.now, description="When habit was completed")
     reward_id: str | None = Field(default=None, description="Link to Rewards table (Airtable record ID)")
+    # Boolean flag indicating if user received a meaningful reward during this habit completion
+    # Used for: preventing duplicate rewards on same day, calculating reward rates, progress tracking
+    # True = meaningful reward was awarded, False = no reward or "none" type reward
     got_reward: bool = Field(default=False, description="Whether a reward was given")
     streak_count: int = Field(default=1, description="Current streak for this habit")
     habit_weight: int = Field(..., description="Habit weight at time of completion (1-100)")

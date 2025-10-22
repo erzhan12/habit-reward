@@ -109,6 +109,30 @@ class HabitRepository(BaseRepository):
         except Exception:
             return None
 
+    def update(self, habit_id: str, updates: dict[str, Any]) -> Habit:
+        """Update habit fields in Airtable.
+
+        Args:
+            habit_id: Airtable record ID
+            updates: Dict with fields to update (name, weight, category, active)
+
+        Returns:
+            Updated Habit object
+        """
+        record = self.table.update(habit_id, updates)
+        return Habit(**self._record_to_dict(record))
+
+    def soft_delete(self, habit_id: str) -> Habit:
+        """Soft delete habit by setting active=false.
+
+        Args:
+            habit_id: Airtable record ID
+
+        Returns:
+            Updated Habit object with active=False
+        """
+        return self.update(habit_id, {"active": False})
+
 
 class RewardRepository(BaseRepository):
     """Repository for Rewards table."""

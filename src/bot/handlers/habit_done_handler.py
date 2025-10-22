@@ -13,7 +13,7 @@ from telegram.ext import (
 
 from src.services.habit_service import habit_service
 from src.services.nlp_service import nlp_service
-from src.bot.keyboards import build_habit_selection_keyboard
+from src.bot.keyboards import build_habit_selection_keyboard, build_back_to_menu_keyboard
 from src.bot.formatters import format_habit_completion_message
 from src.airtable.repositories import user_repository
 from src.bot.messages import msg
@@ -69,7 +69,7 @@ async def habit_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     # Build and send keyboard
-    keyboard = build_habit_selection_keyboard(habits)
+    keyboard = build_habit_selection_keyboard(habits, lang)
     habit_names = [h.name for h in habits]
     logger.info(f"✅ Showing habit selection keyboard to {telegram_id} with habits: {habit_names}")
     await update.message.reply_text(
@@ -135,13 +135,17 @@ async def habit_selected_callback(
             logger.info(f"✅ Habit '{habit.name}' completed successfully for user {telegram_id}. Total weight: {result.total_weight_applied}, Current streak: {result.streak_count}")
             await query.edit_message_text(
                 text=message,
+                reply_markup=build_back_to_menu_keyboard(lang),
                 parse_mode="HTML"
             )
             logger.info(f"📤 Sent habit completion success message to {telegram_id}")
 
         except ValueError as e:
             logger.error(f"❌ Error processing habit completion for user {telegram_id}: {str(e)}")
-            await query.edit_message_text(msg('ERROR_GENERAL', lang, error=str(e)))
+            await query.edit_message_text(
+                msg('ERROR_GENERAL', lang, error=str(e)),
+                reply_markup=build_back_to_menu_keyboard(lang)
+            )
             logger.info(f"📤 Sent error message to {telegram_id}")
 
         return ConversationHandler.END
@@ -171,7 +175,8 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not matched_habits:
         logger.warning(f"⚠️ No habits matched for user {telegram_id} with text: '{user_text}'")
         await update.message.reply_text(
-            msg('ERROR_NO_MATCH_HABIT', lang)
+            msg('ERROR_NO_MATCH_HABIT', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
         )
         logger.info(f"📤 Sent ERROR_NO_MATCH_HABIT message to {telegram_id}")
         return ConversationHandler.END
@@ -192,6 +197,7 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         logger.info(f"✅ Habit '{habit_name}' completed successfully for user {telegram_id}. Total weight: {result.total_weight_applied}, Current streak: {result.streak_count}")
         await update.message.reply_text(
             text=message,
+            reply_markup=build_back_to_menu_keyboard(lang),
             parse_mode="HTML"
         )
         logger.info(f"📤 Sent habit completion success message to {telegram_id}")
@@ -207,7 +213,10 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     except ValueError as e:
         logger.error(f"❌ Error processing habit completion for user {telegram_id}: {str(e)}")
-        await update.message.reply_text(msg('ERROR_GENERAL', lang, error=str(e)))
+        await update.message.reply_text(
+            msg('ERROR_GENERAL', lang, error=str(e)),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
         logger.info(f"📤 Sent error message to {telegram_id}")
 
     return ConversationHandler.END
@@ -219,7 +228,10 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     username = update.effective_user.username or "N/A"
     logger.info(f"📨 Received /cancel command from user {telegram_id} (@{username})")
     lang = get_message_language(telegram_id, update)
-    await update.message.reply_text(msg('INFO_CANCELLED', lang))
+    await update.message.reply_text(
+        msg('INFO_CANCELLED', lang),
+        reply_markup=build_back_to_menu_keyboard(lang)
+    )
     logger.info(f"📤 Sent conversation cancelled message to {telegram_id}")
     return ConversationHandler.END
 

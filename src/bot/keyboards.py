@@ -7,15 +7,16 @@ from src.models.reward_progress import RewardProgress
 from src.bot.messages import msg
 
 
-def build_habit_selection_keyboard(habits: list[Habit]) -> InlineKeyboardMarkup:
+def build_habit_selection_keyboard(habits: list[Habit], language: str = 'en') -> InlineKeyboardMarkup:
     """
     Build inline keyboard for habit selection.
 
     Args:
         habits: List of active habits
+        language: Language code for translating Back button text
 
     Returns:
-        InlineKeyboardMarkup with habit buttons
+        InlineKeyboardMarkup with habit buttons and Back button
     """
     keyboard = []
     for habit in habits:
@@ -32,6 +33,14 @@ def build_habit_selection_keyboard(habits: list[Habit]) -> InlineKeyboardMarkup:
     #         callback_data="habit_custom"
     #     )
     # ])
+
+    # Add Back button to return to main menu
+    keyboard.append([
+        InlineKeyboardButton(
+            text=msg('MENU_BACK', language),
+            callback_data="menu_back"
+        )
+    ])
 
     return InlineKeyboardMarkup(keyboard)
 
@@ -76,7 +85,7 @@ def build_actionable_rewards_keyboard(rewards: list[RewardProgress]) -> InlineKe
     keyboard = []
     for progress in rewards:
         button = InlineKeyboardButton(
-            text=f"✅ Claim: {progress.pieces_earned}/{progress.pieces_required} pieces",
+            text=f"✅ Claim: {progress.pieces_earned}/{progress.pieces_required or 1} pieces",
             callback_data=f"claim_reward_{progress.reward_id}"
         )
         keyboard.append([button])
@@ -108,7 +117,7 @@ def build_claimable_rewards_keyboard(
         reward = rewards_dict.get(progress.reward_id)
         if reward:
             # Format: "Reward Name (X/Y pieces)"
-            button_text = f"{reward.name} ({progress.pieces_earned}/{progress.pieces_required})"
+            button_text = f"{reward.name} ({progress.pieces_earned}/{progress.pieces_required or 1})"
             button = InlineKeyboardButton(
                 text=button_text,
                 callback_data=f"claim_reward_{progress.reward_id}"
@@ -126,12 +135,16 @@ def build_settings_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
         language: Language code for translating button text
 
     Returns:
-        InlineKeyboardMarkup with settings options
+        InlineKeyboardMarkup with settings options and Back button
     """
     keyboard = [
         [InlineKeyboardButton(
             text=msg('SETTINGS_SELECT_LANGUAGE', language),
             callback_data="settings_language"
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_BACK', language),
+            callback_data="menu_back"
         )]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -163,6 +176,219 @@ def build_language_selection_keyboard(language: str = 'en') -> InlineKeyboardMar
         [InlineKeyboardButton(
             text=msg('SETTINGS_BACK', language),
             callback_data="settings_back"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_weight_selection_keyboard(current_weight: int | None = None, language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for habit weight selection (10, 20, 30...100).
+
+    Args:
+        current_weight: Current weight value (will be highlighted with ✓)
+        language: Language code (reserved for future use)
+
+    Returns:
+        InlineKeyboardMarkup with weight buttons
+    """
+    keyboard = []
+    row = []
+
+    for weight in range(10, 101, 10):
+        # Highlight current weight with checkmark
+        button_text = f"✓ {weight}" if current_weight == weight else str(weight)
+        button = InlineKeyboardButton(
+            text=button_text,
+            callback_data=f"weight_{weight}"
+        )
+        row.append(button)
+
+        # Create rows of 5 buttons each
+        if len(row) == 5:
+            keyboard.append(row)
+            row = []
+
+    # Add remaining buttons
+    if row:
+        keyboard.append(row)
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_category_selection_keyboard(current_category: str | None = None, language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for habit category selection.
+
+    Args:
+        current_category: Current category value (will be highlighted with ✓)
+        language: Language code (reserved for future use)
+
+    Returns:
+        InlineKeyboardMarkup with category buttons
+    """
+    from src.config import HABIT_CATEGORIES
+
+    keyboard = []
+
+    for category_id, category_display in HABIT_CATEGORIES:
+        # Highlight current category with checkmark
+        button_text = f"✓ {category_display}" if current_category == category_id else category_display
+        button = InlineKeyboardButton(
+            text=button_text,
+            callback_data=f"category_{category_id}"
+        )
+        keyboard.append([button])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_habits_for_edit_keyboard(habits: list[Habit], operation: str, language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for habit selection in edit/remove operations.
+
+    Args:
+        habits: List of Habit objects to display
+        operation: 'edit' or 'remove' - determines callback_data prefix
+        language: Language code for translating Back button text
+
+    Returns:
+        InlineKeyboardMarkup with habit buttons and Back button
+    """
+    keyboard = []
+
+    for habit in habits:
+        # Display format: "Habit Name (category)"
+        display_text = f"{habit.name}"
+        if habit.category:
+            display_text += f" ({habit.category})"
+
+        callback_prefix = "edit_habit" if operation == "edit" else "remove_habit"
+        button = InlineKeyboardButton(
+            text=display_text,
+            callback_data=f"{callback_prefix}_{habit.id}"
+        )
+        keyboard.append([button])
+
+    # Add Back button to return to habits menu
+    callback_back = "edit_back" if operation == "edit" else "remove_back"
+    keyboard.append([
+        InlineKeyboardButton(
+            text=msg('MENU_BACK', language),
+            callback_data=callback_back
+        )
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_habit_confirmation_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for habit confirmation (Yes/No).
+
+    Args:
+        language: Language code (reserved for future use)
+
+    Returns:
+        InlineKeyboardMarkup with Yes/No buttons
+    """
+    keyboard = [
+        [InlineKeyboardButton(
+            text="✅ Yes",
+            callback_data="confirm_yes"
+        )],
+        [InlineKeyboardButton(
+            text="❌ No",
+            callback_data="confirm_no"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_start_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for the main start menu.
+
+    Layout:
+    [Habit Done]
+    [Habits, Rewards]
+    [Streaks, Settings]
+    [Help, Close]
+    """
+    keyboard = [
+        [InlineKeyboardButton(text="✅ Habit Done", callback_data="menu_habit_done")],
+        [
+            InlineKeyboardButton(text="🧩 Habits", callback_data="menu_habits"),
+            InlineKeyboardButton(text="🎁 Rewards", callback_data="menu_rewards")
+        ],
+        [
+            InlineKeyboardButton(text="🔥 Streaks", callback_data="menu_streaks"),
+            InlineKeyboardButton(text="⚙️ Settings", callback_data="menu_settings")
+        ],
+        [
+            InlineKeyboardButton(text="❓ Help", callback_data="menu_help"),
+            InlineKeyboardButton(text=msg('MENU_CLOSE', language), callback_data="menu_close")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_habits_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for the habits submenu.
+    """
+    keyboard = [
+        [InlineKeyboardButton(text="➕ Add Habit", callback_data="menu_habits_add")],
+        [InlineKeyboardButton(text="✏️ Edit Habit", callback_data="menu_habits_edit")],
+        [InlineKeyboardButton(text="🗑 Remove Habit", callback_data="menu_habits_remove")],
+        [InlineKeyboardButton(text=msg('MENU_BACK', language), callback_data="menu_back_start")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_rewards_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for the rewards submenu.
+    """
+    keyboard = [
+        [InlineKeyboardButton(text="➕ Add Reward", callback_data="menu_rewards_add")],
+        [InlineKeyboardButton(text="📄 List Rewards", callback_data="menu_rewards_list")],
+        [InlineKeyboardButton(text="📊 My Rewards", callback_data="menu_rewards_my")],
+        [InlineKeyboardButton(text="🎯 Claim Reward", callback_data="menu_rewards_claim")],
+        [InlineKeyboardButton(text=msg('MENU_BACK', language), callback_data="menu_back_start")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_remove_confirmation_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for remove confirmation with Back.
+    """
+    keyboard = [
+        [InlineKeyboardButton(text="✅ Yes", callback_data="confirm_yes")],
+        [InlineKeyboardButton(text="❌ No", callback_data="confirm_no")],
+        [InlineKeyboardButton(text=msg('MENU_BACK', language), callback_data="remove_back_to_list")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_back_to_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard with only a Back button to return to main menu.
+
+    This keyboard is used for command outputs (help, streaks, etc.) to allow
+    users to navigate back to the start menu by editing the message in-place.
+
+    Args:
+        language: User's language preference
+
+    Returns:
+        InlineKeyboardMarkup with single Back button
+    """
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('MENU_BACK', language),
+            callback_data="menu_back"
         )]
     ]
     return InlineKeyboardMarkup(keyboard)

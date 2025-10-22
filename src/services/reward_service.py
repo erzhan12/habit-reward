@@ -128,6 +128,9 @@ class RewardService:
         todays_logs = self.habit_log_repo.get_todays_logs_by_user(user_id)
 
         # Filter for entries where a reward was actually awarded
+        # Only logs with got_reward=True AND a valid reward_id are considered "awarded"
+        # This prevents the same reward from being given multiple times in one day
+        # got_reward=True means the user received a meaningful reward (not "none" type)
         awarded_reward_ids = []
         for log in todays_logs:
             if log.got_reward and log.reward_id:
@@ -148,11 +151,16 @@ class RewardService:
 
         Algorithm:
         1. Get or create reward progress entry
-        2. Increment pieces_earned by 1
-        3. Airtable formula automatically calculates status:
+        2. Check status:
+           - If ACHIEVED: don't increment (prevents over-counting)
+           - If CLAIMED: reset claimed=False first, then increment (starts new cycle)
+           - If PENDING: just increment normally
+        3. Increment pieces_earned by 1
+        4. Airtable formula automatically calculates status:
+           - If claimed=True: status = "✅ Claimed"
            - If pieces_earned >= pieces_required: status = "⏳ Achieved"
            - Otherwise: status = "🕒 Pending"
-        4. Save and return progress
+        5. Save and return progress
 
         Args:
             user_id: Airtable record ID of the user
@@ -182,29 +190,47 @@ class RewardService:
             )
             progress = self.progress_repo.create(progress)
 
+        # Check if reward is already achieved - don't increment to prevent over-counting
+        if progress.status == RewardStatus.ACHIEVED:
+            logger.info(f"Reward {reward_id} already achieved for user {user_id}, skipping increment")
+            return progress
+
+        # If reward was claimed, reset claimed flag to start new cycle
+        # This transitions from "0/N Claimed" → "1/N Pending" (or Achieved if N=1)
+        updates = {}
+        if progress.status == RewardStatus.CLAIMED:
+            logger.info(f"Reward {reward_id} was claimed for user {user_id}, resetting claimed flag")
+            updates["claimed"] = False
+
         # Increment pieces earned
         new_pieces = progress.pieces_earned + 1
+        updates["pieces_earned"] = new_pieces
 
         # Update in database - Airtable will automatically calculate status field
         updated_progress = self.progress_repo.update(
             progress.id,
-            {
-                "pieces_earned": new_pieces
-            }
+            updates
         )
 
         return updated_progress
 
     def mark_reward_claimed(self, user_id: str, reward_id: str) -> RewardProgress:
         """
-        Mark a reward as claimed by user.
+        Mark a reward as claimed by user and reset the counter.
+
+        Algorithm:
+        1. Validate reward is in ACHIEVED status
+        2. Reset pieces_earned to 0 (shows 0/N in UI)
+        3. Set claimed to True (status becomes "✅ Claimed")
+        4. User will see "0/N Claimed" until they earn the next piece
+        5. When they earn the next piece, update_reward_progress() will reset claimed=False
 
         Args:
             user_id: Airtable record ID of the user
             reward_id: Airtable record ID of the reward
 
         Returns:
-            Updated RewardProgress object
+            Updated RewardProgress object with reset counter and claimed=True
 
         Raises:
             ValueError: If progress not found or reward not in ACHIEVED status
@@ -217,10 +243,15 @@ class RewardService:
         if progress.status != RewardStatus.ACHIEVED:
             raise ValueError("Reward must be in 'Achieved' status to be claimed")
 
-        # Update claimed field - Airtable formula will update status to "✅ Claimed"
+        # Reset pieces_earned to 0 and set claimed to True
+        # This shows "0/N" with "Claimed" status in the UI
+        # When user earns next piece, claimed will be reset to False by update_reward_progress()
         updated_progress = self.progress_repo.update(
             progress.id,
-            {"claimed": True}
+            {
+                "pieces_earned": 0,
+                "claimed": True
+            }
         )
 
         return updated_progress

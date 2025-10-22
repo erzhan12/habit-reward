@@ -37,7 +37,13 @@ async def list_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYP
     rewards = reward_service.get_active_rewards()
     logger.info(f"🔍 Found {len(rewards)} active rewards for user {telegram_id}")
     message = format_rewards_list_message(rewards, lang)
-    await update.message.reply_text(message, parse_mode="HTML")
+
+    from src.bot.keyboards import build_back_to_menu_keyboard
+    await update.message.reply_text(
+        message,
+        reply_markup=build_back_to_menu_keyboard(lang),
+        parse_mode="HTML"
+    )
     logger.info(f"📤 Sent rewards list to {telegram_id}")
 
 
@@ -71,9 +77,14 @@ async def my_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     progress_list = reward_service.get_user_reward_progress(user.id)
     logger.info(f"🔍 Found {len(progress_list)} reward progress entries for user {telegram_id}")
 
+    from src.bot.keyboards import build_back_to_menu_keyboard
+
     if not progress_list:
         logger.info(f"ℹ️ No reward progress found for user {telegram_id}")
-        await update.message.reply_text(msg('INFO_NO_REWARD_PROGRESS', lang))
+        await update.message.reply_text(
+            msg('INFO_NO_REWARD_PROGRESS', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
         logger.info(f"📤 Sent INFO_NO_REWARD_PROGRESS message to {telegram_id}")
         return
 
@@ -89,6 +100,7 @@ async def my_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     logger.info(f"✅ Sending reward progress for {len(progress_list)} rewards to user {telegram_id}")
     await update.message.reply_text(
         "\n".join(message_parts),
+        reply_markup=build_back_to_menu_keyboard(lang),
         parse_mode="HTML"
     )
     logger.info(f"📤 Sent reward progress to {telegram_id}")
@@ -130,7 +142,11 @@ async def claim_reward_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if not achieved_rewards:
         logger.info(f"ℹ️ No achieved rewards found for user {telegram_id}")
-        await update.message.reply_text(msg('INFO_NO_REWARDS_TO_CLAIM', lang))
+        from src.bot.keyboards import build_back_to_menu_keyboard
+        await update.message.reply_text(
+            msg('INFO_NO_REWARDS_TO_CLAIM', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
         logger.info(f"📤 Sent INFO_NO_REWARDS_TO_CLAIM message to {telegram_id}")
         return ConversationHandler.END
 
@@ -207,8 +223,11 @@ async def claim_reward_callback(
                 lang
             )
             logger.info(f"✅ Reward '{reward_name}' claimed successfully by user {telegram_id}. Status: {updated_progress.status.value}")
+
+            from src.bot.keyboards import build_back_to_menu_keyboard
             await query.edit_message_text(
                 text=message,
+                reply_markup=build_back_to_menu_keyboard(lang),
                 parse_mode="HTML"
             )
             logger.info(f"📤 Sent claim success message with updated progress to {telegram_id}")
@@ -260,8 +279,10 @@ async def add_reward_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = get_message_language(telegram_id, update)
 
     logger.info(f"ℹ️ User {telegram_id} requested unimplemented feature: add_reward")
+    from src.bot.keyboards import build_back_to_menu_keyboard
     await update.message.reply_text(
         msg('INFO_FEATURE_COMING_SOON', lang),
+        reply_markup=build_back_to_menu_keyboard(lang),
         parse_mode="HTML"
     )
     logger.info(f"📤 Sent feature coming soon message to {telegram_id}")

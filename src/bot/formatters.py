@@ -29,6 +29,8 @@ def format_habit_completion_message(result: HabitCompletionResult, language: str
     message_parts.append(f"{fire_emoji} " + msg('FORMAT_STREAK', language, streak_count=result.streak_count))
 
     # Reward result - all rewards now show progress
+    # Check if user received a meaningful reward (not "none" type)
+    # got_reward=True means they won a real/virtual/cumulative reward
     if result.got_reward and result.reward:
         message_parts.append("\n" + msg('FORMAT_REWARD', language, reward_name=result.reward.name))
         if result.cumulative_progress:
@@ -40,7 +42,7 @@ def format_habit_completion_message(result: HabitCompletionResult, language: str
                 msg('FORMAT_PROGRESS', language,
                     progress_bar=progress_bar,
                     pieces_earned=result.cumulative_progress.pieces_earned,
-                    pieces_required=result.cumulative_progress.pieces_required)
+                    pieces_required=result.cumulative_progress.pieces_required or 1)
             )
             if result.cumulative_progress.status == RewardStatus.ACHIEVED:
                 message_parts.append(msg('INFO_REWARD_ACTIONABLE', language))
@@ -73,7 +75,7 @@ def format_reward_progress_message(progress: RewardProgress, reward: Reward, lan
 
     message = (
         f"{progress.status_emoji} <b>{reward.name}</b>\n"
-        f"📊 {progress_bar} {progress.pieces_earned}/{progress.pieces_required}\n"
+        f"📊 {progress_bar} {progress.pieces_earned}/{progress.pieces_required or 1}\n"
         f"{msg('FORMAT_STATUS', language, status=progress.status.value)}"
     )
 
@@ -166,6 +168,9 @@ def format_habit_logs_message(logs: list[HabitLog], habits: dict[str, str], lang
     for log in logs[:settings.recent_logs_limit]:  # Show only last N
         habit_name = habits.get(log.habit_id, "Unknown habit")
         date_str = log.last_completed_date.strftime("%b %d")
+        # Visual indicator for reward status in habit history
+        # 🎁 = got_reward=True (meaningful reward received)
+        # ❌ = got_reward=False (no reward or "none" type reward)
         reward_emoji = "🎁" if log.got_reward else "❌"
         streak_emoji = "🔥" * min(log.streak_count, 3)
 

@@ -549,17 +549,38 @@ reward_progress = reward_service.update_reward_progress(
 
 # When user claims a reward
 reward_service.mark_reward_claimed(user_id, reward_id)
-# This sets claimed=True, Airtable formula updates status to "✅ Claimed"
+# This resets pieces_earned to 0 and sets claimed=True, showing "0/N Claimed"
+# Next time they earn a piece, claimed is automatically reset to False
 ```
 
 **Key methods**:
-- `update_reward_progress()` - Increments pieces_earned for any reward
-- `mark_reward_claimed()` - Sets claimed=True when user claims achieved reward
+- `update_reward_progress()` - Increments pieces_earned for any reward with smart status handling
+  - **ACHIEVED status**: Will NOT increment (prevents over-counting beyond goal)
+  - **CLAIMED status**: Resets `claimed=False` first, then increments (starts new cycle)
+  - **PENDING status**: Increments normally
+  - This ensures the counter doesn't go beyond the goal (e.g., won't show 2/1)
+- `mark_reward_claimed()` - Resets pieces_earned to 0 and sets claimed=True when user claims achieved reward
+  - **Important**: Resets counter to 0 and sets `claimed=True`
+  - Status changes from "Achieved" (N/N) → "Claimed" (0/N) via Airtable formula
+  - User will see "0/N Claimed" until they earn the next piece
+  - When they earn the next piece, `update_reward_progress()` automatically resets `claimed=False`
 
 **Removed methods** (as of Feature 0006):
 - `update_cumulative_progress()` - renamed to `update_reward_progress()`
 - `mark_reward_completed()` - renamed to `mark_reward_claimed()`
 - `set_reward_status()` - status is now fully computed by Airtable
+
+**Bug Fix (2025-10-22)**: Fixed issue where reward counter would continue incrementing after reaching the goal (e.g., showing "2/1" instead of "1/1"). The proper reward cycle is now:
+1. **Pending** (0/N) → User earns pieces → **Pending** (1/N, 2/N, etc.)
+2. **Achieved** (N/N) → User cannot earn more pieces (counter frozen at N/N)
+3. **User claims** → `mark_reward_claimed()` → **Claimed** (0/N)
+4. **User earns next piece** → `update_reward_progress()` resets `claimed=False` → **Pending** (1/N)
+5. Cycle repeats from step 1
+
+Key behaviors:
+- Counter cannot exceed goal (prevents 2/1 bug)
+- After claiming, counter shows 0/N with "Claimed" status
+- Next piece earned automatically starts new cycle at 1/N "Pending"
 
 **src/services/habit_service.py**:
 ```python

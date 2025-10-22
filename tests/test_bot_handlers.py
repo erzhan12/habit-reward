@@ -12,6 +12,16 @@ from src.bot.handlers.reward_handlers import (
     my_rewards_command,
     claim_reward_command
 )
+from src.bot.handlers.menu_handler import (
+    open_habits_menu_callback,
+    bridge_command_callback,
+    open_start_menu_callback
+)
+from src.bot.handlers.habit_management_handler import (
+    remove_back_to_list,
+    AWAITING_REMOVE_SELECTION
+)
+from src.bot.keyboards import build_start_menu_keyboard
 from src.models.user import User
 from src.models.habit import Habit
 from src.bot.messages import msg
@@ -152,15 +162,13 @@ class TestStartCommand:
         # Execute
         await start_command(mock_telegram_update, context=None)
 
-        # Assert: Welcome message sent
+        # Assert: Start menu sent
         call_args = mock_telegram_update.message.reply_text.call_args
         message_text = call_args[0][0]
 
-        # Language-specific assertions
-        expected_welcome = msg('HELP_START_MESSAGE', language)
-        assert message_text == expected_welcome
-        assert "/habit_done" in message_text
-        assert "/streaks" in message_text
+        expected_title = msg('START_MENU_TITLE', language)
+        assert message_text == expected_title
+        assert 'reply_markup' in call_args[1]
         assert call_args[1].get("parse_mode") == "HTML"
 
 
@@ -234,6 +242,89 @@ class TestHelpCommand:
         assert message_text == expected_help
         assert "/habit_done" in message_text
         assert call_args[1].get("parse_mode") == "HTML"
+
+
+class TestStartMenuKeyboard:
+    """Tests for the Start menu keyboard layout."""
+
+    def test_start_menu_contains_expected_buttons(self, language):
+        keyboard = build_start_menu_keyboard(language)
+        # InlineKeyboardMarkup stores keyboard in .inline_keyboard
+        rows = keyboard.inline_keyboard
+        # Expect at least 5 rows as designed
+        assert len(rows) >= 5
+        # Check presence of Close and Habits callbacks
+        callbacks = [btn.callback_data for row in rows for btn in row]
+        assert 'menu_habits' in callbacks
+        assert 'menu_rewards' in callbacks
+        assert 'menu_habit_done' in callbacks
+        assert 'menu_close' in callbacks
+        assert 'menu_back_start' not in callbacks  # not in root menu
+
+
+@pytest.fixture
+def mock_callback_update(mock_telegram_user):
+    """Create a mock update with callback_query and chat for menu tests."""
+    class DummyChat:
+        def __init__(self):
+            self.send_message = AsyncMock()
+
+    query = Mock()
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    query.delete_message = AsyncMock()
+    query.data = ''
+    query.message = Mock()
+    query.message.chat = DummyChat()
+
+    update = Mock(spec=Update)
+    update.effective_user = mock_telegram_user
+    update.callback_query = query
+    return update
+
+
+class TestMenuHandlers:
+    @pytest.mark.asyncio
+    async def test_open_habits_menu(self, mock_callback_update, language):
+        mock_callback_update.callback_query.data = 'menu_habits'
+        await open_habits_menu_callback(mock_callback_update, context=None)
+        mock_callback_update.callback_query.edit_message_text.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_bridge_to_command(self, mock_callback_update):
+        mock_callback_update.callback_query.data = 'menu_habits_remove'
+        await bridge_command_callback(mock_callback_update, context=None)
+        mock_callback_update.callback_query.message.chat.send_message.assert_called_once_with('/remove_habit')
+
+    @pytest.mark.asyncio
+    async def test_back_to_start_menu(self, mock_callback_update, language):
+        mock_callback_update.callback_query.data = 'menu_back_start'
+        await open_start_menu_callback(mock_callback_update, context=None)
+        mock_callback_update.callback_query.edit_message_text.assert_called_once()
+
+
+class TestRemoveHabitBack:
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.habit_repository')
+    async def test_back_to_list_shows_selection(self, mock_habit_repo, mock_callback_update, mock_active_user, language):
+        # Mock habits list returned by repository
+        from src.models.habit import Habit
+        mock_habit_repo.get_all_active.return_value = [
+            Habit(id='h1', name='A', weight=10, category='x', active=True)
+        ]
+
+        result = await remove_back_to_list(mock_callback_update, context=None)
+        assert result == AWAITING_REMOVE_SELECTION
+        mock_callback_update.callback_query.edit_message_text.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.habit_repository')
+    async def test_back_to_list_deletes_when_empty(self, mock_habit_repo, mock_callback_update, language):
+        mock_habit_repo.get_all_active.return_value = []
+
+        result = await remove_back_to_list(mock_callback_update, context=None)
+        assert result == ConversationHandler.END
+        mock_callback_update.callback_query.delete_message.assert_called_once()
 
 
 class TestHabitDoneCommand:

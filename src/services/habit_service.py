@@ -97,7 +97,12 @@ class HabitService:
             exclude_reward_ids=todays_awarded_rewards
         )
 
-        # Determine if user got a meaningful reward
+        # Determine if user got a meaningful reward (not "none" type)
+        # This boolean flag is crucial for:
+        # 1. Preventing duplicate rewards on the same day
+        # 2. Progress tracking for cumulative rewards
+        # 3. Analytics and reward rate calculations
+        # 4. User feedback and experience
         got_reward = selected_reward.type != RewardType.NONE
 
         # 8. Update reward progress for ANY reward (unified system)
