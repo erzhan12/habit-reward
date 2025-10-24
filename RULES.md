@@ -19,7 +19,7 @@ if not user:
     return
 
 # Check if user is active
-if not user.active:
+if not user.is_active:
     await update.message.reply_text(
         "❌ Your account is not active. Please contact admin."
     )
@@ -705,6 +705,195 @@ See `docs/features/0005_PLAN.md` for full implementation details.
 - `src/bot/messages.py` - Removed `HELP_SET_STATUS_USAGE` constant and all references to `/set_reward_status` in help text (English, Russian, Kazakh)
 
 **Migration Path**: Users should use `/claim_reward` to mark achieved rewards as claimed. Status changes automatically based on progress.
+
+### Post-Habit-Creation UX Pattern
+
+**CRITICAL**: After successfully creating a habit via `/add_habit`, immediately show a menu displaying all habits (including the newly created one) with action buttons to improve user experience.
+
+**Implementation Pattern**:
+
+```python
+# In habit_confirmed() after creating habit
+created_habit = await habit_repository.create(new_habit)
+logger.info(f"✅ Created habit '{created_habit.name}' (ID: {created_habit.id})")
+
+# Show success message
+success_message = msg('SUCCESS_HABIT_CREATED', lang, name=created_habit.name)
+await query.edit_message_text(success_message, parse_mode="HTML")
+
+# Fetch all active habits including the newly created one
+all_habits = await habit_repository.get_all_active()
+
+# Show the post-creation menu with habits list
+keyboard = build_post_create_habit_keyboard(all_habits, lang)
+next_message = msg('HELP_HABIT_CREATED_NEXT', lang)
+
+# Send as a new message to show the habits list
+await query.message.reply_text(
+    next_message,
+    reply_markup=keyboard,
+    parse_mode="HTML"
+)
+```
+
+**Post-Creation Menu Options**:
+1. **Display habits** - Shows all active habits as non-interactive list items (using `view_habit_*` callbacks)
+2. **➕ Add Another** - Starts `/add_habit` flow again (`post_create_add_another` callback)
+3. **✏️ Edit Habit** - Opens edit habit menu (`menu_habits_edit` callback)
+4. **« Back** - Returns to habits menu (`menu_back_habits` callback)
+
+**Keyboard Builder**:
+- `build_post_create_habit_keyboard(habits, language)` in `src/bot/keyboards.py`
+- Displays habits with name and category (if available)
+- Provides quick access to common next actions
+
+**Callback Handlers**:
+- `post_create_add_another` → Handled by `post_create_add_another_callback()` in habit_management_handler
+- `view_habit_*` → Handled by `view_habit_display_callback()` in menu_handler (display only, no action)
+- `menu_habits_edit` → Handled by existing edit_habit_conversation
+- `menu_back_habits` → Handled by `open_habits_menu_callback()` in menu_handler
+
+**Files Modified** (Feature: Post-Creation Habit Menu):
+- `src/bot/messages.py` - Added `HELP_HABIT_CREATED_NEXT` message constant (English, Russian, Kazakh)
+- `src/bot/keyboards.py` - Added `build_post_create_habit_keyboard()` function
+- `src/bot/handlers/habit_management_handler.py` - Modified `habit_confirmed()` to show post-creation menu, added `post_create_add_another_callback()` handler
+- `src/bot/handlers/menu_handler.py` - Added `view_habit_display_callback()` and `menu_back_habits` callback handler
+
+**Why This Pattern**:
+1. **Immediate feedback** - User sees their new habit in the context of all their habits
+2. **Reduced friction** - Quick access to add more habits or edit existing ones
+3. **Better UX** - Natural flow from creation to management
+4. **Visibility** - User can see all their habits at once after adding a new one
+
+### Post-Habit-Removal UX Pattern
+
+**CRITICAL**: After successfully removing a habit via `/remove_habit`, immediately show the Habits menu to provide quick access to other habit management actions.
+
+**Implementation Pattern**:
+
+```python
+# In habit_remove_confirmed() after removing habit
+removed_habit = await habit_repository.soft_delete(habit_id)
+logger.info(f"✅ Soft deleted habit '{removed_habit.name}' (ID: {removed_habit.id})")
+
+# Show success message
+success_message = msg('SUCCESS_HABIT_REMOVED', lang, name=habit_name)
+await query.edit_message_text(success_message, parse_mode="HTML")
+
+# Show Habits menu after successful removal
+from src.bot.keyboards import build_habits_menu_keyboard
+await query.message.reply_text(
+    msg('HABITS_MENU_TITLE', lang),
+    reply_markup=build_habits_menu_keyboard(lang),
+    parse_mode="HTML"
+)
+logger.info(f"📤 Sent Habits menu to {telegram_id}")
+```
+
+**Habits Menu Options**:
+1. **➕ Add Habit** - Create a new habit (`menu_habits_add` callback)
+2. **✏️ Edit Habit** - Edit an existing habit (`menu_habits_edit` callback)
+3. **🗑 Remove Habit** - Remove another habit (`menu_habits_remove` callback)
+4. **« Back** - Return to main menu (`menu_back_start` callback)
+
+**Files Modified** (Feature: Post-Removal Habits Menu):
+- `src/bot/handlers/habit_management_handler.py` - Modified `habit_remove_confirmed()` to show Habits menu after successful removal
+
+**Why This Pattern**:
+1. **Seamless flow** - User can immediately perform another habit management action
+2. **No dead ends** - Always provides next steps after completing an action
+3. **Consistency** - Matches post-creation pattern for unified UX
+4. **Efficiency** - Reduces navigation steps for users managing multiple habits
+
+### Cancel Button Pattern for Habit Flows
+
+**CRITICAL**: All habit creation and editing flows must include a **Cancel** button on inline keyboards, allowing users to abort the operation and return to the Habits menu without typing `/cancel`.
+
+**Implementation Pattern**:
+
+All inline keyboards in habit flows should include a Cancel button:
+- Weight selection keyboard
+- Category selection keyboard
+- Confirmation keyboard
+
+```python
+# Add Cancel button to any inline keyboard in habit flows
+keyboard.append([
+    InlineKeyboardButton(
+        text=msg('MENU_CANCEL', language),
+        callback_data="cancel_habit_flow"
+    )
+])
+```
+
+**Cancel Handler**:
+```python
+async def cancel_habit_flow_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle cancel button click during habit creation/editing."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+
+    # Show cancellation message
+    await query.edit_message_text(
+        msg('INFO_HABIT_CANCEL', lang),
+        parse_mode="HTML"
+    )
+
+    # Show Habits menu
+    from src.bot.keyboards import build_habits_menu_keyboard
+    await query.message.reply_text(
+        msg('HABITS_MENU_TITLE', lang),
+        reply_markup=build_habits_menu_keyboard(lang),
+        parse_mode="HTML"
+    )
+
+    # Clear context
+    context.user_data.clear()
+    return ConversationHandler.END
+```
+
+**Register in Conversation States**:
+
+Add the cancel handler to all relevant states in both `/add_habit` and `/edit_habit` conversations:
+
+```python
+states={
+    AWAITING_HABIT_WEIGHT: [
+        CallbackQueryHandler(habit_weight_selected, pattern="^weight_"),
+        CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
+    ],
+    AWAITING_HABIT_CATEGORY: [
+        CallbackQueryHandler(habit_category_selected, pattern="^category_"),
+        CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
+    ],
+    AWAITING_HABIT_CONFIRMATION: [
+        CallbackQueryHandler(habit_confirmed, pattern="^confirm_(yes|no)$"),
+        CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
+    ]
+}
+```
+
+**Note on Text Input Steps**:
+For steps where users type text (habit name input), keep the `/cancel` command as the cancellation method. Adding an inline keyboard with just a Cancel button to text input prompts can be intrusive to the user experience.
+
+**Message Constant**:
+- `MENU_CANCEL = "✖ Cancel"` (English)
+- `MENU_CANCEL = "✖ Отмена"` (Russian)
+- `MENU_CANCEL = "✖ Болдырмау"` (Kazakh)
+
+**Files Modified** (Feature: Cancel Button in Habit Flows):
+- `src/bot/messages.py` - Added `MENU_CANCEL` message constant (3 languages)
+- `src/bot/keyboards.py` - Added Cancel button to `build_weight_selection_keyboard()`, `build_category_selection_keyboard()`, `build_habit_confirmation_keyboard()`
+- `src/bot/handlers/habit_management_handler.py` - Added `cancel_habit_flow_callback()` handler and registered it in both conversation states
+
+**Why This Pattern**:
+1. **Better UX** - Users don't need to remember or type `/cancel` command
+2. **Consistency** - Inline buttons match the rest of the conversation flow
+3. **Clear exit path** - Obvious way to abort operation at any step
+4. **Direct navigation** - Returns user directly to Habits menu (not just ending conversation)
 
 ## Future Django Migration
 

@@ -300,8 +300,8 @@ Use TEST_CASES.md as your manual testing guide. Automated tests cover the **busi
 
 ## 📖 References
 
-- **Test File**: [tests/test_bot_handlers.py](tests/test_bot_handlers.py)
-- **RULES.md**: [Development patterns and testing guidelines](RULES.md)
+- **Test File**: [tests/test_bot_handlers.py](../tests/test_bot_handlers.py)
+- **RULES.md**: [Development patterns and testing guidelines](../RULES.md)
 - **TEST_CASES.md**: [Complete manual test case documentation](TEST_CASES.md)
 
 ---

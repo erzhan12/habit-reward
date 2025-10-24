@@ -1,0 +1,421 @@
+"""Repository pattern implementation for Django ORM.
+
+This module provides a compatibility layer that maintains the same interface
+as the Airtable repositories, allowing services to work without changes.
+"""
+
+import logging
+from datetime import date
+from typing import Any
+from asgiref.sync import sync_to_async
+from django.db.models import F
+
+from src.core.models import User, Habit, HabitLog, Reward, RewardProgress
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+
+class UserRepository:
+    """User repository using Django ORM."""
+
+    async def get_by_telegram_id(self, telegram_id: str) -> User | None:
+        """Get user by Telegram ID."""
+        try:
+            return await sync_to_async(User.objects.get)(telegram_id=telegram_id)
+        except User.DoesNotExist:
+            return None
+
+    async def get_by_id(self, user_id: int | str) -> User | None:
+        """Get user by primary key.
+
+        Args:
+            user_id: Django primary key (int) or string representation
+
+        Returns:
+            User instance or None
+        """
+        try:
+            # Convert to int if string (for compatibility with Airtable IDs)
+            pk = int(user_id) if isinstance(user_id, str) else user_id
+            return await sync_to_async(User.objects.get)(pk=pk)
+        except (User.DoesNotExist, ValueError):
+            return None
+
+    async def create(self, user: User | dict) -> User:
+        """Create new user.
+
+        Args:
+            user: User model instance or dict with user fields
+
+        Returns:
+            Created User instance
+        """
+        if isinstance(user, dict):
+            # Map 'active' to 'is_active' if present (for backward compatibility)
+            if 'active' in user:
+                user['is_active'] = user.pop('active')
+
+            # Set default is_active=False for security if not specified
+            if 'is_active' not in user:
+                user['is_active'] = False
+
+            # Auto-generate username from telegram_id if not provided
+            if 'username' not in user and 'telegram_id' in user:
+                user['username'] = f"tg_{user['telegram_id']}"
+
+            return await sync_to_async(User.objects.create)(**user)
+        else:
+            # If it's a User instance, extract fields
+            return await sync_to_async(User.objects.create)(
+                telegram_id=user.telegram_id,
+                name=user.name,
+                is_active=user.is_active,
+                language=user.language,
+                username=f"tg_{user.telegram_id}"
+            )
+
+    async def update(self, user_id: int | str, updates: dict[str, Any]) -> User:
+        """Update user fields.
+
+        Args:
+            user_id: Django primary key
+            updates: Dict with fields to update
+
+        Returns:
+            Updated User instance
+        """
+        pk = int(user_id) if isinstance(user_id, str) else user_id
+
+        # Map 'active' to 'is_active' if present (for backward compatibility)
+        if 'active' in updates:
+            updates['is_active'] = updates.pop('active')
+
+        await sync_to_async(User.objects.filter(pk=pk).update)(**updates)
+        return await sync_to_async(User.objects.get)(pk=pk)
+
+
+class HabitRepository:
+    """Habit repository using Django ORM."""
+
+    async def get_by_name(self, name: str) -> Habit | None:
+        """Get habit by name (active habits only)."""
+        try:
+            return await sync_to_async(Habit.objects.get)(name=name, active=True)
+        except Habit.DoesNotExist:
+            return None
+
+    async def get_all_active(self) -> list[Habit]:
+        """Get all active habits."""
+        habits = await sync_to_async(list)(Habit.objects.filter(active=True).order_by('name'))
+        return habits
+
+    async def get_by_id(self, habit_id: int | str) -> Habit | None:
+        """Get habit by primary key."""
+        try:
+            pk = int(habit_id) if isinstance(habit_id, str) else habit_id
+            return await sync_to_async(Habit.objects.get)(pk=pk)
+        except (Habit.DoesNotExist, ValueError):
+            return None
+
+    async def create(self, habit: Habit | dict) -> Habit:
+        """Create new habit.
+
+        Args:
+            habit: Habit model instance or dict with habit fields
+
+        Returns:
+            Created Habit instance
+        """
+        if isinstance(habit, dict):
+            return await sync_to_async(Habit.objects.create)(**habit)
+        else:
+            return await sync_to_async(Habit.objects.create)(
+                name=habit.name,
+                weight=habit.weight,
+                category=habit.category,
+                active=habit.active
+            )
+
+    async def update(self, habit_id: int | str, updates: dict[str, Any]) -> Habit:
+        """Update habit fields.
+
+        Args:
+            habit_id: Django primary key
+            updates: Dict with fields to update (name, weight, category, active)
+
+        Returns:
+            Updated Habit instance
+        """
+        pk = int(habit_id) if isinstance(habit_id, str) else habit_id
+        await sync_to_async(Habit.objects.filter(pk=pk).update)(**updates)
+        return await sync_to_async(Habit.objects.get)(pk=pk)
+
+    async def soft_delete(self, habit_id: int | str) -> Habit:
+        """Soft delete habit by setting active=False.
+
+        Args:
+            habit_id: Django primary key
+
+        Returns:
+            Updated Habit instance with active=False
+        """
+        return await self.update(habit_id, {"active": False})
+
+
+class RewardRepository:
+    """Reward repository using Django ORM."""
+
+    async def get_all_active(self) -> list[Reward]:
+        """Get all active rewards."""
+        rewards = await sync_to_async(list)(Reward.objects.filter(active=True).order_by('name'))
+        return rewards
+
+    async def get_by_id(self, reward_id: int | str) -> Reward | None:
+        """Get reward by primary key."""
+        try:
+            pk = int(reward_id) if isinstance(reward_id, str) else reward_id
+            return await sync_to_async(Reward.objects.get)(pk=pk)
+        except (Reward.DoesNotExist, ValueError):
+            return None
+
+    async def get_by_name(self, name: str) -> Reward | None:
+        """Get reward by name (active rewards only)."""
+        try:
+            return await sync_to_async(Reward.objects.get)(name=name, active=True)
+        except Reward.DoesNotExist:
+            return None
+
+    async def create(self, reward: Reward | dict) -> Reward:
+        """Create new reward.
+
+        Args:
+            reward: Reward model instance or dict with reward fields
+
+        Returns:
+            Created Reward instance
+        """
+        if isinstance(reward, dict):
+            return await sync_to_async(Reward.objects.create)(**reward)
+        else:
+            data = {
+                "name": reward.name,
+                "weight": reward.weight,
+                "type": reward.type if isinstance(reward.type, str) else reward.type.value,
+                "pieces_required": reward.pieces_required
+            }
+            if reward.piece_value is not None:
+                data["piece_value"] = reward.piece_value
+            return await sync_to_async(Reward.objects.create)(**data)
+
+
+class RewardProgressRepository:
+    """Reward progress repository using Django ORM."""
+
+    async def get_by_user_and_reward(self, user_id: int | str, reward_id: int | str) -> RewardProgress | None:
+        """Get progress for specific user and reward.
+
+        Args:
+            user_id: User primary key
+            reward_id: Reward primary key
+
+        Returns:
+            RewardProgress instance or None
+        """
+        try:
+            user_pk = int(user_id) if isinstance(user_id, str) else user_id
+            reward_pk = int(reward_id) if isinstance(reward_id, str) else reward_id
+            return await sync_to_async(RewardProgress.objects.select_related('reward', 'user').get)(
+                user_id=user_pk,
+                reward_id=reward_pk
+            )
+        except (RewardProgress.DoesNotExist, ValueError):
+            return None
+
+    async def get_all_by_user(self, user_id: int | str) -> list[RewardProgress]:
+        """Get all reward progress for a user.
+
+        Args:
+            user_id: User primary key
+
+        Returns:
+            List of RewardProgress instances
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        progress_list = await sync_to_async(list)(
+            RewardProgress.objects.filter(user_id=user_pk)
+            .select_related('reward', 'user')
+            .order_by('reward__name')
+        )
+        return progress_list
+
+    async def get_achieved_by_user(self, user_id: int | str) -> list[RewardProgress]:
+        """Get all achieved (actionable) rewards for a user.
+
+        Achieved means: pieces_earned >= pieces_required AND not claimed
+
+        Args:
+            user_id: User primary key
+
+        Returns:
+            List of RewardProgress instances with achieved status
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        achieved_list = await sync_to_async(list)(
+            RewardProgress.objects.filter(
+                user_id=user_pk,
+                pieces_earned__gte=F('reward__pieces_required'),
+                claimed=False
+            ).select_related('reward', 'user')
+        )
+        return achieved_list
+
+    async def create(self, progress: RewardProgress | dict) -> RewardProgress:
+        """Create new progress entry.
+
+        Uses get_or_create to prevent duplicates.
+
+        Args:
+            progress: RewardProgress instance or dict with progress fields
+
+        Returns:
+            RewardProgress instance (created or existing)
+        """
+        if isinstance(progress, dict):
+            user_id = int(progress['user_id']) if isinstance(progress['user_id'], str) else progress['user_id']
+            reward_id = int(progress['reward_id']) if isinstance(progress['reward_id'], str) else progress['reward_id']
+            pieces_earned = progress.get('pieces_earned', 0)
+        else:
+            user_id = int(progress.user_id) if isinstance(progress.user_id, str) else progress.user_id
+            reward_id = int(progress.reward_id) if isinstance(progress.reward_id, str) else progress.reward_id
+            pieces_earned = progress.pieces_earned
+
+        progress_obj, created = await sync_to_async(RewardProgress.objects.get_or_create)(
+            user_id=user_id,
+            reward_id=reward_id,
+            defaults={'pieces_earned': pieces_earned}
+        )
+        return progress_obj
+
+    async def update(self, progress_id: int | str, updates: dict[str, Any]) -> RewardProgress:
+        """Update reward progress fields.
+
+        Args:
+            progress_id: RewardProgress primary key
+            updates: Dict with fields to update
+
+        Returns:
+            Updated RewardProgress instance
+        """
+        pk = int(progress_id) if isinstance(progress_id, str) else progress_id
+        await sync_to_async(RewardProgress.objects.filter(pk=pk).update)(**updates)
+        return await sync_to_async(RewardProgress.objects.select_related('reward', 'user').get)(pk=pk)
+
+
+class HabitLogRepository:
+    """Habit log repository using Django ORM."""
+
+    async def create(self, log: HabitLog | dict) -> HabitLog:
+        """Create new habit log entry.
+
+        Args:
+            log: HabitLog instance or dict with log fields
+
+        Returns:
+            Created HabitLog instance
+        """
+        if isinstance(log, dict):
+            # Convert string IDs to ints
+            if 'user_id' in log and isinstance(log['user_id'], str):
+                log['user_id'] = int(log['user_id'])
+            if 'habit_id' in log and isinstance(log['habit_id'], str):
+                log['habit_id'] = int(log['habit_id'])
+            if 'reward_id' in log and isinstance(log['reward_id'], str):
+                log['reward_id'] = int(log['reward_id']) if log['reward_id'] else None
+            return await sync_to_async(HabitLog.objects.create)(**log)
+        else:
+            data = {
+                "user_id": int(log.user_id) if isinstance(log.user_id, str) else log.user_id,
+                "habit_id": int(log.habit_id) if isinstance(log.habit_id, str) else log.habit_id,
+                "got_reward": log.got_reward,
+                "streak_count": log.streak_count,
+                "habit_weight": log.habit_weight,
+                "total_weight_applied": log.total_weight_applied,
+                "last_completed_date": log.last_completed_date
+            }
+            if log.reward_id:
+                data["reward_id"] = int(log.reward_id) if isinstance(log.reward_id, str) else log.reward_id
+            # Note: timestamp will be auto-set by auto_now_add
+            return await sync_to_async(HabitLog.objects.create)(**data)
+
+    async def get_last_log_for_habit(self, user_id: int | str, habit_id: int | str) -> HabitLog | None:
+        """Get the most recent log entry for a specific user and habit.
+
+        Args:
+            user_id: User primary key
+            habit_id: Habit primary key
+
+        Returns:
+            Most recent HabitLog instance or None
+        """
+        try:
+            user_pk = int(user_id) if isinstance(user_id, str) else user_id
+            habit_pk = int(habit_id) if isinstance(habit_id, str) else habit_id
+            return await sync_to_async(HabitLog.objects.filter(
+                user_id=user_pk,
+                habit_id=habit_pk
+            ).select_related('habit', 'user', 'reward').latest)('timestamp')
+        except (HabitLog.DoesNotExist, ValueError):
+            return None
+
+    async def get_logs_by_user(self, user_id: int | str, limit: int = 50) -> list[HabitLog]:
+        """Get recent logs for a user.
+
+        Args:
+            user_id: User primary key
+            limit: Maximum number of logs to return
+
+        Returns:
+            List of HabitLog instances (most recent first)
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        logs = await sync_to_async(list)(
+            HabitLog.objects.filter(user_id=user_pk)
+            .select_related('habit', 'user', 'reward')
+            .order_by('-timestamp')[:limit]
+        )
+        return logs
+
+    async def get_todays_logs_by_user(self, user_id: int | str, target_date: date | None = None) -> list[HabitLog]:
+        """Get today's habit log entries for a user.
+
+        Args:
+            user_id: User primary key
+            target_date: Optional date to query (defaults to today)
+
+        Returns:
+            List of HabitLog entries for the specified date
+        """
+        if target_date is None:
+            target_date = date.today()
+
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        logger.debug(f"Fetching logs for user={user_pk} on date={target_date}")
+
+        logs = await sync_to_async(list)(
+            HabitLog.objects.filter(
+                user_id=user_pk,
+                last_completed_date=target_date
+            ).select_related('habit', 'user', 'reward')
+        )
+
+        logger.debug(f"Found {len(logs)} logs for user={user_pk} on date={target_date}")
+        return logs
+
+
+# Global repository instances (for backward compatibility with Airtable pattern)
+user_repository = UserRepository()
+habit_repository = HabitRepository()
+reward_repository = RewardRepository()
+reward_progress_repository = RewardProgressRepository()
+habit_log_repository = HabitLogRepository()

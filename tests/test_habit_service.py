@@ -23,7 +23,7 @@ def mock_user():
         id="user123",
         telegram_id="123456789",
         name="Test User",
-        active=True
+        is_active=True
     )
 
 

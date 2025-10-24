@@ -58,7 +58,24 @@ class Messages:
     HABITS_MENU_TITLE = "🧩 <b>Habits</b>\nChoose an action:"
     REWARDS_MENU_TITLE = "🎁 <b>Rewards</b>\nChoose an action:"
     MENU_BACK = "« Back"
+    MENU_CANCEL = "✖ Cancel"
     MENU_CLOSE = "✖ Close"
+    MENU_CLOSED = "Menu closed. Use /start to open again."
+    BUTTON_HABIT_DONE = "✅ Habit Done"
+    BUTTON_HABITS = "🧩 Habits"
+    BUTTON_REWARDS = "🎁 Rewards"
+    BUTTON_STREAKS = "🔥 Streaks"
+    BUTTON_SETTINGS = "⚙️ Settings"
+    BUTTON_HELP = "❓ Help"
+    BUTTON_ADD_HABIT = "➕ Add Habit"
+    BUTTON_EDIT_HABIT = "✏️ Edit Habit"
+    BUTTON_REMOVE_HABIT = "🗑 Remove Habit"
+    BUTTON_ADD_REWARD = "➕ Add Reward"
+    BUTTON_LIST_REWARDS = "📄 List Rewards"
+    BUTTON_MY_REWARDS = "📊 My Rewards"
+    BUTTON_CLAIM_REWARD = "🎯 Claim Reward"
+    BUTTON_YES = "✅ Yes"
+    BUTTON_NO = "❌ No"
 
     # Welcome/Help Messages
     HELP_START_MESSAGE = """🎯 <b>Welcome to Habit Reward System!</b>
@@ -121,6 +138,7 @@ Your streak multiplier increases your chances of getting rewards!"""
     HELP_ADD_HABIT_CATEGORY_PROMPT = "Select a category for this habit:"
     HELP_ADD_HABIT_CONFIRM = "Review your new habit:\n<b>Name:</b> {name}\n<b>Weight:</b> {weight}\n<b>Category:</b> {category}\n\nCreate this habit?"
     SUCCESS_HABIT_CREATED = "✅ Habit '<b>{name}</b>' created successfully!"
+    HELP_HABIT_CREATED_NEXT = "🧩 <b>Your habits:</b>"
     ERROR_HABIT_NAME_TOO_LONG = "❌ Habit name is too long (max 100 characters)."
     ERROR_HABIT_NAME_EMPTY = "❌ Habit name cannot be empty."
     ERROR_WEIGHT_INVALID = "❌ Invalid weight. Please select a value between 1-100."
@@ -134,6 +152,7 @@ Your streak multiplier increases your chances of getting rewards!"""
     HELP_REMOVE_HABIT_CONFIRM = "Are you sure you want to remove '<b>{name}</b>'?\n\n⚠️ This will deactivate the habit. Your history will be preserved."
     SUCCESS_HABIT_REMOVED = "✅ Habit '<b>{name}</b>' removed successfully."
     ERROR_NO_HABITS_TO_EDIT = "❌ You don't have any habits to edit."
+    ERROR_NO_HABITS_TO_EDIT_PROMPT = "❌ You don't have any habits to edit.\n\nWould you like to add a new habit?"
     ERROR_NO_HABITS_TO_REMOVE = "❌ You don't have any habits to remove."
     INFO_HABIT_CANCEL = "❌ Habit operation cancelled."
 
@@ -196,7 +215,24 @@ Your streak multiplier increases your chances of getting rewards!"""
             'HABITS_MENU_TITLE': "🧩 <b>Привычки</b>\nВыберите действие:",
             'REWARDS_MENU_TITLE': "🎁 <b>Награды</b>\nВыберите действие:",
             'MENU_BACK': "« Назад",
+            'MENU_CANCEL': "✖ Отмена",
             'MENU_CLOSE': "✖ Закрыть",
+            'MENU_CLOSED': "Меню закрыто. Используйте /start чтобы открыть снова.",
+            'BUTTON_HABIT_DONE': "✅ Отметить привычку",
+            'BUTTON_HABITS': "🧩 Привычки",
+            'BUTTON_REWARDS': "🎁 Награды",
+            'BUTTON_STREAKS': "🔥 Серии",
+            'BUTTON_SETTINGS': "⚙️ Настройки",
+            'BUTTON_HELP': "❓ Помощь",
+            'BUTTON_ADD_HABIT': "➕ Добавить привычку",
+            'BUTTON_EDIT_HABIT': "✏️ Изменить привычку",
+            'BUTTON_REMOVE_HABIT': "🗑 Удалить привычку",
+            'BUTTON_ADD_REWARD': "➕ Добавить награду",
+            'BUTTON_LIST_REWARDS': "📄 Список наград",
+            'BUTTON_MY_REWARDS': "📊 Мои награды",
+            'BUTTON_CLAIM_REWARD': "🎯 Получить награду",
+            'BUTTON_YES': "✅ Да",
+            'BUTTON_NO': "❌ Нет",
 
             # Welcome/Help Messages
             'HELP_START_MESSAGE': """🎯 <b>Добро пожаловать в систему наград за привычки!</b>
@@ -259,6 +295,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'HELP_ADD_HABIT_CATEGORY_PROMPT': "Выберите категорию для этой привычки:",
             'HELP_ADD_HABIT_CONFIRM': "Проверьте вашу новую привычку:\n<b>Название:</b> {name}\n<b>Вес:</b> {weight}\n<b>Категория:</b> {category}\n\nСоздать эту привычку?",
             'SUCCESS_HABIT_CREATED': "✅ Привычка '<b>{name}</b>' успешно создана!",
+            'HELP_HABIT_CREATED_NEXT': "🧩 <b>Ваши привычки:</b>",
             'ERROR_HABIT_NAME_TOO_LONG': "❌ Название привычки слишком длинное (макс. 100 символов).",
             'ERROR_HABIT_NAME_EMPTY': "❌ Название привычки не может быть пустым.",
             'ERROR_WEIGHT_INVALID': "❌ Неверный вес. Выберите значение от 1 до 100.",
@@ -272,6 +309,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'HELP_REMOVE_HABIT_CONFIRM': "Вы уверены, что хотите удалить '<b>{name}</b>'?\n\n⚠️ Это деактивирует привычку. Ваша история будет сохранена.",
             'SUCCESS_HABIT_REMOVED': "✅ Привычка '<b>{name}</b>' успешно удалена.",
             'ERROR_NO_HABITS_TO_EDIT': "❌ У вас нет привычек для редактирования.",
+            'ERROR_NO_HABITS_TO_EDIT_PROMPT': "❌ У вас нет привычек для редактирования.\n\nХотите добавить новую привычку?",
             'ERROR_NO_HABITS_TO_REMOVE': "❌ У вас нет привычек для удаления.",
             'INFO_HABIT_CANCEL': "❌ Операция с привычкой отменена.",
 
@@ -332,7 +370,24 @@ Your streak multiplier increases your chances of getting rewards!"""
             'HABITS_MENU_TITLE': "🧩 <b>Әдеттер</b>\nӘрекетті таңдаңыз:",
             'REWARDS_MENU_TITLE': "🎁 <b>Сыйлықтар</b>\nӘрекетті таңдаңыз:",
             'MENU_BACK': "« Артқа",
+            'MENU_CANCEL': "✖ Болдырмау",
             'MENU_CLOSE': "✖ Жабу",
+            'MENU_CLOSED': "Мәзір жабылды. Қайта ашу үшін /start пайдаланыңыз.",
+            'BUTTON_HABIT_DONE': "✅ Әдет аяқталды",
+            'BUTTON_HABITS': "🧩 Әдеттер",
+            'BUTTON_REWARDS': "🎁 Марапаттар",
+            'BUTTON_STREAKS': "🔥 Сериялар",
+            'BUTTON_SETTINGS': "⚙️ Параметрлер",
+            'BUTTON_HELP': "❓ Көмек",
+            'BUTTON_ADD_HABIT': "➕ Әдет қосу",
+            'BUTTON_EDIT_HABIT': "✏️ Әдетті өңдеу",
+            'BUTTON_REMOVE_HABIT': "🗑 Әдетті жою",
+            'BUTTON_ADD_REWARD': "➕ Марапат қосу",
+            'BUTTON_LIST_REWARDS': "📄 Марапаттар тізімі",
+            'BUTTON_MY_REWARDS': "📊 Менің марапаттарым",
+            'BUTTON_CLAIM_REWARD': "🎯 Марапат алу",
+            'BUTTON_YES': "✅ Иә",
+            'BUTTON_NO': "❌ Жоқ",
 
             # Welcome/Help Messages
             'HELP_START_MESSAGE': """🎯 <b>Әдеттер үшін сыйлықтар жүйесіне қош келдіңіз!</b>
@@ -395,6 +450,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'HELP_ADD_HABIT_CATEGORY_PROMPT': "Осы әдет үшін санатты таңдаңыз:",
             'HELP_ADD_HABIT_CONFIRM': "Жаңа әдетіңізді тексеріңіз:\n<b>Аты:</b> {name}\n<b>Салмақ:</b> {weight}\n<b>Санат:</b> {category}\n\nОсы әдетті жасау керек пе?",
             'SUCCESS_HABIT_CREATED': "✅ '<b>{name}</b>' әдеті сәтті жасалды!",
+            'HELP_HABIT_CREATED_NEXT': "🧩 <b>Сіздің әдеттеріңіз:</b>",
             'ERROR_HABIT_NAME_TOO_LONG': "❌ Әдет атауы тым ұзын (макс. 100 таңба).",
             'ERROR_HABIT_NAME_EMPTY': "❌ Әдет атауы бос болуы мүмкін емес.",
             'ERROR_WEIGHT_INVALID': "❌ Қате салмақ. 1-ден 100-ге дейін мән таңдаңыз.",
@@ -408,6 +464,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'HELP_REMOVE_HABIT_CONFIRM': "Сіз '<b>{name}</b>' жоюға сенімдісіз бе?\n\n⚠️ Бұл әдетті белсенсіз етеді. Тарихыңыз сақталады.",
             'SUCCESS_HABIT_REMOVED': "✅ '<b>{name}</b>' әдеті сәтті жойылды.",
             'ERROR_NO_HABITS_TO_EDIT': "❌ Өңдеуге әдеттеріңіз жоқ.",
+            'ERROR_NO_HABITS_TO_EDIT_PROMPT': "❌ Өңдеуге әдеттеріңіз жоқ.\n\nЖаңа әдет қосқыңыз келе ме?",
             'ERROR_NO_HABITS_TO_REMOVE': "❌ Жоюға әдеттеріңіз жоқ.",
             'INFO_HABIT_CANCEL': "❌ Әдет операциясы болдырылмады.",
 

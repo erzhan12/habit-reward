@@ -9,10 +9,11 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 
-from src.airtable.repositories import user_repository
+from src.core.repositories import user_repository
 from src.bot.keyboards import build_settings_keyboard, build_language_selection_keyboard
 from src.bot.messages import msg
-from src.bot.language import get_message_language, set_user_language
+from src.bot.language import get_message_language_async, set_user_language
+from src.bot.navigation import update_navigation_language
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -34,10 +35,10 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     logger.info(f"📨 Received /settings command from user {telegram_id} (@{username})")
 
     # Get current language
-    lang = get_message_language(telegram_id, update)
+    lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = user_repository.get_by_telegram_id(telegram_id)
+    user = await user_repository.get_by_telegram_id(telegram_id)
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await update.message.reply_text(
@@ -47,7 +48,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return ConversationHandler.END
 
     # Check if user is active
-    if not user.active:
+    if not user.is_active:
         logger.warning(f"⚠️ User {telegram_id} is inactive")
         await update.message.reply_text(
             msg('ERROR_USER_INACTIVE', lang)
@@ -82,7 +83,7 @@ async def select_language_callback(update: Update, context: ContextTypes.DEFAULT
     logger.info(f"🖱️ User {telegram_id} (@{username}) tapped 'Select Language' button")
 
     # Get current language
-    lang = get_message_language(telegram_id, None)
+    lang = await get_message_language_async(telegram_id, None)
 
     # Edit message to show language selection
     logger.info(f"📤 Displaying language selection menu to user {telegram_id}")
@@ -116,14 +117,17 @@ async def change_language_callback(update: Update, context: ContextTypes.DEFAULT
     logger.info(f"🖱️ User {telegram_id} (@{username}) selected language: {language_code}")
 
     # Get old language for logging
-    old_lang = get_message_language(telegram_id, None)
+    old_lang = await get_message_language_async(telegram_id, None)
 
     # Update user language
-    success = set_user_language(telegram_id, language_code)
+    success = await set_user_language(telegram_id, language_code)
 
     if success:
         logger.info(f"🌐 Language updated successfully for user {telegram_id}: {old_lang} → {language_code}")
         logger.info(f"✅ User {telegram_id} language changed to {language_code}")
+
+        # Ensure navigation history reflects the new language
+        update_navigation_language(context, language_code)
 
         # Edit message to show settings menu in newly selected language
         await query.edit_message_text(
@@ -160,7 +164,7 @@ async def back_to_settings_callback(update: Update, context: ContextTypes.DEFAUL
     logger.info(f"🖱️ User {telegram_id} (@{username}) tapped 'Back to Settings' button")
 
     # Get current language
-    lang = get_message_language(telegram_id, None)
+    lang = await get_message_language_async(telegram_id, None)
 
     # Edit message to show settings menu
     logger.info(f"📤 Returning to settings menu for user {telegram_id}")

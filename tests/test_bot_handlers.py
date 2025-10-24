@@ -65,7 +65,7 @@ def mock_active_user(language):
         id="user123",
         telegram_id="999999999",
         name="Test User",
-        active=True,
+        is_active=True,
         language=language
     )
 
@@ -77,7 +77,7 @@ def mock_inactive_user(language):
         id="user456",
         telegram_id="999999999",
         name="Inactive User",
-        active=False,
+        is_active=False,
         language=language
     )
 

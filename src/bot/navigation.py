@@ -28,6 +28,7 @@ def push_navigation(context: ContextTypes.DEFAULT_TYPE, message_id: int, menu_ty
         'menu_type': menu_type,
         'lang': lang
     })
+    context.user_data['last_language'] = lang
 
     logger.info(f"🔝 Pushed navigation: {menu_type} (message_id: {message_id}, lang: {lang})")
 
@@ -59,7 +60,8 @@ def pop_navigation(context: ContextTypes.DEFAULT_TYPE) -> dict:
         return prev
     else:
         logger.info(f"↩️ Stack empty, returning to start menu")
-        return {'menu_type': 'start', 'lang': 'en'}
+        last_lang = context.user_data.get('last_language', 'en')
+        return {'menu_type': 'start', 'lang': last_lang}
 
 
 def get_current_navigation(context: ContextTypes.DEFAULT_TYPE) -> dict | None:
@@ -88,3 +90,13 @@ def clear_navigation(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     context.user_data['navigation_stack'] = []
     logger.info(f"🧹 Cleared navigation stack")
+
+
+def update_navigation_language(context: ContextTypes.DEFAULT_TYPE, new_lang: str) -> None:
+    """Update stored navigation states to reflect a new language preference."""
+    stack = context.user_data.get('navigation_stack')
+    if stack:
+        for state in stack:
+            state['lang'] = new_lang
+    context.user_data['last_language'] = new_lang
+    logger.info("🔁 Updated navigation stack language to %s", new_lang)

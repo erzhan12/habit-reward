@@ -1,5 +1,6 @@
 """Streak visualization component."""
 
+import asyncio
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -17,7 +18,7 @@ def render_streak_chart(user_id: str):
     """
     st.subheader("🔥 Current Streaks by Habit")
 
-    streaks_dict = streak_service.get_all_streaks_for_user(user_id)
+    streaks_dict = asyncio.run(streak_service.get_all_streaks_for_user(user_id))
 
     if not streaks_dict:
         st.info("No streaks yet. Complete habits to start building streaks!")

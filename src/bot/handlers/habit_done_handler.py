@@ -13,11 +13,12 @@ from telegram.ext import (
 
 from src.services.habit_service import habit_service
 from src.services.nlp_service import nlp_service
+from asgiref.sync import sync_to_async
 from src.bot.keyboards import build_habit_selection_keyboard, build_back_to_menu_keyboard
 from src.bot.formatters import format_habit_completion_message
-from src.airtable.repositories import user_repository
+from src.core.repositories import user_repository
 from src.bot.messages import msg
-from src.bot.language import get_message_language
+from src.bot.language import get_message_language, get_message_language_async
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -35,10 +36,10 @@ async def habit_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     telegram_id = str(update.effective_user.id)
     username = update.effective_user.username or "N/A"
     logger.info(f"📨 Received /habit_done command from user {telegram_id} (@{username})")
-    lang = get_message_language(telegram_id, update)
+    lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = user_repository.get_by_telegram_id(telegram_id)
+    user = await user_repository.get_by_telegram_id(telegram_id)
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await update.message.reply_text(
@@ -48,7 +49,7 @@ async def habit_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     # Check if user is active
-    if not user.active:
+    if not user.is_active:
         logger.warning(f"⚠️ User {telegram_id} is inactive")
         await update.message.reply_text(
             msg('ERROR_USER_INACTIVE', lang)
@@ -57,7 +58,7 @@ async def habit_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     # Get all active habits
-    habits = habit_service.get_all_active_habits()
+    habits = await sync_to_async(habit_service.get_all_active_habits)()
     logger.info(f"🔍 Found {len(habits)} active habits for user {telegram_id}")
 
     if not habits:
@@ -93,7 +94,7 @@ async def habit_selected_callback(
 
     telegram_id = str(update.effective_user.id)
     username = update.effective_user.username or "N/A"
-    lang = get_message_language(telegram_id, update)
+    lang = await get_message_language_async(telegram_id, update)
     callback_data = query.data
     
     logger.info(f"🖱️ Received callback '{callback_data}' from user {telegram_id} (@{username})")
@@ -113,7 +114,7 @@ async def habit_selected_callback(
         logger.info(f"🎯 User {telegram_id} selected habit_id: {habit_id}")
 
         # Get habit by ID
-        habits = habit_service.get_all_active_habits()
+        habits = await sync_to_async(habit_service.get_all_active_habits)()
         habit = next((h for h in habits if h.id == habit_id), None)
 
         if not habit:
@@ -125,7 +126,7 @@ async def habit_selected_callback(
         # Process habit completion
         try:
             logger.info(f"⚙️ Processing habit completion for user {telegram_id}, habit '{habit.name}'")
-            result = habit_service.process_habit_completion(
+            result = await sync_to_async(habit_service.process_habit_completion)(
                 user_telegram_id=telegram_id,
                 habit_name=habit.name
             )
@@ -159,13 +160,13 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """
     telegram_id = str(update.effective_user.id)
     username = update.effective_user.username or "N/A"
-    lang = get_message_language(telegram_id, update)
+    lang = await get_message_language_async(telegram_id, update)
     user_text = update.message.text
 
     logger.info(f"📨 Received custom text from user {telegram_id} (@{username}): '{user_text}'")
 
     # Get all active habits
-    habits = habit_service.get_all_active_habits()
+    habits = await sync_to_async(habit_service.get_all_active_habits)()
     habit_names = [h.name for h in habits]
 
     # Use NLP to classify
@@ -187,7 +188,7 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     try:
         logger.info(f"⚙️ Processing habit completion for user {telegram_id}, habit '{habit_name}'")
-        result = habit_service.process_habit_completion(
+        result = await sync_to_async(habit_service.process_habit_completion)(
             user_telegram_id=telegram_id,
             habit_name=habit_name
         )
@@ -227,7 +228,7 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     telegram_id = str(update.effective_user.id)
     username = update.effective_user.username or "N/A"
     logger.info(f"📨 Received /cancel command from user {telegram_id} (@{username})")
-    lang = get_message_language(telegram_id, update)
+    lang = await get_message_language_async(telegram_id, update)
     await update.message.reply_text(
         msg('INFO_CANCELLED', lang),
         reply_markup=build_back_to_menu_keyboard(lang)

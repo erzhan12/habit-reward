@@ -2,10 +2,13 @@
 
 import random
 import logging
-from src.airtable.repositories import reward_repository, reward_progress_repository, habit_log_repository
-from src.models.reward import Reward, RewardType
-from src.models.reward_progress import RewardProgress, RewardStatus
-from src.config import settings
+from src.core.repositories import reward_repository, reward_progress_repository, habit_log_repository
+from src.core.models import Reward, RewardProgress
+from django.conf import settings
+
+# Import enums from Django models
+RewardType = Reward.RewardType
+RewardStatus = RewardProgress.RewardStatus
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -38,11 +41,11 @@ class RewardService:
         Returns:
             Total weight multiplier
         """
-        streak_multiplier = 1 + (streak_count * settings.streak_multiplier_rate)
+        streak_multiplier = 1 + (streak_count * settings.STREAK_MULTIPLIER_RATE)
         total_weight = habit_weight * streak_multiplier
         return total_weight
 
-    def select_reward(
+    async def select_reward(
         self,
         total_weight: float,
         user_id: str | None = None,
@@ -70,7 +73,7 @@ class RewardService:
         if exclude_reward_ids:
             logger.info(f"Excluding {len(exclude_reward_ids)} rewards from selection")
 
-        rewards = self.reward_repo.get_all_active()
+        rewards = await self.reward_repo.get_all_active()
 
         if not rewards:
             logger.warning("No active rewards found, returning default 'none' reward")
@@ -109,7 +112,7 @@ class RewardService:
 
         return selected_reward
 
-    def get_todays_awarded_rewards(self, user_id: str) -> list[str]:
+    async def get_todays_awarded_rewards(self, user_id: str) -> list[str]:
         """
         Get list of reward IDs that were already awarded today.
 
@@ -125,7 +128,7 @@ class RewardService:
         logger.info(f"Fetching today's awarded rewards for user={user_id}")
 
         # Get today's logs for this user
-        todays_logs = self.habit_log_repo.get_todays_logs_by_user(user_id)
+        todays_logs = await self.habit_log_repo.get_todays_logs_by_user(user_id)
 
         # Filter for entries where a reward was actually awarded
         # Only logs with got_reward=True AND a valid reward_id are considered "awarded"
@@ -141,7 +144,7 @@ class RewardService:
 
         return awarded_reward_ids
 
-    def update_reward_progress(
+    async def update_reward_progress(
         self,
         user_id: str,
         reward_id: str
@@ -171,8 +174,8 @@ class RewardService:
         """
         # Get or create progress
         logger.info(f"Updating reward progress for user={user_id}, reward={reward_id}")
-        progress = self.progress_repo.get_by_user_and_reward(user_id, reward_id)
-        reward = self.reward_repo.get_by_id(reward_id)
+        progress = await self.progress_repo.get_by_user_and_reward(user_id, reward_id)
+        reward = await self.reward_repo.get_by_id(reward_id)
 
         if not reward:
             logger.error(f"Reward {reward_id} doesn't exist")
@@ -188,7 +191,7 @@ class RewardService:
                 pieces_required=reward.pieces_required,
                 claimed=False
             )
-            progress = self.progress_repo.create(progress)
+            progress = await self.progress_repo.create(progress)
 
         # Check if reward is already achieved - don't increment to prevent over-counting
         if progress.status == RewardStatus.ACHIEVED:
@@ -207,14 +210,14 @@ class RewardService:
         updates["pieces_earned"] = new_pieces
 
         # Update in database - Airtable will automatically calculate status field
-        updated_progress = self.progress_repo.update(
+        updated_progress = await self.progress_repo.update(
             progress.id,
             updates
         )
 
         return updated_progress
 
-    def mark_reward_claimed(self, user_id: str, reward_id: str) -> RewardProgress:
+    async def mark_reward_claimed(self, user_id: str, reward_id: str) -> RewardProgress:
         """
         Mark a reward as claimed by user and reset the counter.
 
@@ -235,7 +238,7 @@ class RewardService:
         Raises:
             ValueError: If progress not found or reward not in ACHIEVED status
         """
-        progress = self.progress_repo.get_by_user_and_reward(user_id, reward_id)
+        progress = await self.progress_repo.get_by_user_and_reward(user_id, reward_id)
 
         if not progress:
             raise ValueError("Reward progress not found")
@@ -246,7 +249,7 @@ class RewardService:
         # Reset pieces_earned to 0 and set claimed to True
         # This shows "0/N" with "Claimed" status in the UI
         # When user earns next piece, claimed will be reset to False by update_reward_progress()
-        updated_progress = self.progress_repo.update(
+        updated_progress = await self.progress_repo.update(
             progress.id,
             {
                 "pieces_earned": 0,
@@ -257,16 +260,16 @@ class RewardService:
         return updated_progress
 
 
-    def get_active_rewards(self) -> list[Reward]:
+    async def get_active_rewards(self) -> list[Reward]:
         """
         Get all active rewards.
 
         Returns:
             List of active rewards
         """
-        return self.reward_repo.get_all_active()
+        return await self.reward_repo.get_all_active()
 
-    def get_user_reward_progress(self, user_id: str) -> list[RewardProgress]:
+    async def get_user_reward_progress(self, user_id: str) -> list[RewardProgress]:
         """
         Get all reward progress for a user.
 
@@ -276,9 +279,9 @@ class RewardService:
         Returns:
             List of RewardProgress objects
         """
-        return self.progress_repo.get_all_by_user(user_id)
+        return await self.progress_repo.get_all_by_user(user_id)
 
-    def get_actionable_rewards(self, user_id: str) -> list[RewardProgress]:
+    async def get_actionable_rewards(self, user_id: str) -> list[RewardProgress]:
         """
         Get all achieved (actionable) rewards for a user.
 
@@ -288,7 +291,7 @@ class RewardService:
         Returns:
             List of RewardProgress objects with status "⏳ Achieved"
         """
-        return self.progress_repo.get_achieved_by_user(user_id)
+        return await self.progress_repo.get_achieved_by_user(user_id)
 
 
 # Global service instance

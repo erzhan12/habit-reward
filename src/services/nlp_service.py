@@ -2,7 +2,7 @@
 
 import json
 from openai import OpenAI
-from src.config import settings
+from django.conf import settings
 
 
 class NLPService:
@@ -10,13 +10,13 @@ class NLPService:
 
     def __init__(self):
         """Initialize NLPService with configured LLM client."""
-        self.provider = settings.llm_provider.lower()
-        self.model = settings.llm_model
-        
+        self.provider = settings.LLM_PROVIDER.lower()
+        self.model = settings.LLM_MODEL
+
         if self.provider == "openai":
-            if not settings.llm_api_key:
+            if not settings.LLM_API_KEY:
                 raise ValueError("LLM_API_KEY is required for OpenAI provider")
-            self.client = OpenAI(api_key=settings.llm_api_key)
+            self.client = OpenAI(api_key=settings.LLM_API_KEY)
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider}")
 

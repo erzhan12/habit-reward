@@ -5,13 +5,24 @@ from telegram import Update, Message
 from telegram.ext import ContextTypes, CallbackQueryHandler
 
 from src.bot.messages import msg
-from src.bot.language import get_message_language
+from src.bot.language import get_message_language_async, set_user_language
 from src.bot.keyboards import (
     build_start_menu_keyboard,
     build_habits_menu_keyboard,
-    build_rewards_menu_keyboard
+    build_rewards_menu_keyboard,
+    build_settings_keyboard,
+    build_language_selection_keyboard,
+    build_back_to_menu_keyboard,
 )
-from src.bot.navigation import push_navigation, pop_navigation, clear_navigation
+from src.bot.navigation import (
+    push_navigation,
+    pop_navigation,
+    clear_navigation,
+    update_navigation_language,
+    get_current_navigation,
+)
+from src.services.habit_service import habit_service
+from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +32,7 @@ async def open_start_menu_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
 
     telegram_id = str(update.effective_user.id)
-    lang = get_message_language(telegram_id, update)
+    lang = await get_message_language_async(telegram_id, update)
 
     edited_message = await query.edit_message_text(
         msg('START_MENU_TITLE', lang),
@@ -41,7 +52,7 @@ async def open_habits_menu_callback(update: Update, context: ContextTypes.DEFAUL
     await query.answer()
 
     telegram_id = str(update.effective_user.id)
-    lang = get_message_language(telegram_id, update)
+    lang = await get_message_language_async(telegram_id, update)
 
     edited_message = await query.edit_message_text(
         msg('HABITS_MENU_TITLE', lang),
@@ -61,7 +72,7 @@ async def open_rewards_menu_callback(update: Update, context: ContextTypes.DEFAU
     await query.answer()
 
     telegram_id = str(update.effective_user.id)
-    lang = get_message_language(telegram_id, update)
+    lang = await get_message_language_async(telegram_id, update)
 
     edited_message = await query.edit_message_text(
         msg('REWARDS_MENU_TITLE', lang),
@@ -77,14 +88,20 @@ async def open_rewards_menu_callback(update: Update, context: ContextTypes.DEFAU
 
 
 async def close_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Close menu by deleting the message."""
     query = update.callback_query
     await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+
     try:
+        # Delete the message completely
         await query.delete_message()
         # Clear navigation stack when menu is closed
         clear_navigation(context)
-    except Exception:
-        pass
+        logger.info(f"🔒 Menu closed for user {telegram_id}")
+    except Exception as e:
+        logger.error(f"❌ Failed to close menu for user {telegram_id}: {e}")
     return 0
 
 
@@ -245,13 +262,29 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
 
     handler = mapping.get(data)
     if handler:
-        # Call handler directly
-        await handler(synthetic_update, context)
+        current_state = get_current_navigation(context)
+        if current_state:
+            lang = current_state.get('lang', 'en')
+        else:
+            lang = await get_message_language_async(telegram_id, update)
+
+        push_navigation(
+            context,
+            query.message.message_id,
+            data,
+            lang
+        )
+
+        try:
+            await handler(synthetic_update, context)
+        except Exception:
+            pop_navigation(context)
+            raise
         return 0
 
     # Fallback: show start menu (only fetch language if needed)
     logger.warning(f"⚠️ Unknown callback data '{data}' from user {telegram_id}, showing start menu")
-    lang = get_message_language(telegram_id, update)
+    lang = await get_message_language_async(telegram_id, update)
     await query.edit_message_text(
         msg('START_MENU_TITLE', lang),
         reply_markup=build_start_menu_keyboard(lang),
@@ -266,9 +299,7 @@ async def settings_language_callback(update: Update, context: ContextTypes.DEFAU
     await query.answer()
 
     telegram_id = str(update.effective_user.id)
-    lang = get_message_language(telegram_id, update)
-
-    from src.bot.keyboards import build_language_selection_keyboard
+    lang = await get_message_language_async(telegram_id, update)
 
     await query.edit_message_text(
         msg('LANGUAGE_SELECTION_MENU', lang),
@@ -288,14 +319,12 @@ async def change_language_standalone_callback(update: Update, context: ContextTy
     callback_data = query.data
     language_code = callback_data.replace("lang_", "")
 
-    from src.bot.language import set_user_language
-    from src.bot.keyboards import build_settings_keyboard
-
     # Update user language
-    success = set_user_language(telegram_id, language_code)
+    success = await set_user_language(telegram_id, language_code)
 
     if success:
         logger.info(f"🌐 Language updated to {language_code} for user {telegram_id}")
+        update_navigation_language(context, language_code)
         await query.edit_message_text(
             msg('SETTINGS_MENU', language_code),
             reply_markup=build_settings_keyboard(language_code),
@@ -303,7 +332,7 @@ async def change_language_standalone_callback(update: Update, context: ContextTy
         )
     else:
         logger.error(f"❌ Failed to update language for user {telegram_id}")
-        lang = get_message_language(telegram_id, update)
+        lang = await get_message_language_async(telegram_id, update)
         await query.edit_message_text(
             msg('SETTINGS_MENU', lang),
             reply_markup=build_settings_keyboard(lang),
@@ -318,9 +347,7 @@ async def settings_back_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
 
     telegram_id = str(update.effective_user.id)
-    lang = get_message_language(telegram_id, update)
-
-    from src.bot.keyboards import build_settings_keyboard
+    lang = await get_message_language_async(telegram_id, update)
 
     await query.edit_message_text(
         msg('SETTINGS_MENU', lang),
@@ -337,7 +364,7 @@ async def habit_selected_standalone_callback(update: Update, context: ContextTyp
     await query.answer()
 
     telegram_id = str(update.effective_user.id)
-    lang = get_message_language(telegram_id, update)
+    lang = await get_message_language_async(telegram_id, update)
     callback_data = query.data
 
     logger.info(f"🎯 User {telegram_id} selected habit: {callback_data}")
@@ -347,12 +374,10 @@ async def habit_selected_standalone_callback(update: Update, context: ContextTyp
         habit_id = callback_data.replace("habit_", "")
 
         # Get habit by ID
-        from src.services.habit_service import habit_service
-        habits = habit_service.get_all_active_habits()
+        habits = await sync_to_async(habit_service.get_all_active_habits)()
         habit = next((h for h in habits if h.id == habit_id), None)
 
         if not habit:
-            from src.bot.keyboards import build_back_to_menu_keyboard
             logger.error(f"❌ Habit {habit_id} not found for user {telegram_id}")
             await query.edit_message_text(
                 msg('ERROR_HABIT_NOT_FOUND', lang),
@@ -363,10 +388,9 @@ async def habit_selected_standalone_callback(update: Update, context: ContextTyp
         # Process habit completion
         try:
             from src.bot.formatters import format_habit_completion_message
-            from src.bot.keyboards import build_back_to_menu_keyboard
 
             logger.info(f"⚙️ Processing habit completion for user {telegram_id}, habit '{habit.name}'")
-            result = habit_service.process_habit_completion(
+            result = await sync_to_async(habit_service.process_habit_completion)(
                 user_telegram_id=telegram_id,
                 habit_name=habit.name
             )
@@ -382,7 +406,6 @@ async def habit_selected_standalone_callback(update: Update, context: ContextTyp
             logger.info(f"📤 Sent habit completion success message to {telegram_id}")
 
         except ValueError as e:
-            from src.bot.keyboards import build_back_to_menu_keyboard
             logger.error(f"❌ Error processing habit completion for user {telegram_id}: {str(e)}")
             await query.edit_message_text(
                 msg('ERROR_GENERAL', lang, error=str(e)),
@@ -390,6 +413,14 @@ async def habit_selected_standalone_callback(update: Update, context: ContextTyp
             )
             logger.info(f"📤 Sent error message to {telegram_id}")
 
+    return 0
+
+
+async def view_habit_display_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handler for view_habit_ callbacks (display only, no action)."""
+    query = update.callback_query
+    await query.answer()
+    # Just acknowledge the callback, don't do anything
     return 0
 
 
@@ -402,13 +433,14 @@ def get_menu_handlers():
         CallbackQueryHandler(close_menu_callback, pattern="^menu_close$"),
         CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_streaks|menu_settings|menu_help|menu_habits_add|menu_rewards_add|menu_rewards_list|menu_rewards_my|menu_rewards_claim)$"),
         CallbackQueryHandler(open_start_menu_callback, pattern="^menu_back_start$"),
+        CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_back_habits$"),
         CallbackQueryHandler(generic_back_callback, pattern="^menu_back$"),
         # Settings standalone handlers (work outside conversation)
         CallbackQueryHandler(settings_language_callback, pattern="^settings_language$"),
         CallbackQueryHandler(change_language_standalone_callback, pattern="^lang_(en|kk|ru)$"),
         CallbackQueryHandler(settings_back_callback, pattern="^settings_back$"),
+        # Habit display handler (view only, no action)
+        CallbackQueryHandler(view_habit_display_callback, pattern="^view_habit_"),
         # Habit selection standalone handler (work outside conversation)
         CallbackQueryHandler(habit_selected_standalone_callback, pattern="^habit_")
     ]
-
-

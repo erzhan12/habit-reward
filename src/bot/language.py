@@ -2,26 +2,18 @@
 
 import logging
 from telegram import Update
+from asgiref.sync import async_to_sync
 
 from src.config import settings
-from src.airtable.repositories import user_repository
+from src.core.repositories import user_repository
 
 logger = logging.getLogger(__name__)
 
 
 def get_user_language(telegram_id: str) -> str:
-    """
-    Get user's preferred language from database.
-
-    Args:
-        telegram_id: Telegram user ID
-
-    Returns:
-        Language code (e.g., 'en', 'ru', 'kk'), defaults to config default if user not found
-    """
-    user = user_repository.get_by_telegram_id(telegram_id)
+    """Fetch the persisted language for synchronous callers."""
+    user = async_to_sync(user_repository.get_by_telegram_id)(telegram_id)
     if user and user.language:
-        # Normalize and validate
         lang = user.language.lower()[:2]
         if lang in settings.supported_languages:
             return lang
@@ -50,8 +42,24 @@ def detect_language_from_telegram(update: Update) -> str:
 
 
 def get_message_language(telegram_id: str, update: Update | None = None) -> str:
+    """Synchronous helper that mirrors async language detection."""
+    user = async_to_sync(user_repository.get_by_telegram_id)(telegram_id)
+    if user and user.language:
+        lang = user.language.lower()[:2]
+        if lang in settings.supported_languages:
+            return lang
+
+    if update:
+        telegram_lang = detect_language_from_telegram(update)
+        if telegram_lang != settings.default_language:
+            return telegram_lang
+
+    return settings.default_language
+
+
+async def get_message_language_async(telegram_id: str, update: Update | None = None) -> str:
     """
-    Get language for message display using fallback chain.
+    Async version: Get language for message display using fallback chain.
 
     Fallback order:
     1. User's saved language preference in database
@@ -65,8 +73,8 @@ def get_message_language(telegram_id: str, update: Update | None = None) -> str:
     Returns:
         Language code to use for messages
     """
-    # Try to get from user database
-    user = user_repository.get_by_telegram_id(telegram_id)
+    # Try to get from user database (async)
+    user = await user_repository.get_by_telegram_id(telegram_id)
     if user and user.language:
         lang = user.language.lower()[:2]
         if lang in settings.supported_languages:
@@ -82,30 +90,37 @@ def get_message_language(telegram_id: str, update: Update | None = None) -> str:
     return settings.default_language
 
 
-def set_user_language(telegram_id: str, language_code: str) -> bool:
-    """
-    Update user's language preference.
+async def set_user_language(telegram_id: str, language_code: str) -> bool:
+    """Persist the user's preferred language.
 
     Args:
         telegram_id: Telegram user ID
-        language_code: New language code (e.g., 'en', 'ru', 'kk')
+        language_code: Desired 2-letter language code (en, ru, kk)
 
     Returns:
-        True if successfully updated, False otherwise
+        True if the update succeeds, False otherwise.
     """
-    user = user_repository.get_by_telegram_id(telegram_id)
+    user = await user_repository.get_by_telegram_id(telegram_id)
     if not user:
+        logger.warning("Attempted to set language for unknown user %s", telegram_id)
         return False
 
     # Normalize and validate language code
     lang = language_code.lower()[:2]
     if lang not in settings.supported_languages:
+        logger.warning(
+            "Unsupported language '%s' provided for user %s", language_code, telegram_id
+        )
         return False
 
-    # Update user language
-    try:
-        user_repository.update(user.id, {"language": lang})
+    if user.language == lang:
+        logger.info("Language for user %s already set to %s", telegram_id, lang)
         return True
-    except Exception as e:
-        logger.error(f"Failed to update language for user {telegram_id}: {e}")
+
+    try:
+        await user_repository.update(user.id, {"language": lang})
+        logger.info("Updated language for user %s to %s", telegram_id, lang)
+        return True
+    except Exception as exc:
+        logger.error("Failed to update language for user %s: %s", telegram_id, exc)
         return False

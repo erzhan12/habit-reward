@@ -1,7 +1,7 @@
 """Streak calculation service for per-habit streak tracking."""
 
 from datetime import date, timedelta
-from src.airtable.repositories import habit_log_repository
+from src.core.repositories import habit_log_repository
 
 
 class StreakService:
@@ -11,7 +11,7 @@ class StreakService:
         """Initialize StreakService with repository."""
         self.habit_log_repo = habit_log_repository
 
-    def calculate_streak(self, user_id: str, habit_id: str) -> int:
+    async def calculate_streak(self, user_id: str, habit_id: str) -> int:
         """
         Calculate current streak for a specific habit and user.
 
@@ -30,7 +30,7 @@ class StreakService:
         Returns:
             Current streak count (minimum 1)
         """
-        last_log = self.habit_log_repo.get_last_log_for_habit(user_id, habit_id)
+        last_log = await self.habit_log_repo.get_last_log_for_habit(user_id, habit_id)
 
         # First time completing this habit
         if last_log is None:
@@ -51,7 +51,7 @@ class StreakService:
         # Streak broken - reset to 1
         return 1
 
-    def get_last_completed_date(self, user_id: str, habit_id: str) -> date | None:
+    async def get_last_completed_date(self, user_id: str, habit_id: str) -> date | None:
         """
         Get the last completed date for a specific habit and user.
 
@@ -62,10 +62,10 @@ class StreakService:
         Returns:
             Date of last completion or None if never completed
         """
-        last_log = self.habit_log_repo.get_last_log_for_habit(user_id, habit_id)
+        last_log = await self.habit_log_repo.get_last_log_for_habit(user_id, habit_id)
         return last_log.last_completed_date if last_log else None
 
-    def get_current_streak(self, user_id: str, habit_id: str) -> int:
+    async def get_current_streak(self, user_id: str, habit_id: str) -> int:
         """
         Get the CURRENT streak for a habit (for display purposes).
 
@@ -83,7 +83,7 @@ class StreakService:
         Returns:
             Current streak count (0 if never completed)
         """
-        last_log = self.habit_log_repo.get_last_log_for_habit(user_id, habit_id)
+        last_log = await self.habit_log_repo.get_last_log_for_habit(user_id, habit_id)
 
         # Never completed this habit
         if last_log is None:
@@ -92,7 +92,7 @@ class StreakService:
         # Return the streak from the most recent log
         return last_log.streak_count
 
-    def get_all_streaks_for_user(self, user_id: str) -> dict[str, int]:
+    async def get_all_streaks_for_user(self, user_id: str) -> dict[str, int]:
         """
         Get current streaks for all habits for a user.
 
@@ -102,7 +102,7 @@ class StreakService:
         Returns:
             Dictionary mapping habit_id to current streak count
         """
-        logs = self.habit_log_repo.get_logs_by_user(user_id)
+        logs = await self.habit_log_repo.get_logs_by_user(user_id)
 
         # Group by habit_id and get most recent for each
         habit_streaks: dict[str, int] = {}
@@ -114,7 +114,7 @@ class StreakService:
                 # Use get_current_streak instead of calculate_streak
                 # calculate_streak is for determining the NEXT streak when logging
                 # get_current_streak is for displaying the CURRENT streak status
-                streak = self.get_current_streak(user_id, log.habit_id)
+                streak = await self.get_current_streak(user_id, log.habit_id)
                 habit_streaks[log.habit_id] = streak
 
         return habit_streaks

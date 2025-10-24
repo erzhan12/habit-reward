@@ -9,7 +9,7 @@ class User(BaseModel):
     id: str | None = None  # Airtable record ID
     telegram_id: str = Field(..., description="Unique Telegram user ID")
     name: str = Field(..., description="User display name")
-    active: bool = Field(default=False, description="Whether user is active (default False for security)")
+    is_active: bool = Field(default=False, description="Whether user is active (default False for security)")
     language: str = Field(default='en', description="User's preferred language (ISO 639-1 code)")
 
     @field_validator('telegram_id', mode='before')
@@ -20,7 +20,7 @@ class User(BaseModel):
             return str(v)
         return v
 
-    @field_validator('active', mode='before')
+    @field_validator('is_active', mode='before')
     @classmethod
     def handle_airtable_checkbox(cls, v):
         """Handle Airtable checkbox behavior.
@@ -46,7 +46,7 @@ class User(BaseModel):
             "example": {
                 "telegram_id": "123456789",
                 "name": "John Doe",
-                "active": True,
+                "is_active": True,
                 "language": "en"
             }
         }

@@ -2,17 +2,19 @@
 
 import logging
 from datetime import datetime, date
-from src.airtable.repositories import (
+from asgiref.sync import sync_to_async
+from src.core.repositories import (
     user_repository,
     habit_repository,
     habit_log_repository
 )
+from src.core.models import Reward, Habit, HabitLog
 from src.services.streak_service import streak_service
 from src.services.reward_service import reward_service
-from src.models.habit import Habit
-from src.models.habit_log import HabitLog
 from src.models.habit_completion_result import HabitCompletionResult
-from src.models.reward import RewardType
+
+# Import RewardType from Django models
+RewardType = Reward.RewardType
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -29,7 +31,7 @@ class HabitService:
         self.streak_service = streak_service
         self.reward_service = reward_service
 
-    def process_habit_completion(
+    async def process_habit_completion(
         self,
         user_telegram_id: str,
         habit_name: str
@@ -63,13 +65,13 @@ class HabitService:
         """
         # 1. Verify user exists
         logger.info(f"Processing habit completion for user={user_telegram_id}, habit='{habit_name}'")
-        user = self.user_repo.get_by_telegram_id(user_telegram_id)
+        user = await sync_to_async(self.user_repo.get_by_telegram_id)(user_telegram_id)
         if not user:
             logger.error(f"User with telegram_id {user_telegram_id} not found")
             raise ValueError(f"User with telegram_id {user_telegram_id} not found")
 
         # 2. Get habit
-        habit = self.habit_repo.get_by_name(habit_name)
+        habit = await sync_to_async(self.habit_repo.get_by_name)(habit_name)
         if not habit:
             logger.error(f"Habit '{habit_name}' not found")
             raise ValueError(f"Habit '{habit_name}' not found")
@@ -78,7 +80,7 @@ class HabitService:
         habit_weight = habit.weight
 
         # 4. Calculate current streak
-        streak_count = self.streak_service.calculate_streak(user.id, habit.id)
+        streak_count = await self.streak_service.calculate_streak(user.id, habit.id)
 
         # 5. Calculate total_weight multiplier
         total_weight = self.reward_service.calculate_total_weight(
@@ -125,7 +127,7 @@ class HabitService:
             total_weight_applied=total_weight,
             last_completed_date=date.today()
         )
-        self.habit_log_repo.create(habit_log)
+        await sync_to_async(self.habit_log_repo.create)(habit_log)
 
         # 10. Return response object
         return HabitCompletionResult(
@@ -139,7 +141,7 @@ class HabitService:
             total_weight_applied=total_weight
         )
 
-    def get_habit_by_name(self, habit_name: str) -> Habit | None:
+    async def get_habit_by_name(self, habit_name: str) -> Habit | None:
         """
         Get habit by name.
 
@@ -149,18 +151,18 @@ class HabitService:
         Returns:
             Habit object or None if not found
         """
-        return self.habit_repo.get_by_name(habit_name)
+        return await sync_to_async(self.habit_repo.get_by_name)(habit_name)
 
-    def get_all_active_habits(self) -> list[Habit]:
+    async def get_all_active_habits(self) -> list[Habit]:
         """
         Get all active habits.
 
         Returns:
             List of active Habit objects
         """
-        return self.habit_repo.get_all_active()
+        return await sync_to_async(self.habit_repo.get_all_active)()
 
-    def log_habit_completion(
+    async def log_habit_completion(
         self,
         user_id: str,
         habit_id: str,
@@ -194,9 +196,9 @@ class HabitService:
             total_weight_applied=total_weight,
             last_completed_date=date.today()
         )
-        return self.habit_log_repo.create(habit_log)
+        return await sync_to_async(self.habit_log_repo.create)(habit_log)
 
-    def get_user_habit_logs(self, user_telegram_id: str, limit: int = 50) -> list[HabitLog]:
+    async def get_user_habit_logs(self, user_telegram_id: str, limit: int = 50) -> list[HabitLog]:
         """
         Get recent habit logs for a user.
 
@@ -207,11 +209,11 @@ class HabitService:
         Returns:
             List of HabitLog objects
         """
-        user = self.user_repo.get_by_telegram_id(user_telegram_id)
+        user = await sync_to_async(self.user_repo.get_by_telegram_id)(user_telegram_id)
         if not user:
             raise ValueError(f"User with telegram_id {user_telegram_id} not found")
 
-        return self.habit_log_repo.get_logs_by_user(user.id, limit=limit)
+        return await sync_to_async(self.habit_log_repo.get_logs_by_user)(user.id, limit=limit)
 
 
 # Global service instance

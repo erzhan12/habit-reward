@@ -24,7 +24,7 @@ class UserRepository(BaseRepository):
         record = self.table.create({
             "telegram_id": user.telegram_id,
             "name": user.name,
-            "active": user.active
+            "is_active": user.is_active
         })
         return User(**self._record_to_dict(record))
 
