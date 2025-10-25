@@ -1,7 +1,7 @@
 """Unit tests for reward service."""
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, AsyncMock, patch
 
 from src.services.reward_service import RewardService
 from src.models.reward import Reward, RewardType
@@ -214,3 +214,51 @@ class TestCumulativeProgress:
         # Status should be CLAIMED after claiming
         assert updated.status == RewardStatus.CLAIMED
         assert updated.claimed is True
+
+
+class TestCreateReward:
+    """Test reward creation helper."""
+
+    @pytest.mark.asyncio
+    async def test_create_reward_with_pydantic_enum(self, reward_service):
+        """Should normalize enum value and persist reward."""
+        created_reward = Mock(name="Morning Coffee", id="r123")
+        mock_repo = Mock()
+        mock_repo.get_by_name = AsyncMock(return_value=None)
+        mock_repo.create = AsyncMock(return_value=created_reward)
+
+        with patch.object(reward_service, 'reward_repo', mock_repo):
+            result = await reward_service.create_reward(
+                name="Morning Coffee",
+                reward_type=RewardType.VIRTUAL,
+                weight=5.0,
+                pieces_required=3,
+                piece_value=1.5
+            )
+
+        assert result is created_reward
+        mock_repo.get_by_name.assert_awaited_once_with("Morning Coffee")
+        await_call = mock_repo.create.await_args
+        payload = await_call.args[0]
+        assert payload["type"] == RewardType.VIRTUAL.value
+        assert payload["piece_value"] == 1.5
+
+    @pytest.mark.asyncio
+    async def test_create_reward_duplicate_name(self, reward_service):
+        """Should raise error when reward name already exists."""
+        existing_reward = Mock()
+        mock_repo = Mock()
+        mock_repo.get_by_name = AsyncMock(return_value=existing_reward)
+        mock_repo.create = AsyncMock()
+
+        with patch.object(reward_service, 'reward_repo', mock_repo):
+            with pytest.raises(ValueError):
+                await reward_service.create_reward(
+                    name="Morning Coffee",
+                    reward_type=RewardType.VIRTUAL,
+                    weight=5.0,
+                    pieces_required=3,
+                    piece_value=None
+                )
+
+        mock_repo.create.assert_not_called()

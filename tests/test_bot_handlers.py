@@ -10,7 +10,13 @@ from src.bot.handlers.habit_done_handler import habit_done_command
 from src.bot.handlers.streak_handler import streaks_command
 from src.bot.handlers.reward_handlers import (
     my_rewards_command,
-    claim_reward_command
+    claim_reward_command,
+    add_reward_command,
+    reward_name_received,
+    reward_weight_received,
+    AWAITING_REWARD_NAME,
+    AWAITING_REWARD_TYPE,
+    AWAITING_REWARD_WEIGHT
 )
 from src.bot.handlers.menu_handler import (
     open_habits_menu_callback,
@@ -25,7 +31,7 @@ from src.bot.keyboards import build_start_menu_keyboard
 from src.models.user import User
 from src.models.habit import Habit
 from src.bot.messages import msg
-from src.config import settings
+from src.config import settings, REWARD_WEIGHT_MIN, REWARD_WEIGHT_MAX
 
 
 @pytest.fixture(params=settings.supported_languages)
@@ -538,6 +544,143 @@ class TestMyRewardsCommand:
         )
 
 
+class TestAddRewardCommand:
+    """Test /add_reward conversation entry point."""
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.user_repository')
+    async def test_user_not_found(self, mock_user_repo, mock_telegram_update, language):
+        """Should block unknown users with localized error."""
+        mock_user_repo.get_by_telegram_id.return_value = None
+        context = Mock()
+        context.user_data = {}
+
+        result = await add_reward_command(mock_telegram_update, context=context)
+
+        assert result == ConversationHandler.END
+        mock_telegram_update.message.reply_text.assert_called_once_with(
+            msg('ERROR_USER_NOT_FOUND', language)
+        )
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.user_repository')
+    async def test_user_inactive(self, mock_user_repo, mock_telegram_update, mock_inactive_user, language):
+        """Inactive users should be blocked."""
+        mock_user_repo.get_by_telegram_id.return_value = mock_inactive_user
+        context = Mock()
+        context.user_data = {}
+
+        result = await add_reward_command(mock_telegram_update, context=context)
+
+        assert result == ConversationHandler.END
+        mock_telegram_update.message.reply_text.assert_called_once_with(
+            msg('ERROR_USER_INACTIVE', language)
+        )
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.user_repository')
+    async def test_active_user_gets_name_prompt(self, mock_user_repo, mock_telegram_update, mock_active_user, language):
+        """Active users should be prompted for reward name with cancel keyboard."""
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+        context = Mock()
+        context.user_data = {}
+
+        result = await add_reward_command(mock_telegram_update, context=context)
+
+        assert result == AWAITING_REWARD_NAME
+        assert mock_telegram_update.message.reply_text.await_count == 1
+        call_args = mock_telegram_update.message.reply_text.call_args
+        assert call_args.args[0] == msg('HELP_ADD_REWARD_NAME_PROMPT', language)
+        kwargs = call_args.kwargs
+        assert kwargs.get('reply_markup') is not None
+        assert kwargs.get('parse_mode') == 'HTML'
+
+
+class TestAddRewardConversationSteps:
+    """Test reward creation conversation steps."""
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.reward_repository')
+    @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
+    async def test_reward_name_step_valid(
+        self,
+        mock_lang,
+        mock_reward_repo,
+        mock_telegram_update,
+        language
+    ):
+        """Valid reward name should transition to type selection."""
+        mock_lang.return_value = language
+        mock_reward_repo.get_by_name = AsyncMock(return_value=None)
+
+        mock_telegram_update.message.text = "Morning Coffee"
+        context = Mock()
+        context.user_data = {}
+
+        result = await reward_name_received(mock_telegram_update, context)
+
+        assert result == AWAITING_REWARD_TYPE
+        mock_lang.assert_awaited_once()
+        stored = context.user_data['reward_creation_data']['name']
+        assert stored == "Morning Coffee"
+        mock_telegram_update.message.reply_text.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.reward_repository')
+    @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
+    async def test_reward_name_step_duplicate(
+        self,
+        mock_lang,
+        mock_reward_repo,
+        mock_telegram_update,
+        language
+    ):
+        """Duplicate reward names should be rejected and re-prompted."""
+        mock_lang.return_value = language
+        mock_reward_repo.get_by_name = AsyncMock(return_value=Mock())
+
+        mock_telegram_update.message.text = "Morning Coffee"
+        mock_telegram_update.message.reply_text.reset_mock()
+        context = Mock()
+        context.user_data = {}
+
+        result = await reward_name_received(mock_telegram_update, context)
+
+        assert result == AWAITING_REWARD_NAME
+        expected = (
+            f"{msg('ERROR_REWARD_NAME_EXISTS', language)}\n\n"
+            f"{msg('HELP_ADD_REWARD_NAME_PROMPT', language)}"
+        )
+        await_call = mock_telegram_update.message.reply_text.await_args
+        assert await_call.args[0] == expected
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
+    async def test_reward_weight_invalid_input(
+        self,
+        mock_lang,
+        mock_telegram_update,
+        language
+    ):
+        """Non-numeric weight should trigger error and stay in same state."""
+        mock_lang.return_value = language
+        mock_telegram_update.message.text = "abc"
+        mock_telegram_update.message.reply_text.reset_mock()
+        context = Mock()
+        context.user_data = {}
+
+        result = await reward_weight_received(mock_telegram_update, context)
+
+        assert result == AWAITING_REWARD_WEIGHT
+        expected = msg(
+            'ERROR_REWARD_WEIGHT_INVALID',
+            language,
+            min=REWARD_WEIGHT_MIN,
+            max=REWARD_WEIGHT_MAX
+        )
+        await_call = mock_telegram_update.message.reply_text.await_args
+        assert await_call.args[0] == expected
+        assert await_call.kwargs.get('reply_markup') is not None
 class TestClaimRewardCommand:
     """Test /claim_reward command handler with multi-language support."""
 

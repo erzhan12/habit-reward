@@ -2,6 +2,8 @@
 
 import random
 import logging
+from enum import Enum
+
 from src.core.repositories import reward_repository, reward_progress_repository, habit_log_repository
 from src.core.models import Reward, RewardProgress
 from django.conf import settings
@@ -268,6 +270,50 @@ class RewardService:
             List of active rewards
         """
         return await self.reward_repo.get_all_active()
+
+    async def create_reward(
+        self,
+        *,
+        name: str,
+        reward_type: RewardType | str,
+        weight: float,
+        pieces_required: int,
+        piece_value: float | None = None
+    ) -> Reward:
+        """Create a new reward after performing validation checks."""
+        logger.info(
+            "Creating reward name=%s type=%s weight=%s pieces_required=%s piece_value=%s",
+            name,
+            reward_type,
+            weight,
+            pieces_required,
+            piece_value
+        )
+
+        existing = await self.reward_repo.get_by_name(name)
+        if existing:
+            logger.warning("Reward creation blocked: duplicate name '%s'", name)
+            raise ValueError("Reward name already exists")
+
+        reward_type_value = (
+            reward_type.value
+            if isinstance(reward_type, Enum)
+            else reward_type
+        )
+
+        data: dict[str, object] = {
+            "name": name,
+            "type": reward_type_value,
+            "weight": weight,
+            "pieces_required": pieces_required
+        }
+
+        if piece_value is not None:
+            data["piece_value"] = piece_value
+
+        reward = await self.reward_repo.create(data)
+        logger.info("Reward '%s' created with id=%s", reward.name, getattr(reward, 'id', None))
+        return reward
 
     async def get_user_reward_progress(self, user_id: str) -> list[RewardProgress]:
         """

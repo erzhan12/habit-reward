@@ -197,7 +197,6 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
         remove_habit_command
     )
     from src.bot.handlers.reward_handlers import (
-        add_reward_command,
         list_rewards_command,
         my_rewards_command,
         claim_reward_command
@@ -254,7 +253,6 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
         'menu_habits_add': add_habit_command,
         # 'menu_habits_edit': edit_habit_command,  # Handled by ConversationHandler
         # 'menu_habits_remove': remove_habit_command,  # Handled by ConversationHandler
-        'menu_rewards_add': add_reward_command,
         'menu_rewards_list': list_rewards_command,
         'menu_rewards_my': my_rewards_command,
         'menu_rewards_claim': claim_reward_command
@@ -374,8 +372,8 @@ async def habit_selected_standalone_callback(update: Update, context: ContextTyp
         habit_id = callback_data.replace("habit_", "")
 
         # Get habit by ID
-        habits = await sync_to_async(habit_service.get_all_active_habits)()
-        habit = next((h for h in habits if h.id == habit_id), None)
+        habits = await habit_service.get_all_active_habits()
+        habit = next((h for h in habits if str(h.id) == habit_id), None)
 
         if not habit:
             logger.error(f"❌ Habit {habit_id} not found for user {telegram_id}")
@@ -390,7 +388,7 @@ async def habit_selected_standalone_callback(update: Update, context: ContextTyp
             from src.bot.formatters import format_habit_completion_message
 
             logger.info(f"⚙️ Processing habit completion for user {telegram_id}, habit '{habit.name}'")
-            result = await sync_to_async(habit_service.process_habit_completion)(
+            result = await habit_service.process_habit_completion(
                 user_telegram_id=telegram_id,
                 habit_name=habit.name
             )
@@ -431,7 +429,7 @@ def get_menu_handlers():
         CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_habits$"),
         CallbackQueryHandler(open_rewards_menu_callback, pattern="^menu_rewards$"),
         CallbackQueryHandler(close_menu_callback, pattern="^menu_close$"),
-        CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_streaks|menu_settings|menu_help|menu_habits_add|menu_rewards_add|menu_rewards_list|menu_rewards_my|menu_rewards_claim)$"),
+        CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_streaks|menu_settings|menu_help|menu_habits_add|menu_rewards_list|menu_rewards_my|menu_rewards_claim)$"),
         CallbackQueryHandler(open_start_menu_callback, pattern="^menu_back_start$"),
         CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_back_habits$"),
         CallbackQueryHandler(generic_back_callback, pattern="^menu_back$"),

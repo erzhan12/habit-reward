@@ -2,7 +2,6 @@
 
 import logging
 from datetime import datetime, date
-from asgiref.sync import sync_to_async
 from src.core.repositories import (
     user_repository,
     habit_repository,
@@ -65,13 +64,13 @@ class HabitService:
         """
         # 1. Verify user exists
         logger.info(f"Processing habit completion for user={user_telegram_id}, habit='{habit_name}'")
-        user = await sync_to_async(self.user_repo.get_by_telegram_id)(user_telegram_id)
+        user = await self.user_repo.get_by_telegram_id(user_telegram_id)
         if not user:
             logger.error(f"User with telegram_id {user_telegram_id} not found")
             raise ValueError(f"User with telegram_id {user_telegram_id} not found")
 
         # 2. Get habit
-        habit = await sync_to_async(self.habit_repo.get_by_name)(habit_name)
+        habit = await self.habit_repo.get_by_name(habit_name)
         if not habit:
             logger.error(f"Habit '{habit_name}' not found")
             raise ValueError(f"Habit '{habit_name}' not found")
@@ -89,11 +88,11 @@ class HabitService:
         )
 
         # 6. Get today's awarded rewards to prevent duplicates
-        todays_awarded_rewards = self.reward_service.get_todays_awarded_rewards(user.id)
+        todays_awarded_rewards = await self.reward_service.get_todays_awarded_rewards(user.id)
         logger.info(f"Today's awarded rewards for user={user.id}: {len(todays_awarded_rewards)} rewards")
 
         # 7. Fetch active rewards and run weighted random draw (excluding today's awards)
-        selected_reward = self.reward_service.select_reward(
+        selected_reward = await self.reward_service.select_reward(
             total_weight=total_weight,
             user_id=user.id,
             exclude_reward_ids=todays_awarded_rewards
@@ -110,7 +109,7 @@ class HabitService:
         # 8. Update reward progress for ANY reward (unified system)
         reward_progress = None
         if got_reward:
-            reward_progress = self.reward_service.update_reward_progress(
+            reward_progress = await self.reward_service.update_reward_progress(
                 user_id=user.id,
                 reward_id=selected_reward.id
             )
@@ -127,7 +126,7 @@ class HabitService:
             total_weight_applied=total_weight,
             last_completed_date=date.today()
         )
-        await sync_to_async(self.habit_log_repo.create)(habit_log)
+        await self.habit_log_repo.create(habit_log)
 
         # 10. Return response object
         return HabitCompletionResult(
@@ -151,7 +150,7 @@ class HabitService:
         Returns:
             Habit object or None if not found
         """
-        return await sync_to_async(self.habit_repo.get_by_name)(habit_name)
+        return await self.habit_repo.get_by_name(habit_name)
 
     async def get_all_active_habits(self) -> list[Habit]:
         """
@@ -160,7 +159,7 @@ class HabitService:
         Returns:
             List of active Habit objects
         """
-        return await sync_to_async(self.habit_repo.get_all_active)()
+        return await self.habit_repo.get_all_active()
 
     async def log_habit_completion(
         self,
@@ -196,7 +195,7 @@ class HabitService:
             total_weight_applied=total_weight,
             last_completed_date=date.today()
         )
-        return await sync_to_async(self.habit_log_repo.create)(habit_log)
+        return await self.habit_log_repo.create(habit_log)
 
     async def get_user_habit_logs(self, user_telegram_id: str, limit: int = 50) -> list[HabitLog]:
         """
@@ -209,11 +208,11 @@ class HabitService:
         Returns:
             List of HabitLog objects
         """
-        user = await sync_to_async(self.user_repo.get_by_telegram_id)(user_telegram_id)
+        user = await self.user_repo.get_by_telegram_id(user_telegram_id)
         if not user:
             raise ValueError(f"User with telegram_id {user_telegram_id} not found")
 
-        return await sync_to_async(self.habit_log_repo.get_logs_by_user)(user.id, limit=limit)
+        return await self.habit_log_repo.get_logs_by_user(user.id, limit=limit)
 
 
 # Global service instance

@@ -57,6 +57,12 @@ HABIT_NAME_MAX_LENGTH = 100
 HABIT_WEIGHT_MIN = 1
 HABIT_WEIGHT_MAX = 100
 
+# Reward validation limits
+REWARD_NAME_MAX_LENGTH = 255
+REWARD_WEIGHT_MIN = 0.1
+REWARD_WEIGHT_MAX = 100
+REWARD_PIECES_MIN = 1
+
 
 # Global settings instance
 settings = Settings()

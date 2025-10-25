@@ -13,7 +13,6 @@ from telegram.ext import (
 
 from src.services.habit_service import habit_service
 from src.services.nlp_service import nlp_service
-from asgiref.sync import sync_to_async
 from src.bot.keyboards import build_habit_selection_keyboard, build_back_to_menu_keyboard
 from src.bot.formatters import format_habit_completion_message
 from src.core.repositories import user_repository
@@ -58,7 +57,7 @@ async def habit_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     # Get all active habits
-    habits = await sync_to_async(habit_service.get_all_active_habits)()
+    habits = await habit_service.get_all_active_habits()
     logger.info(f"🔍 Found {len(habits)} active habits for user {telegram_id}")
 
     if not habits:
@@ -114,8 +113,8 @@ async def habit_selected_callback(
         logger.info(f"🎯 User {telegram_id} selected habit_id: {habit_id}")
 
         # Get habit by ID
-        habits = await sync_to_async(habit_service.get_all_active_habits)()
-        habit = next((h for h in habits if h.id == habit_id), None)
+        habits = await habit_service.get_all_active_habits()
+        habit = next((h for h in habits if str(h.id) == habit_id), None)
 
         if not habit:
             logger.error(f"❌ Habit {habit_id} not found for user {telegram_id}")
@@ -126,7 +125,7 @@ async def habit_selected_callback(
         # Process habit completion
         try:
             logger.info(f"⚙️ Processing habit completion for user {telegram_id}, habit '{habit.name}'")
-            result = await sync_to_async(habit_service.process_habit_completion)(
+            result = await habit_service.process_habit_completion(
                 user_telegram_id=telegram_id,
                 habit_name=habit.name
             )
@@ -166,7 +165,7 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     logger.info(f"📨 Received custom text from user {telegram_id} (@{username}): '{user_text}'")
 
     # Get all active habits
-    habits = await sync_to_async(habit_service.get_all_active_habits)()
+    habits = await habit_service.get_all_active_habits()
     habit_names = [h.name for h in habits]
 
     # Use NLP to classify
@@ -188,7 +187,7 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     try:
         logger.info(f"⚙️ Processing habit completion for user {telegram_id}, habit '{habit_name}'")
-        result = await sync_to_async(habit_service.process_habit_completion)(
+        result = await habit_service.process_habit_completion(
             user_telegram_id=telegram_id,
             habit_name=habit_name
         )

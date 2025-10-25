@@ -39,7 +39,7 @@ def setup_handlers_sync():
         list_rewards_command,
         my_rewards_command,
         claim_reward_conversation,
-        add_reward_command
+        add_reward_conversation
     )
     from src.bot.handlers.streak_handler import streaks_command
     from src.bot.handlers.settings_handler import settings_conversation
@@ -61,7 +61,7 @@ def setup_handlers_sync():
     application.add_handler(CommandHandler("list_rewards", list_rewards_command))
     application.add_handler(CommandHandler("my_rewards", my_rewards_command))
     application.add_handler(claim_reward_conversation)
-    application.add_handler(CommandHandler("add_reward", add_reward_command))
+    application.add_handler(add_reward_conversation)
 
     # Add streak handler
     application.add_handler(CommandHandler("streaks", streaks_command))
