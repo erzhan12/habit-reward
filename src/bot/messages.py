@@ -156,6 +156,41 @@ Your streak multiplier increases your chances of getting rewards!"""
     ERROR_NO_HABITS_TO_REMOVE = "❌ You don't have any habits to remove."
     INFO_HABIT_CANCEL = "❌ Habit operation cancelled."
 
+    # Reward Management Messages
+    HELP_ADD_REWARD_NAME_PROMPT = "Please enter a name for your new reward:"
+    ERROR_REWARD_NAME_EMPTY = "❌ Reward name cannot be empty."
+    ERROR_REWARD_NAME_TOO_LONG = "❌ Reward name is too long (max 255 characters)."
+    ERROR_REWARD_NAME_EXISTS = "❌ A reward with this name already exists. Please choose a different name."
+    HELP_ADD_REWARD_TYPE_PROMPT = "Select a reward type:"
+    BUTTON_REWARD_TYPE_VIRTUAL = "🖥 Virtual"
+    BUTTON_REWARD_TYPE_REAL = "🎁 Real"
+    BUTTON_REWARD_TYPE_NONE = "🚫 None"
+    HELP_ADD_REWARD_WEIGHT_PROMPT = "Enter the weight for this reward (higher is more likely) or pick a quick option below:"
+    ERROR_REWARD_WEIGHT_INVALID = "❌ Invalid weight. Enter a number between {min} and {max}."
+    HELP_ADD_REWARD_PIECES_PROMPT = "Enter how many pieces are required to claim this reward:"
+    ERROR_REWARD_PIECES_INVALID = "❌ Pieces required must be a whole number greater than 0."
+    HELP_ADD_REWARD_PIECE_VALUE_PROMPT = "Enter the value of each piece (e.g., 0.50) or tap Skip if it has no monetary value:"
+    ERROR_REWARD_PIECE_VALUE_INVALID = "❌ Piece value must be a non-negative number."
+    HELP_ADD_REWARD_CONFIRM = (
+        "Review your new reward:\n"
+        "<b>Name:</b> {name}\n"
+        "<b>Type:</b> {type_label}\n"
+        "<b>Weight:</b> {weight}\n"
+        "<b>Pieces Required:</b> {pieces}\n"
+        "<b>Piece Value:</b> {piece_value}\n\n"
+        "Create this reward?"
+    )
+    SUCCESS_REWARD_CREATED = "✅ Reward '<b>{name}</b>' created successfully!"
+    INFO_REWARD_CANCEL = "❌ Reward creation cancelled."
+    BUTTON_ADD_ANOTHER_REWARD = "➕ Add Another Reward"
+    BUTTON_BACK_TO_REWARDS = "🎁 Back to Rewards"
+    BUTTON_SKIP = "⏭ Skip"
+    BUTTON_CONFIRM = "✅ Create Reward"
+    BUTTON_EDIT_REWARD = "✏️ Edit Details"
+    BUTTON_PIECES_NOT_ACCUMULATIVE = "1 (Not accumulative)"
+    TEXT_NOT_SET = "Not set"
+    KEYWORD_SKIP = "skip"
+
     # Settings Menu
     SETTINGS_MENU = "⚙️ <b>Settings</b>\n\nSelect an option:"
     SETTINGS_SELECT_LANGUAGE = "🌐 Select Language"
@@ -313,6 +348,41 @@ Your streak multiplier increases your chances of getting rewards!"""
             'ERROR_NO_HABITS_TO_REMOVE': "❌ У вас нет привычек для удаления.",
             'INFO_HABIT_CANCEL': "❌ Операция с привычкой отменена.",
 
+            # Reward Management Messages
+            'HELP_ADD_REWARD_NAME_PROMPT': "Введите название новой награды:",
+            'ERROR_REWARD_NAME_EMPTY': "❌ Название награды не может быть пустым.",
+            'ERROR_REWARD_NAME_TOO_LONG': "❌ Название награды слишком длинное (максимум 255 символов).",
+            'ERROR_REWARD_NAME_EXISTS': "❌ Награда с таким названием уже существует. Пожалуйста, выберите другое название.",
+            'HELP_ADD_REWARD_TYPE_PROMPT': "Выберите тип награды:",
+            'BUTTON_REWARD_TYPE_VIRTUAL': "🖥 Виртуальная",
+            'BUTTON_REWARD_TYPE_REAL': "🎁 Реальная",
+            'BUTTON_REWARD_TYPE_NONE': "🚫 Без награды",
+            'HELP_ADD_REWARD_WEIGHT_PROMPT': "Введите вес награды (чем выше, тем больше шанс) или выберите вариант ниже:",
+            'ERROR_REWARD_WEIGHT_INVALID': "❌ Неверный вес. Введите число от {min} до {max}.",
+            'HELP_ADD_REWARD_PIECES_PROMPT': "Введите сколько частей нужно для получения награды:",
+            'ERROR_REWARD_PIECES_INVALID': "❌ Количество частей должно быть целым числом больше 0.",
+            'HELP_ADD_REWARD_PIECE_VALUE_PROMPT': "Введите ценность одной части (например, 0.50) или нажмите «Пропустить», если ценности нет:",
+            'ERROR_REWARD_PIECE_VALUE_INVALID': "❌ Ценность части должна быть неотрицательным числом.",
+            'HELP_ADD_REWARD_CONFIRM': (
+                "Проверьте новую награду:\n"
+                "<b>Название:</b> {name}\n"
+                "<b>Тип:</b> {type_label}\n"
+                "<b>Вес:</b> {weight}\n"
+                "<b>Количество частей:</b> {pieces}\n"
+                "<b>Ценность части:</b> {piece_value}\n\n"
+                "Создать эту награду?"
+            ),
+            'SUCCESS_REWARD_CREATED': "✅ Награда '<b>{name}</b>' успешно создана!",
+            'INFO_REWARD_CANCEL': "❌ Создание награды отменено.",
+            'BUTTON_ADD_ANOTHER_REWARD': "➕ Добавить ещё награду",
+            'BUTTON_BACK_TO_REWARDS': "🎁 Назад к наградам",
+            'BUTTON_SKIP': "⏭ Пропустить",
+            'BUTTON_CONFIRM': "✅ Создать награду",
+            'BUTTON_EDIT_REWARD': "✏️ Изменить данные",
+            'BUTTON_PIECES_NOT_ACCUMULATIVE': "1 (Без накопления)",
+            'TEXT_NOT_SET': "Не указано",
+            'KEYWORD_SKIP': "пропустить",
+
             # Settings Menu
             'SETTINGS_MENU': "⚙️ <b>Настройки</b>\n\nВыберите опцию:",
             'SETTINGS_SELECT_LANGUAGE': "🌐 Выбрать язык",
@@ -467,6 +537,41 @@ Your streak multiplier increases your chances of getting rewards!"""
             'ERROR_NO_HABITS_TO_EDIT_PROMPT': "❌ Өңдеуге әдеттеріңіз жоқ.\n\nЖаңа әдет қосқыңыз келе ме?",
             'ERROR_NO_HABITS_TO_REMOVE': "❌ Жоюға әдеттеріңіз жоқ.",
             'INFO_HABIT_CANCEL': "❌ Әдет операциясы болдырылмады.",
+
+            # Reward Management Messages
+            'HELP_ADD_REWARD_NAME_PROMPT': "Жаңа сыйлықтың атауын енгізіңіз:",
+            'ERROR_REWARD_NAME_EMPTY': "❌ Сыйлық атауы бос болмауы тиіс.",
+            'ERROR_REWARD_NAME_TOO_LONG': "❌ Сыйлық атауы тым ұзын (ең көбі 255 таңба).",
+            'ERROR_REWARD_NAME_EXISTS': "❌ Бұл атаумен сыйлық бар. Басқа атауды таңдаңыз.",
+            'HELP_ADD_REWARD_TYPE_PROMPT': "Сыйлық түрін таңдаңыз:",
+            'BUTTON_REWARD_TYPE_VIRTUAL': "🖥 Виртуалды",
+            'BUTTON_REWARD_TYPE_REAL': "🎁 Нақты",
+            'BUTTON_REWARD_TYPE_NONE': "🚫 Сыйлық жоқ",
+            'HELP_ADD_REWARD_WEIGHT_PROMPT': "Сыйлық салмағын енгізіңіз (үлкен салмақ — жоғары мүмкіндік) немесе төменнен таңдаңыз:",
+            'ERROR_REWARD_WEIGHT_INVALID': "❌ Дұрыс емес салмақ. {min} мен {max} аралығындағы сан енгізіңіз.",
+            'HELP_ADD_REWARD_PIECES_PROMPT': "Сыйлық алу үшін қанша бөлік керек екенін енгізіңіз:",
+            'ERROR_REWARD_PIECES_INVALID': "❌ Бөліктер саны 0-ден үлкен бүтін сан болуы тиіс.",
+            'HELP_ADD_REWARD_PIECE_VALUE_PROMPT': "Әр бөліктің құнын енгізіңіз (мысалы, 0.50) немесе құны жоқ болса «Өткізу» түймесін басыңыз:",
+            'ERROR_REWARD_PIECE_VALUE_INVALID': "❌ Бөлік құны теріс емес сан болуы тиіс.",
+            'HELP_ADD_REWARD_CONFIRM': (
+                "Жаңа сыйлықты тексеріңіз:\n"
+                "<b>Атауы:</b> {name}\n"
+                "<b>Түрі:</b> {type_label}\n"
+                "<b>Салмағы:</b> {weight}\n"
+                "<b>Қажет бөліктер:</b> {pieces}\n"
+                "<b>Бөлік құны:</b> {piece_value}\n\n"
+                "Бұл сыйлықты жасаймыз ба?"
+            ),
+            'SUCCESS_REWARD_CREATED': "✅ '<b>{name}</b>' сыйлығы сәтті құрылды!",
+            'INFO_REWARD_CANCEL': "❌ Сыйлық жасау тоқтатылды.",
+            'BUTTON_ADD_ANOTHER_REWARD': "➕ Тағы бір сыйлық қосу",
+            'BUTTON_BACK_TO_REWARDS': "🎁 Сыйлықтар мәзіріне оралу",
+            'BUTTON_SKIP': "⏭ Өткізу",
+            'BUTTON_CONFIRM': "✅ Сыйлық жасау",
+            'BUTTON_EDIT_REWARD': "✏️ Мәліметтерді түзету",
+            'BUTTON_PIECES_NOT_ACCUMULATIVE': "1 (Жинақсыз)",
+            'TEXT_NOT_SET': "Көрсетілмеген",
+            'KEYWORD_SKIP': "өткізу",
 
             # Settings Menu
             'SETTINGS_MENU': "⚙️ <b>Параметрлер</b>\n\nОпцияны таңдаңыз:",

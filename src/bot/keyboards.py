@@ -369,6 +369,133 @@ def build_cancel_only_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def build_reward_cancel_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """Build inline keyboard with Cancel button for reward flows."""
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_type_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """Build inline keyboard for selecting reward type."""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text=msg('BUTTON_REWARD_TYPE_VIRTUAL', language),
+                callback_data="reward_type_virtual"
+            ),
+            InlineKeyboardButton(
+                text=msg('BUTTON_REWARD_TYPE_REAL', language),
+                callback_data="reward_type_real"
+            )
+        ],
+        [InlineKeyboardButton(
+            text=msg('BUTTON_REWARD_TYPE_NONE', language),
+            callback_data="reward_type_none"
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_weight_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """Build inline keyboard with quick weight options for reward creation."""
+    keyboard: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+
+    for idx, weight in enumerate(range(10, 101, 10), start=1):
+        row.append(InlineKeyboardButton(
+            text=str(weight),
+            callback_data=f"reward_weight_{weight}"
+        ))
+        if idx % 3 == 0:
+            keyboard.append(row)
+            row = []
+
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([
+        InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_pieces_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """Build inline keyboard for pieces required with quick option for non-accumulative rewards."""
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('BUTTON_PIECES_NOT_ACCUMULATIVE', language),
+            callback_data="reward_pieces_1"
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_piece_value_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """Build inline keyboard for optional piece value with skip/cancel buttons."""
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('BUTTON_SKIP', language),
+            callback_data="reward_value_skip"
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_confirmation_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """Build inline keyboard for confirming reward creation."""
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('BUTTON_CONFIRM', language),
+            callback_data="reward_confirm_save"
+        )],
+        [InlineKeyboardButton(
+            text=msg('BUTTON_EDIT_REWARD', language),
+            callback_data="reward_confirm_edit"
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_post_create_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """Build inline keyboard shown after reward creation."""
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('BUTTON_ADD_ANOTHER_REWARD', language),
+            callback_data="reward_add_another"
+        )],
+        [InlineKeyboardButton(
+            text=msg('BUTTON_BACK_TO_REWARDS', language),
+            callback_data="reward_back_to_rewards"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def build_habit_confirmation_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     """
     Build inline keyboard for habit confirmation (Yes/No/Cancel).
