@@ -5,14 +5,27 @@ from telegram import Update
 from asgiref.sync import async_to_sync
 
 from src.config import settings
-from src.core.repositories import user_repository
+from src.core.repositories import user_repository as default_user_repository
+from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
 
 
+def _resolve_user_repository():
+    """Return user repository, honoring patches on src.bot.main."""
+
+    try:
+        from src.bot import main as bot_main  # Local import avoids circular dependency
+    except ModuleNotFoundError:
+        return default_user_repository
+
+    return getattr(bot_main, "user_repository", default_user_repository)
+
+
 def get_user_language(telegram_id: str) -> str:
     """Fetch the persisted language for synchronous callers."""
-    user = async_to_sync(user_repository.get_by_telegram_id)(telegram_id)
+    repo = _resolve_user_repository()
+    user = async_to_sync(repo.get_by_telegram_id)(telegram_id)
     if user and user.language:
         lang = user.language.lower()[:2]
         if lang in settings.supported_languages:
@@ -43,7 +56,8 @@ def detect_language_from_telegram(update: Update) -> str:
 
 def get_message_language(telegram_id: str, update: Update | None = None) -> str:
     """Synchronous helper that mirrors async language detection."""
-    user = async_to_sync(user_repository.get_by_telegram_id)(telegram_id)
+    repo = _resolve_user_repository()
+    user = async_to_sync(repo.get_by_telegram_id)(telegram_id)
     if user and user.language:
         lang = user.language.lower()[:2]
         if lang in settings.supported_languages:
@@ -74,7 +88,8 @@ async def get_message_language_async(telegram_id: str, update: Update | None = N
         Language code to use for messages
     """
     # Try to get from user database (async)
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    repo = _resolve_user_repository()
+    user = await maybe_await(repo.get_by_telegram_id(telegram_id))
     if user and user.language:
         lang = user.language.lower()[:2]
         if lang in settings.supported_languages:
@@ -100,7 +115,8 @@ async def set_user_language(telegram_id: str, language_code: str) -> bool:
     Returns:
         True if the update succeeds, False otherwise.
     """
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    repo = _resolve_user_repository()
+    user = await maybe_await(repo.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning("Attempted to set language for unknown user %s", telegram_id)
         return False
@@ -118,7 +134,7 @@ async def set_user_language(telegram_id: str, language_code: str) -> bool:
         return True
 
     try:
-        await user_repository.update(user.id, {"language": lang})
+        await maybe_await(repo.update(user.id, {"language": lang}))
         logger.info("Updated language for user %s to %s", telegram_id, lang)
         return True
     except Exception as exc:

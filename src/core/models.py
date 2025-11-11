@@ -145,6 +145,11 @@ class Reward(models.Model):
         blank=True,
         help_text="Value of each piece earned"
     )
+    max_daily_claims = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Maximum times this reward can be claimed per day (NULL or 0 = unlimited)"
+    )
     active = models.BooleanField(default=True, help_text="Whether reward is active")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -202,8 +207,7 @@ class RewardProgress(models.Model):
         ]
         ordering = ['reward__name']
 
-    @property
-    def status(self):
+    def get_status(self):
         """Computed status (replaces Airtable formula)."""
         if self.claimed:
             return self.RewardStatus.CLAIMED
@@ -212,25 +216,27 @@ class RewardProgress(models.Model):
         else:
             return self.RewardStatus.PENDING
 
-    @property
-    def pieces_required(self):
-        """Cached from linked reward (replaces Airtable lookup)."""
+    def get_pieces_required(self):
+        """Get pieces required from linked reward (replaces Airtable lookup).
+
+        IMPORTANT: Only access this after using select_related('reward')
+        to avoid synchronous database queries in async code.
+        """
         return self.reward.pieces_required
 
-    @property
-    def progress_percent(self):
+    def get_progress_percent(self):
         """Calculate progress percentage."""
-        if not self.pieces_required or self.pieces_required == 0:
+        pieces_required = self.get_pieces_required()
+        if not pieces_required or pieces_required == 0:
             return 0.0
-        return min((self.pieces_earned / self.pieces_required) * 100, 100.0)
+        return min((self.pieces_earned / pieces_required) * 100, 100.0)
 
-    @property
-    def status_emoji(self):
+    def get_status_emoji(self):
         """Get emoji for current status."""
-        return self.status.value.split()[0]
+        return self.get_status().value.split()[0]
 
     def __str__(self):
-        return f"{self.user.name} - {self.reward.name} ({self.pieces_earned}/{self.pieces_required})"
+        return f"{self.user.name} - {self.reward.name} ({self.pieces_earned}/{self.get_pieces_required()})"
 
 
 class HabitLog(models.Model):

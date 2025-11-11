@@ -36,15 +36,15 @@ def format_habit_completion_message(result: HabitCompletionResult, language: str
         if result.cumulative_progress:
             progress_bar = create_progress_bar(
                 result.cumulative_progress.pieces_earned,
-                result.cumulative_progress.pieces_required
+                result.cumulative_progress.get_pieces_required()
             )
             message_parts.append(
                 msg('FORMAT_PROGRESS', language,
                     progress_bar=progress_bar,
                     pieces_earned=result.cumulative_progress.pieces_earned,
-                    pieces_required=result.cumulative_progress.pieces_required or 1)
+                    pieces_required=result.cumulative_progress.get_pieces_required() or 1)
             )
-            if result.cumulative_progress.status == RewardStatus.ACHIEVED:
+            if result.cumulative_progress.get_status() == RewardStatus.ACHIEVED:
                 message_parts.append(msg('INFO_REWARD_ACTIONABLE', language))
     else:
         message_parts.append("\n" + msg('INFO_NO_REWARD', language))
@@ -70,16 +70,16 @@ def format_reward_progress_message(progress: RewardProgress, reward: Reward, lan
     """
     progress_bar = create_progress_bar(
         progress.pieces_earned,
-        progress.pieces_required or 1
+        progress.get_pieces_required() or 1
     )
 
     message = (
-        f"{progress.status_emoji} <b>{reward.name}</b>\n"
-        f"📊 {progress_bar} {progress.pieces_earned}/{progress.pieces_required or 1}\n"
-        f"{msg('FORMAT_STATUS', language, status=progress.status.value)}"
+        f"{progress.get_status_emoji()} <b>{reward.name}</b>\n"
+        f"📊 {progress_bar} {progress.pieces_earned}/{progress.get_pieces_required() or 1}\n"
+        f"{msg('FORMAT_STATUS', language, status=progress.get_status().value)}"
     )
 
-    if progress.status == RewardStatus.ACHIEVED:
+    if progress.get_status() == RewardStatus.ACHIEVED:
         message += "\n" + msg('FORMAT_READY_TO_CLAIM', language)
 
     return message
@@ -135,13 +135,19 @@ def format_rewards_list_message(rewards: list[Reward], language: str = 'en') -> 
         type_emoji = {
             RewardType.VIRTUAL: "💎",
             RewardType.REAL: "🎁",
-            RewardType.NONE: "❌"
+            RewardType.NONE: "➖"
         }.get(reward.type, "❓")
 
         reward_info = f"{type_emoji} <b>{reward.name}</b>"
 
+        # Build details list (pieces and weight)
+        details = []
         if reward.pieces_required > 1:
-            reward_info += f" ({reward.pieces_required} pieces)"
+            details.append(f"{reward.pieces_required} pieces")
+        details.append(f"w: {int(reward.weight)}")
+
+        if details:
+            reward_info += f" ({', '.join(details)})"
 
         message_parts.append(reward_info)
 

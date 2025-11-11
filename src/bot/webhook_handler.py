@@ -30,6 +30,7 @@ def setup_handlers_sync():
     from telegram.ext import CommandHandler
     from src.bot.handlers.command_handlers import start_command, help_command
     from src.bot.handlers.habit_done_handler import habit_done_conversation
+    from src.bot.handlers.habit_revert_handler import habit_revert_conversation
     from src.bot.handlers.habit_management_handler import (
         add_habit_conversation,
         edit_habit_conversation,
@@ -51,6 +52,7 @@ def setup_handlers_sync():
 
     # Add conversation handler for habit_done
     application.add_handler(habit_done_conversation)
+    application.add_handler(habit_revert_conversation)
 
     # Add habit management conversation handlers
     application.add_handler(add_habit_conversation)

@@ -10,12 +10,25 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from asgiref.sync import sync_to_async
 
+from src.core.repositories import user_repository as default_user_repository
+from src.utils.async_compat import maybe_await
+
 logger = logging.getLogger(__name__)
 
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def _resolve_user_repository():
+    """Return the user repository patched by tests when available."""
+
+    try:
+        from src.bot import main as bot_main  # Local import avoids circular import at module load
+    except ModuleNotFoundError:
+        return default_user_repository
+
+    return getattr(bot_main, "user_repository", default_user_repository)
+
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE | None):
     """Handle /start command."""
-    from src.core.repositories import user_repository
     from src.bot.messages import msg
     from src.bot.language import get_message_language_async, detect_language_from_telegram
     from src.bot.navigation import clear_navigation, push_navigation
@@ -28,11 +41,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Clear navigation stack on /start (fresh start)
     clear_navigation(context)
 
+    user_repository = _resolve_user_repository()
+
     # Validate user exists (wrap in sync_to_async for Django ORM)
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
-        lang = await get_message_language_async(telegram_id, update)
+        lang = detect_language_from_telegram(update) if update else 'en'
         await update.message.reply_text(
             msg('ERROR_USER_NOT_FOUND', lang)
         )
@@ -44,7 +59,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         detected_lang = detect_language_from_telegram(update)
         if detected_lang != 'en' and detected_lang != user.language:
             try:
-                await user_repository.update(user.id, {"language": detected_lang})
+                await maybe_await(
+                    user_repository.update(user.id, {"language": detected_lang})
+                )
                 user.language = detected_lang
                 logger.info(f"Updated language for user {telegram_id} to {detected_lang}")
             except Exception as e:
@@ -75,11 +92,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"📤 Sent START_MENU to {telegram_id}")
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE | None):
     """Handle /help command."""
-    from src.core.repositories import user_repository
     from src.bot.messages import msg
-    from src.bot.language import get_message_language_async
+    from src.bot.language import get_message_language_async, detect_language_from_telegram
     from src.bot.keyboards import build_back_to_menu_keyboard
 
     telegram_id = str(update.effective_user.id)
@@ -87,12 +103,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"📨 Received /help command from user {telegram_id} (@{username})")
     lang = await get_message_language_async(telegram_id, update)
 
+    user_repository = _resolve_user_repository()
+
     # Validate user exists (wrap in sync_to_async for Django ORM)
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
+        fallback_lang = detect_language_from_telegram(update) if update else lang
         await update.message.reply_text(
-            msg('ERROR_USER_NOT_FOUND', lang)
+            msg('ERROR_USER_NOT_FOUND', fallback_lang)
         )
         logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
         return

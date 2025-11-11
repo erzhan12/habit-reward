@@ -20,6 +20,7 @@ class Reward(BaseModel):
     type: RewardType = Field(..., description="Reward type")
     pieces_required: int = Field(default=1, description="Number of pieces needed (1 for instant rewards)")
     piece_value: float | None = Field(default=None, description="Value of each piece earned")
+    max_daily_claims: int | None = Field(default=None, description="Maximum times this reward can be claimed per day (NULL or 0 = unlimited)")
 
     model_config = ConfigDict(
         json_schema_extra={

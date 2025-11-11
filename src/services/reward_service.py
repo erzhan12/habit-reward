@@ -3,10 +3,14 @@
 import random
 import logging
 from enum import Enum
+from typing import Awaitable
+from types import SimpleNamespace, MethodType
 
 from src.core.repositories import reward_repository, reward_progress_repository, habit_log_repository
 from src.core.models import Reward, RewardProgress
+from src.models.reward_progress import RewardProgress as RewardProgressModel
 from django.conf import settings
+from src.utils.async_compat import run_sync_or_async, maybe_await
 
 # Import enums from Django models
 RewardType = Reward.RewardType
@@ -47,231 +51,340 @@ class RewardService:
         total_weight = habit_weight * streak_multiplier
         return total_weight
 
-    async def select_reward(
+    def select_reward(
         self,
         total_weight: float,
         user_id: str | None = None,
         exclude_reward_ids: list[str] | None = None
-    ) -> Reward:
-        """
-        Perform weighted random reward selection.
+    ) -> Reward | Awaitable[Reward]:
+        """Perform weighted random reward selection."""
 
-        Algorithm:
-        1. Fetch all active rewards (including type="none" and cumulative)
-        2. Filter out any rewards in exclude_reward_ids list
-        3. Calculate adjusted weights for each reward using total_weight multiplier
-        4. Perform weighted random selection using random.choices()
-        5. Return selected reward
+        async def _impl() -> Reward:
+            logger.info(
+                "Selecting reward with total_weight=%s, user_id=%s",
+                total_weight,
+                user_id,
+            )
+            if exclude_reward_ids:
+                logger.info(
+                    "Excluding %s rewards from selection",
+                    len(exclude_reward_ids),
+                )
 
-        Args:
-            total_weight: Total weight multiplier from calculate_total_weight()
-            user_id: Optional user ID for logging purposes
-            exclude_reward_ids: Optional list of reward IDs to exclude from selection
+            rewards = await maybe_await(self.reward_repo.get_all_active())
 
-        Returns:
-            Selected reward (may be type="none")
-        """
-        logger.info(f"Selecting reward with total_weight={total_weight}, user_id={user_id}")
-        if exclude_reward_ids:
-            logger.info(f"Excluding {len(exclude_reward_ids)} rewards from selection")
+            if not rewards:
+                logger.warning("No active rewards found, returning default 'none' reward")
+                return Reward(
+                    name="No reward",
+                    weight=1.0,
+                    type=RewardType.NONE,
+                    pieces_required=1,
+                )
 
-        rewards = await self.reward_repo.get_all_active()
+            logger.debug("Found %s active rewards", len(rewards))
 
-        if not rewards:
-            logger.warning("No active rewards found, returning default 'none' reward")
-            # Create a default "none" reward if no rewards exist
-            return Reward(
-                name="No reward",
-                weight=1.0,
-                type=RewardType.NONE,
-                pieces_required=1
+            if exclude_reward_ids:
+                original_count = len(rewards)
+                rewards = [r for r in rewards if r.id not in exclude_reward_ids]
+                logger.info(
+                    "After exclusion: %s rewards remaining (filtered out %s)",
+                    len(rewards),
+                    original_count - len(rewards),
+                )
+
+            if not rewards:
+                logger.warning("All rewards excluded, returning 'none' reward")
+                return Reward(
+                    name="No reward",
+                    weight=1.0,
+                    type=RewardType.NONE,
+                    pieces_required=1,
+                )
+
+            # Apply user-specific filters if user_id is provided
+            if user_id:
+                logger.info("Applying user-specific filters for user=%s", user_id)
+
+                # Fetch user's reward progress
+                progress_list = await maybe_await(
+                    self.progress_repo.get_all_by_user(user_id)
+                )
+                progress_by_reward_id = {p.reward_id: p for p in progress_list}
+                logger.debug("Found %s progress records for user", len(progress_list))
+
+                eligible_rewards = []
+                excluded_completed = []
+                excluded_daily_limit = []
+
+                for reward in rewards:
+                    progress = progress_by_reward_id.get(reward.id)
+
+                    # Filter 1: Check if reward is already completed
+                    if progress and progress.pieces_earned >= reward.pieces_required:
+                        excluded_completed.append(reward.name)
+                        logger.debug(
+                            "Excluding %s - already completed (%s/%s pieces)",
+                            reward.name,
+                            progress.pieces_earned,
+                            reward.pieces_required,
+                        )
+                        continue
+
+                    # Filter 2: Check daily limit
+                    if reward.max_daily_claims is not None and reward.max_daily_claims > 0:
+                        today_count = await maybe_await(
+                            self.get_todays_pieces_by_reward(user_id, reward.id)
+                        )
+                        if today_count >= reward.max_daily_claims:
+                            excluded_daily_limit.append(
+                                f"{reward.name} ({today_count}/{reward.max_daily_claims})"
+                            )
+                            logger.debug(
+                                "Excluding %s - daily limit reached (%s/%s pieces today)",
+                                reward.name,
+                                today_count,
+                                reward.max_daily_claims,
+                            )
+                            continue
+
+                    # Reward passed all filters
+                    eligible_rewards.append(reward)
+
+                if excluded_completed:
+                    logger.info(
+                        "Excluded %s completed rewards: %s",
+                        len(excluded_completed),
+                        ", ".join(excluded_completed),
+                    )
+
+                if excluded_daily_limit:
+                    logger.info(
+                        "Excluded %s rewards due to daily limit: %s",
+                        len(excluded_daily_limit),
+                        ", ".join(excluded_daily_limit),
+                    )
+
+                rewards = eligible_rewards
+
+                if not rewards:
+                    logger.warning(
+                        "No eligible rewards remain after filtering (completed: %s, daily limit: %s)",
+                        len(excluded_completed),
+                        len(excluded_daily_limit),
+                    )
+                    return Reward(
+                        name="No reward",
+                        weight=1.0,
+                        type=RewardType.NONE,
+                        pieces_required=1,
+                    )
+
+            adjusted_weights = [reward.weight * total_weight for reward in rewards]
+            selected_reward = random.choices(
+                rewards,
+                weights=adjusted_weights,
+                k=1,
+            )[0]
+            logger.info(
+                "Selected reward: %s (type: %s)",
+                selected_reward.name,
+                selected_reward.type,
+            )
+            return selected_reward
+
+        return run_sync_or_async(_impl())
+
+    def get_todays_awarded_rewards(self, user_id: str) -> list[str] | Awaitable[list[str]]:
+        """Get list of reward IDs that were already awarded today."""
+
+        async def _impl() -> list[str]:
+            logger.info("Fetching today's awarded rewards for user=%s", user_id)
+
+            todays_logs = await maybe_await(
+                self.habit_log_repo.get_todays_logs_by_user(user_id)
             )
 
-        logger.debug(f"Found {len(rewards)} active rewards")
+            awarded_reward_ids = [
+                log.reward_id
+                for log in todays_logs
+                if log.got_reward and log.reward_id
+            ]
 
-        # Filter out excluded rewards
-        if exclude_reward_ids:
-            original_count = len(rewards)
-            rewards = [r for r in rewards if r.id not in exclude_reward_ids]
-            logger.info(f"After exclusion: {len(rewards)} rewards remaining (filtered out {original_count - len(rewards)})")
-
-        # If all rewards are excluded, return "none" reward
-        if not rewards:
-            logger.warning("All rewards excluded, returning 'none' reward")
-            return Reward(
-                name="No reward",
-                weight=1.0,
-                type=RewardType.NONE,
-                pieces_required=1
+            logger.info(
+                "Found %s rewards awarded today for user=%s",
+                len(awarded_reward_ids),
+                user_id,
             )
+            logger.debug("Today's awarded reward IDs: %s", awarded_reward_ids)
+            return awarded_reward_ids
 
-        # Calculate adjusted weights
-        adjusted_weights = [reward.weight * total_weight for reward in rewards]
+        return run_sync_or_async(_impl())
 
-        # Perform weighted random selection
-        selected_reward = random.choices(rewards, weights=adjusted_weights, k=1)[0]
-        logger.info(f"Selected reward: {selected_reward.name} (type: {selected_reward.type})")
-
-        return selected_reward
-
-    async def get_todays_awarded_rewards(self, user_id: str) -> list[str]:
-        """
-        Get list of reward IDs that were already awarded today.
-
-        This ensures no reward (cumulative or non-cumulative) can be awarded
-        multiple times in the same day.
-
-        Args:
-            user_id: Airtable record ID of the user
-
-        Returns:
-            List of reward IDs that were awarded today
-        """
-        logger.info(f"Fetching today's awarded rewards for user={user_id}")
-
-        # Get today's logs for this user
-        todays_logs = await self.habit_log_repo.get_todays_logs_by_user(user_id)
-
-        # Filter for entries where a reward was actually awarded
-        # Only logs with got_reward=True AND a valid reward_id are considered "awarded"
-        # This prevents the same reward from being given multiple times in one day
-        # got_reward=True means the user received a meaningful reward (not "none" type)
-        awarded_reward_ids = []
-        for log in todays_logs:
-            if log.got_reward and log.reward_id:
-                awarded_reward_ids.append(log.reward_id)
-
-        logger.info(f"Found {len(awarded_reward_ids)} rewards awarded today for user={user_id}")
-        logger.debug(f"Today's awarded reward IDs: {awarded_reward_ids}")
-
-        return awarded_reward_ids
-
-    async def update_reward_progress(
+    def get_todays_pieces_by_reward(
         self,
         user_id: str,
         reward_id: str
-    ) -> RewardProgress:
+    ) -> int | Awaitable[int]:
         """
-        Update progress for any reward (unified system).
+        Count how many pieces of a specific reward were awarded today.
 
-        Algorithm:
-        1. Get or create reward progress entry
-        2. Check status:
-           - If ACHIEVED: don't increment (prevents over-counting)
-           - If CLAIMED: reset claimed=False first, then increment (starts new cycle)
-           - If PENDING: just increment normally
-        3. Increment pieces_earned by 1
-        4. Airtable formula automatically calculates status:
-           - If claimed=True: status = "✅ Claimed"
-           - If pieces_earned >= pieces_required: status = "⏳ Achieved"
-           - Otherwise: status = "🕒 Pending"
-        5. Save and return progress
+        This counts ALL pieces awarded today from habit logs, regardless of
+        whether they have been claimed or not. This prevents users from
+        bypassing daily limits by claiming between completions.
 
         Args:
-            user_id: Airtable record ID of the user
-            reward_id: Airtable record ID of the reward
+            user_id: User ID
+            reward_id: Reward ID
 
         Returns:
-            Updated RewardProgress object
+            Number of pieces awarded today for this reward (claimed or unclaimed)
         """
-        # Get or create progress
-        logger.info(f"Updating reward progress for user={user_id}, reward={reward_id}")
-        progress = await self.progress_repo.get_by_user_and_reward(user_id, reward_id)
-        reward = await self.reward_repo.get_by_id(reward_id)
 
-        if not reward:
-            logger.error(f"Reward {reward_id} doesn't exist")
-            raise ValueError("Reward doesn't exist")
-
-        if progress is None:
-            # Create new progress entry
-            progress = RewardProgress(
-                user_id=user_id,
-                reward_id=reward_id,
-                pieces_earned=0,
-                status=RewardStatus.PENDING,
-                pieces_required=reward.pieces_required,
-                claimed=False
+        async def _impl() -> int:
+            logger.debug(
+                "Counting today's pieces (all) for user=%s, reward=%s",
+                user_id,
+                reward_id,
             )
-            progress = await self.progress_repo.create(progress)
 
-        # Check if reward is already achieved - don't increment to prevent over-counting
-        if progress.status == RewardStatus.ACHIEVED:
-            logger.info(f"Reward {reward_id} already achieved for user {user_id}, skipping increment")
-            return progress
+            # Get today's logs for this user
+            todays_logs = await maybe_await(
+                self.habit_log_repo.get_todays_logs_by_user(user_id)
+            )
 
-        # If reward was claimed, reset claimed flag to start new cycle
-        # This transitions from "0/N Claimed" → "1/N Pending" (or Achieved if N=1)
-        updates = {}
-        if progress.status == RewardStatus.CLAIMED:
-            logger.info(f"Reward {reward_id} was claimed for user {user_id}, resetting claimed flag")
-            updates["claimed"] = False
+            # Count logs where this specific reward was awarded
+            # This includes both claimed and unclaimed pieces to prevent bypass
+            count = sum(
+                1 for log in todays_logs
+                if log.got_reward and log.reward_id == reward_id
+            )
 
-        # Increment pieces earned
-        new_pieces = progress.pieces_earned + 1
-        updates["pieces_earned"] = new_pieces
+            logger.debug(
+                "Found %s pieces awarded today for user=%s, reward=%s (including claimed)",
+                count,
+                user_id,
+                reward_id,
+            )
+            return count
 
-        # Update in database - Airtable will automatically calculate status field
-        updated_progress = await self.progress_repo.update(
-            progress.id,
-            updates
-        )
+        return run_sync_or_async(_impl())
 
-        return updated_progress
+    def update_reward_progress(
+        self,
+        user_id: str,
+        reward_id: str
+    ) -> RewardProgress | Awaitable[RewardProgress]:
+        """Update progress for any reward (unified system)."""
 
-    async def mark_reward_claimed(self, user_id: str, reward_id: str) -> RewardProgress:
-        """
-        Mark a reward as claimed by user and reset the counter.
+        async def _impl() -> RewardProgress:
+            logger.info(
+                "Updating reward progress for user=%s, reward=%s",
+                user_id,
+                reward_id,
+            )
+            progress = await maybe_await(
+                self.progress_repo.get_by_user_and_reward(user_id, reward_id)
+            )
+            reward = await maybe_await(self.reward_repo.get_by_id(reward_id))
 
-        Algorithm:
-        1. Validate reward is in ACHIEVED status
-        2. Reset pieces_earned to 0 (shows 0/N in UI)
-        3. Set claimed to True (status becomes "✅ Claimed")
-        4. User will see "0/N Claimed" until they earn the next piece
-        5. When they earn the next piece, update_reward_progress() will reset claimed=False
+            if not reward:
+                logger.error("Reward %s doesn't exist", reward_id)
+                raise ValueError("Reward doesn't exist")
 
-        Args:
-            user_id: Airtable record ID of the user
-            reward_id: Airtable record ID of the reward
+            if progress is None:
+                progress = await maybe_await(
+                    self.progress_repo.create(
+                        SimpleNamespace(
+                            user_id=user_id,
+                            reward_id=reward_id,
+                            pieces_earned=0,
+                            claimed=False,
+                        )
+                    )
+                )
 
-        Returns:
-            Updated RewardProgress object with reset counter and claimed=True
+            progress = self._coerce_progress(progress)
+            current_status = progress.get_status()
 
-        Raises:
-            ValueError: If progress not found or reward not in ACHIEVED status
-        """
-        progress = await self.progress_repo.get_by_user_and_reward(user_id, reward_id)
+            if current_status == RewardStatus.ACHIEVED:
+                logger.info(
+                    "Reward %s already achieved for user %s, skipping increment",
+                    reward_id,
+                    user_id,
+                )
+                return progress
 
-        if not progress:
-            raise ValueError("Reward progress not found")
+            updates: dict[str, object] = {}
+            if current_status == RewardStatus.CLAIMED:
+                logger.info(
+                    "Reward %s was claimed for user %s, resetting claimed flag",
+                    reward_id,
+                    user_id,
+                )
+                updates["claimed"] = False
 
-        if progress.status != RewardStatus.ACHIEVED:
-            raise ValueError("Reward must be in 'Achieved' status to be claimed")
+            new_pieces = progress.pieces_earned + 1
+            updates["pieces_earned"] = new_pieces
 
-        # Reset pieces_earned to 0 and set claimed to True
-        # This shows "0/N" with "Claimed" status in the UI
-        # When user earns next piece, claimed will be reset to False by update_reward_progress()
-        updated_progress = await self.progress_repo.update(
-            progress.id,
-            {
-                "pieces_earned": 0,
-                "claimed": True
-            }
-        )
+            updated_progress = await maybe_await(
+                self.progress_repo.update(progress.id, updates)
+            )
 
-        return updated_progress
+            return self._coerce_progress(updated_progress)
+
+        return run_sync_or_async(_impl())
+
+    def mark_reward_claimed(
+        self,
+        user_id: str,
+        reward_id: str
+    ) -> RewardProgress | Awaitable[RewardProgress]:
+        """Mark a reward as claimed by user and reset the counter."""
+
+        async def _impl() -> RewardProgress:
+            progress = await maybe_await(
+                self.progress_repo.get_by_user_and_reward(user_id, reward_id)
+            )
+
+            if not progress:
+                raise ValueError("Reward progress not found")
+
+            current_status = progress.get_status()
+
+            if current_status != RewardStatus.ACHIEVED:
+                raise ValueError("Reward must be in 'Achieved' status to be claimed")
+
+            updated_progress = await maybe_await(
+                self.progress_repo.update(
+                    progress.id,
+                    {
+                        "claimed": True,
+                        "pieces_earned": 0,  # Reset counter for fresh start
+                    },
+                )
+            )
+
+            logger.info(
+                "Marked reward %s as claimed for user %s and reset pieces_earned to 0",
+                reward_id,
+                user_id,
+            )
+
+            return self._coerce_progress(updated_progress)
+
+        return run_sync_or_async(_impl())
 
 
-    async def get_active_rewards(self) -> list[Reward]:
-        """
-        Get all active rewards.
+    def get_active_rewards(self) -> list[Reward] | Awaitable[list[Reward]]:
+        """Get all active rewards."""
 
-        Returns:
-            List of active rewards
-        """
-        return await self.reward_repo.get_all_active()
+        async def _impl() -> list[Reward]:
+            return await maybe_await(self.reward_repo.get_all_active())
 
-    async def create_reward(
+        return run_sync_or_async(_impl())
+
+    def create_reward(
         self,
         *,
         name: str,
@@ -279,65 +392,102 @@ class RewardService:
         weight: float,
         pieces_required: int,
         piece_value: float | None = None
-    ) -> Reward:
+    ) -> Reward | Awaitable[Reward]:
         """Create a new reward after performing validation checks."""
-        logger.info(
-            "Creating reward name=%s type=%s weight=%s pieces_required=%s piece_value=%s",
-            name,
-            reward_type,
-            weight,
-            pieces_required,
-            piece_value
+
+        async def _impl() -> Reward:
+            logger.info(
+                "Creating reward name=%s type=%s weight=%s pieces_required=%s piece_value=%s",
+                name,
+                reward_type,
+                weight,
+                pieces_required,
+                piece_value,
+            )
+
+            existing = await maybe_await(self.reward_repo.get_by_name(name))
+            if existing:
+                logger.warning(
+                    "Reward creation blocked: duplicate name '%s'",
+                    name,
+                )
+                raise ValueError("Reward name already exists")
+
+            reward_type_value = (
+                reward_type.value
+                if isinstance(reward_type, Enum)
+                else reward_type
+            )
+
+            data: dict[str, object] = {
+                "name": name,
+                "type": reward_type_value,
+                "weight": weight,
+                "pieces_required": pieces_required,
+            }
+
+            if piece_value is not None:
+                data["piece_value"] = piece_value
+
+            reward = await maybe_await(self.reward_repo.create(data))
+            logger.info(
+                "Reward '%s' created with id=%s",
+                reward.name,
+                getattr(reward, "id", None),
+            )
+            return reward
+
+        return run_sync_or_async(_impl())
+
+    def get_user_reward_progress(
+        self,
+        user_id: str
+    ) -> list[RewardProgress] | Awaitable[list[RewardProgress]]:
+        """Get all reward progress for a user."""
+
+        async def _impl() -> list[RewardProgress]:
+            results = await maybe_await(self.progress_repo.get_all_by_user(user_id))
+            return [self._coerce_progress(r) for r in results]
+
+        return run_sync_or_async(_impl())
+
+    def get_actionable_rewards(
+        self,
+        user_id: str
+    ) -> list[RewardProgress] | Awaitable[list[RewardProgress]]:
+        """Get all achieved (actionable) rewards for a user."""
+
+        async def _impl() -> list[RewardProgress]:
+            results = await maybe_await(
+                self.progress_repo.get_achieved_by_user(user_id)
+            )
+            return [self._coerce_progress(r) for r in results]
+
+        return run_sync_or_async(_impl())
+
+
+    @staticmethod
+    def _coerce_progress(progress: RewardProgress) -> RewardProgress:
+        """Ensure progress object exposes `get_status` and typed fields."""
+
+        if hasattr(progress, "get_status"):
+            return progress
+
+        if hasattr(progress, "status"):
+            progress.get_status = MethodType(
+                lambda self: getattr(self, "status"),
+                progress,
+            )
+            return progress
+
+        required_attrs = ("user_id", "reward_id")
+        if not all(hasattr(progress, attr) for attr in required_attrs):
+            return progress
+
+        return RewardProgressModel.model_validate(
+            progress,
+            from_attributes=True,
         )
-
-        existing = await self.reward_repo.get_by_name(name)
-        if existing:
-            logger.warning("Reward creation blocked: duplicate name '%s'", name)
-            raise ValueError("Reward name already exists")
-
-        reward_type_value = (
-            reward_type.value
-            if isinstance(reward_type, Enum)
-            else reward_type
-        )
-
-        data: dict[str, object] = {
-            "name": name,
-            "type": reward_type_value,
-            "weight": weight,
-            "pieces_required": pieces_required
-        }
-
-        if piece_value is not None:
-            data["piece_value"] = piece_value
-
-        reward = await self.reward_repo.create(data)
-        logger.info("Reward '%s' created with id=%s", reward.name, getattr(reward, 'id', None))
-        return reward
-
-    async def get_user_reward_progress(self, user_id: str) -> list[RewardProgress]:
-        """
-        Get all reward progress for a user.
-
-        Args:
-            user_id: Airtable record ID of the user
-
-        Returns:
-            List of RewardProgress objects
-        """
-        return await self.progress_repo.get_all_by_user(user_id)
-
-    async def get_actionable_rewards(self, user_id: str) -> list[RewardProgress]:
-        """
-        Get all achieved (actionable) rewards for a user.
-
-        Args:
-            user_id: Airtable record ID of the user
-
-        Returns:
-            List of RewardProgress objects with status "⏳ Achieved"
-        """
-        return await self.progress_repo.get_achieved_by_user(user_id)
 
 
 # Global service instance

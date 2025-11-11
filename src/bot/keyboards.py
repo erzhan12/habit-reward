@@ -26,15 +26,37 @@ def build_habit_selection_keyboard(habits: list[Habit], language: str = 'en') ->
         )
         keyboard.append([button])
 
-    # Add custom text option (commented out for now)
-    # keyboard.append([
-    #     InlineKeyboardButton(
-    #         text="📝 Enter custom text",
-    #         callback_data="habit_custom"
-    #     )
-    # ])
-
     # Add Back button to return to main menu
+    keyboard.append([
+        InlineKeyboardButton(
+            text=msg('MENU_BACK', language),
+            callback_data="menu_back"
+        )
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_habit_revert_keyboard(habits: list[Habit], language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for selecting a habit completion to revert.
+
+    Args:
+        habits: List of habits available for reverting
+        language: Language code for translating Back button text
+
+    Returns:
+        InlineKeyboardMarkup with habit buttons and Back button
+    """
+    keyboard = []
+    for habit in habits:
+        keyboard.append([
+            InlineKeyboardButton(
+                text=habit.name,
+                callback_data=f"revert_habit_{habit.id}"
+            )
+        ])
+
     keyboard.append([
         InlineKeyboardButton(
             text=msg('MENU_BACK', language),
@@ -69,6 +91,7 @@ def build_reward_status_keyboard(progress: RewardProgress) -> InlineKeyboardMark
     return InlineKeyboardMarkup(keyboard)
 
 
+
 def build_actionable_rewards_keyboard(rewards: list[RewardProgress]) -> InlineKeyboardMarkup:
     """
     Build inline keyboard for claiming achieved rewards.
@@ -85,12 +108,13 @@ def build_actionable_rewards_keyboard(rewards: list[RewardProgress]) -> InlineKe
     keyboard = []
     for progress in rewards:
         button = InlineKeyboardButton(
-            text=f"✅ Claim: {progress.pieces_earned}/{progress.pieces_required or 1} pieces",
+            text=f"✅ Claim: {progress.pieces_earned}/{progress.get_pieces_required() or 1} pieces",
             callback_data=f"claim_reward_{progress.reward_id}"
         )
         keyboard.append([button])
 
     return InlineKeyboardMarkup(keyboard)
+
 
 
 def build_claimable_rewards_keyboard(
@@ -117,7 +141,7 @@ def build_claimable_rewards_keyboard(
         reward = rewards_dict.get(progress.reward_id)
         if reward:
             # Format: "Reward Name (X/Y pieces)"
-            button_text = f"{reward.name} ({progress.pieces_earned}/{progress.pieces_required or 1})"
+            button_text = f"{reward.name} ({progress.pieces_earned}/{progress.get_pieces_required() or 1})"
             button = InlineKeyboardButton(
                 text=button_text,
                 callback_data=f"claim_reward_{progress.reward_id}"
@@ -150,6 +174,7 @@ def build_settings_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+
 def build_language_selection_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     """
     Build inline keyboard for language selection.
@@ -179,6 +204,7 @@ def build_language_selection_keyboard(language: str = 'en') -> InlineKeyboardMar
         )]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 
 def build_weight_selection_keyboard(current_weight: int | None = None, language: str = 'en') -> InlineKeyboardMarkup:
@@ -224,6 +250,7 @@ def build_weight_selection_keyboard(current_weight: int | None = None, language:
     return InlineKeyboardMarkup(keyboard)
 
 
+
 def build_category_selection_keyboard(current_category: str | None = None, language: str = 'en') -> InlineKeyboardMarkup:
     """
     Build inline keyboard for habit category selection.
@@ -257,6 +284,7 @@ def build_category_selection_keyboard(current_category: str | None = None, langu
     ])
 
     return InlineKeyboardMarkup(keyboard)
+
 
 
 def build_habits_for_edit_keyboard(habits: list[Habit], operation: str, language: str = 'en') -> InlineKeyboardMarkup:
@@ -296,6 +324,7 @@ def build_habits_for_edit_keyboard(habits: list[Habit], operation: str, language
     ])
 
     return InlineKeyboardMarkup(keyboard)
+
 
 
 def build_post_create_habit_keyboard(habits: list[Habit], language: str = 'en') -> InlineKeyboardMarkup:
@@ -348,6 +377,7 @@ def build_post_create_habit_keyboard(habits: list[Habit], language: str = 'en') 
     return InlineKeyboardMarkup(keyboard)
 
 
+
 def build_cancel_only_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     """
     Build inline keyboard with only a Cancel button.
@@ -369,6 +399,7 @@ def build_cancel_only_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+
 def build_reward_cancel_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     """Build inline keyboard with Cancel button for reward flows."""
     keyboard = [
@@ -378,6 +409,7 @@ def build_reward_cancel_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
         )]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 
 def build_reward_type_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
@@ -403,6 +435,7 @@ def build_reward_type_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
         )]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 
 def build_reward_weight_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
@@ -432,6 +465,7 @@ def build_reward_weight_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+
 def build_reward_pieces_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     """Build inline keyboard for pieces required with quick option for non-accumulative rewards."""
     keyboard = [
@@ -447,6 +481,7 @@ def build_reward_pieces_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+
 def build_reward_piece_value_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     """Build inline keyboard for optional piece value with skip/cancel buttons."""
     keyboard = [
@@ -460,6 +495,7 @@ def build_reward_piece_value_keyboard(language: str = 'en') -> InlineKeyboardMar
         )]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 
 def build_reward_confirmation_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
@@ -481,6 +517,7 @@ def build_reward_confirmation_keyboard(language: str = 'en') -> InlineKeyboardMa
     return InlineKeyboardMarkup(keyboard)
 
 
+
 def build_reward_post_create_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     """Build inline keyboard shown after reward creation."""
     keyboard = [
@@ -494,6 +531,7 @@ def build_reward_post_create_keyboard(language: str = 'en') -> InlineKeyboardMar
         )]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 
 def build_habit_confirmation_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
@@ -523,6 +561,7 @@ def build_habit_confirmation_keyboard(language: str = 'en') -> InlineKeyboardMar
     return InlineKeyboardMarkup(keyboard)
 
 
+
 def build_start_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     """
     Build inline keyboard for the main start menu.
@@ -540,6 +579,10 @@ def build_start_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
             InlineKeyboardButton(text=msg('BUTTON_REWARDS', language), callback_data="menu_rewards")
         ],
         [
+            InlineKeyboardButton(text=msg('BUTTON_ADD_HABIT', language), callback_data="menu_habits_add"),
+            InlineKeyboardButton(text=msg('BUTTON_LIST_REWARDS', language), callback_data="menu_rewards_list")
+        ],
+        [
             InlineKeyboardButton(text=msg('BUTTON_STREAKS', language), callback_data="menu_streaks"),
             InlineKeyboardButton(text=msg('BUTTON_SETTINGS', language), callback_data="menu_settings")
         ],
@@ -551,6 +594,7 @@ def build_start_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+
 def build_habits_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     """
     Build inline keyboard for the habits submenu.
@@ -559,9 +603,11 @@ def build_habits_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=msg('BUTTON_ADD_HABIT', language), callback_data="menu_habits_add")],
         [InlineKeyboardButton(text=msg('BUTTON_EDIT_HABIT', language), callback_data="menu_habits_edit")],
         [InlineKeyboardButton(text=msg('BUTTON_REMOVE_HABIT', language), callback_data="menu_habits_remove")],
+        [InlineKeyboardButton(text=msg('BUTTON_REVERT_HABIT', language), callback_data="menu_habits_revert")],
         [InlineKeyboardButton(text=msg('MENU_BACK', language), callback_data="menu_back_start")]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 
 def build_rewards_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
@@ -578,6 +624,7 @@ def build_rewards_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+
 def build_remove_confirmation_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     """
     Build inline keyboard for remove confirmation with Back.
@@ -588,6 +635,7 @@ def build_remove_confirmation_keyboard(language: str = 'en') -> InlineKeyboardMa
         [InlineKeyboardButton(text=msg('MENU_BACK', language), callback_data="remove_back_to_list")]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 
 def build_no_habits_to_edit_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
@@ -613,6 +661,7 @@ def build_no_habits_to_edit_keyboard(language: str = 'en') -> InlineKeyboardMark
         )]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 
 def build_back_to_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:

@@ -28,6 +28,7 @@ from src.bot.messages import msg
 from src.bot.language import get_message_language, get_message_language_async
 from src.models.habit import Habit
 from src.config import HABIT_NAME_MAX_LENGTH
+from src.utils.async_compat import maybe_await
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -62,7 +63,7 @@ async def add_habit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
@@ -99,7 +100,7 @@ async def menu_add_habit_callback(update: Update, context: ContextTypes.DEFAULT_
     lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
@@ -134,7 +135,7 @@ async def post_create_add_another_callback(update: Update, context: ContextTypes
     lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
@@ -319,7 +320,7 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             active=True
         )
 
-        created_habit = await habit_repository.create(new_habit)
+        created_habit = await maybe_await(habit_repository.create(new_habit))
         logger.info(f"✅ Created habit '{created_habit.name}' (ID: {created_habit.id}) for user {telegram_id}")
 
         # Show success message
@@ -328,7 +329,7 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.info(f"📤 Sent success message to {telegram_id}")
 
         # Fetch all active habits including the newly created one
-        all_habits = await habit_repository.get_all_active()
+        all_habits = await maybe_await(habit_repository.get_all_active())
         logger.info(f"🔍 Fetched {len(all_habits)} active habits for post-creation menu")
 
         # Show the post-creation menu with habits list
@@ -426,7 +427,7 @@ async def edit_habit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
@@ -441,7 +442,7 @@ async def edit_habit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     # Get all active habits
-    habits = await habit_repository.get_all_active()
+    habits = await maybe_await(habit_repository.get_all_active())
     logger.info(f"🔍 Found {len(habits)} active habits for user {telegram_id}")
 
     if not habits:
@@ -472,7 +473,7 @@ async def edit_habit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
@@ -487,7 +488,7 @@ async def edit_habit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
 
     # Get all active habits
-    habits = await habit_repository.get_all_active()
+    habits = await maybe_await(habit_repository.get_all_active())
     logger.info(f"🔍 Found {len(habits)} active habits for user {telegram_id}")
 
     if not habits:
@@ -528,7 +529,7 @@ async def habit_edit_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
     habit_id = callback_data.replace("edit_habit_", "")
 
     # Load habit from database
-    habit = await habit_repository.get_by_id(habit_id)
+    habit = await maybe_await(habit_repository.get_by_id(habit_id))
     if not habit:
         logger.error(f"❌ Habit {habit_id} not found for user {telegram_id}")
         await query.edit_message_text(msg('ERROR_HABIT_NOT_FOUND', lang))
@@ -726,7 +727,9 @@ async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYP
             "category": new_category
         }
 
-        updated_habit = await habit_repository.update(habit_id, updates)
+        updated_habit = await maybe_await(
+            habit_repository.update(habit_id, updates)
+        )
         logger.info(f"✅ Updated habit '{updated_habit.name}' (ID: {updated_habit.id}) for user {telegram_id}")
 
         success_message = msg('SUCCESS_HABIT_UPDATED', lang, name=updated_habit.name)
@@ -818,7 +821,7 @@ async def remove_habit_command(update: Update, context: ContextTypes.DEFAULT_TYP
     lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
@@ -833,7 +836,7 @@ async def remove_habit_command(update: Update, context: ContextTypes.DEFAULT_TYP
         return ConversationHandler.END
 
     # Get all active habits
-    habits = await habit_repository.get_all_active()
+    habits = await maybe_await(habit_repository.get_all_active())
     logger.info(f"🔍 Found {len(habits)} active habits for user {telegram_id}")
 
     if not habits:
@@ -864,7 +867,7 @@ async def remove_habit_callback(update: Update, context: ContextTypes.DEFAULT_TY
     lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
@@ -879,7 +882,7 @@ async def remove_habit_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return ConversationHandler.END
 
     # Get all active habits
-    habits = await habit_repository.get_all_active()
+    habits = await maybe_await(habit_repository.get_all_active())
     logger.info(f"🔍 Found {len(habits)} active habits for user {telegram_id}")
 
     if not habits:
@@ -915,7 +918,7 @@ async def habit_remove_selected(update: Update, context: ContextTypes.DEFAULT_TY
     habit_id = callback_data.replace("remove_habit_", "")
 
     # Load habit from database
-    habit = await habit_repository.get_by_id(habit_id)
+    habit = await maybe_await(habit_repository.get_by_id(habit_id))
     if not habit:
         logger.error(f"❌ Habit {habit_id} not found for user {telegram_id}")
         await query.edit_message_text(msg('ERROR_HABIT_NOT_FOUND', lang))
@@ -977,7 +980,7 @@ async def habit_remove_confirmed(update: Update, context: ContextTypes.DEFAULT_T
     try:
         logger.info(f"⚙️ Soft deleting habit {habit_id} for user {telegram_id}")
 
-        removed_habit = await habit_repository.soft_delete(habit_id)
+        removed_habit = await maybe_await(habit_repository.soft_delete(habit_id))
         logger.info(f"✅ Soft deleted habit '{removed_habit.name}' (ID: {removed_habit.id}) for user {telegram_id}")
 
         success_message = msg('SUCCESS_HABIT_REMOVED', lang, name=habit_name)
@@ -1030,7 +1033,7 @@ async def remove_back_to_list(update: Update, context: ContextTypes.DEFAULT_TYPE
     lang = await get_message_language_async(telegram_id, update)
 
     # Re-fetch active habits
-    habits = await habit_repository.get_all_active()
+    habits = await maybe_await(habit_repository.get_all_active())
     if not habits:
         # Nothing to show, delete the message
         try:

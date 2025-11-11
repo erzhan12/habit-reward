@@ -34,9 +34,9 @@ def render_stats_overview(user_id: str):
 
         earned_value = progress.pieces_earned * reward.piece_value
 
-        if progress.status == RewardStatus.COMPLETED:
+        if progress.get_status() == RewardStatus.COMPLETED:
             total_value_claimed += earned_value
-        elif progress.status == RewardStatus.ACHIEVED:
+        elif progress.get_status() == RewardStatus.ACHIEVED:
             pending_value += earned_value
         else:
             # Pending status

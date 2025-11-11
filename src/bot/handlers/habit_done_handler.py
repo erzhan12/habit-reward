@@ -17,7 +17,12 @@ from src.bot.keyboards import build_habit_selection_keyboard, build_back_to_menu
 from src.bot.formatters import format_habit_completion_message
 from src.core.repositories import user_repository
 from src.bot.messages import msg
-from src.bot.language import get_message_language, get_message_language_async
+from src.bot.language import (
+    get_message_language,
+    get_message_language_async,
+    detect_language_from_telegram,
+)
+from src.utils.async_compat import maybe_await
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -38,11 +43,12 @@ async def habit_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
+        fallback_lang = detect_language_from_telegram(update) if update else lang
         await update.message.reply_text(
-            msg('ERROR_USER_NOT_FOUND', lang)
+            msg('ERROR_USER_NOT_FOUND', fallback_lang)
         )
         logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
         return ConversationHandler.END
@@ -50,22 +56,51 @@ async def habit_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Check if user is active
     if not user.is_active:
         logger.warning(f"⚠️ User {telegram_id} is inactive")
+        fallback_lang = detect_language_from_telegram(update) if update else lang
         await update.message.reply_text(
-            msg('ERROR_USER_INACTIVE', lang)
+            msg('ERROR_USER_INACTIVE', fallback_lang)
         )
         logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return ConversationHandler.END
 
-    # Get all active habits
-    habits = await habit_service.get_all_active_habits()
-    logger.info(f"🔍 Found {len(habits)} active habits for user {telegram_id}")
+    lang = user.language or lang
 
-    if not habits:
-        logger.warning(f"⚠️ No active habits found for user {telegram_id}")
+    # Fetch all active habits for menu display
+    all_habits = await maybe_await(habit_service.get_all_active_habits())
+
+    # Attempt to filter habits already completed today (service method optional)
+    habits = all_habits
+    try:
+        pending_candidates = await maybe_await(
+            habit_service.get_active_habits_pending_for_today(user.id)
+        )
+        if isinstance(pending_candidates, list):
+            habits = pending_candidates
+    except AttributeError:
+        logger.debug("Habit service lacks get_active_habits_pending_for_today; using all habits")
+
+    logger.info(
+        "🔍 Found %s total active habits and %s remaining today for user %s",
+        len(all_habits),
+        len(habits),
+        telegram_id,
+    )
+
+    if not all_habits:
+        logger.warning("⚠️ No active habits configured for user %s", telegram_id)
         await update.message.reply_text(
             msg('ERROR_NO_HABITS', lang)
         )
         logger.info(f"📤 Sent ERROR_NO_HABITS message to {telegram_id}")
+        return ConversationHandler.END
+
+    if not habits:
+        logger.info("🎉 All active habits already completed today for user %s", telegram_id)
+        await update.message.reply_text(
+            msg('INFO_ALL_HABITS_COMPLETED', lang),
+            reply_markup=build_back_to_menu_keyboard(lang),
+        )
+        logger.info(f"📤 Sent INFO_ALL_HABITS_COMPLETED message to {telegram_id}")
         return ConversationHandler.END
 
     # Build and send keyboard
@@ -113,7 +148,7 @@ async def habit_selected_callback(
         logger.info(f"🎯 User {telegram_id} selected habit_id: {habit_id}")
 
         # Get habit by ID
-        habits = await habit_service.get_all_active_habits()
+        habits = await maybe_await(habit_service.get_all_active_habits())
         habit = next((h for h in habits if str(h.id) == habit_id), None)
 
         if not habit:
@@ -125,9 +160,11 @@ async def habit_selected_callback(
         # Process habit completion
         try:
             logger.info(f"⚙️ Processing habit completion for user {telegram_id}, habit '{habit.name}'")
-            result = await habit_service.process_habit_completion(
-                user_telegram_id=telegram_id,
-                habit_name=habit.name
+            result = await maybe_await(
+                habit_service.process_habit_completion(
+                    user_telegram_id=telegram_id,
+                    habit_name=habit.name
+                )
             )
 
             # Format and send response
@@ -165,7 +202,7 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     logger.info(f"📨 Received custom text from user {telegram_id} (@{username}): '{user_text}'")
 
     # Get all active habits
-    habits = await habit_service.get_all_active_habits()
+    habits = await maybe_await(habit_service.get_all_active_habits())
     habit_names = [h.name for h in habits]
 
     # Use NLP to classify
@@ -187,9 +224,11 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     try:
         logger.info(f"⚙️ Processing habit completion for user {telegram_id}, habit '{habit_name}'")
-        result = await habit_service.process_habit_completion(
-            user_telegram_id=telegram_id,
-            habit_name=habit_name
+        result = await maybe_await(
+            habit_service.process_habit_completion(
+                user_telegram_id=telegram_id,
+                habit_name=habit_name
+            )
         )
 
         # Format and send response

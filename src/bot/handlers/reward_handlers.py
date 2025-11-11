@@ -31,7 +31,7 @@ from src.bot.keyboards import (
     build_rewards_menu_keyboard
 )
 from src.bot.messages import msg
-from src.bot.language import get_message_language_async
+from src.bot.language import get_message_language_async, detect_language_from_telegram
 from src.bot.navigation import push_navigation
 from src.models.reward import RewardType
 from src.config import (
@@ -40,6 +40,7 @@ from src.config import (
     REWARD_WEIGHT_MAX,
     REWARD_PIECES_MIN
 )
+from src.utils.async_compat import maybe_await
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ async def list_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYP
     logger.info(f"📨 Received /list_rewards command from user {telegram_id} (@{username})")
     lang = await get_message_language_async(telegram_id, update)
 
-    rewards = await reward_service.get_active_rewards()
+    rewards = await maybe_await(reward_service.get_active_rewards())
     logger.info(f"🔍 Found {len(rewards)} active rewards for user {telegram_id}")
     message = format_rewards_list_message(rewards, lang)
 
@@ -128,11 +129,11 @@ async def my_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await update.message.reply_text(
-            msg('ERROR_USER_NOT_FOUND', lang)
+            msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update))
         )
         logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
         return
@@ -141,13 +142,17 @@ async def my_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not user.is_active:
         logger.warning(f"⚠️ User {telegram_id} is inactive")
         await update.message.reply_text(
-            msg('ERROR_USER_INACTIVE', lang)
+            msg('ERROR_USER_INACTIVE', detect_language_from_telegram(update))
         )
         logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return
 
+    lang = (user.language or lang)
+
     # Get all reward progress
-    progress_list = await reward_service.get_user_reward_progress(user.id)
+    progress_list = await maybe_await(
+        reward_service.get_user_reward_progress(user.id)
+    )
     logger.info(f"🔍 Found {len(progress_list)} reward progress entries for user {telegram_id}")
 
     from src.bot.keyboards import build_back_to_menu_keyboard
@@ -165,7 +170,7 @@ async def my_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     message_parts = [msg('HEADER_REWARD_PROGRESS', lang)]
 
     for progress in progress_list:
-        reward = await reward_repository.get_by_id(progress.reward_id)
+        reward = await maybe_await(reward_repository.get_by_id(progress.reward_id))
         if reward:
             progress_msg = format_reward_progress_message(progress, reward, lang)
             message_parts.append(progress_msg + "\n")
@@ -191,11 +196,11 @@ async def claim_reward_command(update: Update, context: ContextTypes.DEFAULT_TYP
     lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await update.message.reply_text(
-            msg('ERROR_USER_NOT_FOUND', lang)
+            msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update))
         )
         logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
         return ConversationHandler.END
@@ -204,13 +209,17 @@ async def claim_reward_command(update: Update, context: ContextTypes.DEFAULT_TYP
     if not user.is_active:
         logger.warning(f"⚠️ User {telegram_id} is inactive")
         await update.message.reply_text(
-            msg('ERROR_USER_INACTIVE', lang)
+            msg('ERROR_USER_INACTIVE', detect_language_from_telegram(update))
         )
         logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return ConversationHandler.END
 
+    lang = (user.language or lang)
+
     # Get achieved rewards
-    achieved_rewards = await reward_service.get_actionable_rewards(user.id)
+    achieved_rewards = await maybe_await(
+        reward_service.get_actionable_rewards(user.id)
+    )
     logger.info(f"🔍 Found {len(achieved_rewards)} achieved rewards for user {telegram_id}")
 
     if not achieved_rewards:
@@ -262,30 +271,41 @@ async def claim_reward_callback(
         logger.info(f"🎁 User {telegram_id} selected reward_id: {reward_id}")
 
         # Validate user exists and is active
-        user = await user_repository.get_by_telegram_id(telegram_id)
+        user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+        fallback_lang = detect_language_from_telegram(update)
         if not user:
             logger.error(f"❌ User {telegram_id} not found in database")
-            await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
+            await query.edit_message_text(
+                msg('ERROR_USER_NOT_FOUND', fallback_lang)
+            )
             logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
             return ConversationHandler.END
 
         if not user.is_active:
             logger.error(f"❌ User {telegram_id} is inactive")
-            await query.edit_message_text(msg('ERROR_USER_INACTIVE', lang))
+            await query.edit_message_text(
+                msg('ERROR_USER_INACTIVE', fallback_lang)
+            )
             logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
             return ConversationHandler.END
 
+        lang = (user.language or lang)
+
         # Get reward details for logging
-        reward = await reward_repository.get_by_id(reward_id)
+        reward = await maybe_await(reward_repository.get_by_id(reward_id))
         reward_name = reward.name if reward else reward_id
 
         try:
             # Mark reward as claimed
             logger.info(f"⚙️ Marking reward '{reward_name}' as claimed for user {telegram_id}")
-            updated_progress = await reward_service.mark_reward_claimed(user.id, reward_id)
+            updated_progress = await maybe_await(
+                reward_service.mark_reward_claimed(user.id, reward_id)
+            )
 
             # Fetch updated progress
-            progress_list = await reward_service.get_user_reward_progress(user.id)
+            progress_list = await maybe_await(
+                reward_service.get_user_reward_progress(user.id)
+            )
             rewards_dict = await _get_rewards_dict(progress_list)
 
             # Format and send response
@@ -295,7 +315,7 @@ async def claim_reward_callback(
                 rewards_dict,
                 lang
             )
-            logger.info(f"✅ Reward '{reward_name}' claimed successfully by user {telegram_id}. Status: {updated_progress.status.value}")
+            logger.info(f"✅ Reward '{reward_name}' claimed successfully by user {telegram_id}. Status: {updated_progress.get_status().value}")
 
             from src.bot.keyboards import build_back_to_menu_keyboard
             await query.edit_message_text(
@@ -327,7 +347,7 @@ async def _get_rewards_dict(progress_list: list) -> dict:
     """
     rewards_dict = {}
     for progress in progress_list:
-        reward = await reward_repository.get_by_id(progress.reward_id)
+        reward = await maybe_await(reward_repository.get_by_id(progress.reward_id))
         if reward:
             rewards_dict[progress.reward_id] = reward
     return rewards_dict
@@ -349,18 +369,22 @@ async def add_reward_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     telegram_id = str(update.effective_user.id)
     username = update.effective_user.username or "N/A"
     logger.info(f"📨 Received /add_reward command from user {telegram_id} (@{username})")
-    lang = await get_message_language_async(telegram_id, update)
-
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
-        await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
+        await update.message.reply_text(
+            msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update))
+        )
         return ConversationHandler.END
 
     if not user.is_active:
         logger.warning(f"⚠️ User {telegram_id} is inactive")
-        await update.message.reply_text(msg('ERROR_USER_INACTIVE', lang))
+        await update.message.reply_text(
+            msg('ERROR_USER_INACTIVE', detect_language_from_telegram(update))
+        )
         return ConversationHandler.END
+
+    lang = user.language or await get_message_language_async(telegram_id, update)
 
     _clear_reward_context(context)
     await update.message.reply_text(
@@ -378,19 +402,22 @@ async def menu_add_reward_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
 
     telegram_id = str(update.effective_user.id)
-    lang = await get_message_language_async(telegram_id, update)
     logger.info(f"📨 Received menu_rewards_add callback from user {telegram_id}")
 
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
-        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
+        fallback_lang = detect_language_from_telegram(update)
+        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', fallback_lang))
         return ConversationHandler.END
 
     if not user.is_active:
         logger.warning(f"⚠️ User {telegram_id} is inactive")
-        await query.edit_message_text(msg('ERROR_USER_INACTIVE', lang))
+        fallback_lang = detect_language_from_telegram(update)
+        await query.edit_message_text(msg('ERROR_USER_INACTIVE', fallback_lang))
         return ConversationHandler.END
+
+    lang = user.language or await get_message_language_async(telegram_id, update)
 
     _clear_reward_context(context)
     edited_message = await query.edit_message_text(
@@ -432,7 +459,7 @@ async def reward_name_received(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return AWAITING_REWARD_NAME
 
-    existing = await reward_repository.get_by_name(name)
+    existing = await maybe_await(reward_repository.get_by_name(name))
     if existing:
         logger.warning(f"⚠️ Reward name '%s' already exists", name)
         await update.message.reply_text(
@@ -730,12 +757,14 @@ async def reward_confirm_save(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
 
     try:
-        created_reward = await reward_service.create_reward(
-            name=name,
-            reward_type=reward_type,
-            weight=float(weight),
-            pieces_required=int(pieces_required),
-            piece_value=reward_data.get('piece_value')
+        created_reward = await maybe_await(
+            reward_service.create_reward(
+                name=name,
+                reward_type=reward_type,
+                weight=float(weight),
+                pieces_required=int(pieces_required),
+                piece_value=reward_data.get('piece_value')
+            )
         )
     except ValueError as error:
         logger.warning("⚠️ Failed to create reward for user %s: %s", telegram_id, error)

@@ -13,6 +13,7 @@ from telegram.ext import Application, CommandHandler
 from src.utils.logging import setup_logging
 from src.bot.handlers.command_handlers import start_command, help_command
 from src.bot.handlers.habit_done_handler import habit_done_conversation
+from src.bot.handlers.habit_revert_handler import habit_revert_conversation
 from src.bot.handlers.habit_management_handler import (
     add_habit_conversation,
     edit_habit_conversation,
@@ -27,6 +28,7 @@ from src.bot.handlers.reward_handlers import (
 from src.bot.handlers.streak_handler import streaks_command
 from src.bot.handlers.menu_handler import get_menu_handlers
 from src.bot.handlers.settings_handler import settings_conversation
+from src.core.repositories import user_repository
 
 # Configure logging
 setup_logging()
@@ -56,6 +58,7 @@ def main():
 
     # Add conversation handler for habit_done
     application.add_handler(habit_done_conversation)
+    application.add_handler(habit_revert_conversation)
 
     # Add habit management conversation handlers
     application.add_handler(add_habit_conversation)

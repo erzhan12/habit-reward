@@ -33,11 +33,11 @@ def render_actionable_rewards(user_id: str):
             with col1:
                 st.markdown(f"### 🎁 {reward.name}")
                 st.markdown(
-                    f"**Progress:** {progress.pieces_earned}/{progress.pieces_required} pieces"
+                    f"**Progress:** {progress.pieces_earned}/{progress.get_pieces_required()} pieces"
                 )
 
                 if reward.piece_value:
-                    total_value = (progress.pieces_required or 0) * reward.piece_value
+                    total_value = (progress.get_pieces_required() or 0) * reward.piece_value
                     st.markdown(f"**Value:** ${total_value:.2f}")
 
             with col2:

@@ -22,9 +22,9 @@ def render_reward_progress(user_id: str):
         return
 
     # Group by status
-    pending = [p for p in progress_list if p.status == RewardStatus.PENDING]
-    achieved = [p for p in progress_list if p.status == RewardStatus.ACHIEVED]
-    completed = [p for p in progress_list if p.status == RewardStatus.COMPLETED]
+    pending = [p for p in progress_list if p.get_status() == RewardStatus.PENDING]
+    achieved = [p for p in progress_list if p.get_status() == RewardStatus.ACHIEVED]
+    completed = [p for p in progress_list if p.get_status() == RewardStatus.COMPLETED]
 
     # Create tabs
     tab1, tab2, tab3 = st.tabs([
@@ -72,22 +72,22 @@ def render_progress_card(progress):
         col1, col2 = st.columns([3, 1])
 
         with col1:
-            st.markdown(f"**{progress.status_emoji} {reward.name}**")
+            st.markdown(f"**{progress.get_status_emoji()} {reward.name}**")
 
         with col2:
-            st.markdown(f"*{progress.pieces_earned}/{progress.pieces_required}*")
+            st.markdown(f"*{progress.pieces_earned}/{progress.get_pieces_required()}*")
 
         # Progress bar
-        progress_value = progress.pieces_earned / (progress.pieces_required or 1)
+        progress_value = progress.pieces_earned / (progress.get_pieces_required() or 1)
         st.progress(min(progress_value, 1.0))
 
         # Additional info
         if reward.piece_value:
             total_value = progress.pieces_earned * reward.piece_value
-            target_value = (progress.pieces_required or 0) * reward.piece_value
+            target_value = (progress.get_pieces_required() or 0) * reward.piece_value
             st.caption(f"Value: ${total_value:.2f} / ${target_value:.2f}")
 
-        if progress.status == RewardStatus.ACHIEVED:
+        if progress.get_status() == RewardStatus.ACHIEVED:
             st.success("⏳ Ready to claim!")
 
         st.divider()

@@ -76,7 +76,7 @@ class HabitAdmin(admin.ModelAdmin):
 class RewardAdmin(admin.ModelAdmin):
     """Admin interface for Reward model."""
 
-    list_display = ['name', 'type', 'weight', 'pieces_required', 'piece_value', 'active', 'created_at']
+    list_display = ['name', 'type', 'weight', 'pieces_required', 'piece_value', 'max_daily_claims', 'active', 'created_at']
     list_filter = ['type', 'active', 'created_at']
     search_fields = ['name']
     readonly_fields = ['created_at', 'updated_at']
@@ -85,6 +85,10 @@ class RewardAdmin(admin.ModelAdmin):
     fieldsets = (
         ('Reward Information', {
             'fields': ('name', 'type', 'weight', 'pieces_required', 'piece_value', 'active')
+        }),
+        ('Daily Frequency Control', {
+            'fields': ('max_daily_claims',),
+            'description': 'Maximum times this reward can be claimed per day. Leave empty or set to 0 for unlimited daily claims.'
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
@@ -119,18 +123,18 @@ class RewardProgressAdmin(admin.ModelAdmin):
     )
 
     def get_status(self, obj):
-        """Display status from computed property."""
-        return obj.status.label
+        """Display status from computed method."""
+        return obj.get_status().label
     get_status.short_description = 'Status'
 
     def get_pieces_required(self, obj):
-        """Display pieces_required from computed property."""
-        return obj.pieces_required
+        """Display pieces_required from computed method."""
+        return obj.get_pieces_required()
     get_pieces_required.short_description = 'Pieces Required'
 
     def get_progress_percent(self, obj):
         """Display progress percentage."""
-        return f"{obj.progress_percent:.1f}%"
+        return f"{obj.get_progress_percent():.1f}%"
     get_progress_percent.short_description = 'Progress'
 
 

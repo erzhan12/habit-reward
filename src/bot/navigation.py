@@ -10,7 +10,12 @@ from telegram.ext import ContextTypes
 logger = logging.getLogger(__name__)
 
 
-def push_navigation(context: ContextTypes.DEFAULT_TYPE, message_id: int, menu_type: str, lang: str) -> None:
+def push_navigation(
+    context: ContextTypes.DEFAULT_TYPE | None,
+    message_id: int,
+    menu_type: str,
+    lang: str,
+) -> None:
     """
     Push a new navigation state onto the stack.
 
@@ -20,6 +25,10 @@ def push_navigation(context: ContextTypes.DEFAULT_TYPE, message_id: int, menu_ty
         menu_type: Type of menu ('start', 'habits', 'rewards')
         lang: User's language preference
     """
+    if context is None:
+        logger.debug("Navigation context missing; push_navigation skipped")
+        return
+
     if 'navigation_stack' not in context.user_data:
         context.user_data['navigation_stack'] = []
 
@@ -33,7 +42,7 @@ def push_navigation(context: ContextTypes.DEFAULT_TYPE, message_id: int, menu_ty
     logger.info(f"🔝 Pushed navigation: {menu_type} (message_id: {message_id}, lang: {lang})")
 
 
-def pop_navigation(context: ContextTypes.DEFAULT_TYPE) -> dict:
+def pop_navigation(context: ContextTypes.DEFAULT_TYPE | None) -> dict:
     """
     Pop the current navigation state and return the previous one.
 
@@ -43,6 +52,10 @@ def pop_navigation(context: ContextTypes.DEFAULT_TYPE) -> dict:
     Returns:
         Previous navigation state dict, or default 'start' state if stack is empty
     """
+    if context is None:
+        logger.debug("Navigation context missing; pop_navigation returning default")
+        return {'menu_type': 'start', 'lang': 'en'}
+
     if 'navigation_stack' not in context.user_data:
         context.user_data['navigation_stack'] = []
 
@@ -64,7 +77,7 @@ def pop_navigation(context: ContextTypes.DEFAULT_TYPE) -> dict:
         return {'menu_type': 'start', 'lang': last_lang}
 
 
-def get_current_navigation(context: ContextTypes.DEFAULT_TYPE) -> dict | None:
+def get_current_navigation(context: ContextTypes.DEFAULT_TYPE | None) -> dict | None:
     """
     Get the current navigation state without modifying the stack.
 
@@ -74,6 +87,10 @@ def get_current_navigation(context: ContextTypes.DEFAULT_TYPE) -> dict | None:
     Returns:
         Current navigation state dict, or None if stack is empty
     """
+    if context is None:
+        logger.debug("Navigation context missing; get_current_navigation returning None")
+        return None
+
     if 'navigation_stack' not in context.user_data:
         return None
 
@@ -81,19 +98,30 @@ def get_current_navigation(context: ContextTypes.DEFAULT_TYPE) -> dict | None:
     return stack[-1] if stack else None
 
 
-def clear_navigation(context: ContextTypes.DEFAULT_TYPE) -> None:
+def clear_navigation(context: ContextTypes.DEFAULT_TYPE | None) -> None:
     """
     Clear the entire navigation stack.
 
     Args:
         context: Telegram context object
     """
+    if context is None:
+        logger.debug("Navigation context missing; clear_navigation skipped")
+        return
+
     context.user_data['navigation_stack'] = []
-    logger.info(f"🧹 Cleared navigation stack")
+    logger.info("🧹 Cleared navigation stack")
 
 
-def update_navigation_language(context: ContextTypes.DEFAULT_TYPE, new_lang: str) -> None:
+def update_navigation_language(
+    context: ContextTypes.DEFAULT_TYPE | None,
+    new_lang: str,
+) -> None:
     """Update stored navigation states to reflect a new language preference."""
+    if context is None:
+        logger.debug("Navigation context missing; update_navigation_language skipped")
+        return
+
     stack = context.user_data.get('navigation_stack')
     if stack:
         for state in stack:

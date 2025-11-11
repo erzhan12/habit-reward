@@ -14,13 +14,14 @@ class RewardStatus(str, Enum):
 class RewardProgress(BaseModel):
     """Model for tracking progress toward rewards."""
 
-    id: str | None = None  # Airtable record ID
-    user_id: str = Field(..., description="Link to Users table (Airtable record ID)")
-    reward_id: str = Field(..., description="Link to Rewards table (Airtable record ID)")
+    id: str | int | None = None  # Airtable or DB PK
+    user_id: str | int = Field(..., description="Link to Users table")
+    reward_id: str | int = Field(..., description="Link to Rewards table")
     pieces_earned: int = Field(default=0, description="Number of pieces earned so far")
     status: RewardStatus = Field(default=RewardStatus.PENDING, description="Current status of reward")
     pieces_required: int | None = Field(default=None, description="Cached from reward for calculations")
     claimed: bool = Field(default=False, description="Whether user has claimed this reward")
+    reward: object | None = Field(default=None, description="Optional reward payload for convenience")
 
     @computed_field
     @property
@@ -35,6 +36,10 @@ class RewardProgress(BaseModel):
     def status_emoji(self) -> str:
         """Get emoji for current status."""
         return self.status.value.split()[0]
+
+    def get_status(self) -> RewardStatus:
+        """Backwards-compatible helper for legacy call sites/tests."""
+        return self.status
 
     model_config = ConfigDict(
         json_schema_extra={

@@ -56,3 +56,30 @@ htmlcov/
 *.sqlite3
 *.db
 db.sqlite3
+
+# Docker
+*.pid
+.dockerignore
+
+# Deployment
+deploy.sh
+
+# SSL/Certificates
+*.pem
+*.crt
+*.key
+
+# Telegram Bot Persistence
+telegram_bot_persistence.pkl
+
+# Static Files (collected)
+staticfiles/
+static/
+
+# Media Files
+media/
+
+# Temporary Files
+tmp/
+temp/
+*.tmp

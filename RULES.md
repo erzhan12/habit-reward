@@ -333,46 +333,165 @@ When creating new bot commands, copy the logging pattern from existing handlers:
 
 ## Repository Pattern
 
-All database operations go through repository classes in `src/airtable/repositories.py`:
+All database operations go through repository classes in `src/core/repositories.py`:
 - `user_repository` - User CRUD operations
 - `habit_repository` - Habit CRUD operations
 - `habit_log_repository` - Habit log CRUD operations
 - `reward_repository` - Reward CRUD operations
 - `reward_progress_repository` - Reward progress CRUD operations
 
-Never query Airtable directly from handlers or services. Always use the repository layer.
+Never query the Django ORM directly from handlers or services. Always use the repository layer.
 
-### Airtable Computed Fields
+### Django ORM Repository Pattern
 
-**CRITICAL**: Never attempt to set computed/formula fields when creating or updating Airtable records.
+**CRITICAL**: Repositories wrap Django ORM queries to provide async compatibility and maintain a consistent interface for services.
 
-**Common Computed Fields**:
-- `RewardProgress.pieces_required` - Formula field that looks up value from linked Reward record
-- `RewardProgress.status` - Formula field that computes status based on progress
+**Async Wrapper Pattern**:
 
-**Pattern**: Only set editable fields in repository create/update methods:
+All repository methods use `sync_to_async` to bridge synchronous Django ORM with async handlers:
 
 ```python
-# ✅ Good - Only set editable fields
-record = self.table.create({
-    "user_id": [progress.user_id],
-    "reward_id": [progress.reward_id],
-    "pieces_earned": progress.pieces_earned
-    # pieces_required is computed from linked Reward
+from asgiref.sync import sync_to_async
+from src.core.models import User
+
+class UserRepository:
+    async def get_by_telegram_id(self, telegram_id: str) -> User | None:
+        try:
+            return await sync_to_async(User.objects.get)(telegram_id=telegram_id)
+        except User.DoesNotExist:
+            return None
+
+    async def create(self, user_data: dict) -> User:
+        return await sync_to_async(User.objects.create)(**user_data)
+```
+
+**Performance Optimization**:
+
+Always use `select_related()` and `prefetch_related()` for ForeignKey and ManyToMany relationships to avoid N+1 queries:
+
+```python
+# ✅ Good - Prefetch related data
+async def get_by_user_and_reward(self, user_id: str, reward_id: str):
+    return await sync_to_async(
+        RewardProgress.objects.select_related('user', 'reward').get
+    )(user_id=user_id, reward_id=reward_id)
+
+# ❌ Bad - Causes N+1 queries
+async def get_by_user_and_reward(self, user_id: str, reward_id: str):
+    return await sync_to_async(RewardProgress.objects.get)(
+        user_id=user_id, reward_id=reward_id
+    )
+    # Accessing progress.reward.pieces_required triggers extra query!
+```
+
+**Global Repository Instances**:
+
+Repositories are instantiated as singletons at module level:
+
+```python
+# At bottom of src/core/repositories.py
+user_repository = UserRepository()
+habit_repository = HabitRepository()
+habit_log_repository = HabitLogRepository()
+reward_repository = RewardRepository()
+reward_progress_repository = RewardProgressRepository()
+```
+
+**Files affected**: `src/core/repositories.py`
+
+### Django Model Instantiation Pattern
+
+**CRITICAL**: When working with Django models in services, always pass dictionaries to repository `create()` methods instead of instantiating Django model objects directly.
+
+**Pattern for Creating Records**:
+
+```python
+# ✅ Good - Pass dict to repository
+progress = await self.progress_repo.create({
+    'user_id': user_id,
+    'reward_id': reward_id,
+    'pieces_earned': 0,
+    'claimed': False
 })
 
-# ❌ Bad - Trying to set computed field
-record = self.table.create({
-    "user_id": [progress.user_id],
-    "reward_id": [progress.reward_id],
-    "pieces_earned": progress.pieces_earned,
-    "pieces_required": progress.pieces_required  # ERROR: Computed field!
+# ❌ Bad - Don't instantiate models in services
+from src.core.models import RewardProgress
+progress = RewardProgress(user_id=user_id, reward_id=reward_id)  # Avoid this!
+```
+
+**Auto-set Fields** (Never pass these to create()):
+- `timestamp` fields with `auto_now_add=True` (e.g., `HabitLog.timestamp`)
+- `updated_at` fields with `auto_now=True` (e.g., `User.updated_at`)
+- `date_joined` field from `AbstractUser` (auto-set on user creation)
+- `last_login` field from `AbstractUser` (managed by Django auth)
+- Fields with `default` values (can be omitted)
+
+**Django User Model Field Mappings**:
+
+The `User` model extends Django's `AbstractUser`, which means some field names changed from the old Airtable schema:
+
+```python
+# Old Airtable field → New Django field
+'active' → 'is_active'           # BooleanField from AbstractUser
+'created_at' → 'date_joined'     # DateTimeField from AbstractUser (auto_now_add=True)
+
+# When creating users via repository:
+await user_repository.create({
+    'telegram_id': telegram_id,
+    'name': name,
+    'language': language,
+    'is_active': True,            # Use 'is_active', not 'active'
+    # 'date_joined' is auto-set, don't include it
+    # 'updated_at' is auto-set, don't include it
 })
 ```
 
-**Error to watch for**: `422 Client Error: INVALID_VALUE_FOR_COLUMN - Field cannot accept a value because the field is computed`
+**Files affected**:
+- `src/services/reward_service.py` - Uses dict pattern for model creation
+- `src/core/models.py` - Django model definitions
+- All service files should follow this pattern
 
-**Files affected**: `src/airtable/repositories.py:178` (RewardProgressRepository.create)
+### Computed Values Pattern
+
+**Use regular methods instead of `@property` for computed values.** This provides better async compatibility and more explicit intent.
+
+**RewardProgress Computed Methods**:
+- `get_status()` - Returns RewardStatus (CLAIMED, ACHIEVED, or PENDING)
+- `get_pieces_required()` - Gets pieces_required from linked reward (needs select_related('reward'))
+- `get_progress_percent()` - Calculates percentage completion (0-100)
+- `get_status_emoji()` - Extracts emoji from status value
+
+**Usage Pattern**:
+
+```python
+# ✅ Good - Use method calls
+if progress.get_status() == RewardStatus.ACHIEVED:
+    pieces_needed = progress.get_pieces_required()
+    percent = progress.get_progress_percent()
+    emoji = progress.get_status_emoji()
+
+# ❌ Bad - Properties no longer exist
+if progress.status == RewardStatus.ACHIEVED:  # AttributeError!
+    pieces_needed = progress.pieces_required  # AttributeError!
+```
+
+**Important**: Always use `select_related('reward')` when querying RewardProgress to avoid N+1 queries when calling `get_pieces_required()`.
+
+```python
+# ✅ Good - Prefetch related data
+progress = await progress_repo.get_by_user_and_reward(user_id, reward_id)  # Repository does select_related
+progress.get_pieces_required()  # No extra query
+
+# ⚠️ Risky - May cause extra query if not prefetched
+progress = RewardProgress.objects.get(id=progress_id)  # No select_related
+progress.get_pieces_required()  # Extra DB query!
+```
+
+**Files affected**:
+- `src/core/models.py:205-234` - RewardProgress computed methods
+- `src/services/reward_service.py` - Calls get_status() method
+- `src/bot/formatters.py` - Uses all computed methods
+- `src/bot/handlers/reward_handlers.py` - Uses get_status() method
 
 ## Service Layer
 
@@ -382,7 +501,7 @@ Business logic lives in services (`src/services/`):
 - `reward_service.py` - Handles reward selection and cumulative progress
 - `nlp_service.py` - NLP-based habit classification
 
-Services coordinate between repositories and contain no direct Airtable calls.
+Services coordinate between repositories and contain no direct database calls.
 
 ### Streak Service Pattern
 
@@ -420,10 +539,502 @@ Bug discovered (2025-10): Using `calculate_streak()` for display caused incorrec
 
 When importing repositories, always use:
 ```python
-from src.airtable.repositories import user_repository, habit_repository, ...
+from src.core.repositories import user_repository, habit_repository, ...
 ```
 
-These are singleton instances defined at the bottom of each repository file.
+These are singleton instances defined at the bottom of the repository file.
+
+## Django Configuration
+
+**CRITICAL**: All Django configuration is centralized in `src/habit_reward_project/settings.py`. Environment-specific settings use environment variables.
+
+### Settings Location
+
+```
+src/
+├── habit_reward_project/
+│   ├── settings.py          # Main Django settings
+│   ├── urls.py              # URL routing
+│   ├── wsgi.py              # WSGI application
+│   └── asgi.py              # ASGI application (for async)
+└── core/                    # Main Django app
+    ├── models.py
+    ├── admin.py
+    ├── repositories.py
+    └── migrations/
+```
+
+### Environment Variables
+
+Configuration uses `django-environ` for environment variable management:
+
+**Required Variables**:
+- `SECRET_KEY` - Django secret key (auto-generated in development)
+- `DATABASE_URL` - Database connection string (default: SQLite)
+- `TELEGRAM_BOT_TOKEN` - Telegram bot authentication token
+
+**Optional Variables**:
+- `DEBUG` - Debug mode (default: True in development)
+- `TELEGRAM_WEBHOOK_URL` - Webhook endpoint for production
+- `LLM_PROVIDER` - AI provider (e.g., 'openai', 'anthropic')
+- `LLM_MODEL` - AI model name
+- `LLM_API_KEY` - AI service API key
+
+**Example `.env` file**:
+```bash
+SECRET_KEY=your-secret-key-here
+DATABASE_URL=sqlite:///db.sqlite3                    # Development
+# DATABASE_URL=postgres://user:pass@localhost/dbname  # Production
+TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+DEBUG=True
+```
+
+### Database Configuration
+
+**Development**: SQLite (default)
+```python
+# settings.py
+DATABASES = {
+    'default': env.db('DATABASE_URL', default=f'sqlite:///{BASE_DIR}/db.sqlite3')
+}
+```
+
+**Production**: PostgreSQL (recommended)
+```bash
+# .env
+DATABASE_URL=postgres://username:password@hostname:5432/database_name
+```
+
+The `env.db()` helper from `django-environ` automatically parses database URLs into Django's `DATABASES` format.
+
+### Custom User Model
+
+**CRITICAL**: This project uses a custom user model that extends Django's `AbstractUser`:
+
+```python
+# settings.py
+AUTH_USER_MODEL = 'core.User'
+```
+
+This allows Telegram-specific fields while maintaining Django's built-in authentication features.
+
+### Custom Settings (Habit Bot Specific)
+
+```python
+# Habit tracking configuration
+STREAK_MULTIPLIER_RATE = 0.1      # Streak bonus multiplier (10% per streak)
+PROGRESS_BAR_LENGTH = 10          # Progress bar length in characters
+RECENT_LOGS_LIMIT = 10            # Number of recent logs to fetch
+
+# Multi-lingual support
+SUPPORTED_LANGUAGES = ['en', 'ru', 'kk']
+```
+
+**Files affected**:
+- `src/habit_reward_project/settings.py` - All Django configuration
+- `src/config.py` - Bot-specific settings (legacy, being phased out)
+
+## Django Models
+
+**CRITICAL**: All data models are Django ORM models in `src/core/models.py`. These replaced the old Pydantic models from Airtable.
+
+### Model Overview
+
+The project has 5 core models:
+
+1. **User** - Custom user model extending `AbstractUser`
+2. **Habit** - Habit definitions
+3. **Reward** - Reward definitions
+4. **RewardProgress** - User progress tracking for rewards
+5. **HabitLog** - Habit completion history
+
+### User Model (extends AbstractUser)
+
+```python
+from django.contrib.auth.models import AbstractUser
+
+class User(AbstractUser):
+    # Inherited from AbstractUser:
+    # - username, email, password (auth fields)
+    # - first_name, last_name
+    # - is_staff, is_superuser, is_active (permissions)
+    # - date_joined, last_login (timestamps)
+
+    # Custom Telegram fields:
+    telegram_id = models.CharField(max_length=50, unique=True, db_index=True)
+    name = models.CharField(max_length=255)
+    language = models.CharField(max_length=2, default='en')
+    updated_at = models.DateTimeField(auto_now=True)
+```
+
+**Key Features**:
+- Username auto-generated as `f"tg_{telegram_id}"`
+- `is_active` replaces old `active` field (from AbstractUser)
+- `date_joined` replaces old `created_at` field (from AbstractUser)
+- Supports Django's built-in authentication and admin interface
+
+### Habit Model
+
+```python
+class Habit(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    weight = models.IntegerField(
+        default=10,
+        validators=[MinValueValidator(1), MaxValueValidator(100)]
+    )
+    category = models.CharField(max_length=100, null=True, blank=True)
+    active = models.BooleanField(default=True)
+```
+
+**Validation**:
+- Weight must be between 1 and 100 (enforced by Django validators)
+- Name must be unique across all habits
+
+### Reward Model
+
+```python
+class Reward(models.Model):
+    class RewardType(models.TextChoices):
+        VIRTUAL = 'virtual', 'Virtual'
+        REAL = 'real', 'Real'
+        NONE = 'none', 'None'
+
+    name = models.CharField(max_length=255, unique=True)
+    weight = models.FloatField(default=1.0)
+    type = models.CharField(max_length=10, choices=RewardType.choices)
+    pieces_required = models.IntegerField(default=1)
+    piece_value = models.FloatField(null=True, blank=True)
+```
+
+**Unified Reward System**:
+- All rewards use `pieces_required` (instant rewards: `pieces_required=1`)
+- `type` uses Django's `TextChoices` enum for type safety
+- `piece_value` is optional (for monetary rewards)
+
+### RewardProgress Model
+
+```python
+class RewardProgress(models.Model):
+    class RewardStatus(models.TextChoices):
+        PENDING = '🕒 Pending', 'Pending'
+        ACHIEVED = '⏳ Achieved', 'Achieved'
+        CLAIMED = '✅ Claimed', 'Claimed'
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    reward = models.ForeignKey(Reward, on_delete=models.CASCADE)
+    pieces_earned = models.IntegerField(default=0)
+    claimed = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Computed methods (not database fields)
+    def get_status(self):
+        """Returns current status based on progress and claimed flag"""
+        if self.claimed:
+            return self.RewardStatus.CLAIMED
+        elif self.pieces_earned >= self.reward.pieces_required:
+            return self.RewardStatus.ACHIEVED
+        else:
+            return self.RewardStatus.PENDING
+
+    def get_pieces_required(self):
+        """Returns pieces_required from linked reward (needs select_related)"""
+        return self.reward.pieces_required
+
+    def get_progress_percent(self):
+        """Calculates progress percentage (0-100)"""
+        if self.reward.pieces_required == 0:
+            return 0
+        return min(100, (self.pieces_earned / self.reward.pieces_required) * 100)
+
+    def get_status_emoji(self):
+        """Extracts emoji from status value"""
+        return self.get_status().split()[0]
+```
+
+**Critical Pattern**: Status is computed in Python, not stored in database (replaces Airtable formula fields).
+
+### HabitLog Model
+
+```python
+class HabitLog(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    habit = models.ForeignKey(Habit, on_delete=models.CASCADE)
+    reward = models.ForeignKey(Reward, on_delete=models.SET_NULL, null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    streak_count = models.IntegerField(default=1)
+    got_reward = models.BooleanField(default=False)
+    habit_weight = models.IntegerField()
+    total_weight_applied = models.FloatField()
+    last_completed_date = models.DateField()
+```
+
+**Cascade Behavior**:
+- Deleting user → deletes all their habit logs (CASCADE)
+- Deleting habit → deletes all logs for that habit (CASCADE)
+- Deleting reward → keeps logs but nullifies reward reference (SET_NULL)
+
+**Files affected**:
+- `src/core/models.py` - All Django model definitions
+
+## Django Admin
+
+**CRITICAL**: Django admin is fully configured and provides a web interface for managing all models.
+
+### Accessing Django Admin
+
+1. **Create superuser** (first time only):
+```bash
+python manage.py createsuperuser
+```
+
+2. **Run Django development server**:
+```bash
+python manage.py runserver
+```
+
+3. **Access admin interface**:
+```
+http://localhost:8000/admin/
+```
+
+### Admin Features
+
+All models are registered with custom admin classes in `src/core/admin.py`:
+
+**UserAdmin**:
+- Extends Django's built-in `UserAdmin`
+- Displays: telegram_id, name, email, is_active, date_joined
+- Search by: telegram_id, username, email, name
+- Filters: is_active, is_staff, date_joined
+- Fieldsets organized: Telegram Info, Personal Info, Permissions, Dates
+
+**HabitAdmin**:
+- List display: name, category, weight, active
+- Search: name, category
+- Filters: active, category
+- Inline editing of habits
+
+**RewardAdmin**:
+- List display: name, type, pieces_required, piece_value, weight
+- Search: name
+- Filters: type
+- Shows reward configuration
+
+**RewardProgressAdmin**:
+- List display: user, reward, pieces_earned, computed status, progress percentage
+- Search: user__telegram_id, reward__name
+- Filters: claimed, updated_at
+- Shows computed fields via methods
+- Uses `select_related` to optimize queries
+
+**HabitLogAdmin**:
+- List display: user, habit, timestamp, streak_count, got_reward, reward
+- Search: user__telegram_id, habit__name
+- Filters: got_reward, timestamp
+- Date hierarchy: timestamp
+- Autocomplete for related fields
+
+### Custom Admin Methods
+
+Computed values are displayed via custom admin methods:
+
+```python
+@admin.register(RewardProgress)
+class RewardProgressAdmin(admin.ModelAdmin):
+    def status(self, obj):
+        """Display computed status"""
+        return obj.get_status()
+
+    def progress_percentage(self, obj):
+        """Display progress as percentage"""
+        return f"{obj.get_progress_percent():.0f}%"
+
+    list_display = ['user', 'reward', 'pieces_earned', 'status', 'progress_percentage']
+```
+
+**Files affected**:
+- `src/core/admin.py` - All admin configurations
+
+## Database Migrations
+
+**CRITICAL**: Django migrations track all changes to database schema. Always create and run migrations after modifying models.
+
+### Migration Commands
+
+**Create migrations** (after changing models):
+```bash
+python manage.py makemigrations
+```
+
+**Apply migrations** (update database):
+```bash
+python manage.py migrate
+```
+
+**Show migration status**:
+```bash
+python manage.py showmigrations
+```
+
+**Rollback migration** (if needed):
+```bash
+python manage.py migrate core 0001  # Rollback to migration 0001
+```
+
+### When to Create Migrations
+
+Create migrations whenever you:
+- Add, remove, or modify model fields
+- Change field types or constraints
+- Add or remove models
+- Change model Meta options (indexes, ordering, etc.)
+
+### Migration Files
+
+Migrations are stored in `src/core/migrations/`:
+```
+src/core/migrations/
+├── __init__.py
+├── 0001_initial.py        # Initial migration (created Oct 23, 2025)
+└── 0002_*.py              # Future migrations
+```
+
+**Initial migration** (`0001_initial.py`):
+- Created all 5 tables: User, Habit, Reward, RewardProgress, HabitLog
+- Set up ForeignKey relationships
+- Configured indexes and constraints
+
+### Migration Best Practices
+
+1. **Always review migrations** before applying:
+```bash
+python manage.py sqlmigrate core 0001  # View SQL for migration
+```
+
+2. **Never edit applied migrations** - create new migrations instead
+
+3. **Commit migrations to git** - they're part of your codebase
+
+4. **Test migrations on copy of production data** before deploying
+
+5. **Backup database** before running migrations in production
+
+### First-Time Setup
+
+For new developers or deployment:
+
+```bash
+# 1. Apply all migrations
+python manage.py migrate
+
+# 2. Create superuser for admin access
+python manage.py createsuperuser
+
+# 3. Verify setup
+python manage.py check
+```
+
+**Files affected**:
+- `src/core/migrations/` - All migration files
+- `src/core/models.py` - Models that trigger migrations
+
+## Django Transactions
+
+**CRITICAL**: Use Django transactions for operations that require multiple database changes to succeed or fail atomically.
+
+### Transaction Pattern
+
+Django transactions ensure data consistency by wrapping multiple database operations:
+
+```python
+from django.db import transaction
+from asgiref.sync import sync_to_async
+
+# Wrap transaction in sync_to_async for use in async handlers
+async def atomic_operation():
+    def _transaction():
+        with transaction.atomic():
+            # All operations inside this block are atomic
+            habit_log = HabitLog.objects.get(id=log_id)
+            habit_log.delete()
+
+            # Update related records
+            progress = RewardProgress.objects.get(id=progress_id)
+            progress.pieces_earned -= 1
+            progress.save()
+
+            # If any operation fails, ALL changes are rolled back
+
+    await sync_to_async(_transaction)()
+```
+
+### When to Use Transactions
+
+Use `transaction.atomic()` when:
+1. **Deleting records with side effects** (e.g., reverting habit completion)
+2. **Creating multiple related records** (e.g., user + initial settings)
+3. **Updating multiple tables** that must stay consistent
+4. **Financial operations** (e.g., claiming rewards with monetary value)
+
+### Example: Habit Revert with Transaction
+
+From `src/bot/handlers/habit_revert_handler.py`:
+
+```python
+async def _revert_habit_log_transaction(log_id: str, progress_id: str):
+    """Atomically revert habit log and update reward progress"""
+    def _transaction():
+        with transaction.atomic():
+            # 1. Delete the habit log
+            HabitLog.objects.filter(pk=log_id).delete()
+
+            # 2. Decrement reward progress
+            if progress_id:
+                progress = RewardProgress.objects.get(id=progress_id)
+                progress.pieces_earned = max(0, progress.pieces_earned - 1)
+                progress.claimed = False
+                progress.save()
+
+            # If anything fails, entire operation is rolled back
+
+    await sync_to_async(_transaction)()
+```
+
+### Transaction Best Practices
+
+1. **Keep transactions short** - only include necessary operations
+2. **Don't call external APIs** inside transactions (they can't be rolled back)
+3. **Use select_for_update()** for race condition protection:
+```python
+with transaction.atomic():
+    progress = RewardProgress.objects.select_for_update().get(id=progress_id)
+    progress.pieces_earned += 1
+    progress.save()
+```
+
+4. **Handle exceptions** inside transaction block:
+```python
+try:
+    with transaction.atomic():
+        # ... operations ...
+except IntegrityError:
+    # Transaction automatically rolled back
+    logger.error("Database constraint violation")
+```
+
+5. **Use savepoints** for nested transactions (advanced):
+```python
+with transaction.atomic():
+    # Outer transaction
+
+    with transaction.atomic():
+        # Inner savepoint
+        # Can be rolled back independently
+```
+
+**Files affected**:
+- `src/bot/handlers/habit_revert_handler.py` - Uses transactions for atomic reverts
+- Any service that needs multi-step consistency
 
 ## Testing
 
@@ -492,7 +1103,7 @@ async def test_start_command_user_not_found(mock_user_repo, mock_telegram_update
 
 ### Key Testing Principles
 
-1. **Mock External Dependencies**: Always mock Airtable repositories and Telegram objects
+1. **Mock External Dependencies**: Always mock Django repositories and Telegram objects
 2. **Test All Paths**: Test success cases, error cases, and edge cases
 3. **Async Tests**: Use `@pytest.mark.asyncio` for async handler functions
 4. **Clear Test Names**: Use descriptive test names that explain what's being tested
@@ -521,19 +1132,21 @@ Checklist:
 2. **⏳ Achieved**: `pieces_earned >= pieces_required && !claimed` - Ready to claim
 3. **✅ Claimed**: `claimed == true` - User has claimed the reward
 
-**Status is fully computed by Airtable formula** - Never set status manually in code.
+**Status is fully computed in Python** via the `get_status()` method - Never set status manually in code.
 
 ### Data Models
 
-**src/models/reward.py**:
-- `pieces_required: int = Field(default=1)` - Required for ALL rewards
-- `piece_value: float | None` - Monetary value per piece
+All reward models are now in **src/core/models.py** (Django models):
+
+**Reward model**:
+- `pieces_required: int` - Required for ALL rewards (IntegerField, default=1)
+- `piece_value: float | None` - Monetary value per piece (FloatField, nullable)
 - Removed: `is_cumulative` field (no longer needed)
 - Removed: `RewardType.CUMULATIVE` enum value
 
-**src/models/reward_progress.py**:
-- `claimed: bool = Field(default=False)` - Whether user has claimed this reward
-- `status: RewardStatus` - Computed by Airtable based on pieces_earned and claimed
+**RewardProgress model**:
+- `claimed: bool` - Whether user has claimed this reward (BooleanField, default=False)
+- `get_status()` method - Computes status based on pieces_earned and claimed
 - Status enum: `PENDING`, `ACHIEVED`, `CLAIMED` (renamed from COMPLETED)
 
 ### Service Layer Pattern
@@ -561,14 +1174,14 @@ reward_service.mark_reward_claimed(user_id, reward_id)
   - This ensures the counter doesn't go beyond the goal (e.g., won't show 2/1)
 - `mark_reward_claimed()` - Resets pieces_earned to 0 and sets claimed=True when user claims achieved reward
   - **Important**: Resets counter to 0 and sets `claimed=True`
-  - Status changes from "Achieved" (N/N) → "Claimed" (0/N) via Airtable formula
+  - Status changes from "Achieved" (N/N) → "Claimed" (0/N) via the `get_status()` method
   - User will see "0/N Claimed" until they earn the next piece
   - When they earn the next piece, `update_reward_progress()` automatically resets `claimed=False`
 
 **Removed methods** (as of Feature 0006):
 - `update_cumulative_progress()` - renamed to `update_reward_progress()`
 - `mark_reward_completed()` - renamed to `mark_reward_claimed()`
-- `set_reward_status()` - status is now fully computed by Airtable
+- `set_reward_status()` - status is now fully computed by `get_status()` method
 
 **Bug Fix (2025-10-22)**: Fixed issue where reward counter would continue incrementing after reaching the goal (e.g., showing "2/1" instead of "1/1"). The proper reward cycle is now:
 1. **Pending** (0/N) → User earns pieces → **Pending** (1/N, 2/N, etc.)
@@ -594,47 +1207,28 @@ if got_reward:
 
 ### Repository Pattern
 
-**src/airtable/repositories.py**:
+**src/core/repositories.py**:
 
 RewardRepository:
 - Removed `is_cumulative` field from create/update operations
-- `pieces_required` defaults to 1 if not present in Airtable
+- `pieces_required` defaults to 1 if not specified
 
 RewardProgressRepository:
-- Added `claimed` field handling in `_record_to_progress()`
-- Status enum parsing updated to support CLAIMED status
+- Uses Django ORM `select_related('user', 'reward')` for performance
+- Status computed via `get_status()` method (not stored in database)
+- Status enum: PENDING, ACHIEVED, CLAIMED
 
 ### Bot Handlers
 
 **src/bot/handlers/reward_handlers.py**:
 - Use `mark_reward_claimed()` instead of `mark_reward_completed()`
-- Status is read-only, computed by Airtable
+- Status is read-only, computed by `get_status()` method
 
 **src/bot/formatters.py**:
 - Always show progress for any reward (not just cumulative)
 - Check `pieces_required > 1` instead of `is_cumulative`
 - Removed `RewardType.CUMULATIVE` from emoji mapping
-
-### Airtable Schema Requirements
-
-**RewardProgress table**:
-- Add `claimed` field (Checkbox, default: unchecked)
-- Update `status` formula:
-  ```
-  IF(
-    {claimed},
-    "✅ Claimed",
-    IF(
-      {pieces_earned} >= {pieces_required},
-      "⏳ Achieved",
-      "🕒 Pending"
-    )
-  )
-  ```
-
-**Rewards table**:
-- Set `pieces_required = 1` for all existing instant rewards
-- Remove `is_cumulative` field (optional, after code deployment)
+- Uses `progress.get_status()` to display current status
 
 ### Migration from Old System
 
@@ -649,6 +1243,97 @@ RewardProgressRepository:
 - ALL rewards create RewardProgress entries
 - 3-state status: PENDING → ACHIEVED → CLAIMED
 - `mark_reward_claimed()` properly sets claimed=True
+
+### Daily Frequency Control (Feature 0014)
+
+**IMPORTANT**: As of Feature 0014, rewards support configurable daily frequency limits to prevent over-awarding. This replaces the old blanket "no reward twice in one day" rule with flexible per-reward configuration.
+
+**New Field**: `Reward.max_daily_claims`
+- Type: `IntegerField` (nullable)
+- `NULL` or `0` = unlimited (reward can be awarded multiple times per day)
+- `1` = once per day maximum (default behavior)
+- `2+` = that many pieces per day maximum
+
+**Key Behaviors**:
+1. **Piece-based counting**: Daily limit counts individual PIECES awarded, not completions
+   - A 5-piece reward with `max_daily_claims=1` can only earn 1 piece per day
+   - Takes 5 days minimum to complete
+2. **ALL pieces count toward daily limit**: Counts ALL pieces awarded today (both claimed and unclaimed)
+   - **CRITICAL BUG FIX (2025-11-05)**: Claimed pieces now count toward the daily limit
+   - This prevents users from bypassing `max_daily_claims` by claiming between completions
+   - Once daily limit is reached, reward is excluded for the rest of the day regardless of claim status
+3. **Lottery exclusion**: Rewards at their daily limit are automatically excluded from selection
+4. **Completion blocking**: Rewards that are already completed (pieces_earned >= pieces_required) are also excluded
+
+**Implementation Details**:
+
+**Service Layer** (`src/services/reward_service.py`):
+- `get_todays_pieces_by_reward(user_id, reward_id)`: Counts ALL pieces awarded today (claimed or unclaimed)
+  - **Fixed in Feature 0014**: Now counts ALL pieces from today's habit_logs, not just unclaimed ones
+  - Counts habit_logs where `got_reward=True` and `reward_id` matches
+  - This prevents the claim-reset bypass vulnerability
+- `select_reward()`: Enhanced with two filtering passes:
+  1. **Completion filter**: Exclude rewards where `pieces_earned >= pieces_required`
+  2. **Daily limit filter**: For each reward with `max_daily_claims > 0`:
+     - Count today's pieces (all) using `get_todays_pieces_by_reward()`
+     - Exclude if count >= max_daily_claims
+- `mark_reward_claimed()`: Now resets `pieces_earned=0` when claiming
+  - Sets both `claimed=True` and `pieces_earned=0`
+  - This allows the reward to start fresh after claiming
+
+**Simplified Exclusion Logic** (`src/services/habit_service.py`):
+```python
+# Old way (pre-Feature 0014):
+todays_awarded_rewards = await self.reward_service.get_todays_awarded_rewards(user.id)
+selected_reward = await self.reward_service.select_reward(
+    total_weight=total_weight,
+    user_id=user.id,
+    exclude_reward_ids=todays_awarded_rewards  # Manual exclusion
+)
+
+# New way (post-Feature 0014):
+selected_reward = await self.reward_service.select_reward(
+    total_weight=total_weight,
+    user_id=user.id,
+    exclude_reward_ids=[]  # No manual exclusion - handled internally
+)
+```
+
+**Admin Interface** (`src/core/admin.py`):
+- `max_daily_claims` field added to Reward admin list_display
+- New fieldset "Daily Frequency Control" with help text
+- Description: "Leave empty or set to 0 for unlimited daily claims"
+
+**Migration**: `src/core/migrations/0002_add_reward_daily_limits.py`
+- Adds `max_daily_claims` field (nullable)
+- Existing rewards default to NULL (unlimited) to maintain backward compatibility
+
+**Example Scenarios**:
+1. **Unlimited reward** (`max_daily_claims=NULL`): Can be earned multiple times per day with no restrictions
+2. **Once-per-day reward** (`max_daily_claims=1`, `pieces_required=1`): Classic "once daily" reward
+3. **Multi-piece limited** (`max_daily_claims=1`, `pieces_required=5`): Earn 1 piece/day, takes 5 days to complete
+4. **Unlimited multi-piece** (`max_daily_claims=NULL`, `pieces_required=10`): Can earn all 10 pieces in one day if lucky
+
+**Important Notes**:
+- **CRITICAL**: The daily counter counts ALL pieces (claimed and unclaimed) to prevent bypass
+- Once a reward reaches its daily limit, it CANNOT be earned again that day (even after claiming)
+- This prevents users from exploiting `max_daily_claims=1` by claiming between completions
+- Completed but unclaimed rewards are excluded from lottery (ACHIEVED status)
+- Status computation via `get_status()` is unaffected by daily limits
+
+**Bug Fix History**:
+- **2025-11-05**: Fixed blocking bug where `get_todays_pieces_by_reward()` returned 0 for CLAIMED rewards
+  - Previous behavior: Claiming freed up the daily slot, allowing bypass of `max_daily_claims`
+  - New behavior: ALL pieces awarded today count, regardless of claim status
+  - Impact: Properly enforces daily limits as specified in Feature 0014 plan
+
+**Files Modified**:
+- `src/core/models.py` - Added `max_daily_claims` field to Reward model
+- `src/models/reward.py` - Added `max_daily_claims` to Pydantic Reward model
+- `src/services/reward_service.py` - Added `get_todays_pieces_by_reward()`, modified `select_reward()` and `mark_reward_claimed()`
+- `src/services/habit_service.py` - Simplified to remove manual exclusion list
+- `src/core/admin.py` - Added `max_daily_claims` to RewardAdmin interface
+- `src/core/migrations/0002_add_reward_daily_limits.py` - Database migration
 
 ### Common Patterns
 
@@ -675,20 +1360,21 @@ reward = Reward(
 
 **Checking if reward is claimable**:
 ```python
-# Check progress status (computed by Airtable)
-if progress.status == RewardStatus.ACHIEVED:
+# Check progress status (computed by get_status() method)
+if progress.get_status() == RewardStatus.ACHIEVED:
     # User can claim this reward
     pass
 ```
 
-### Files Modified in Feature 0005
+### Files Modified in Feature 0005 (Historical - Unified Reward System)
 
-- `src/models/reward.py` - Removed is_cumulative, made pieces_required required
-- `src/models/reward_progress.py` - Added claimed field, renamed status
-- `src/airtable/repositories.py` - Updated field handling
-- `src/services/reward_service.py` - Renamed methods, fixed claiming
+**Note**: These changes were later migrated from Airtable Pydantic models to Django ORM models (Feature 0009).
+
+- `src/core/models.py` - Reward and RewardProgress Django models with claimed field and get_status() method
+- `src/core/repositories.py` - Updated field handling for Django ORM
+- `src/services/reward_service.py` - Renamed methods (`mark_reward_claimed()`), fixed claiming logic
 - `src/services/habit_service.py` - Always update progress for all rewards
-- `src/bot/formatters.py` - Removed cumulative conditionals
+- `src/bot/formatters.py` - Removed cumulative conditionals, uses get_status()
 - `src/bot/handlers/reward_handlers.py` - Updated method names, deprecated set_status
 
 See `docs/features/0005_PLAN.md` for full implementation details.
@@ -697,7 +1383,7 @@ See `docs/features/0005_PLAN.md` for full implementation details.
 
 **Date**: 2025-10-20
 
-**Reason**: The `/set_reward_status` command became obsolete after Feature 0005 unified the reward system. Reward status is now fully computed by Airtable based on `pieces_earned`, `pieces_required`, and `claimed` fields. Manual status updates are no longer needed or supported.
+**Reason**: The `/set_reward_status` command became obsolete after Feature 0005 unified the reward system. Reward status is now fully computed by the `get_status()` method based on `pieces_earned`, `pieces_required`, and `claimed` fields. Manual status updates are no longer needed or supported.
 
 **Files Modified**:
 - `src/bot/main.py` - Removed command handler registration and import
@@ -894,202 +1580,3 @@ For steps where users type text (habit name input), keep the `/cancel` command a
 2. **Consistency** - Inline buttons match the rest of the conversation flow
 3. **Clear exit path** - Obvious way to abort operation at any step
 4. **Direct navigation** - Returns user directly to Habits menu (not just ending conversation)
-
-## Future Django Migration
-
-**CRITICAL**: When designing new features or refactoring existing code, always consider future migration to Django framework. Follow these principles to ensure smooth transition.
-
-### Architecture Principles
-
-**Keep business logic in the service layer** - Never put business logic directly in handlers/views:
-- ✅ **Good**: Handler calls service method, service contains logic
-- ❌ **Bad**: Handler contains business logic, calculations, or complex conditionals
-
-**Use repository pattern consistently** - This abstracts data access and makes migration easier:
-- Current: `src/airtable/repositories.py` → Future: Django ORM models/managers
-- Repositories should have clean interfaces that don't expose Airtable-specific details
-- All data access MUST go through repositories (never query Airtable directly)
-
-**Maintain clear separation of concerns**:
-```
-Handlers (Bot/API) → Services (Business Logic) → Repositories (Data Access) → Data Store
-```
-
-This layered architecture maps directly to Django:
-- Handlers → Django views/viewsets
-- Services → Django services/managers
-- Repositories → Django ORM models
-- Airtable → PostgreSQL/MySQL
-
-### Model Design Guidelines
-
-**Keep validation logic in model classes** - Pydantic validators will transfer to Django model validators:
-
-```python
-# Current (Pydantic)
-class User(BaseModel):
-    telegram_id: str = Field(...)
-
-    @field_validator('telegram_id')
-    def validate_telegram_id(cls, v):
-        # Validation logic
-        return v
-
-# Future (Django)
-class User(models.Model):
-    telegram_id = models.CharField(...)
-
-    def clean(self):
-        # Same validation logic
-        pass
-```
-
-**Use type hints consistently** - Helps with Django model field mapping:
-- `str` → `CharField` or `TextField`
-- `int` → `IntegerField`
-- `float` → `FloatField`
-- `bool` → `BooleanField`
-- `datetime` → `DateTimeField`
-
-**Document field constraints and relationships**:
-- Add docstrings explaining field purpose
-- Note any business rules or constraints
-- Document relationships between models (one-to-many, many-to-many)
-
-**Design with relational database in mind**:
-- Avoid Airtable-specific features (formulas, rollups) in business logic
-- Think in terms of foreign keys and joins
-- Consider normalization and data integrity
-
-### Service Layer Best Practices
-
-**Services should be framework-agnostic**:
-```python
-# ✅ Good - No framework coupling
-class HabitService:
-    def process_habit_completion(self, user_id: str, habit_id: str) -> HabitCompletionResult:
-        # Business logic using repositories
-        pass
-
-# ❌ Bad - Coupled to Telegram
-class HabitService:
-    async def process_habit_completion(self, update: Update) -> None:
-        # Direct handler coupling
-        pass
-```
-
-**Keep services reusable**:
-- Services should work from bot handlers, API endpoints, or admin commands
-- Don't assume specific request/response formats
-- Return data objects, not formatted messages
-
-**Avoid tight coupling to infrastructure**:
-- Don't import `pyairtable` in services
-- Don't use Airtable-specific query syntax in business logic
-- Keep external dependencies injected or abstracted
-
-### Configuration Management
-
-**Keep all configuration centralized** in `src/config.py`:
-- Uses `pydantic-settings` (similar to Django settings)
-- Environment variables work the same way in Django
-- Easy migration path to `settings.py`
-
-**Document all configuration options**:
-- Add type hints and descriptions
-- Use sensible defaults
-- Group related settings
-
-```python
-# Current (pydantic-settings)
-class Settings(BaseSettings):
-    database_url: str = "sqlite:///db.sqlite3"
-
-# Future (Django settings.py)
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME'),
-    }
-}
-```
-
-### Database & Repository Considerations
-
-**Repository pattern abstracts data source**:
-```python
-# Interface remains the same
-user = user_repository.get_by_telegram_id(telegram_id)
-
-# Implementation changes:
-# Current: Queries Airtable API
-# Future: Django ORM query (User.objects.get(telegram_id=telegram_id))
-```
-
-**Design data models with Django ORM in mind**:
-- Think about database indexes (frequently queried fields)
-- Consider cascade delete behavior
-- Plan for database migrations
-- Document any complex queries that will need optimization
-
-**Avoid Airtable-specific patterns**:
-- ✅ Use repository methods: `habit_repository.get_by_user(user_id)`
-- ❌ Don't use formula fields for business logic
-- ❌ Don't rely on Airtable views for filtering
-
-### Multi-lingual Support (i18n)
-
-When implementing message constants or multi-lingual features, use Django-compatible patterns:
-
-**Use patterns compatible with Django i18n**:
-```python
-# Good - Can migrate to Django's gettext
-from django.utils.translation import gettext as _
-
-ERROR_USER_NOT_FOUND = _("User not found. Please contact admin to register.")
-
-# Acceptable - Can migrate to django.conf.settings
-class Messages:
-    ERROR_USER_NOT_FOUND = "User not found. Please contact admin to register."
-```
-
-**Structure messages for easy migration**:
-- Centralize all user-facing strings in one module
-- Use message keys/constants (not inline strings)
-- Consider `.po` file format from the start
-- Keep message templates separate from logic
-
-**Plan for Django's i18n framework**:
-- Django uses GNU gettext (`.po` and `.mo` files)
-- Messages can be extracted automatically with `makemessages`
-- Supports pluralization, context, and locale-specific formatting
-
-### When Refactoring
-
-Before refactoring any component, ask:
-
-1. **Will this work with Django ORM?** (instead of Airtable)
-2. **Is business logic in services?** (not in handlers)
-3. **Can this be tested independently?** (no tight coupling)
-4. **Is configuration externalized?** (environment variables)
-5. **Are messages/strings centralized?** (easy to translate)
-
-### Migration Checklist for New Features
-
-When adding a new feature:
-- [ ] Business logic implemented in service layer
-- [ ] Data access goes through repository pattern
-- [ ] Models use standard Python types (no Airtable-specific types)
-- [ ] Configuration uses environment variables
-- [ ] User-facing strings are constants/messages (not inline)
-- [ ] Code is framework-agnostic where possible
-- [ ] Relationships between models are documented
-- [ ] Tests mock repositories (not Airtable directly)
-
-### Resources
-
-- Django project structure: [docs.djangoproject.com](https://docs.djangoproject.com)
-- Django ORM: Equivalent to our repository pattern
-- Django management commands: For running Telegram bot
-- Django REST Framework: For future API endpoints
-- Django i18n: For multi-lingual support

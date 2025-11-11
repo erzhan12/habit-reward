@@ -18,6 +18,7 @@ class Messages:
     ERROR_NO_HABITS = "No active habits found. Please add habits first."
     ERROR_NO_HABITS_LOGGED = "No habits logged yet. Use /habit_done to start building your streaks!"
     ERROR_HABIT_NOT_FOUND = "Habit not found. Please try again."
+    ERROR_NO_LOG_TO_REVERT = "No habit completion found to revert."
     ERROR_REWARD_NOT_FOUND = "Reward '{reward_name}' not found."
     ERROR_NO_MATCH_HABIT = "I couldn't match your text to any known habit. Please select from the list using /habit_done again."
 
@@ -31,19 +32,24 @@ class Messages:
     INFO_REWARD_ACTIONABLE = "⏳ <b>Reward achieved!</b> You can claim it now!"
     INFO_FEATURE_COMING_SOON = "🎁 <b>Add New Reward</b>\n\nThis feature will guide you through creating a new reward.\nFor now, please add rewards directly in Airtable.\n\nComing soon: conversational reward creation!"
     INFO_CANCELLED = "Habit logging cancelled."
+    INFO_CANCELLED_REVERT = "Revert cancelled."
     INFO_MULTIPLE_HABITS = "I also detected: {other_habits}. Use /habit_done to log those separately."
     INFO_NO_REWARDS_TO_CLAIM = "You have no rewards ready to claim yet. Keep logging habits to earn rewards!"
+    INFO_ALL_HABITS_COMPLETED = "🎉 All active habits are already completed for today. Check back tomorrow!"
 
     # Usage/Help Messages
     HELP_CLAIM_REWARD_USAGE = "Usage: /claim_reward <reward_name>\nExample: /claim_reward Coffee at favorite cafe"
     HELP_HABIT_SELECTION = "Which habit did you complete? 🎯\n\nSelect from the list below:"
     HELP_CUSTOM_TEXT = "Please type what habit you completed:"
+    HELP_REVERT_HABIT_SELECTION = "Which habit completion would you like to revert?"
     HELP_SELECT_REWARD_TO_CLAIM = "🎁 <b>Select a reward to claim:</b>"
 
     # Success Messages
     SUCCESS_HABIT_COMPLETED = "✅ <b>Habit completed:</b> {habit_name}"
     SUCCESS_REWARD_CLAIMED = "✅ Reward claimed: <b>{reward_name}</b>\nStatus: {status}\n\nCongratulations! 🎉"
     SUCCESS_STATUS_UPDATED = "✅ Reward status updated: <b>{reward_name}</b>\nNew status: {status}"
+    SUCCESS_HABIT_REVERTED = "✅ <b>Habit completion reverted:</b> {habit_name}"
+    SUCCESS_REWARD_REVERTED = "Reward progress rolled back: {reward_name} ({pieces_earned}/{pieces_required})"
     SUCCESS_REWARD_CLAIMED_HEADER = "✅ <b>Reward claimed:</b> {reward_name}"
 
     # Headers/Titles
@@ -70,6 +76,7 @@ class Messages:
     BUTTON_ADD_HABIT = "➕ Add Habit"
     BUTTON_EDIT_HABIT = "✏️ Edit Habit"
     BUTTON_REMOVE_HABIT = "🗑 Remove Habit"
+    BUTTON_REVERT_HABIT = "↩️ Revert Habit"
     BUTTON_ADD_REWARD = "➕ Add Reward"
     BUTTON_LIST_REWARDS = "📄 List Rewards"
     BUTTON_MY_REWARDS = "📊 My Rewards"
@@ -91,6 +98,7 @@ Track your habits and earn rewards!
 /list_rewards - See all available rewards
 /my_rewards - Check your reward progress
 /claim_reward - Claim an achieved reward
+/revert_habit - Revert the last completion of a habit
 /settings - Change language and preferences
 /help - Show this help message"""
 
@@ -109,6 +117,7 @@ Track your habits and earn rewards!
 /list_rewards - List all available rewards
 /my_rewards - View your cumulative reward progress
 /claim_reward - Mark an achieved reward as completed
+/revert_habit - Revert the last completion of a habit
 
 <b>Settings:</b>
 /settings - Change language and preferences
@@ -210,6 +219,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'ERROR_NO_HABITS': "Активные привычки не найдены. Сначала добавьте привычки.",
             'ERROR_NO_HABITS_LOGGED': "Привычки ещё не зарегистрированы. Используйте /habit_done для начала!",
             'ERROR_HABIT_NOT_FOUND': "Привычка не найдена. Попробуйте ещё раз.",
+            'ERROR_NO_LOG_TO_REVERT': "Не найдено завершение привычки для отмены.",
             'ERROR_REWARD_NOT_FOUND': "Награда '{reward_name}' не найдена.",
             'ERROR_NO_MATCH_HABIT': "Не удалось сопоставить ваш текст с известной привычкой. Выберите из списка, используя /habit_done.",
 
@@ -223,19 +233,24 @@ Your streak multiplier increases your chances of getting rewards!"""
             'INFO_REWARD_ACTIONABLE': "⏳ <b>Награда достигнута!</b> Вы можете забрать её сейчас!",
             'INFO_FEATURE_COMING_SOON': "🎁 <b>Добавить новую награду</b>\n\nЭта функция проведёт вас через создание новой награды.\nПока что добавляйте награды в Airtable.\n\nСкоро: создание наград через бота!",
             'INFO_CANCELLED': "Регистрация привычки отменена.",
+            'INFO_CANCELLED_REVERT': "Отмена операции отмены привычки.",
             'INFO_MULTIPLE_HABITS': "Также обнаружены: {other_habits}. Используйте /habit_done для их регистрации.",
             'INFO_NO_REWARDS_TO_CLAIM': "У вас пока нет наград для получения. Продолжайте регистрировать привычки, чтобы заработать награды!",
+            'INFO_ALL_HABITS_COMPLETED': "🎉 Все активные привычки уже выполнены сегодня. Возвращайтесь завтра!",
 
             # Usage/Help Messages
             'HELP_CLAIM_REWARD_USAGE': "Использование: /claim_reward <название_награды>\nПример: /claim_reward Кофе в любимом кафе",
             'HELP_HABIT_SELECTION': "Какую привычку вы выполнили? 🎯\n\nВыберите из списка ниже:",
             'HELP_CUSTOM_TEXT': "Напишите, какую привычку вы выполнили:",
+            'HELP_REVERT_HABIT_SELECTION': "Какое завершение привычки вы хотите отменить?",
             'HELP_SELECT_REWARD_TO_CLAIM': "🎁 <b>Выберите награду для получения:</b>",
 
             # Success Messages
             'SUCCESS_HABIT_COMPLETED': "✅ <b>Привычка выполнена:</b> {habit_name}",
             'SUCCESS_REWARD_CLAIMED': "✅ Награда получена: <b>{reward_name}</b>\nСтатус: {status}\n\nПоздравляем! 🎉",
             'SUCCESS_STATUS_UPDATED': "✅ Статус награды обновлён: <b>{reward_name}</b>\nНовый статус: {status}",
+            'SUCCESS_HABIT_REVERTED': "✅ <b>Отмена завершения привычки:</b> {habit_name}",
+            'SUCCESS_REWARD_REVERTED': "Прогресс по награде возвращён: {reward_name} ({pieces_earned}/{pieces_required})",
             'SUCCESS_REWARD_CLAIMED_HEADER': "✅ <b>Награда получена:</b> {reward_name}",
 
             # Headers/Titles
@@ -261,7 +276,8 @@ Your streak multiplier increases your chances of getting rewards!"""
             'BUTTON_HELP': "❓ Помощь",
             'BUTTON_ADD_HABIT': "➕ Добавить привычку",
             'BUTTON_EDIT_HABIT': "✏️ Изменить привычку",
-            'BUTTON_REMOVE_HABIT': "🗑 Удалить привычку",
+            'BUTTON_REMOVE_HABИТ': "🗑 Удалить привычку",
+            'BUTTON_REVERT_HABIT': "↩️ Отменить выполнение",
             'BUTTON_ADD_REWARD': "➕ Добавить награду",
             'BUTTON_LIST_REWARDS': "📄 Список наград",
             'BUTTON_MY_REWARDS': "📊 Мои награды",
@@ -283,6 +299,7 @@ Your streak multiplier increases your chances of getting rewards!"""
 /list_rewards - Посмотреть все доступные награды
 /my_rewards - Проверить прогресс по наградам
 /claim_reward - Забрать достигнутую награду
+/revert_habit - Отменить последнее выполнение привычки
 /settings - Изменить язык и настройки
 /help - Показать это сообщение помощи""",
 
@@ -301,6 +318,7 @@ Your streak multiplier increases your chances of getting rewards!"""
 /list_rewards - Показать все доступные награды
 /my_rewards - Посмотреть накопленный прогресс по наградам
 /claim_reward - Отметить достигнутую награду как завершённую
+/revert_habit - Отменить последнее выполнение привычки
 
 <b>Настройки:</b>
 /settings - Изменить язык и настройки
@@ -400,6 +418,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'ERROR_NO_HABITS': "Белсенді әдеттер табылмады. Алдымен әдеттер қосыңыз.",
             'ERROR_NO_HABITS_LOGGED': "Әдеттер әлі тіркелмеген. Бастау үшін /habit_done пайдаланыңыз!",
             'ERROR_HABIT_NOT_FOUND': "Әдет табылмады. Қайталап көріңіз.",
+            'ERROR_NO_LOG_TO_REVERT': "Қайтаруға арналған әдет орындау табылмады.",
             'ERROR_REWARD_NOT_FOUND': "'{reward_name}' сыйлығы табылмады.",
             'ERROR_NO_MATCH_HABIT': "Мәтініңізді белгілі әдетпен сәйкестендіру мүмкін болмады. /habit_done арқылы тізімнен таңдаңыз.",
 
@@ -413,19 +432,24 @@ Your streak multiplier increases your chances of getting rewards!"""
             'INFO_REWARD_ACTIONABLE': "⏳ <b>Сыйлық қол жеткізілді!</b> Оны қазір алуға болады!",
             'INFO_FEATURE_COMING_SOON': "🎁 <b>Жаңа сыйлық қосу</b>\n\nБұл функция жаңа сыйлық жасауға жетелейді.\nҚазірше Airtable арқылы сыйлықтар қосыңыз.\n\nЖақында: бот арқылы сыйлықтар жасау!",
             'INFO_CANCELLED': "Әдетті тіркеу болдырылмады.",
+            'INFO_CANCELLED_REVERT': "Қайтару тоқтатылды.",
             'INFO_MULTIPLE_HABITS': "Сондай-ақ табылды: {other_habits}. Оларды тіркеу үшін /habit_done пайдаланыңыз.",
             'INFO_NO_REWARDS_TO_CLAIM': "Әлі алуға дайын сыйлықтарыңыз жоқ. Сыйлықтар табу үшін әдеттерді тіркеуді жалғастырыңыз!",
+            'INFO_ALL_HABITS_COMPLETED': "🎉 Бүгін барлық белсенді әдеттер орындалды. Ертең қайта келіңіз!",
 
             # Usage/Help Messages
             'HELP_CLAIM_REWARD_USAGE': "Пайдалану: /claim_reward <сыйлық_аты>\nМысал: /claim_reward Сүйікті кафеде кофе",
             'HELP_HABIT_SELECTION': "Қандай әдетті орындадыңыз? 🎯\n\nТөмендегі тізімнен таңдаңыз:",
             'HELP_CUSTOM_TEXT': "Қандай әдетті орындағаныңызды жазыңыз:",
+            'HELP_REVERT_HABIT_SELECTION': "Қай әдет орындалуын қайтарғыңыз келеді?",
             'HELP_SELECT_REWARD_TO_CLAIM': "🎁 <b>Алатын сыйлықты таңдаңыз:</b>",
 
             # Success Messages
             'SUCCESS_HABIT_COMPLETED': "✅ <b>Әдет орындалды:</b> {habit_name}",
             'SUCCESS_REWARD_CLAIMED': "✅ Сыйлық алынды: <b>{reward_name}</b>\nСтатус: {status}\n\nКұттықтаймыз! 🎉",
             'SUCCESS_STATUS_UPDATED': "✅ Сыйлық статусы жаңартылды: <b>{reward_name}</b>\nЖаңа статус: {status}",
+            'SUCCESS_HABIT_REVERTED': "✅ <b>Әдет орындалуы қайтарылды:</b> {habit_name}",
+            'SUCCESS_REWARD_REVERTED': "Сыйлық прогресі де қайтарылды: {reward_name} ({pieces_earned}/{pieces_required})",
             'SUCCESS_REWARD_CLAIMED_HEADER': "✅ <b>Сыйлық алынды:</b> {reward_name}",
 
             # Headers/Titles
@@ -452,6 +476,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'BUTTON_ADD_HABIT': "➕ Әдет қосу",
             'BUTTON_EDIT_HABIT': "✏️ Әдетті өңдеу",
             'BUTTON_REMOVE_HABIT': "🗑 Әдетті жою",
+            'BUTTON_REVERT_HABIT': "↩️ Әдетті қайтару",
             'BUTTON_ADD_REWARD': "➕ Марапат қосу",
             'BUTTON_LIST_REWARDS': "📄 Марапаттар тізімі",
             'BUTTON_MY_REWARDS': "📊 Менің марапаттарым",
@@ -473,6 +498,7 @@ Your streak multiplier increases your chances of getting rewards!"""
 /list_rewards - Барлық қолжетімді сыйлықтарды көру
 /my_rewards - Сыйлықтар бойынша прогресті тексеру
 /claim_reward - Қол жеткізілген сыйлықты алу
+/revert_habit - Соңғы әдет орындалуын қайтару
 /settings - Тілді және параметрлерді өзгерту
 /help - Осы анықтаманы көрсету""",
 
@@ -491,6 +517,7 @@ Your streak multiplier increases your chances of getting rewards!"""
 /list_rewards - Барлық қолжетімді сыйлықтарды көрсету
 /my_rewards - Жинақталған сыйлық прогресін көру
 /claim_reward - Қол жеткізілген сыйлықты аяқталған деп белгілеу
+/revert_habit - Соңғы әдет орындалуын қайтару
 
 <b>Параметрлер:</b>
 /settings - Тілді және параметрлерді өзгерту

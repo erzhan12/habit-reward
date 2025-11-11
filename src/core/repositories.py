@@ -270,6 +270,26 @@ class RewardProgressRepository:
         )
         return achieved_list
 
+    async def decrement_pieces_earned(self, user_id: int | str, reward_id: int | str) -> RewardProgress | None:
+        """Decrement pieces_earned by one and reset claimed when necessary."""
+        progress = await self.get_by_user_and_reward(user_id, reward_id)
+        if not progress:
+            return None
+
+        new_pieces = max(0, progress.pieces_earned - 1)
+        updates: dict[str, Any] = {}
+
+        if new_pieces != progress.pieces_earned:
+            updates["pieces_earned"] = new_pieces
+
+        if progress.claimed or new_pieces < progress.pieces_earned:
+            updates["claimed"] = False
+
+        if not updates:
+            return progress
+
+        return await self.update(progress.id, updates)
+
     async def create(self, progress: RewardProgress | dict) -> RewardProgress:
         """Create new progress entry.
 
@@ -367,6 +387,16 @@ class HabitLogRepository:
             ).select_related('habit', 'user', 'reward').latest)('timestamp')
         except (HabitLog.DoesNotExist, ValueError):
             return None
+
+    async def delete(self, log_id: int | str) -> int:
+        """Delete habit log entry by ID."""
+        try:
+            pk = int(log_id) if isinstance(log_id, str) else log_id
+        except (TypeError, ValueError):
+            return 0
+
+        deleted, _ = await sync_to_async(HabitLog.objects.filter(pk=pk).delete)()
+        return deleted
 
     async def get_logs_by_user(self, user_id: int | str, limit: int = 50) -> list[HabitLog]:
         """Get recent logs for a user.

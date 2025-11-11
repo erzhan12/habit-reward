@@ -8,8 +8,9 @@ from src.services.streak_service import streak_service
 from src.core.repositories import user_repository, habit_repository
 from src.bot.formatters import format_streaks_message
 from src.bot.messages import msg
-from src.bot.language import get_message_language_async
+from src.bot.language import get_message_language_async, detect_language_from_telegram
 from src.bot.keyboards import build_back_to_menu_keyboard
+from src.utils.async_compat import maybe_await
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -25,11 +26,11 @@ async def streaks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await update.message.reply_text(
-            msg('ERROR_USER_NOT_FOUND', lang)
+            msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update))
         )
         logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
         return
@@ -38,13 +39,15 @@ async def streaks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user.is_active:
         logger.warning(f"⚠️ User {telegram_id} is inactive")
         await update.message.reply_text(
-            msg('ERROR_USER_INACTIVE', lang)
+            msg('ERROR_USER_INACTIVE', detect_language_from_telegram(update))
         )
         logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return
 
     # Get all streaks
-    streaks_dict = await streak_service.get_all_streaks_for_user(user.id)
+    streaks_dict = await maybe_await(
+        streak_service.get_all_streaks_for_user(user.id)
+    )
     logger.info(f"🔍 Found {len(streaks_dict)} habit streaks for user {telegram_id}")
 
     if not streaks_dict:
@@ -59,7 +62,7 @@ async def streaks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Get habit names
     habits_with_names = {}
     for habit_id, streak_count in streaks_dict.items():
-        habit = await habit_repository.get_by_id(habit_id)
+        habit = await maybe_await(habit_repository.get_by_id(habit_id))
         if habit:
             habits_with_names[habit_id] = (habit.name, streak_count)
             logger.info(f"🔥 User {telegram_id} - Habit '{habit.name}': {streak_count} day streak")

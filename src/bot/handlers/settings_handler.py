@@ -14,6 +14,7 @@ from src.bot.keyboards import build_settings_keyboard, build_language_selection_
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async, set_user_language
 from src.bot.navigation import update_navigation_language
+from src.utils.async_compat import maybe_await
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     lang = await get_message_language_async(telegram_id, update)
 
     # Validate user exists
-    user = await user_repository.get_by_telegram_id(telegram_id)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await update.message.reply_text(

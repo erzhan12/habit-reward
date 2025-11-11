@@ -124,20 +124,42 @@ else
     echo "TELEGRAM_WEBHOOK_URL=$WEBHOOK_URL" >> "$PROJECT_ROOT/.env"
 fi
 
-# Update ALLOWED_HOSTS if needed
-if ! grep -q "$NGROK_DOMAIN" "$PROJECT_ROOT/.env"; then
-    print_msg $BLUE "Adding ngrok domain to ALLOWED_HOSTS..."
-    if grep -q "^ALLOWED_HOSTS=" "$PROJECT_ROOT/.env"; then
-        # Append to existing ALLOWED_HOSTS
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s|^ALLOWED_HOSTS=\(.*\)|ALLOWED_HOSTS=\1,$NGROK_DOMAIN|" "$PROJECT_ROOT/.env"
-        else
-            sed -i "s|^ALLOWED_HOSTS=\(.*\)|ALLOWED_HOSTS=\1,$NGROK_DOMAIN|" "$PROJECT_ROOT/.env"
+# Update ALLOWED_HOSTS - ensure ngrok domain is present and remove old ones
+print_msg $BLUE "Updating ALLOWED_HOSTS with ngrok domain..."
+
+if grep -q "^ALLOWED_HOSTS=" "$PROJECT_ROOT/.env"; then
+    # Get current ALLOWED_HOSTS value
+    CURRENT_HOSTS=$(grep "^ALLOWED_HOSTS=" "$PROJECT_ROOT/.env" | sed 's/ALLOWED_HOSTS=//')
+    
+    # Check if this specific ngrok domain is already in ALLOWED_HOSTS
+    if ! echo "$CURRENT_HOSTS" | grep -qw "$NGROK_DOMAIN"; then
+        # Remove old ngrok domains (any domain containing .ngrok) and add new one
+        CLEAN_HOSTS=$(echo "$CURRENT_HOSTS" | sed -E 's/[^,]*\.ngrok[^,]*//g' | sed 's/,,*/,/g' | sed 's/^,//' | sed 's/,$//')
+        
+        # Ensure localhost and 127.0.0.1 are present
+        if ! echo "$CLEAN_HOSTS" | grep -qw "localhost"; then
+            CLEAN_HOSTS="localhost,$CLEAN_HOSTS"
         fi
+        if ! echo "$CLEAN_HOSTS" | grep -qw "127.0.0.1"; then
+            CLEAN_HOSTS="127.0.0.1,$CLEAN_HOSTS"
+        fi
+        
+        # Add new ngrok domain
+        NEW_HOSTS="$CLEAN_HOSTS,$NGROK_DOMAIN"
+        
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' "s|^ALLOWED_HOSTS=.*|ALLOWED_HOSTS=$NEW_HOSTS|" "$PROJECT_ROOT/.env"
+        else
+            sed -i "s|^ALLOWED_HOSTS=.*|ALLOWED_HOSTS=$NEW_HOSTS|" "$PROJECT_ROOT/.env"
+        fi
+        print_msg $GREEN "✅ ALLOWED_HOSTS updated: $NEW_HOSTS"
     else
-        # Add new ALLOWED_HOSTS line
-        echo "ALLOWED_HOSTS=localhost,127.0.0.1,$NGROK_DOMAIN" >> "$PROJECT_ROOT/.env"
+        print_msg $GREEN "✅ Domain already in ALLOWED_HOSTS"
     fi
+else
+    # Add new ALLOWED_HOSTS line
+    echo "ALLOWED_HOSTS=localhost,127.0.0.1,$NGROK_DOMAIN" >> "$PROJECT_ROOT/.env"
+    print_msg $GREEN "✅ ALLOWED_HOSTS created: localhost,127.0.0.1,$NGROK_DOMAIN"
 fi
 
 print_msg $GREEN "✅ .env file updated"
