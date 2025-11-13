@@ -146,8 +146,12 @@ jobs:
 
       - name: Create .env file on server (if not exists)
         run: |
-          # Create .env content using Python to safely handle special characters
-          ENV_CONTENT=$(python3 << 'PYEOF'
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            cd ${{ secrets.DEPLOY_PATH }}
+            if [ ! -f .env ]; then
+              # Use Python to write .env file safely, avoiding shell interpretation of special characters
+              python3 << 'PYSCRIPT'
+import sys
 vars = [
     ('# Database', ''),
     ('POSTGRES_DB', '${{ secrets.POSTGRES_DB }}'),
@@ -183,25 +187,15 @@ vars = [
     ('# Deployment', ''),
     ('DEPLOY_PATH', '${{ secrets.DEPLOY_PATH }}'),
 ]
-result = []
-for k, v in vars:
-    if k.startswith('#'):
-        result.append(k)
-    elif k == '':
-        result.append('')
-    else:
-        result.append(f'{k}={v}')
-print('\n'.join(result))
-PYEOF
-          )
-          
-          # Write .env file to server if it doesn't exist
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << EOF
-            cd ${{ secrets.DEPLOY_PATH }}
-            if [ ! -f .env ]; then
-              cat > .env << 'ENVEOF'
-$ENV_CONTENT
-ENVEOF
+with open('.env', 'w') as f:
+    for k, v in vars:
+        if k.startswith('#'):
+            f.write(f'{k}\n')
+        elif k == '':
+            f.write('\n')
+        else:
+            f.write(f'{k}={v}\n')
+PYSCRIPT
               echo "Created .env file"
             else
               echo ".env file already exists, skipping creation"
