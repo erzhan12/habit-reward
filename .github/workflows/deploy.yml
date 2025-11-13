@@ -146,49 +146,36 @@ jobs:
 
       - name: Create .env file on server (if not exists)
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} bash -s << 'EOF'
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} bash -s << 'OUTER_EOF'
             cd ${{ secrets.DEPLOY_PATH }}
             if [ ! -f .env ]; then
-              cat > .env << ENVFILE
-# Database
-POSTGRES_DB=${{ secrets.POSTGRES_DB }}
-POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@db:5432/${{ secrets.POSTGRES_DB }}
-
-# Django
-SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
-DEBUG=False
-ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
-CSRF_TRUSTED_ORIGINS=${{ secrets.CSRF_TRUSTED_ORIGINS }}
-
-# Telegram
-TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
-TELEGRAM_WEBHOOK_URL=${{ secrets.TELEGRAM_WEBHOOK_URL }}
-
-# Superuser
-DJANGO_SUPERUSER_USERNAME=${{ secrets.DJANGO_SUPERUSER_USERNAME }}
-DJANGO_SUPERUSER_EMAIL=${{ secrets.DJANGO_SUPERUSER_EMAIL }}
-DJANGO_SUPERUSER_PASSWORD=${{ secrets.DJANGO_SUPERUSER_PASSWORD }}
-
-# Optional: LLM
-LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
-LLM_MODEL=${{ secrets.LLM_MODEL }}
-LLM_API_KEY=${{ secrets.LLM_API_KEY }}
-
-# Docker
-DOCKER_REGISTRY=${{ env.REGISTRY }}
-DOCKER_IMAGE_NAME=${{ env.IMAGE_NAME }}
-IMAGE_TAG=latest
-
-# Deployment
-DEPLOY_PATH=${{ secrets.DEPLOY_PATH }}
-ENVFILE
+              cat > .env << 'INNER_EOF'
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@db:5432/${{ secrets.POSTGRES_DB }}
+          SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+          DEBUG=False
+          ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
+          CSRF_TRUSTED_ORIGINS=${{ secrets.CSRF_TRUSTED_ORIGINS }}
+          TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_URL=${{ secrets.TELEGRAM_WEBHOOK_URL }}
+          DJANGO_SUPERUSER_USERNAME=${{ secrets.DJANGO_SUPERUSER_USERNAME }}
+          DJANGO_SUPERUSER_EMAIL=${{ secrets.DJANGO_SUPERUSER_EMAIL }}
+          DJANGO_SUPERUSER_PASSWORD=${{ secrets.DJANGO_SUPERUSER_PASSWORD }}
+          LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
+          LLM_MODEL=${{ secrets.LLM_MODEL }}
+          LLM_API_KEY=${{ secrets.LLM_API_KEY }}
+          DOCKER_REGISTRY=${{ env.REGISTRY }}
+          DOCKER_IMAGE_NAME=${{ env.IMAGE_NAME }}
+          IMAGE_TAG=latest
+          DEPLOY_PATH=${{ secrets.DEPLOY_PATH }}
+          INNER_EOF
               echo "Created .env file"
             else
               echo ".env file already exists, skipping creation"
             fi
-EOF
+          OUTER_EOF
 
       - name: Deploy to server
         run: |
