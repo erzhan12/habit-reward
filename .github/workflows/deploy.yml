@@ -192,25 +192,71 @@ jobs:
             fi
           EOF
 
+      - name: Check for port conflicts and stop conflicting services
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            echo "Checking for services using ports 80 and 443..."
+
+            # Check what's using port 80
+            PORT_80=$(sudo lsof -i :80 -t 2>/dev/null || true)
+            if [ -n "$PORT_80" ]; then
+              echo "Port 80 is in use. Details:"
+              sudo lsof -i :80 || true
+
+              # Check if it's nginx
+              if sudo systemctl is-active --quiet nginx 2>/dev/null; then
+                echo "Stopping system nginx service..."
+                sudo systemctl stop nginx
+                sudo systemctl disable nginx
+              fi
+
+              # Check if it's apache
+              if sudo systemctl is-active --quiet apache2 2>/dev/null; then
+                echo "Stopping apache2 service..."
+                sudo systemctl stop apache2
+                sudo systemctl disable apache2
+              fi
+
+              # Check if it's a docker container
+              NGINX_CONTAINERS=$(docker ps -q -f "name=nginx" 2>/dev/null || true)
+              if [ -n "$NGINX_CONTAINERS" ]; then
+                echo "Stopping existing nginx containers..."
+                docker stop $NGINX_CONTAINERS || true
+                docker rm $NGINX_CONTAINERS || true
+              fi
+            else
+              echo "✓ Port 80 is available"
+            fi
+
+            # Check what's using port 443
+            PORT_443=$(sudo lsof -i :443 -t 2>/dev/null || true)
+            if [ -n "$PORT_443" ]; then
+              echo "Port 443 is in use. Details:"
+              sudo lsof -i :443 || true
+            else
+              echo "✓ Port 443 is available"
+            fi
+          EOF
+
       - name: Deploy to server
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
             cd ${{ secrets.DEPLOY_PATH }}
-            
+
             # Verify scripts directory exists
             if [ ! -d "scripts" ]; then
               echo "ERROR: scripts directory not found!"
               ls -la
               exit 1
             fi
-            
+
             # Verify deploy.sh exists
             if [ ! -f "scripts/deploy.sh" ]; then
               echo "ERROR: scripts/deploy.sh not found!"
               ls -la scripts/
               exit 1
             fi
-            
+
             export GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
             export GITHUB_USER=${{ github.actor }}
             chmod +x scripts/deploy.sh
