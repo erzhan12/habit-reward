@@ -146,10 +146,10 @@ jobs:
 
       - name: Create .env file on server (if not exists)
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} bash -s << 'OUTER_EOF'
-            cd ${{ secrets.DEPLOY_PATH }}
-            if [ ! -f .env ]; then
-              cat > .env << 'INNER_EOF'
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} bash << EOF
+          cd "${{ secrets.DEPLOY_PATH }}"
+          if [ ! -f .env ]; then
+            cat > .env << 'ENVFILE'
           POSTGRES_DB=${{ secrets.POSTGRES_DB }}
           POSTGRES_USER=${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
@@ -170,12 +170,12 @@ jobs:
           DOCKER_IMAGE_NAME=${{ env.IMAGE_NAME }}
           IMAGE_TAG=latest
           DEPLOY_PATH=${{ secrets.DEPLOY_PATH }}
-          INNER_EOF
-              echo "Created .env file"
-            else
-              echo ".env file already exists, skipping creation"
-            fi
-          OUTER_EOF
+          ENVFILE
+            echo "Created .env file"
+          else
+            echo ".env file already exists, skipping creation"
+          fi
+          EOF
 
       - name: Deploy to server
         run: |
