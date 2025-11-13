@@ -124,48 +124,84 @@ jobs:
 
       - name: Copy deployment files to server
         run: |
-          # Use tar to copy entire deployment/* ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.DEPLOY_PATH }}/
+          # Use tar to copy entire deployment directory structure reliably
+          tar czf - -C deployment . | ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p ${{ secrets.DEPLOY_PATH }} && cd ${{ secrets.DEPLOY_PATH }} && tar xzf -"
+          
+          # Verify files were copied
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            cd ${{ secrets.DEPLOY_PATH }}
+            echo "Verifying deployment files..."
+            echo "Contents of deployment directory:"
+            ls -la
+            echo ""
+            echo "Contents of scripts directory:"
+            ls -la scripts/ || echo "ERROR: scripts directory not found!"
+            echo ""
+            echo "Contents of docker directory:"
+            ls -la docker/ || echo "ERROR: docker directory not found!"
+            echo ""
+            echo "Contents of nginx directory:"
+            ls -la nginx/ || echo "ERROR: nginx directory not found!"
+          EOF
 
       - name: Create .env file on server (if not exists)
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+          # Create .env content using Python to safely handle special characters
+          ENV_CONTENT=$(python3 << 'PYEOF'
+vars = [
+    ('# Database', ''),
+    ('POSTGRES_DB', '${{ secrets.POSTGRES_DB }}'),
+    ('POSTGRES_USER', '${{ secrets.POSTGRES_USER }}'),
+    ('POSTGRES_PASSWORD', '${{ secrets.POSTGRES_PASSWORD }}'),
+    ('DATABASE_URL', 'postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@db:5432/${{ secrets.POSTGRES_DB }}'),
+    ('', ''),
+    ('# Django', ''),
+    ('SECRET_KEY', '${{ secrets.DJANGO_SECRET_KEY }}'),
+    ('DEBUG', 'False'),
+    ('ALLOWED_HOSTS', '${{ secrets.ALLOWED_HOSTS }}'),
+    ('CSRF_TRUSTED_ORIGINS', '${{ secrets.CSRF_TRUSTED_ORIGINS }}'),
+    ('', ''),
+    ('# Telegram', ''),
+    ('TELEGRAM_BOT_TOKEN', '${{ secrets.TELEGRAM_BOT_TOKEN }}'),
+    ('TELEGRAM_WEBHOOK_URL', '${{ secrets.TELEGRAM_WEBHOOK_URL }}'),
+    ('', ''),
+    ('# Superuser', ''),
+    ('DJANGO_SUPERUSER_USERNAME', '${{ secrets.DJANGO_SUPERUSER_USERNAME }}'),
+    ('DJANGO_SUPERUSER_EMAIL', '${{ secrets.DJANGO_SUPERUSER_EMAIL }}'),
+    ('DJANGO_SUPERUSER_PASSWORD', '${{ secrets.DJANGO_SUPERUSER_PASSWORD }}'),
+    ('', ''),
+    ('# Optional: LLM', ''),
+    ('LLM_PROVIDER', '${{ secrets.LLM_PROVIDER }}'),
+    ('LLM_MODEL', '${{ secrets.LLM_MODEL }}'),
+    ('LLM_API_KEY', '${{ secrets.LLM_API_KEY }}'),
+    ('', ''),
+    ('# Docker', ''),
+    ('DOCKER_REGISTRY', '${{ env.REGISTRY }}'),
+    ('DOCKER_IMAGE_NAME', '${{ env.IMAGE_NAME }}'),
+    ('IMAGE_TAG', 'latest'),
+    ('', ''),
+    ('# Deployment', ''),
+    ('DEPLOY_PATH', '${{ secrets.DEPLOY_PATH }}'),
+]
+result = []
+for k, v in vars:
+    if k.startswith('#'):
+        result.append(k)
+    elif k == '':
+        result.append('')
+    else:
+        result.append(f'{k}={v}')
+print('\n'.join(result))
+PYEOF
+          )
+          
+          # Write .env file to server if it doesn't exist
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << EOF
             cd ${{ secrets.DEPLOY_PATH }}
             if [ ! -f .env ]; then
-              cat <<'ENVFILE' | sed -e 's/^[[:space:]]*//' > .env
-          # Database
-          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
-          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-          DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@db:5432/${{ secrets.POSTGRES_DB }}
-
-          # Django
-          SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
-          DEBUG=False
-          ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
-          CSRF_TRUSTED_ORIGINS=${{ secrets.CSRF_TRUSTED_ORIGINS }}
-
-          # Telegram
-          TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_WEBHOOK_URL=${{ secrets.TELEGRAM_WEBHOOK_URL }}
-
-          # Superuser
-          DJANGO_SUPERUSER_USERNAME=${{ secrets.DJANGO_SUPERUSER_USERNAME }}
-          DJANGO_SUPERUSER_EMAIL=${{ secrets.DJANGO_SUPERUSER_EMAIL }}
-          DJANGO_SUPERUSER_PASSWORD=${{ secrets.DJANGO_SUPERUSER_PASSWORD }}
-
-          # Optional: LLM
-          LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
-          LLM_MODEL=${{ secrets.LLM_MODEL }}
-          LLM_API_KEY=${{ secrets.LLM_API_KEY }}
-
-          # Docker
-          DOCKER_REGISTRY=${{ env.REGISTRY }}
-          DOCKER_IMAGE_NAME=${{ env.IMAGE_NAME }}
-          IMAGE_TAG=latest
-
-          # Deployment
-          DEPLOY_PATH=${{ secrets.DEPLOY_PATH }}
-          ENVFILE
+              cat > .env << 'ENVEOF'
+$ENV_CONTENT
+ENVEOF
               echo "Created .env file"
             else
               echo ".env file already exists, skipping creation"
@@ -176,6 +212,21 @@ jobs:
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
             cd ${{ secrets.DEPLOY_PATH }}
+            
+            # Verify scripts directory exists
+            if [ ! -d "scripts" ]; then
+              echo "ERROR: scripts directory not found!"
+              ls -la
+              exit 1
+            fi
+            
+            # Verify deploy.sh exists
+            if [ ! -f "scripts/deploy.sh" ]; then
+              echo "ERROR: scripts/deploy.sh not found!"
+              ls -la scripts/
+              exit 1
+            fi
+            
             export GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
             export GITHUB_USER=${{ github.actor }}
             chmod +x scripts/deploy.sh
