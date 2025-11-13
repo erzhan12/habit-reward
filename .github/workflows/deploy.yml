@@ -149,53 +149,43 @@ jobs:
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
             cd ${{ secrets.DEPLOY_PATH }}
             if [ ! -f .env ]; then
-              # Use Python to write .env file safely, avoiding shell interpretation of special characters
-              python3 << 'PYSCRIPT'
-import sys
-vars = [
-    ('# Database', ''),
-    ('POSTGRES_DB', '${{ secrets.POSTGRES_DB }}'),
-    ('POSTGRES_USER', '${{ secrets.POSTGRES_USER }}'),
-    ('POSTGRES_PASSWORD', '${{ secrets.POSTGRES_PASSWORD }}'),
-    ('DATABASE_URL', 'postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@db:5432/${{ secrets.POSTGRES_DB }}'),
-    ('', ''),
-    ('# Django', ''),
-    ('SECRET_KEY', '${{ secrets.DJANGO_SECRET_KEY }}'),
-    ('DEBUG', 'False'),
-    ('ALLOWED_HOSTS', '${{ secrets.ALLOWED_HOSTS }}'),
-    ('CSRF_TRUSTED_ORIGINS', '${{ secrets.CSRF_TRUSTED_ORIGINS }}'),
-    ('', ''),
-    ('# Telegram', ''),
-    ('TELEGRAM_BOT_TOKEN', '${{ secrets.TELEGRAM_BOT_TOKEN }}'),
-    ('TELEGRAM_WEBHOOK_URL', '${{ secrets.TELEGRAM_WEBHOOK_URL }}'),
-    ('', ''),
-    ('# Superuser', ''),
-    ('DJANGO_SUPERUSER_USERNAME', '${{ secrets.DJANGO_SUPERUSER_USERNAME }}'),
-    ('DJANGO_SUPERUSER_EMAIL', '${{ secrets.DJANGO_SUPERUSER_EMAIL }}'),
-    ('DJANGO_SUPERUSER_PASSWORD', '${{ secrets.DJANGO_SUPERUSER_PASSWORD }}'),
-    ('', ''),
-    ('# Optional: LLM', ''),
-    ('LLM_PROVIDER', '${{ secrets.LLM_PROVIDER }}'),
-    ('LLM_MODEL', '${{ secrets.LLM_MODEL }}'),
-    ('LLM_API_KEY', '${{ secrets.LLM_API_KEY }}'),
-    ('', ''),
-    ('# Docker', ''),
-    ('DOCKER_REGISTRY', '${{ env.REGISTRY }}'),
-    ('DOCKER_IMAGE_NAME', '${{ env.IMAGE_NAME }}'),
-    ('IMAGE_TAG', 'latest'),
-    ('', ''),
-    ('# Deployment', ''),
-    ('DEPLOY_PATH', '${{ secrets.DEPLOY_PATH }}'),
-]
-with open('.env', 'w') as f:
-    for k, v in vars:
-        if k.startswith('#'):
-            f.write(f'{k}\n')
-        elif k == '':
-            f.write('\n')
-        else:
-            f.write(f'{k}={v}\n')
-PYSCRIPT
+              # Write .env file using printf to safely handle special characters
+              # printf %s treats values as literal strings, preventing shell interpretation
+              {
+                printf '# Database\n'
+                printf 'POSTGRES_DB=%s\n' '${{ secrets.POSTGRES_DB }}'
+                printf 'POSTGRES_USER=%s\n' '${{ secrets.POSTGRES_USER }}'
+                printf 'POSTGRES_PASSWORD=%s\n' '${{ secrets.POSTGRES_PASSWORD }}'
+                printf 'DATABASE_URL=postgresql://%s:%s@db:5432/%s\n' '${{ secrets.POSTGRES_USER }}' '${{ secrets.POSTGRES_PASSWORD }}' '${{ secrets.POSTGRES_DB }}'
+                printf '\n'
+                printf '# Django\n'
+                printf 'SECRET_KEY=%s\n' '${{ secrets.DJANGO_SECRET_KEY }}'
+                printf 'DEBUG=False\n'
+                printf 'ALLOWED_HOSTS=%s\n' '${{ secrets.ALLOWED_HOSTS }}'
+                printf 'CSRF_TRUSTED_ORIGINS=%s\n' '${{ secrets.CSRF_TRUSTED_ORIGINS }}'
+                printf '\n'
+                printf '# Telegram\n'
+                printf 'TELEGRAM_BOT_TOKEN=%s\n' '${{ secrets.TELEGRAM_BOT_TOKEN }}'
+                printf 'TELEGRAM_WEBHOOK_URL=%s\n' '${{ secrets.TELEGRAM_WEBHOOK_URL }}'
+                printf '\n'
+                printf '# Superuser\n'
+                printf 'DJANGO_SUPERUSER_USERNAME=%s\n' '${{ secrets.DJANGO_SUPERUSER_USERNAME }}'
+                printf 'DJANGO_SUPERUSER_EMAIL=%s\n' '${{ secrets.DJANGO_SUPERUSER_EMAIL }}'
+                printf 'DJANGO_SUPERUSER_PASSWORD=%s\n' '${{ secrets.DJANGO_SUPERUSER_PASSWORD }}'
+                printf '\n'
+                printf '# Optional: LLM\n'
+                printf 'LLM_PROVIDER=%s\n' '${{ secrets.LLM_PROVIDER }}'
+                printf 'LLM_MODEL=%s\n' '${{ secrets.LLM_MODEL }}'
+                printf 'LLM_API_KEY=%s\n' '${{ secrets.LLM_API_KEY }}'
+                printf '\n'
+                printf '# Docker\n'
+                printf 'DOCKER_REGISTRY=%s\n' '${{ env.REGISTRY }}'
+                printf 'DOCKER_IMAGE_NAME=%s\n' '${{ env.IMAGE_NAME }}'
+                printf 'IMAGE_TAG=latest\n'
+                printf '\n'
+                printf '# Deployment\n'
+                printf 'DEPLOY_PATH=%s\n' '${{ secrets.DEPLOY_PATH }}'
+              } > .env
               echo "Created .env file"
             else
               echo ".env file already exists, skipping creation"
