@@ -62,7 +62,9 @@ db.sqlite3
 .dockerignore
 
 # Deployment
-deploy.sh
+# Note: deployment/scripts/deploy.sh should be tracked in git
+# Only ignore deploy.sh files in root or other locations
+/deploy.sh
 
 # SSL/Certificates
 *.pem
