@@ -124,7 +124,25 @@ jobs:
 
       - name: Copy deployment files to server
         run: |
-          scp -r deployment/* ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.DEPLOY_PATH }}/
+          # Use tar to copy entire deployment directory structure reliably
+          tar czf - -C deployment . | ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p ${{ secrets.DEPLOY_PATH }} && cd ${{ secrets.DEPLOY_PATH }} && tar xzf -"
+          
+          # Verify files were copied
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            cd ${{ secrets.DEPLOY_PATH }}
+            echo "Verifying deployment files..."
+            echo "Contents of deployment directory:"
+            ls -la
+            echo ""
+            echo "Contents of scripts directory:"
+            ls -la scripts/ || echo "ERROR: scripts directory not found!"
+            echo ""
+            echo "Contents of docker directory:"
+            ls -la docker/ || echo "ERROR: docker directory not found!"
+            echo ""
+            echo "Contents of nginx directory:"
+            ls -la nginx/ || echo "ERROR: nginx directory not found!"
+          EOF
 
       - name: Create .env file on server (if not exists)
         run: |
@@ -176,6 +194,21 @@ jobs:
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
             cd ${{ secrets.DEPLOY_PATH }}
+            
+            # Verify scripts directory exists
+            if [ ! -d "scripts" ]; then
+              echo "ERROR: scripts directory not found!"
+              ls -la
+              exit 1
+            fi
+            
+            # Verify deploy.sh exists
+            if [ ! -f "scripts/deploy.sh" ]; then
+              echo "ERROR: scripts/deploy.sh not found!"
+              ls -la scripts/
+              exit 1
+            fi
+            
             export GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
             export GITHUB_USER=${{ github.actor }}
             chmod +x scripts/deploy.sh

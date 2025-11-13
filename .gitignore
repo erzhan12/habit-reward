@@ -83,3 +83,4 @@ media/
 tmp/
 temp/
 *.tmp
+/secrets.txt
