@@ -91,9 +91,9 @@ docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml do
 echo -e "${YELLOW}Cleaning up old Docker images...${NC}"
 docker image prune -f || true
 
-# Start new containers
+# Start new containers (use --no-build to ensure we use pulled images, not build)
 echo -e "${YELLOW}Starting new containers...${NC}"
-docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
+docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --no-build
 
 # Wait for services to be healthy
 echo -e "${YELLOW}Waiting for services to be healthy...${NC}"

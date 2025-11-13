@@ -23,8 +23,11 @@ services:
   web:
     # Use pre-built image from registry in production
     image: ${DOCKER_REGISTRY:-ghcr.io}/${DOCKER_IMAGE_NAME:-habit_reward_bot}:${IMAGE_TAG:-latest}
-    # Don't build in production, use pulled image
-    build: null
+    # Override build to match base file structure (required for validation)
+    # Docker Compose will use the image when it's already pulled from registry
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile
 
     # Production environment
     environment:
