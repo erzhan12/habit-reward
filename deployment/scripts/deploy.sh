@@ -13,6 +13,30 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+load_env_file() {
+    local env_file="$1"
+
+    while IFS= read -r raw_line || [ -n "$raw_line" ]; do
+        raw_line="${raw_line%$'\r'}"
+
+        local trimmed="${raw_line#"${raw_line%%[![:space:]]*}"}"
+        [[ -z "$trimmed" ]] && continue
+        [[ "${trimmed:0:1}" == "#" ]] && continue
+        [[ "$raw_line" != *=* ]] && continue
+
+        local key="${raw_line%%=*}"
+        local value="${raw_line#*=}"
+
+        key="${key#"${key%%[![:space:]]*}"}"
+        key="${key%"${key##*[![:space:]]}"}"
+        [[ -z "$key" ]] && continue
+
+        value="${value#"${value%%[![:space:]]*}"}"
+
+        export "${key}=${value}"
+    done < "$env_file"
+}
+
 # Configuration
 DEPLOY_PATH="${DEPLOY_PATH:-/home/deploy/habit_reward_bot}"
 DOCKER_REGISTRY="${DOCKER_REGISTRY:-ghcr.io}"
@@ -37,11 +61,9 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-# Load environment variables
+# Load environment variables without triggering shell expansion on secrets
 echo -e "${YELLOW}Loading environment variables...${NC}"
-set -a
-source .env
-set +a
+load_env_file ".env"
 
 # Login to GitHub Container Registry (if credentials provided)
 if [ -n "$GITHUB_TOKEN" ]; then
