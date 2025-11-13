@@ -79,9 +79,11 @@ if [ -d .git ]; then
     }
 fi
 
-# Pull latest Docker images
-echo -e "${YELLOW}Pulling latest Docker images...${NC}"
-docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml pull
+# Pull latest Docker image for web service (skip nginx as it's built locally)
+echo -e "${YELLOW}Pulling latest Docker image for web service...${NC}"
+docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml pull web || {
+    echo -e "${YELLOW}Warning: Could not pull web image (will build locally)${NC}"
+}
 
 # Stop and remove old containers
 echo -e "${YELLOW}Stopping existing containers...${NC}"
@@ -91,9 +93,13 @@ docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml do
 echo -e "${YELLOW}Cleaning up old Docker images...${NC}"
 docker image prune -f || true
 
-# Start new containers (use --no-build to ensure we use pulled images, not build)
+# Build nginx image locally (since it's not in a registry)
+echo -e "${YELLOW}Building nginx image...${NC}"
+docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml build nginx
+
+# Start new containers (web will use pulled image if available, nginx uses built image)
 echo -e "${YELLOW}Starting new containers...${NC}"
-docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --no-build
+docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
 
 # Wait for services to be healthy
 echo -e "${YELLOW}Waiting for services to be healthy...${NC}"

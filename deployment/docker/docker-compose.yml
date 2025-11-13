@@ -87,6 +87,7 @@ services:
 
   # Nginx Reverse Proxy (for production with SSL)
   nginx:
+    image: habit_reward_nginx:latest
     build:
       context: ../nginx
       dockerfile: Dockerfile
