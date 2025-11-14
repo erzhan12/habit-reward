@@ -13,6 +13,47 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+ensure_port_available() {
+    local port="$1"
+    local retries="${2:-5}"
+    local delay="${3:-3}"
+
+    echo -e "${YELLOW}Ensuring port ${port} is free...${NC}"
+
+    for attempt in $(seq 1 "$retries"); do
+        local pids
+        pids=$(sudo lsof -i :"$port" -t 2>/dev/null || true)
+
+        if [ -z "$pids" ]; then
+            echo -e "${GREEN}Port ${port} is available${NC}"
+            return 0
+        fi
+
+        echo -e "${YELLOW}Port ${port} is in use (attempt ${attempt}/${retries}).${NC}"
+        sudo lsof -i :"$port" || true
+
+        if sudo systemctl is-active --quiet nginx 2>/dev/null; then
+            echo -e "${YELLOW}Stopping system nginx service...${NC}"
+            sudo systemctl stop nginx
+            sudo systemctl disable nginx || true
+        fi
+
+        if sudo systemctl is-active --quiet apache2 2>/dev/null; then
+            echo -e "${YELLOW}Stopping apache2 service...${NC}"
+            sudo systemctl stop apache2
+            sudo systemctl disable apache2 || true
+        fi
+
+        echo -e "${YELLOW}Force freeing port ${port}...${NC}"
+        sudo fuser -k "${port}/tcp" >/dev/null 2>&1 || true
+
+        sleep "$delay"
+    done
+
+    echo -e "${RED}Failed to free port ${port} after ${retries} attempts${NC}"
+    exit 1
+}
+
 load_env_file() {
     local env_file="$1"
 
@@ -87,43 +128,16 @@ docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml pu
 
 # Check for port conflicts and stop conflicting services
 echo -e "${YELLOW}Checking for port conflicts...${NC}"
-
-# Check what's using port 80
-PORT_80=$(sudo lsof -i :80 -t 2>/dev/null || true)
-if [ -n "$PORT_80" ]; then
-    echo -e "${YELLOW}Port 80 is in use. Attempting to free it...${NC}"
-    sudo lsof -i :80 || true
-
-    # Check if it's system nginx
-    if sudo systemctl is-active --quiet nginx 2>/dev/null; then
-        echo -e "${YELLOW}Stopping system nginx service...${NC}"
-        sudo systemctl stop nginx
-        sudo systemctl disable nginx
-    fi
-
-    # Check if it's apache
-    if sudo systemctl is-active --quiet apache2 2>/dev/null; then
-        echo -e "${YELLOW}Stopping apache2 service...${NC}"
-        sudo systemctl stop apache2
-        sudo systemctl disable apache2
-    fi
-
-    # Double check port is now free
-    PORT_80_AFTER=$(sudo lsof -i :80 -t 2>/dev/null || true)
-    if [ -n "$PORT_80_AFTER" ]; then
-        echo -e "${YELLOW}Port 80 still in use. Forcing process termination...${NC}"
-        sudo kill -9 $PORT_80_AFTER || true
-        sleep 2
-    fi
-
-    echo -e "${GREEN}Port 80 check complete${NC}"
-else
-    echo -e "${GREEN}Port 80 is available${NC}"
-fi
+ensure_port_available 80 3 2
+ensure_port_available 443 3 2
 
 # Stop and remove old containers
 echo -e "${YELLOW}Stopping existing containers...${NC}"
 docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml down || true
+
+# Ensure ports are still free before bringing containers back up (docker-proxy can linger briefly)
+ensure_port_available 80 10 3
+ensure_port_available 443 10 3
 
 # Remove old, unused images to free up space
 echo -e "${YELLOW}Cleaning up old Docker images...${NC}"

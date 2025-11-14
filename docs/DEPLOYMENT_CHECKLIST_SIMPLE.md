@@ -62,28 +62,28 @@ Print this page and check off each step as you complete it!
 ### Add to GitHub
 Go to Settings → Secrets and variables → Actions → New repository secret
 
-- [ ] `POSTGRES_DB` = `habit_reward`
-- [ ] `POSTGRES_USER` = `postgres`
-- [ ] `POSTGRES_PASSWORD` = (generated password)
-- [ ] `DJANGO_SECRET_KEY` = (generated secret key)
-- [ ] `ALLOWED_HOSTS` = `yourdomain.com,www.yourdomain.com`
-- [ ] `CSRF_TRUSTED_ORIGINS` = `https://yourdomain.com,https://www.yourdomain.com`
-- [ ] `TELEGRAM_BOT_TOKEN` = (from BotFather)
-- [ ] `TELEGRAM_WEBHOOK_URL` = `https://yourdomain.com/webhook/telegram`
-- [ ] `DJANGO_SUPERUSER_USERNAME` = `admin`
-- [ ] `DJANGO_SUPERUSER_EMAIL` = (your email)
-- [ ] `DJANGO_SUPERUSER_PASSWORD` = (strong password)
-- [ ] `SERVER_HOST` = (your VPS IP)
-- [ ] `SSH_USER` = `deploy`
-- [ ] `SSH_PRIVATE_KEY` = (paste entire private key from Phase 3)
-- [ ] `DEPLOY_PATH` = `/home/deploy/habit_reward_bot`
-- [ ] Enable GitHub Actions: Settings → Actions → Allow all
+- [X] `POSTGRES_DB` = `habit_reward`
+- [X] `POSTGRES_USER` = `postgres`
+- [X] `POSTGRES_PASSWORD` = (generated password)
+- [X] `DJANGO_SECRET_KEY` = (generated secret key)
+- [X] `ALLOWED_HOSTS` = `yourdomain.com,www.yourdomain.com`
+- [X] `CSRF_TRUSTED_ORIGINS` = `https://yourdomain.com,https://www.yourdomain.com`
+- [X] `TELEGRAM_BOT_TOKEN` = (from BotFather)
+- [X] `TELEGRAM_WEBHOOK_URL` = `https://yourdomain.com/webhook/telegram`
+- [X] `DJANGO_SUPERUSER_USERNAME` = `admin`
+- [X] `DJANGO_SUPERUSER_EMAIL` = (your email)
+- [X] `DJANGO_SUPERUSER_PASSWORD` = (strong password)
+- [X] `SERVER_HOST` = (your VPS IP)
+- [X] `SSH_USER` = `deploy`
+- [X] `SSH_PRIVATE_KEY` = (paste entire private key from Phase 3)
+- [X] `DEPLOY_PATH` = `/home/deploy/habit_reward_bot`
+- [X] Enable GitHub Actions: Settings → Actions → Allow all
 
 ## ☐ Phase 7: Deploy (20 min)
 - [X] Update nginx config: Replace `example.com` with your domain
-- [ ] Commit: `git add . && git commit -m "feat: configure domain"`
-- [ ] Push: `git push origin main`
-- [ ] Watch GitHub Actions (should take ~10-15 min)
+- [X] Commit: `git add . && git commit -m "feat: configure domain"`
+- [X] Push: `git push origin main`
+- [X] Watch GitHub Actions (should take ~10-15 min)
 - [ ] All checks green ✅
 
 ## ☐ Phase 8: SSL Certificate (10 min)
