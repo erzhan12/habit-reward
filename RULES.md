@@ -634,6 +634,111 @@ SUPPORTED_LANGUAGES = ['en', 'ru', 'kk']
 - `src/habit_reward_project/settings.py` - All Django configuration
 - `src/config.py` - Bot-specific settings (legacy, being phased out)
 
+## GitHub Actions Deployment & DATABASE_URL Encoding
+
+**CRITICAL**: When deploying via GitHub Actions, database passwords with special characters MUST be URL-encoded in the `DATABASE_URL` to prevent parsing errors.
+
+### The Problem
+
+Django uses `django-environ` to parse `DATABASE_URL` connection strings. Passwords containing special characters like `#`, `/`, `=`, `@`, `:` will break URL parsing if not encoded:
+
+**Error Example**:
+```python
+DATABASE_URL=postgresql://postgres:pass#word@db:5432/mydb
+# Parsing fails: '#' is interpreted as URL fragment marker
+# Error: "Port could not be cast to integer value as 'word@db'"
+```
+
+### The Solution: URL Encoding
+
+All special characters in passwords must be URL-encoded:
+- `#` → `%23`
+- `/` → `%2F`
+- `=` → `%3D`
+- `@` → `%40`
+- `:` → `%3A`
+- Space → `%20`
+
+**Correct Example**:
+```bash
+# Original password: "3QZ#C_Jp5ls7W01k"
+# Encoded password:  "3QZ%23C_Jp5ls7W01k"
+DATABASE_URL=postgresql://postgres:3QZ%23C_Jp5ls7W01k@db:5432/habit_reward
+```
+
+### GitHub Actions Implementation
+
+The `.github/workflows/deploy.yml` workflow automatically handles URL encoding:
+
+1. **Creates a Python script** (`/tmp/encode_password.py`) that uses `urllib.parse.quote()`
+2. **Reads password from environment variable** (safer than command-line args)
+3. **Encodes with `safe=''`** to encode ALL special characters
+4. **Regenerates .env file** from scratch on every deployment to prevent corruption
+5. **Verifies DATABASE_URL format** before proceeding with deployment
+
+**Key Code Pattern** (`.github/workflows/deploy.yml:154-176`):
+```bash
+# Create temporary Python script for encoding
+cat > /tmp/encode_password.py << 'PYSCRIPT'
+import urllib.parse
+import os
+password = os.environ.get('DB_PASSWORD', '')
+if password:
+    encoded = urllib.parse.quote(password, safe='')
+    print(encoded, end='')
+PYSCRIPT
+
+# Export password as environment variable
+export DB_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}'
+
+# Encode and use in DATABASE_URL
+ENCODED_PASSWORD=$(python3 /tmp/encode_password.py)
+printf 'DATABASE_URL=postgresql://%s:%s@db:5432/%s\n' \
+  "$POSTGRES_USER" "$ENCODED_PASSWORD" "$POSTGRES_DB"
+```
+
+### Why Environment Variables Instead of Command-Line Args?
+
+Passing passwords via command-line arguments (`sys.argv`) exposes them in process listings and shell history. Using environment variables is more secure.
+
+### GitHub Secrets Configuration
+
+Ensure these secrets are set in your GitHub repository:
+- `POSTGRES_DB` - Database name (e.g., `habit_reward`)
+- `POSTGRES_USER` - Database user (e.g., `postgres`)
+- `POSTGRES_PASSWORD` - **RAW password** (NOT encoded - encoding happens in workflow)
+- Other Django/Telegram secrets as needed
+
+**IMPORTANT**: Store the RAW password in GitHub Secrets. The workflow will automatically encode it when building `DATABASE_URL`.
+
+### Debugging DATABASE_URL Issues
+
+If you see errors like:
+- `"Port could not be cast to integer value as 'XYZ'"`
+- `"Invalid database URL"`
+- Django fails to connect to PostgreSQL
+
+**Check**:
+1. Does the password contain special characters? (`#`, `/`, `=`, `@`, `:`)
+2. Is the `DATABASE_URL` properly URL-encoded?
+3. Verify encoding: `python3 -c "import urllib.parse; print(urllib.parse.quote('your-password', safe=''))"`
+4. Check deployment logs for "Verifying DATABASE_URL format" output
+
+### Files Modified (Fix: DATABASE_URL Encoding)
+
+**Date**: 2025-11-14
+
+**Bug**: Deployment failed with `ValueError: Port could not be cast to integer value as 'bOlbTIuDlrUcT423puSykGaB60LrWEq9HjHuL'` because special characters in `POSTGRES_PASSWORD` were not URL-encoded.
+
+**Fix**: Enhanced `.github/workflows/deploy.yml` to:
+1. Use environment variables for password (not command-line args)
+2. Always regenerate `.env` from scratch to prevent corruption
+3. Add comprehensive verification of `DATABASE_URL` format
+4. Create timestamped backups of existing `.env` files
+
+**Files affected**:
+- `.github/workflows/deploy.yml:147-302` - Improved .env generation and DATABASE_URL encoding
+
 ## Django Models
 
 **CRITICAL**: All data models are Django ORM models in `src/core/models.py`. These replaced the old Pydantic models from Airtable.

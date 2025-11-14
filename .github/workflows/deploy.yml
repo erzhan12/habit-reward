@@ -148,97 +148,157 @@ jobs:
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'ENVUPDATE'
             cd ${{ secrets.DEPLOY_PATH }}
-            
-            # Use Python to properly URL-encode the password for DATABASE_URL
-            # This handles special characters like @, :, /, #, etc. that could break URL parsing
-            ENCODED_PASSWORD=$(python3 -c "import urllib.parse; import sys; print(urllib.parse.quote(sys.argv[1] if len(sys.argv) > 1 else '', safe=''), end='')" '${{ secrets.POSTGRES_PASSWORD }}')
-            
-            # Create or update .env file
-            if [ ! -f .env ]; then
-              # Create new .env file
-              {
-                printf '# Database\n'
-                printf 'POSTGRES_DB=%s\n' '${{ secrets.POSTGRES_DB }}'
-                printf 'POSTGRES_USER=%s\n' '${{ secrets.POSTGRES_USER }}'
-                printf 'POSTGRES_PASSWORD=%s\n' '${{ secrets.POSTGRES_PASSWORD }}'
-                printf 'DATABASE_URL=postgresql://%s:%s@db:5432/%s\n' '${{ secrets.POSTGRES_USER }}' "$ENCODED_PASSWORD" '${{ secrets.POSTGRES_DB }}'
-                printf '\n'
-                printf '# Django\n'
-                printf 'SECRET_KEY=%s\n' '${{ secrets.DJANGO_SECRET_KEY }}'
-                printf 'DEBUG=False\n'
-                printf 'ALLOWED_HOSTS=%s\n' '${{ secrets.ALLOWED_HOSTS }}'
-                printf 'CSRF_TRUSTED_ORIGINS=%s\n' '${{ secrets.CSRF_TRUSTED_ORIGINS }}'
-                printf '\n'
-                printf '# Telegram\n'
-                printf 'TELEGRAM_BOT_TOKEN=%s\n' '${{ secrets.TELEGRAM_BOT_TOKEN }}'
-                printf 'TELEGRAM_WEBHOOK_URL=%s\n' '${{ secrets.TELEGRAM_WEBHOOK_URL }}'
-                printf '\n'
-                printf '# Superuser\n'
-                printf 'DJANGO_SUPERUSER_USERNAME=%s\n' '${{ secrets.DJANGO_SUPERUSER_USERNAME }}'
-                printf 'DJANGO_SUPERUSER_EMAIL=%s\n' '${{ secrets.DJANGO_SUPERUSER_EMAIL }}'
-                printf 'DJANGO_SUPERUSER_PASSWORD=%s\n' '${{ secrets.DJANGO_SUPERUSER_PASSWORD }}'
-                printf '\n'
-                printf '# Optional: LLM\n'
-                printf 'LLM_PROVIDER=%s\n' '${{ secrets.LLM_PROVIDER }}'
-                printf 'LLM_MODEL=%s\n' '${{ secrets.LLM_MODEL }}'
-                printf 'LLM_API_KEY=%s\n' '${{ secrets.LLM_API_KEY }}'
-                printf '\n'
-                printf '# Docker\n'
-                printf 'DOCKER_REGISTRY=%s\n' '${{ env.REGISTRY }}'
-                printf 'DOCKER_IMAGE_NAME=%s\n' '${{ env.IMAGE_NAME }}'
-                printf 'IMAGE_TAG=latest\n'
-                printf '\n'
-                printf '# Deployment\n'
-                printf 'DEPLOY_PATH=%s\n' '${{ secrets.DEPLOY_PATH }}'
-              } > .env
-              echo "Created .env file"
-            else
-              # Update existing .env file - always update DATABASE_URL to fix any corruption
-              echo "Updating existing .env file (ensuring DATABASE_URL is correct)..."
-              
-              # Backup original .env
-              cp .env .env.backup
-              
-              # Update DATABASE_URL with properly encoded password
-              if grep -q "^DATABASE_URL=" .env; then
-                # Replace existing DATABASE_URL line
-                sed -i.bak "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${ENCODED_PASSWORD}@db:5432/${{ secrets.POSTGRES_DB }}|" .env
-              else
-                # Add DATABASE_URL after POSTGRES_PASSWORD line
-                sed -i.bak "/^POSTGRES_PASSWORD=/a DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${ENCODED_PASSWORD}@db:5432/${{ secrets.POSTGRES_DB }}" .env
-              fi
-              
-              # Update other critical variables (use || true to avoid errors if they don't exist)
-              sed -i.bak "s|^POSTGRES_DB=.*|POSTGRES_DB=${{ secrets.POSTGRES_DB }}|" .env 2>/dev/null || true
-              sed -i.bak "s|^POSTGRES_USER=.*|POSTGRES_USER=${{ secrets.POSTGRES_USER }}|" .env 2>/dev/null || true
-              sed -i.bak "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}|" .env 2>/dev/null || true
-              sed -i.bak "s|^SECRET_KEY=.*|SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}|" .env 2>/dev/null || true
-              sed -i.bak "s|^ALLOWED_HOSTS=.*|ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}|" .env 2>/dev/null || true
-              sed -i.bak "s|^CSRF_TRUSTED_ORIGINS=.*|CSRF_TRUSTED_ORIGINS=${{ secrets.CSRF_TRUSTED_ORIGINS }}|" .env 2>/dev/null || true
-              sed -i.bak "s|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}|" .env 2>/dev/null || true
-              sed -i.bak "s|^TELEGRAM_WEBHOOK_URL=.*|TELEGRAM_WEBHOOK_URL=${{ secrets.TELEGRAM_WEBHOOK_URL }}|" .env 2>/dev/null || true
-              rm -f .env.bak
-              
-              echo "Updated .env file"
+
+            echo "=== Creating/updating .env file with proper DATABASE_URL encoding ==="
+
+            # Create a temporary Python script for robust URL encoding
+            # This handles ALL special characters correctly, including quotes, #, /, =, etc.
+            cat > /tmp/encode_password.py << 'PYSCRIPT'
+import urllib.parse
+import sys
+import os
+
+# Read password from environment variable (safer than command line args)
+password = os.environ.get('DB_PASSWORD', '')
+if password:
+    # URL-encode with no safe characters (encode everything except alphanumeric)
+    encoded = urllib.parse.quote(password, safe='')
+    print(encoded, end='')
+else:
+    print('', end='')
+    sys.exit(1)
+PYSCRIPT
+
+            # Export password as environment variable for Python script
+            export DB_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}'
+
+            # URL-encode the password using Python script
+            ENCODED_PASSWORD=$(python3 /tmp/encode_password.py)
+            ENCODE_STATUS=$?
+
+            # Clean up
+            rm -f /tmp/encode_password.py
+
+            # Verify encoding succeeded
+            if [ $ENCODE_STATUS -ne 0 ] || [ -z "$ENCODED_PASSWORD" ]; then
+              echo "❌ ERROR: Failed to encode database password"
+              exit 1
             fi
-            
+
+            echo "✓ Password encoded successfully"
+
+            # Backup existing .env if it exists
+            if [ -f .env ]; then
+              echo "Backing up existing .env to .env.backup.$(date +%Y%m%d_%H%M%S)"
+              cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
+            fi
+
+            # Always regenerate .env file from scratch to ensure consistency
+            # This prevents accumulation of corrupted or duplicate entries
+            echo "Regenerating .env file from GitHub Secrets..."
+            {
+              echo "# ============================================================================"
+              echo "# Environment Variables - Generated by GitHub Actions"
+              echo "# Last updated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+              echo "# ============================================================================"
+              echo ""
+              echo "# ============================================================================"
+              echo "# DATABASE CONFIGURATION"
+              echo "# ============================================================================"
+              printf 'POSTGRES_DB=%s\n' '${{ secrets.POSTGRES_DB }}'
+              printf 'POSTGRES_USER=%s\n' '${{ secrets.POSTGRES_USER }}'
+              printf 'POSTGRES_PASSWORD=%s\n' '${{ secrets.POSTGRES_PASSWORD }}'
+              printf 'POSTGRES_HOST=db\n'
+              printf 'POSTGRES_PORT=5432\n'
+              echo ""
+              echo "# Full database URL with URL-encoded password (for Django)"
+              printf 'DATABASE_URL=postgresql://%s:%s@db:5432/%s\n' '${{ secrets.POSTGRES_USER }}' "$ENCODED_PASSWORD" '${{ secrets.POSTGRES_DB }}'
+              echo ""
+              echo "# ============================================================================"
+              echo "# DJANGO CONFIGURATION"
+              echo "# ============================================================================"
+              printf 'SECRET_KEY=%s\n' '${{ secrets.DJANGO_SECRET_KEY }}'
+              echo "DEBUG=False"
+              printf 'ALLOWED_HOSTS=%s\n' '${{ secrets.ALLOWED_HOSTS }}'
+              printf 'CSRF_TRUSTED_ORIGINS=%s\n' '${{ secrets.CSRF_TRUSTED_ORIGINS }}'
+              echo ""
+              echo "# ============================================================================"
+              echo "# TELEGRAM BOT CONFIGURATION"
+              echo "# ============================================================================"
+              printf 'TELEGRAM_BOT_TOKEN=%s\n' '${{ secrets.TELEGRAM_BOT_TOKEN }}'
+              printf 'TELEGRAM_WEBHOOK_URL=%s\n' '${{ secrets.TELEGRAM_WEBHOOK_URL }}'
+              echo ""
+              echo "# ============================================================================"
+              echo "# DJANGO SUPERUSER (Auto-created on first run)"
+              echo "# ============================================================================"
+              printf 'DJANGO_SUPERUSER_USERNAME=%s\n' '${{ secrets.DJANGO_SUPERUSER_USERNAME }}'
+              printf 'DJANGO_SUPERUSER_EMAIL=%s\n' '${{ secrets.DJANGO_SUPERUSER_EMAIL }}'
+              printf 'DJANGO_SUPERUSER_PASSWORD=%s\n' '${{ secrets.DJANGO_SUPERUSER_PASSWORD }}'
+              echo ""
+              echo "# ============================================================================"
+              echo "# AI/LLM CONFIGURATION (Optional)"
+              echo "# ============================================================================"
+              printf 'LLM_PROVIDER=%s\n' '${{ secrets.LLM_PROVIDER }}'
+              printf 'LLM_MODEL=%s\n' '${{ secrets.LLM_MODEL }}'
+              printf 'LLM_API_KEY=%s\n' '${{ secrets.LLM_API_KEY }}'
+              printf 'LLM_BASE_URL=%s\n' '${{ secrets.LLM_BASE_URL }}'
+              echo ""
+              echo "# ============================================================================"
+              echo "# DOCKER CONFIGURATION"
+              echo "# ============================================================================"
+              printf 'DOCKER_REGISTRY=%s\n' '${{ env.REGISTRY }}'
+              printf 'DOCKER_IMAGE_NAME=%s\n' '${{ env.IMAGE_NAME }}'
+              echo "IMAGE_TAG=latest"
+              echo ""
+              echo "# ============================================================================"
+              echo "# DEPLOYMENT CONFIGURATION"
+              echo "# ============================================================================"
+              printf 'DEPLOY_PATH=%s\n' '${{ secrets.DEPLOY_PATH }}'
+              echo ""
+              echo "# ============================================================================"
+              echo "# APPLICATION SETTINGS"
+              echo "# ============================================================================"
+              echo "LOG_LEVEL=INFO"
+              echo "SUPPORTED_LANGUAGES=en,ru,kk"
+              echo "DEFAULT_LANGUAGE=en"
+              echo "STREAK_MULTIPLIER_RATE=0.1"
+              echo "PROGRESS_BAR_LENGTH=10"
+              echo "RECENT_LOGS_LIMIT=10"
+            } > .env
+
+            echo "✓ .env file created successfully"
+
             # Verify DATABASE_URL is properly formatted
-            echo "Verifying DATABASE_URL format..."
+            echo ""
+            echo "=== Verifying DATABASE_URL format ==="
             if grep -q "^DATABASE_URL=postgresql://" .env; then
               DB_URL=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2-)
+
+              # Extract components for verification
+              DB_USER=$(echo "$DB_URL" | sed -E 's|postgresql://([^:]+):.*|\1|')
+              DB_NAME=$(echo "$DB_URL" | sed -E 's|.*@db:5432/(.+)|\1|')
+
               # Check if it has the expected structure
               if echo "$DB_URL" | grep -q "postgresql://.*:.*@db:5432/"; then
-                echo "✓ DATABASE_URL format looks correct"
-                # Show first and last few chars for verification (hide password)
-                echo "  Format: postgresql://USER:***@db:5432/DB"
+                echo "✓ DATABASE_URL format is correct"
+                echo "  User: $DB_USER"
+                echo "  Database: $DB_NAME"
+                echo "  Host: db:5432"
+                echo "  Password: [ENCODED]"
               else
-                echo "⚠ Warning: DATABASE_URL format may be incorrect"
-                echo "  Current value (first 50 chars): $(echo "$DB_URL" | cut -c1-50)..."
+                echo "❌ ERROR: DATABASE_URL format is incorrect!"
+                echo "  Expected: postgresql://USER:ENCODED_PASSWORD@db:5432/DATABASE"
+                echo "  Got (first 60 chars): $(echo "$DB_URL" | cut -c1-60)..."
+                exit 1
               fi
             else
-              echo "⚠ Error: DATABASE_URL not found or incorrectly formatted"
+              echo "❌ ERROR: DATABASE_URL not found or incorrectly formatted!"
               grep "^DATABASE_URL=" .env || echo "DATABASE_URL line not found in .env"
+              exit 1
             fi
+
+            echo ""
+            echo "=== .env file configuration complete ==="
           ENVUPDATE
 
       - name: Check for port conflicts and stop conflicting services
