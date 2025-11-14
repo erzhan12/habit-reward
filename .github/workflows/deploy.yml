@@ -151,31 +151,11 @@ jobs:
 
             echo "=== Creating/updating .env file with proper DATABASE_URL encoding ==="
 
-            # Create a temporary Python script for robust URL encoding
+            # URL-encode the password using Python inline command
             # This handles ALL special characters correctly, including quotes, #, /, =, etc.
-            cat > /tmp/encode_password.py <<'PYEOF'
-import urllib.parse
-import sys
-import os
-
-password = os.environ.get('DB_PASSWORD', '')
-if password:
-    encoded = urllib.parse.quote(password, safe='')
-    print(encoded, end='')
-else:
-    print('', end='')
-    sys.exit(1)
-PYEOF
-
-            # Export password as environment variable for Python script
             export DB_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}'
-
-            # URL-encode the password using Python script
-            ENCODED_PASSWORD=$(python3 /tmp/encode_password.py)
+            ENCODED_PASSWORD=$(python3 -c "import urllib.parse, os; print(urllib.parse.quote(os.environ.get('DB_PASSWORD', ''), safe=''), end='')")
             ENCODE_STATUS=$?
-
-            # Clean up
-            rm -f /tmp/encode_password.py
 
             # Verify encoding succeeded
             if [ $ENCODE_STATUS -ne 0 ] || [ -z "$ENCODED_PASSWORD" ]; then
