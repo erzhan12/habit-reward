@@ -135,6 +135,10 @@ ensure_port_available 443 3 2
 echo -e "${YELLOW}Stopping existing containers...${NC}"
 docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml down || true
 
+# Wait for Docker to fully release network namespaces and port bindings
+echo -e "${YELLOW}Waiting for Docker to release ports (5 seconds)...${NC}"
+sleep 5
+
 # Ensure ports are still free before bringing containers back up (docker-proxy can linger briefly)
 ensure_port_available 80 10 3
 ensure_port_available 443 10 3
