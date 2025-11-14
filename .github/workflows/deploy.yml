@@ -153,21 +153,19 @@ jobs:
 
             # Create a temporary Python script for robust URL encoding
             # This handles ALL special characters correctly, including quotes, #, /, =, etc.
-            cat > /tmp/encode_password.py << 'PYSCRIPT'
+            cat > /tmp/encode_password.py <<'PYEOF'
 import urllib.parse
 import sys
 import os
 
-# Read password from environment variable (safer than command line args)
 password = os.environ.get('DB_PASSWORD', '')
 if password:
-    # URL-encode with no safe characters (encode everything except alphanumeric)
     encoded = urllib.parse.quote(password, safe='')
     print(encoded, end='')
 else:
     print('', end='')
     sys.exit(1)
-PYSCRIPT
+PYEOF
 
             # Export password as environment variable for Python script
             export DB_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}'
