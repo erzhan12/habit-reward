@@ -85,6 +85,42 @@ docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml pu
     echo -e "${YELLOW}Warning: Could not pull web image (will build locally)${NC}"
 }
 
+# Check for port conflicts and stop conflicting services
+echo -e "${YELLOW}Checking for port conflicts...${NC}"
+
+# Check what's using port 80
+PORT_80=$(sudo lsof -i :80 -t 2>/dev/null || true)
+if [ -n "$PORT_80" ]; then
+    echo -e "${YELLOW}Port 80 is in use. Attempting to free it...${NC}"
+    sudo lsof -i :80 || true
+
+    # Check if it's system nginx
+    if sudo systemctl is-active --quiet nginx 2>/dev/null; then
+        echo -e "${YELLOW}Stopping system nginx service...${NC}"
+        sudo systemctl stop nginx
+        sudo systemctl disable nginx
+    fi
+
+    # Check if it's apache
+    if sudo systemctl is-active --quiet apache2 2>/dev/null; then
+        echo -e "${YELLOW}Stopping apache2 service...${NC}"
+        sudo systemctl stop apache2
+        sudo systemctl disable apache2
+    fi
+
+    # Double check port is now free
+    PORT_80_AFTER=$(sudo lsof -i :80 -t 2>/dev/null || true)
+    if [ -n "$PORT_80_AFTER" ]; then
+        echo -e "${YELLOW}Port 80 still in use. Forcing process termination...${NC}"
+        sudo kill -9 $PORT_80_AFTER || true
+        sleep 2
+    fi
+
+    echo -e "${GREEN}Port 80 check complete${NC}"
+else
+    echo -e "${GREEN}Port 80 is available${NC}"
+fi
+
 # Stop and remove old containers
 echo -e "${YELLOW}Stopping existing containers...${NC}"
 docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml down || true
