@@ -20,30 +20,38 @@ ensure_port_available() {
 
     echo -e "${YELLOW}Ensuring port ${port} is free...${NC}"
 
+    # Test if port is actually available by trying to bind to it
+    test_port_available() {
+        # Use timeout and nc to test if port is available (no sudo needed)
+        if command -v timeout >/dev/null 2>&1 && command -v nc >/dev/null 2>&1; then
+            timeout 1 bash -c "echo > /dev/tcp/127.0.0.1/${port}" 2>/dev/null && return 1 || return 0
+        fi
+        # Fallback: try to use ss without sudo (works for checking listening ports)
+        if command -v ss >/dev/null 2>&1; then
+            ss -tln 2>/dev/null | grep -q ":${port} " && return 1 || return 0
+        fi
+        # Last resort: assume port might be in use
+        return 1
+    }
+
     for attempt in $(seq 1 "$retries"); do
         local port_in_use=false
+        local cleanup_needed=false
 
-        # Check using lsof
-        local pids
-        pids=$(sudo lsof -i :"$port" -t 2>/dev/null || true)
-        if [ -n "$pids" ]; then
+        # First, check Docker containers (no sudo needed)
+        local containers_with_port
+        containers_with_port=$(docker ps -a --format "{{.ID}} {{.Names}} {{.Ports}}" 2>/dev/null | grep -E ":${port}->|:${port}/|0.0.0.0:${port}:" || true)
+        if [ -n "$containers_with_port" ]; then
             port_in_use=true
-            echo -e "${YELLOW}Port ${port} is in use (lsof detected, attempt ${attempt}/${retries}).${NC}"
-            sudo lsof -i :"$port" || true
+            cleanup_needed=true
+            echo -e "${YELLOW}Found Docker containers with port ${port} mappings (attempt ${attempt}/${retries}):${NC}"
+            echo "$containers_with_port"
+            # Extract container IDs and remove them
+            echo "$containers_with_port" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
+            sleep 2
         fi
 
-        # Check using ss (more reliable for Docker)
-        if command -v ss >/dev/null 2>&1; then
-            local ss_output
-            ss_output=$(sudo ss -tlnp | grep ":${port} " || true)
-            if [ -n "$ss_output" ]; then
-                port_in_use=true
-                echo -e "${YELLOW}Port ${port} is in use (ss detected):${NC}"
-                echo "$ss_output"
-            fi
-        fi
-
-        # Check for docker-proxy processes holding the port (most common cause)
+        # Check for docker-proxy processes holding the port (no sudo needed for detection)
         local docker_proxy_pids
         docker_proxy_pids=$(pgrep -f "docker-proxy.*-proto tcp -host-ip 0.0.0.0 -host-port ${port}" 2>/dev/null || true)
         if [ -z "$docker_proxy_pids" ]; then
@@ -52,56 +60,97 @@ ensure_port_available() {
         fi
         if [ -n "$docker_proxy_pids" ]; then
             port_in_use=true
+            cleanup_needed=true
             echo -e "${YELLOW}Found docker-proxy processes holding port ${port}:${NC}"
             ps aux | grep -E "docker-proxy.*:${port}|docker-proxy.*-host-port ${port}" | grep -v grep || true
             echo -e "${YELLOW}Killing docker-proxy processes...${NC}"
-            echo "$docker_proxy_pids" | xargs -r sudo kill -9 2>/dev/null || true
-            sleep 1
+            # Try without sudo first (if user is in docker group)
+            echo "$docker_proxy_pids" | xargs -r kill -9 2>/dev/null || {
+                # If that fails, try with sudo (but don't fail if sudo doesn't work)
+                echo "$docker_proxy_pids" | xargs -r sudo kill -9 2>/dev/null || true
+            }
+            sleep 2
         fi
 
-        # Check for any containers that might be using this port
-        # We check all containers and look for port mappings
-        local containers_with_port
-        containers_with_port=$(docker ps -a --format "{{.ID}} {{.Ports}}" 2>/dev/null | grep -E ":${port}->|:${port}/" || true)
-        if [ -n "$containers_with_port" ]; then
-            port_in_use=true
-            echo -e "${YELLOW}Found Docker containers with port ${port} mappings:${NC}"
-            echo "$containers_with_port"
-            # Extract container IDs and remove them
-            echo "$containers_with_port" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
+        # Check using ss without sudo (works for checking listening ports)
+        if command -v ss >/dev/null 2>&1; then
+            local ss_output
+            ss_output=$(ss -tln 2>/dev/null | grep ":${port} " || true)
+            if [ -n "$ss_output" ]; then
+                port_in_use=true
+                echo -e "${YELLOW}Port ${port} is in use (ss detected):${NC}"
+                echo "$ss_output"
+            fi
         fi
 
-        # Stop system services
-        if sudo systemctl is-active --quiet nginx 2>/dev/null; then
-            port_in_use=true
-            echo -e "${YELLOW}Stopping system nginx service...${NC}"
-            sudo systemctl stop nginx
-            sudo systemctl disable nginx || true
+        # Try sudo commands but don't fail if they don't work
+        if command -v sudo >/dev/null 2>&1; then
+            # Check using lsof with sudo (but handle failures gracefully)
+            local pids
+            pids=$(sudo -n lsof -i :"$port" -t 2>/dev/null || true)
+            if [ -n "$pids" ]; then
+                port_in_use=true
+                echo -e "${YELLOW}Port ${port} is in use (lsof detected):${NC}"
+                sudo -n lsof -i :"$port" 2>/dev/null || true
+            fi
+
+            # Stop system services (with sudo, but handle failures)
+            if sudo -n systemctl is-active --quiet nginx 2>/dev/null; then
+                port_in_use=true
+                cleanup_needed=true
+                echo -e "${YELLOW}Stopping system nginx service...${NC}"
+                sudo -n systemctl stop nginx 2>/dev/null || true
+                sudo -n systemctl disable nginx 2>/dev/null || true
+            fi
+
+            if sudo -n systemctl is-active --quiet apache2 2>/dev/null; then
+                port_in_use=true
+                cleanup_needed=true
+                echo -e "${YELLOW}Stopping apache2 service...${NC}"
+                sudo -n systemctl stop apache2 2>/dev/null || true
+                sudo -n systemctl disable apache2 2>/dev/null || true
+            fi
+
+            # Try to kill processes holding the port
+            if [ "$cleanup_needed" = true ]; then
+                echo -e "${YELLOW}Force freeing port ${port}...${NC}"
+                sudo -n fuser -k "${port}/tcp" 2>/dev/null || true
+            fi
         fi
 
-        if sudo systemctl is-active --quiet apache2 2>/dev/null; then
-            port_in_use=true
-            echo -e "${YELLOW}Stopping apache2 service...${NC}"
-            sudo systemctl stop apache2
-            sudo systemctl disable apache2 || true
-        fi
-
-        if [ "$port_in_use" = true ]; then
-            echo -e "${YELLOW}Force freeing port ${port}...${NC}"
-            sudo fuser -k "${port}/tcp" >/dev/null 2>&1 || true
+        # Wait a bit for cleanup to take effect
+        if [ "$cleanup_needed" = true ]; then
             sleep "$delay"
-        else
+        fi
+
+        # Test if port is actually available now
+        if test_port_available; then
             echo -e "${GREEN}Port ${port} is available${NC}"
             return 0
+        else
+            if [ "$attempt" -lt "$retries" ]; then
+                echo -e "${YELLOW}Port ${port} still appears to be in use, retrying...${NC}"
+                sleep "$delay"
+            fi
         fi
     done
 
+    # Final check - try to see what's using the port
     echo -e "${RED}Failed to free port ${port} after ${retries} attempts${NC}"
     echo -e "${YELLOW}Final port status:${NC}"
-    sudo lsof -i :"$port" || true
+    
+    # Check without sudo first
     if command -v ss >/dev/null 2>&1; then
-        sudo ss -tlnp | grep ":${port} " || true
+        ss -tln 2>/dev/null | grep ":${port} " || true
     fi
+    
+    docker ps -a --format "{{.Names}} {{.Ports}}" 2>/dev/null | grep -E ":${port}" || true
+    
+    # Try with sudo if available
+    if command -v sudo >/dev/null 2>&1; then
+        sudo -n lsof -i :"$port" 2>/dev/null || true
+    fi
+    
     exit 1
 }
 
@@ -186,13 +235,39 @@ ensure_port_available 443 3 2
 echo -e "${YELLOW}Stopping existing containers...${NC}"
 docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml down --remove-orphans || true
 
-# Force remove any containers that might still be running
+# Force remove any containers that might still be running (by name pattern)
 echo -e "${YELLOW}Cleaning up any remaining containers...${NC}"
-docker ps -a --filter "name=habit_reward" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
+# Get container names from docker-compose to ensure we catch all
+COMPOSE_PROJECT_NAME=$(docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml config --services 2>/dev/null | head -1 | xargs basename 2>/dev/null || echo "habit_reward")
+docker ps -a --filter "name=${COMPOSE_PROJECT_NAME}" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
+# Also check for containers with our specific names
+for container_name in habit_reward_nginx habit_reward_web habit_reward_db habit_reward_certbot; do
+    docker ps -a --filter "name=^${container_name}$" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
+done
+
+# Force remove any containers using ports 80 or 443
+echo -e "${YELLOW}Removing any containers using ports 80/443...${NC}"
+for port in 80 443; do
+    containers=$(docker ps -a --format "{{.ID}} {{.Names}} {{.Ports}}" 2>/dev/null | grep -E ":${port}->|:${port}/|0.0.0.0:${port}:" | awk '{print $1}' || true)
+    if [ -n "$containers" ]; then
+        echo "$containers" | xargs -r docker rm -f 2>/dev/null || true
+    fi
+done
 
 # Wait for Docker to fully release network namespaces and port bindings
-echo -e "${YELLOW}Waiting for Docker to release ports (5 seconds)...${NC}"
-sleep 5
+echo -e "${YELLOW}Waiting for Docker to release ports (10 seconds)...${NC}"
+sleep 10
+
+# Kill any remaining docker-proxy processes (they can linger)
+echo -e "${YELLOW}Checking for lingering docker-proxy processes...${NC}"
+for port in 80 443; do
+    proxy_pids=$(pgrep -f "docker-proxy.*:${port}" 2>/dev/null || true)
+    if [ -n "$proxy_pids" ]; then
+        echo -e "${YELLOW}Found docker-proxy for port ${port}, killing...${NC}"
+        echo "$proxy_pids" | xargs -r kill -9 2>/dev/null || true
+        sleep 1
+    fi
+done
 
 # Ensure ports are still free before bringing containers back up (docker-proxy can linger briefly)
 ensure_port_available 80 10 3
@@ -211,9 +286,45 @@ echo -e "${YELLOW}Final port check before starting containers...${NC}"
 ensure_port_available 80 5 2
 ensure_port_available 443 5 2
 
+# Additional verification: Try to test port binding with Docker
+echo -e "${YELLOW}Verifying ports are available for Docker...${NC}"
+# Check if any Docker containers are still using these ports
+for port in 80 443; do
+    if docker ps --format "{{.Ports}}" 2>/dev/null | grep -q ":${port}->"; then
+        echo -e "${RED}ERROR: Port ${port} is still bound by a Docker container!${NC}"
+        docker ps --format "{{.Names}} {{.Ports}}" 2>/dev/null | grep ":${port}" || true
+        echo -e "${YELLOW}Attempting to remove containers...${NC}"
+        docker ps -a --format "{{.ID}} {{.Names}} {{.Ports}}" 2>/dev/null | grep ":${port}" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
+        sleep 3
+        ensure_port_available "$port" 3 2
+    fi
+done
+
 # Start new containers (web will use pulled image if available, nginx uses built image)
 echo -e "${YELLOW}Starting new containers...${NC}"
-docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
+# Start containers one by one to catch port conflicts early
+docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d db certbot web || {
+    echo -e "${RED}Failed to start db/certbot/web containers${NC}"
+    docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
+    exit 1
+}
+
+# Small delay before starting nginx to ensure other containers are up
+sleep 2
+
+# Start nginx last (since it needs ports 80/443)
+docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d nginx || {
+    echo -e "${RED}Failed to start nginx container - checking port status...${NC}"
+    ensure_port_available 80 3 1
+    ensure_port_available 443 3 1
+    echo -e "${YELLOW}Retrying nginx startup...${NC}"
+    docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d nginx || {
+        echo -e "${RED}Failed to start nginx after retry${NC}"
+        docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
+        docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs nginx
+        exit 1
+    }
+}
 
 # Wait for services to be healthy
 echo -e "${YELLOW}Waiting for services to be healthy...${NC}"
