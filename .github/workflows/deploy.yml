@@ -144,19 +144,32 @@ jobs:
             ls -la nginx/ || echo "ERROR: nginx directory not found!"
           EOF
 
-      - name: Create .env file on server (if not exists)
+      - name: Create or update .env file on server
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'ENVUPDATE'
             cd ${{ secrets.DEPLOY_PATH }}
+            
+            # Use Python to properly URL-encode the password for DATABASE_URL
+            # This handles special characters like @, :, /, #, etc. that could break URL parsing
+            cat > /tmp/encode_password.py << 'PYEOF'
+import urllib.parse
+import sys
+password = sys.argv[1] if len(sys.argv) > 1 else ''
+encoded = urllib.parse.quote(password, safe='')
+sys.stdout.write(encoded)
+PYEOF
+            ENCODED_PASSWORD=$(python3 /tmp/encode_password.py '${{ secrets.POSTGRES_PASSWORD }}')
+            rm -f /tmp/encode_password.py
+            
+            # Create or update .env file
             if [ ! -f .env ]; then
-              # Write .env file using printf to safely handle special characters
-              # printf %s treats values as literal strings, preventing shell interpretation
+              # Create new .env file
               {
                 printf '# Database\n'
                 printf 'POSTGRES_DB=%s\n' '${{ secrets.POSTGRES_DB }}'
                 printf 'POSTGRES_USER=%s\n' '${{ secrets.POSTGRES_USER }}'
                 printf 'POSTGRES_PASSWORD=%s\n' '${{ secrets.POSTGRES_PASSWORD }}'
-                printf 'DATABASE_URL=postgresql://%s:%s@db:5432/%s\n' '${{ secrets.POSTGRES_USER }}' '${{ secrets.POSTGRES_PASSWORD }}' '${{ secrets.POSTGRES_DB }}'
+                printf 'DATABASE_URL=postgresql://%s:%s@db:5432/%s\n' '${{ secrets.POSTGRES_USER }}' "$ENCODED_PASSWORD" '${{ secrets.POSTGRES_DB }}'
                 printf '\n'
                 printf '# Django\n'
                 printf 'SECRET_KEY=%s\n' '${{ secrets.DJANGO_SECRET_KEY }}'
@@ -188,9 +201,53 @@ jobs:
               } > .env
               echo "Created .env file"
             else
-              echo ".env file already exists, skipping creation"
+              # Update existing .env file - always update DATABASE_URL to fix any corruption
+              echo "Updating existing .env file (ensuring DATABASE_URL is correct)..."
+              
+              # Backup original .env
+              cp .env .env.backup
+              
+              # Update DATABASE_URL with properly encoded password
+              if grep -q "^DATABASE_URL=" .env; then
+                # Replace existing DATABASE_URL line
+                sed -i.bak "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${ENCODED_PASSWORD}@db:5432/${{ secrets.POSTGRES_DB }}|" .env
+              else
+                # Add DATABASE_URL after POSTGRES_PASSWORD line
+                sed -i.bak "/^POSTGRES_PASSWORD=/a DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${ENCODED_PASSWORD}@db:5432/${{ secrets.POSTGRES_DB }}" .env
+              fi
+              
+              # Update other critical variables (use || true to avoid errors if they don't exist)
+              sed -i.bak "s|^POSTGRES_DB=.*|POSTGRES_DB=${{ secrets.POSTGRES_DB }}|" .env 2>/dev/null || true
+              sed -i.bak "s|^POSTGRES_USER=.*|POSTGRES_USER=${{ secrets.POSTGRES_USER }}|" .env 2>/dev/null || true
+              sed -i.bak "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}|" .env 2>/dev/null || true
+              sed -i.bak "s|^SECRET_KEY=.*|SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}|" .env 2>/dev/null || true
+              sed -i.bak "s|^ALLOWED_HOSTS=.*|ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}|" .env 2>/dev/null || true
+              sed -i.bak "s|^CSRF_TRUSTED_ORIGINS=.*|CSRF_TRUSTED_ORIGINS=${{ secrets.CSRF_TRUSTED_ORIGINS }}|" .env 2>/dev/null || true
+              sed -i.bak "s|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}|" .env 2>/dev/null || true
+              sed -i.bak "s|^TELEGRAM_WEBHOOK_URL=.*|TELEGRAM_WEBHOOK_URL=${{ secrets.TELEGRAM_WEBHOOK_URL }}|" .env 2>/dev/null || true
+              rm -f .env.bak
+              
+              echo "Updated .env file"
             fi
-          EOF
+            
+            # Verify DATABASE_URL is properly formatted
+            echo "Verifying DATABASE_URL format..."
+            if grep -q "^DATABASE_URL=postgresql://" .env; then
+              DB_URL=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2-)
+              # Check if it has the expected structure
+              if echo "$DB_URL" | grep -q "postgresql://.*:.*@db:5432/"; then
+                echo "✓ DATABASE_URL format looks correct"
+                # Show first and last few chars for verification (hide password)
+                echo "  Format: postgresql://USER:***@db:5432/DB"
+              else
+                echo "⚠ Warning: DATABASE_URL format may be incorrect"
+                echo "  Current value (first 50 chars): $(echo "$DB_URL" | cut -c1-50)..."
+              fi
+            else
+              echo "⚠ Error: DATABASE_URL not found or incorrectly formatted"
+              grep "^DATABASE_URL=" .env || echo "DATABASE_URL line not found in .env"
+            fi
+          ENVUPDATE
 
       - name: Check for port conflicts and stop conflicting services
         run: |
