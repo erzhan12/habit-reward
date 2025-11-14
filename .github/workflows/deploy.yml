@@ -151,15 +151,7 @@ jobs:
             
             # Use Python to properly URL-encode the password for DATABASE_URL
             # This handles special characters like @, :, /, #, etc. that could break URL parsing
-            cat > /tmp/encode_password.py << 'PYEOF'
-import urllib.parse
-import sys
-password = sys.argv[1] if len(sys.argv) > 1 else ''
-encoded = urllib.parse.quote(password, safe='')
-sys.stdout.write(encoded)
-PYEOF
-            ENCODED_PASSWORD=$(python3 /tmp/encode_password.py '${{ secrets.POSTGRES_PASSWORD }}')
-            rm -f /tmp/encode_password.py
+            ENCODED_PASSWORD=$(python3 -c "import urllib.parse; import sys; print(urllib.parse.quote(sys.argv[1] if len(sys.argv) > 1 else '', safe=''), end='')" '${{ secrets.POSTGRES_PASSWORD }}')
             
             # Create or update .env file
             if [ ! -f .env ]; then
