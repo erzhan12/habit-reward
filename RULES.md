@@ -670,29 +670,21 @@ DATABASE_URL=postgresql://postgres:3QZ%23C_Jp5ls7W01k@db:5432/habit_reward
 
 The `.github/workflows/deploy.yml` workflow automatically handles URL encoding:
 
-1. **Creates a Python script** (`/tmp/encode_password.py`) that uses `urllib.parse.quote()`
-2. **Reads password from environment variable** (safer than command-line args)
+1. **Reads password from environment variable** (safer than command-line args)
+2. **Uses Python inline command** with `urllib.parse.quote()` to avoid nested heredoc issues
 3. **Encodes with `safe=''`** to encode ALL special characters
 4. **Regenerates .env file** from scratch on every deployment to prevent corruption
 5. **Verifies DATABASE_URL format** before proceeding with deployment
 
-**Key Code Pattern** (`.github/workflows/deploy.yml:154-176`):
+**Key Code Pattern** (`.github/workflows/deploy.yml:154-157`):
 ```bash
-# Create temporary Python script for encoding
-cat > /tmp/encode_password.py << 'PYSCRIPT'
-import urllib.parse
-import os
-password = os.environ.get('DB_PASSWORD', '')
-if password:
-    encoded = urllib.parse.quote(password, safe='')
-    print(encoded, end='')
-PYSCRIPT
-
-# Export password as environment variable
+# Export password as environment variable (safer than command-line args)
 export DB_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}'
 
-# Encode and use in DATABASE_URL
-ENCODED_PASSWORD=$(python3 /tmp/encode_password.py)
+# URL-encode using Python inline command
+ENCODED_PASSWORD=$(python3 -c "import urllib.parse, os; print(urllib.parse.quote(os.environ.get('DB_PASSWORD', ''), safe=''), end='')")
+
+# Use in DATABASE_URL
 printf 'DATABASE_URL=postgresql://%s:%s@db:5432/%s\n' \
   "$POSTGRES_USER" "$ENCODED_PASSWORD" "$POSTGRES_DB"
 ```
