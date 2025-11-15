@@ -3,9 +3,16 @@ set -e
 
 echo "Starting Habit Reward Bot entrypoint script..."
 
+# Fix POSTGRES_PORT if it contains Go template formatting
+if [[ "$POSTGRES_PORT" == *"%!s"* ]]; then
+  export POSTGRES_PORT="5432"
+  echo "Fixed POSTGRES_PORT formatting issue, using port 5432"
+fi
+
 # Wait for PostgreSQL to be ready
 echo "Waiting for PostgreSQL to be ready..."
-until PGPASSWORD=$POSTGRES_PASSWORD psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\q' 2>/dev/null; do
+echo "Connecting to PostgreSQL at $POSTGRES_HOST:${POSTGRES_PORT:-5432} as $POSTGRES_USER"
+until PGPASSWORD=$POSTGRES_PASSWORD psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\q' 2>/dev/null; do
   echo "PostgreSQL is unavailable - sleeping"
   sleep 2
 done
