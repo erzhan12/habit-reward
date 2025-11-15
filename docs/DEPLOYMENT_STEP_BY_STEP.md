@@ -715,7 +715,10 @@
 
 4. **Obtain certificate:**
    ```bash
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot certonly \
+   docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm \
+     --entrypoint certbot \
+     -p 80:80 \
+     certbot certonly \
      --standalone \
      --email your-email@example.com \
      --agree-tos \
@@ -726,6 +729,8 @@
    # - your-email@example.com with your actual email
    # - yourdomain.com with your actual domain
    ```
+   - **Note:** The `--entrypoint certbot` flag is required to override the default entrypoint that runs renewals
+   - **Note:** The `-p 80:80` flag is required to expose port 80 so Let's Encrypt can validate your domain
    - This takes 30-60 seconds
    - You should see "Successfully received certificate"
 
@@ -737,13 +742,15 @@
 6. **Verify HTTPS is working:**
    ```bash
    # On your local machine, open browser:
-   # https://yourdomain.com
+   # https://habitreward.duckdns.org
 
    # Should show secure lock icon
    # May show login page or 404 (this is normal)
    ```
 
-✅ **Checkpoint:** SSL certificate obtained, HTTPS working
+The certificate is stored in the Docker volume and nginx will use it automatically. The certbot container is configured to auto-renew certificates (see the entrypoint in docker-compose.yml), so renewal should happen automatically.
+
+Proceed to Phase 9: Verification & Testing to verify everything is working.
 
 ---
 

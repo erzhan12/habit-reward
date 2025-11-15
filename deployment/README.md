@@ -184,20 +184,38 @@ docker-compose exec db psql -U postgres -d habit_reward -c "SELECT pg_size_prett
 
 ## Environment Variables
 
-All environment variables should be defined in a `.env` file in the deployment directory on the server.
+All environment variables should be defined in a `.env` file. The location depends on how you're running Docker Compose:
 
-See `/Users/erzhan/Data/PROJ/habit_reward/.env.example` for a complete list of required and optional variables.
+- **Production (on server):** `.env` file in the deployment directory (e.g., `/home/deploy/habit_reward_bot/.env`)
+- **Local testing:** `.env` file in the project root (created automatically by `local-test.sh`)
 
-**Required:**
+**Note:** Docker Compose automatically loads `.env` files from the current directory. If you see warnings about missing variables, ensure:
+1. The `.env` file exists in the correct location
+2. You're running docker-compose from the directory containing the `.env` file, OR
+3. Use `--env-file` flag to specify the `.env` file path
+
+**Required variables:**
 - `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
-- `SECRET_KEY`
+- `SECRET_KEY` (generate with: `python3 -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`)
 - `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_URL`
 
-**Optional:**
+**Optional variables:**
 - `DJANGO_SUPERUSER_*` (username, email, password)
 - `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`
 - `LOG_LEVEL`, `SUPPORTED_LANGUAGES`
+
+**Creating .env file:**
+```bash
+# On server (production)
+cd /home/deploy/habit_reward_bot
+# GitHub Actions creates this automatically, or create manually:
+nano .env
+
+# Locally (for testing)
+cd /path/to/habit_reward
+./deployment/scripts/local-test.sh  # Creates .env automatically
+```
 
 ## Ports
 

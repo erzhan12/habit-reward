@@ -202,6 +202,9 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
+# Set ENV_FILE path for docker-compose commands
+ENV_FILE="$(pwd)/.env"
+
 # Load environment variables without triggering shell expansion on secrets
 echo -e "${YELLOW}Loading environment variables...${NC}"
 load_env_file ".env"
@@ -222,7 +225,7 @@ fi
 
 # Pull latest Docker image for web service (skip nginx as it's built locally)
 echo -e "${YELLOW}Pulling latest Docker image for web service...${NC}"
-docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml pull web || {
+docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml pull web || {
     echo -e "${YELLOW}Warning: Could not pull web image (will build locally)${NC}"
 }
 
@@ -233,12 +236,12 @@ ensure_port_available 443 3 2
 
 # Stop and remove old containers (including networks to release ports)
 echo -e "${YELLOW}Stopping existing containers...${NC}"
-docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml down --remove-orphans || true
+docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml down --remove-orphans || true
 
 # Force remove any containers that might still be running (by name pattern)
 echo -e "${YELLOW}Cleaning up any remaining containers...${NC}"
 # Get container names from docker-compose to ensure we catch all
-COMPOSE_PROJECT_NAME=$(docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml config --services 2>/dev/null | head -1 | xargs basename 2>/dev/null || echo "habit_reward")
+COMPOSE_PROJECT_NAME=$(docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml config --services 2>/dev/null | head -1 | xargs basename 2>/dev/null || echo "habit_reward")
 docker ps -a --filter "name=${COMPOSE_PROJECT_NAME}" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
 # Also check for containers with our specific names
 for container_name in habit_reward_nginx habit_reward_web habit_reward_db habit_reward_certbot; do
@@ -279,7 +282,7 @@ docker image prune -f || true
 
 # Build nginx image locally (since it's not in a registry)
 echo -e "${YELLOW}Building nginx image...${NC}"
-docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml build nginx
+docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml build nginx
 
 # Final port check right before starting containers (critical!)
 echo -e "${YELLOW}Final port check before starting containers...${NC}"
@@ -303,9 +306,9 @@ done
 # Start new containers (web will use pulled image if available, nginx uses built image)
 echo -e "${YELLOW}Starting new containers...${NC}"
 # Start containers one by one to catch port conflicts early
-docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d db certbot web || {
+docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d db certbot web || {
     echo -e "${RED}Failed to start db/certbot/web containers${NC}"
-    docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
+    docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
     exit 1
 }
 
@@ -313,15 +316,15 @@ docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up
 sleep 2
 
 # Start nginx last (since it needs ports 80/443)
-docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d nginx || {
+docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d nginx || {
     echo -e "${RED}Failed to start nginx container - checking port status...${NC}"
     ensure_port_available 80 3 1
     ensure_port_available 443 3 1
     echo -e "${YELLOW}Retrying nginx startup...${NC}"
-    docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d nginx || {
+    docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d nginx || {
         echo -e "${RED}Failed to start nginx after retry${NC}"
-        docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
-        docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs nginx
+        docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
+        docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs nginx
         exit 1
     }
 }
@@ -332,34 +335,34 @@ sleep 10
 
 # Check container status
 echo -e "${YELLOW}Checking container status...${NC}"
-docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
+docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
 
 # Show logs (last 50 lines)
 echo -e "${YELLOW}Recent logs from web container:${NC}"
-docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs --tail=50 web
+docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs --tail=50 web
 
 # Verify deployment
 echo -e "${YELLOW}Verifying deployment...${NC}"
 
 # Check if web container is running
-WEB_RUNNING=$(docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps -q web)
+WEB_RUNNING=$(docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps -q web)
 if [ -z "$WEB_RUNNING" ]; then
     echo -e "${RED}Error: Web container is not running!${NC}"
-    docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs web
+    docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs web
     exit 1
 fi
 
 # Check if database container is running
-DB_RUNNING=$(docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps -q db)
+DB_RUNNING=$(docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps -q db)
 if [ -z "$DB_RUNNING" ]; then
     echo -e "${RED}Error: Database container is not running!${NC}"
-    docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs db
+    docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs db
     exit 1
 fi
 
 # Test database connection
 echo -e "${YELLOW}Testing database connection...${NC}"
-docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec -T web python manage.py check --database default || {
+docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec -T web python manage.py check --database default || {
     echo -e "${RED}Error: Database connection failed!${NC}"
     exit 1
 }
@@ -367,7 +370,7 @@ docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ex
 # Check webhook status (if configured)
 if [ -n "$TELEGRAM_WEBHOOK_URL" ]; then
     echo -e "${YELLOW}Verifying Telegram webhook...${NC}"
-    docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec -T web python -c "
+    docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec -T web python -c "
 import asyncio
 from telegram import Bot
 
@@ -393,7 +396,7 @@ echo -e "${GREEN}Deployment completed successfully!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Web container: Running${NC}"
 echo -e "${GREEN}Database container: Running${NC}"
-echo -e "${YELLOW}Monitor logs with: docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs -f${NC}"
-echo -e "${YELLOW}Stop services with: docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml down${NC}"
+echo -e "${YELLOW}Monitor logs with: docker-compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs -f${NC}"
+echo -e "${YELLOW}Stop services with: docker-compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml down${NC}"
 
 exit 0
