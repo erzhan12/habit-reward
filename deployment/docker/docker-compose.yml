@@ -89,7 +89,7 @@ services:
   nginx:
     image: habit_reward_nginx:latest
     build:
-      context: ../nginx
+      context: ./nginx
       dockerfile: Dockerfile
     container_name: habit_reward_nginx
     restart: unless-stopped
@@ -99,8 +99,8 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ../nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - static_files:/app/staticfiles:ro
       - certbot_data:/etc/letsencrypt
       - certbot_www:/var/www/certbot
