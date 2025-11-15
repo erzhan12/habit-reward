@@ -89,7 +89,7 @@ services:
   nginx:
     image: habit_reward_nginx:latest
     build:
-      context: ./nginx
+      context: ../nginx
       dockerfile: Dockerfile
     container_name: habit_reward_nginx
     restart: unless-stopped
