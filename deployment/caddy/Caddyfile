@@ -15,8 +15,8 @@ habitreward.duckdns.org {
         health_timeout 10s
     }
 
-    # Static files (optional - Django can serve via WhiteNoise)
-    handle /static/* {
+    # Static files
+    handle_path /static/* {
         root * /app/staticfiles
         file_server
     }
