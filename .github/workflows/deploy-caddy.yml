@@ -34,6 +34,14 @@ jobs:
         run: |
           uv pip install --system ".[dev]"
 
+      - name: Run Django migrations
+        run: python manage.py migrate --noinput
+        env:
+          SECRET_KEY: test-secret-key-for-ci
+          DATABASE_URL: sqlite:///test.db
+          TELEGRAM_BOT_TOKEN: test-token-not-real
+          DEBUG: "True"
+
       - name: Run tests
         run: pytest tests/ -v
         env:
