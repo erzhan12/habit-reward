@@ -120,12 +120,12 @@ jobs:
 
       - name: Create .env file on server
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'ENVSETUP'
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << ENVSETUP
             cd ${{ secrets.DEPLOY_PATH }}
 
             # Backup existing .env if it exists
             if [ -f .env ]; then
-              cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
+              cp .env .env.backup.\$(date +%Y%m%d_%H%M%S)
             fi
 
             # Create new .env file
