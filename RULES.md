@@ -592,6 +592,80 @@ from src.core.repositories import user_repository, habit_repository, ...
 
 These are singleton instances defined at the bottom of the repository file.
 
+## Pydantic Settings Configuration
+
+**CRITICAL**: When using Pydantic Settings with list-type fields that need to accept comma-separated environment variables, use a `@model_validator` to handle parsing.
+
+### The Problem
+
+Pydantic Settings tries to JSON-parse environment variables for complex types like `list[str]`. When environment variables are set as comma-separated strings (e.g., `SUPPORTED_LANGUAGES=en,ru,kk`), this causes a `JSONDecodeError`.
+
+**Error Example**:
+```python
+# In settings class
+supported_languages: list[str] = ["en", "ru", "kk"]
+
+# In docker-compose.yml or .env
+SUPPORTED_LANGUAGES=en,ru,kk  # Comma-separated string
+
+# Result: JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+```
+
+### The Solution: Model Validator Pattern
+
+Use a union type (`str | list[str]`) with a `@model_validator` to handle both formats:
+
+```python
+from pydantic import model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    # Accept both string and list formats
+    supported_languages: str | list[str] = ["en", "ru", "kk"]
+
+    @model_validator(mode="after")
+    def parse_supported_languages(self):
+        """Parse comma-separated string to list for supported_languages."""
+        if isinstance(self.supported_languages, str):
+            # Split comma-separated string and strip whitespace
+            self.supported_languages = [
+                lang.strip() for lang in self.supported_languages.split(",") if lang.strip()
+            ]
+        return self
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore"
+    )
+```
+
+### Supported Formats
+
+This pattern supports multiple input formats:
+- **Default value**: `["en", "ru", "kk"]` (list)
+- **Comma-separated**: `SUPPORTED_LANGUAGES=en,ru,kk` (string)
+- **With spaces**: `SUPPORTED_LANGUAGES=en, ru, kk` (string with spaces)
+- **Single value**: `SUPPORTED_LANGUAGES=en` (single item)
+- **JSON array**: `SUPPORTED_LANGUAGES=["en","ru","kk"]` (JSON - if needed)
+
+### Why @model_validator Instead of @field_validator?
+
+Pydantic Settings' `EnvSettingsSource` processes environment variables BEFORE field validators run. For complex types, it attempts JSON parsing first, which fails with comma-separated strings. A `@model_validator(mode="after")` runs AFTER all fields are loaded, allowing custom parsing logic.
+
+### Files Affected
+
+**Bug Fix** (2025-11-16):
+- **Error**: Application failed to start with `SettingsError: error parsing value for field "supported_languages"`
+- **Root Cause**: Docker environment set `SUPPORTED_LANGUAGES=en,ru,kk` but Pydantic expected JSON format
+- **Fix**: Added `@model_validator` to `src/config.py:38-46` to parse comma-separated strings
+
+**Files modified**:
+- `src/config.py:3` - Added `model_validator` import
+- `src/config.py:35` - Changed type to `str | list[str]`
+- `src/config.py:38-46` - Added `parse_supported_languages()` model validator
+
 ## Django Configuration
 
 **CRITICAL**: All Django configuration is centralized in `src/habit_reward_project/settings.py`. Environment-specific settings use environment variables.

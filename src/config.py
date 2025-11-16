@@ -1,5 +1,6 @@
 """Configuration management using pydantic-settings."""
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,8 +32,18 @@ class Settings(BaseSettings):
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
     # i18n Configuration
-    supported_languages: list[str] = ["en", "ru", "kk"]
+    supported_languages: str | list[str] = ["en", "ru", "kk"]
     default_language: str = "en"
+
+    @model_validator(mode="after")
+    def parse_supported_languages(self):
+        """Parse comma-separated string to list for supported_languages."""
+        if isinstance(self.supported_languages, str):
+            # Split comma-separated string and strip whitespace
+            self.supported_languages = [
+                lang.strip() for lang in self.supported_languages.split(",") if lang.strip()
+            ]
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",
