@@ -1851,3 +1851,139 @@ docker run --rm \
 2. **Simpler deployment** - One less service to manage
 3. **Sufficient frequency** - Certificates last 90 days, manual renewal every 60 days is acceptable
 4. **Deployment portability** - Works on servers with limited resources
+
+## Simplified Deployment with Caddy (Recommended)
+
+**Date**: 2025-11-16
+**Status**: Preferred deployment method
+
+As an alternative to the nginx-based deployment, a simplified 2-container setup using Caddy is available. This approach eliminates manual SSL certificate management and simplifies the deployment process.
+
+### Architecture
+
+**Containers**:
+1. **Web**: Django + Telegram Bot + SQLite (single application container)
+2. **Caddy**: Automatic HTTPS reverse proxy
+
+### Key Benefits
+
+1. **Automatic SSL**: Caddy obtains and renews Let's Encrypt certificates automatically
+2. **No Manual Certificate Management**: No certbot commands or renewal scripts needed
+3. **Simpler Configuration**: 15-line Caddyfile vs 100+ line nginx config
+4. **Bind Mounts for Data**: Database at explicit path `/home/deploy/habit_reward_bot/data/db.sqlite3`
+5. **SQLite Database**: Single-file database, easy backups with simple `cp` command
+6. **No Port Conflicts**: Caddy handles both HTTP/HTTPS cleanly in one container
+
+### Files
+
+**Deployment Files**:
+- `deployment/caddy/Caddyfile` - Caddy configuration (automatic HTTPS)
+- `deployment/docker/docker-compose.caddy.yml` - 2-service compose file
+- `deployment/docker/Dockerfile.simple` - Optimized multi-stage Dockerfile
+- `deployment/scripts/deploy-caddy.sh` - Manual deployment script
+- `.env.caddy.example` - Environment variables template
+
+**CI/CD**:
+- `.github/workflows/deploy-caddy.yml` - Automated deployment workflow
+
+### Deployment Commands
+
+**First-time deployment**:
+```bash
+# On VPS
+cd /home/deploy/habit_reward_bot
+mkdir -p data staticfiles
+cd docker
+docker-compose --env-file ../.env -f docker-compose.caddy.yml up -d
+```
+
+**Updates** (automatic via GitHub Actions):
+```bash
+git push origin main  # Triggers automatic build and deployment
+```
+
+**Manual deployment**:
+```bash
+cd /home/deploy/habit_reward_bot
+./deployment/scripts/deploy-caddy.sh
+```
+
+### Data Persistence
+
+**Bind Mounts** (explicit host paths):
+```yaml
+volumes:
+  - ./data:/app/data              # SQLite database
+  - ./staticfiles:/app/staticfiles  # Static files
+```
+
+**Database Location**: `/home/deploy/habit_reward_bot/data/db.sqlite3`
+
+**Backup Strategy**:
+```bash
+# Simple file copy (no Docker commands needed)
+cp data/db.sqlite3 backups/db_$(date +%Y%m%d).sqlite3
+```
+
+**Important**: Data persists across container rebuilds because bind mounts are independent of container images.
+
+### SSL Certificate Management
+
+**Fully Automatic**:
+- Caddy obtains SSL certificate on first HTTPS request
+- Auto-renewal happens 30 days before expiry
+- No manual intervention required
+- Certificates stored in `caddy_data` Docker volume
+
+**Verification**:
+```bash
+# Check SSL certificate
+echo | openssl s_client -servername habitreward.duckdns.org \
+  -connect habitreward.duckdns.org:443 2>/dev/null | \
+  openssl x509 -noout -dates
+```
+
+### Comparison: nginx vs Caddy
+
+| Aspect | nginx (Old) | Caddy (New) |
+|--------|------------|-------------|
+| Containers | 3 (db, web, nginx) | 2 (web, caddy) |
+| SSL Setup | Manual certbot | Automatic |
+| SSL Renewal | Manual commands | Automatic |
+| Config Lines | 100+ | 15 |
+| Database | PostgreSQL | SQLite |
+| Backup | pg_dump | File copy |
+| Port Conflicts | Had issues | None |
+
+### Migration from nginx to Caddy
+
+See detailed plan: `docs/simple-deployment/PLAN.md`
+
+**Quick migration**:
+1. Backup PostgreSQL data: `docker-compose exec db pg_dump...`
+2. Stop old containers: `docker-compose down`
+3. Start Caddy setup: `docker-compose -f docker-compose.caddy.yml up -d`
+4. Caddy automatically provisions SSL certificate
+
+### When to Use nginx vs Caddy
+
+**Use Caddy (Recommended)**:
+- New deployments
+- Simplicity is priority
+- Don't want to manage SSL manually
+- Low to medium traffic (< 1000 requests/min)
+
+**Use nginx**:
+- Already deployed and working
+- Need advanced nginx features (rate limiting, complex routing)
+- Very high traffic requirements
+- Prefer PostgreSQL over SQLite
+
+**Files Modified** (Feature: Simplified Caddy Deployment):
+- Added `deployment/caddy/Caddyfile` - Caddy configuration
+- Added `deployment/docker/docker-compose.caddy.yml` - 2-container setup
+- Added `deployment/docker/Dockerfile.simple` - Optimized Dockerfile
+- Added `.github/workflows/deploy-caddy.yml` - Automated CI/CD
+- Added `.env.caddy.example` - Environment template
+- Added `deployment/scripts/deploy-caddy.sh` - Manual deployment
+- Added `docs/simple-deployment/PLAN.md` - Detailed implementation plan

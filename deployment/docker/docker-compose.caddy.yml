@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # Django Application + Telegram Bot
+  web:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile.simple
+    container_name: habit_reward_web
+    restart: unless-stopped
+
+    environment:
+      # Django Configuration
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-habitreward.duckdns.org}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-https://habitreward.duckdns.org}
+
+      # Database (SQLite for simplicity)
+      DATABASE_URL: sqlite:////app/data/db.sqlite3
+
+      # Telegram Bot Configuration
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://habitreward.duckdns.org/webhook/telegram}
+
+      # Optional: Django Superuser (created on first run)
+      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-admin}
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-admin@example.com}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-}
+
+      # Optional: AI/LLM Configuration
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_MODEL: ${LLM_MODEL:-gpt-3.5-turbo}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+
+      # Optional: Application Settings
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SUPPORTED_LANGUAGES: ${SUPPORTED_LANGUAGES:-en,ru,kk}
+      STREAK_MULTIPLIER_RATE: ${STREAK_MULTIPLIER_RATE:-0.1}
+
+    volumes:
+      # Persist SQLite database (bind mount for easy access)
+      - ./data:/app/data
+      # Persist static files (bind mount for easy access)
+      - ./staticfiles:/app/staticfiles
+
+    # Don't expose port to host (Caddy handles this)
+    expose:
+      - "8000"
+
+    networks:
+      - habit_reward_network
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/admin/login/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Caddy Reverse Proxy with Automatic SSL
+  caddy:
+    image: caddy:2-alpine
+    container_name: habit_reward_caddy
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+
+    ports:
+      - "80:80"       # HTTP
+      - "443:443"     # HTTPS
+      - "443:443/udp" # HTTP/3 (QUIC)
+
+    volumes:
+      # Caddy configuration
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Persistent SSL certificates and config (named volumes for Caddy-managed data)
+      - caddy_data:/data
+      - caddy_config:/config
+      # Static files (bind mount, same as web container)
+      - ./staticfiles:/app/staticfiles:ro
+      # Logs
+      - caddy_logs:/var/log/caddy
+
+    networks:
+      - habit_reward_network
+
+    environment:
+      - DOMAIN=${DOMAIN:-habitreward.duckdns.org}
+
+volumes:
+  # Note: app_data and static_files use bind mounts (./data and ./staticfiles)
+  # Only Caddy-managed volumes are defined here
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+  caddy_logs:
+    driver: local
+
+networks:
+  habit_reward_network:
+    driver: bridge

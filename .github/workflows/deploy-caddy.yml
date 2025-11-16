@@ -1,0 +1,239 @@
+name: Build and Deploy (Caddy)
+
+on:
+  push:
+    branches:
+      - main
+      - simple-caddy-deploy  # Also deploy from feature branch for testing
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: uv pip install --system -r pyproject.toml
+
+      - name: Run tests
+        run: pytest tests/ -v
+        env:
+          SECRET_KEY: test-secret-key-for-ci
+          DATABASE_URL: sqlite:///test.db
+          TELEGRAM_BOT_TOKEN: test-token-not-real
+          DEBUG: "True"
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./deployment/docker/Dockerfile.simple
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/simple-caddy-deploy'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create deployment directory
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'SETUP'
+            mkdir -p ${{ secrets.DEPLOY_PATH }}
+            mkdir -p ${{ secrets.DEPLOY_PATH }}/data
+            mkdir -p ${{ secrets.DEPLOY_PATH }}/staticfiles
+          SETUP
+
+      - name: Copy deployment files to server
+        run: |
+          tar czf - -C deployment . | ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} \
+            "cd ${{ secrets.DEPLOY_PATH }} && tar xzf -"
+
+      - name: Create .env file on server
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'ENVSETUP'
+            cd ${{ secrets.DEPLOY_PATH }}
+
+            # Backup existing .env if it exists
+            if [ -f .env ]; then
+              cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
+            fi
+
+            # Create new .env file
+            cat > .env << 'EOF'
+# Django Configuration
+SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+DEBUG=False
+ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
+CSRF_TRUSTED_ORIGINS=${{ secrets.CSRF_TRUSTED_ORIGINS }}
+
+# Database (SQLite for simplicity)
+DATABASE_URL=sqlite:////app/data/db.sqlite3
+
+# Telegram Bot
+TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+TELEGRAM_WEBHOOK_URL=${{ secrets.TELEGRAM_WEBHOOK_URL }}
+
+# Superuser (created on first run if not exists)
+DJANGO_SUPERUSER_USERNAME=${{ secrets.DJANGO_SUPERUSER_USERNAME }}
+DJANGO_SUPERUSER_EMAIL=${{ secrets.DJANGO_SUPERUSER_EMAIL }}
+DJANGO_SUPERUSER_PASSWORD=${{ secrets.DJANGO_SUPERUSER_PASSWORD }}
+
+# Docker Configuration
+DOCKER_REGISTRY=${{ env.REGISTRY }}
+DOCKER_IMAGE_NAME=${{ env.IMAGE_NAME }}
+IMAGE_TAG=latest
+
+# Domain
+DOMAIN=habitreward.duckdns.org
+
+# Optional: LLM/AI Configuration
+LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
+LLM_MODEL=${{ secrets.LLM_MODEL }}
+LLM_API_KEY=${{ secrets.LLM_API_KEY }}
+
+# Application Settings
+LOG_LEVEL=INFO
+SUPPORTED_LANGUAGES=en,ru,kk
+STREAK_MULTIPLIER_RATE=0.1
+EOF
+
+            echo "✅ .env file created successfully"
+          ENVSETUP
+
+      - name: Deploy containers with Caddy
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'DEPLOY'
+            cd ${{ secrets.DEPLOY_PATH }}
+
+            # Login to GitHub Container Registry
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull latest application image
+            docker-compose --env-file .env -f docker/docker-compose.caddy.yml pull web
+
+            # Stop existing containers gracefully
+            docker-compose --env-file .env -f docker/docker-compose.caddy.yml down --timeout 30
+
+            # Start new containers
+            docker-compose --env-file .env -f docker/docker-compose.caddy.yml up -d
+
+            # Wait for services to be ready
+            echo "Waiting for containers to start..."
+            sleep 15
+
+            # Show container status
+            echo "Container Status:"
+            docker-compose --env-file .env -f docker/docker-compose.caddy.yml ps
+          DEPLOY
+
+      - name: Verify deployment health
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'VERIFY'
+            cd ${{ secrets.DEPLOY_PATH }}
+
+            echo "Checking container logs:"
+            docker-compose --env-file .env -f docker/docker-compose.caddy.yml logs --tail=30 web
+            docker-compose --env-file .env -f docker/docker-compose.caddy.yml logs --tail=30 caddy
+
+            echo "Checking container health:"
+            docker inspect habit_reward_web --format='{{.State.Health.Status}}' || echo "Health check not available yet"
+          VERIFY
+
+  health-check:
+    name: Health Check (HTTPS)
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/simple-caddy-deploy'
+
+    steps:
+      - name: Wait for services to stabilize
+        run: sleep 30
+
+      - name: Check HTTPS endpoint
+        run: |
+          echo "Testing HTTPS endpoint..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://habitreward.duckdns.org/admin/login/ || echo "000")
+
+          if [ "$STATUS" == "200" ] || [ "$STATUS" == "302" ]; then
+            echo "✅ HTTPS is working! (HTTP $STATUS)"
+          else
+            echo "⚠️ Warning: Unexpected HTTP status: $STATUS"
+            echo "This might be normal on first deployment (SSL cert provisioning)"
+            # Don't fail the workflow - Caddy might still be provisioning cert
+          fi
+
+      - name: Check SSL certificate
+        run: |
+          echo "Checking SSL certificate..."
+          echo | openssl s_client -servername habitreward.duckdns.org -connect habitreward.duckdns.org:443 2>/dev/null | \
+            openssl x509 -noout -dates || echo "SSL cert not ready yet (will be provisioned automatically)"
