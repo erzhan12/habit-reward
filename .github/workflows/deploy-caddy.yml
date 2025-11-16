@@ -118,6 +118,50 @@ jobs:
           tar czf - -C deployment . | ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} \
             "cd ${{ secrets.DEPLOY_PATH }} && tar xzf -"
 
+      - name: Create .env file from secrets
+        run: |
+          cat > .env << EOF
+          # Django Configuration
+          SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+          DEBUG=False
+          ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
+          CSRF_TRUSTED_ORIGINS=${{ secrets.CSRF_TRUSTED_ORIGINS }}
+
+          # Database (SQLite for simplicity)
+          DATABASE_URL=sqlite:////app/data/db.sqlite3
+
+          # Telegram Bot
+          TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_URL=${{ secrets.TELEGRAM_WEBHOOK_URL }}
+
+          # Superuser (created on first run if not exists)
+          DJANGO_SUPERUSER_USERNAME=${{ secrets.DJANGO_SUPERUSER_USERNAME }}
+          DJANGO_SUPERUSER_EMAIL=${{ secrets.DJANGO_SUPERUSER_EMAIL }}
+          DJANGO_SUPERUSER_PASSWORD=${{ secrets.DJANGO_SUPERUSER_PASSWORD }}
+
+          # Docker Configuration
+          DOCKER_REGISTRY=${{ env.REGISTRY }}
+          DOCKER_IMAGE_NAME=${{ env.IMAGE_NAME }}
+          IMAGE_TAG=latest
+
+          # Domain
+          DOMAIN=habitreward.duckdns.org
+
+          # Optional: LLM/AI Configuration
+          LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
+          LLM_MODEL=${{ secrets.LLM_MODEL }}
+          LLM_API_KEY=${{ secrets.LLM_API_KEY }}
+
+          # Application Settings
+          LOG_LEVEL=INFO
+          SUPPORTED_LANGUAGES=en,ru,kk
+          STREAK_MULTIPLIER_RATE=0.1
+          EOF
+
+      - name: Copy .env file to server
+        run: |
+          scp .env ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.DEPLOY_PATH }}/.env
+
       - name: Deploy containers with Caddy
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'DEPLOY'
