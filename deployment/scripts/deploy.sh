@@ -244,7 +244,7 @@ echo -e "${YELLOW}Cleaning up any remaining containers...${NC}"
 COMPOSE_PROJECT_NAME=$(docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml config --services 2>/dev/null | head -1 | xargs basename 2>/dev/null || echo "habit_reward")
 docker ps -a --filter "name=${COMPOSE_PROJECT_NAME}" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
 # Also check for containers with our specific names
-for container_name in habit_reward_nginx habit_reward_web habit_reward_db habit_reward_certbot; do
+for container_name in habit_reward_nginx habit_reward_web habit_reward_db; do
     docker ps -a --filter "name=^${container_name}$" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
 done
 
@@ -306,8 +306,8 @@ done
 # Start new containers (web will use pulled image if available, nginx uses built image)
 echo -e "${YELLOW}Starting new containers...${NC}"
 # Start containers one by one to catch port conflicts early
-docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d db certbot web || {
-    echo -e "${RED}Failed to start db/certbot/web containers${NC}"
+docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d db web || {
+    echo -e "${RED}Failed to start db/web containers${NC}"
     docker-compose --env-file "$ENV_FILE" -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
     exit 1
 }

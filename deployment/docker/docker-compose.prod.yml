@@ -98,7 +98,3 @@ services:
         reservations:
           cpus: '0.25'
           memory: 128M
-
-  certbot:
-    # Production certbot always enabled
-    restart: always

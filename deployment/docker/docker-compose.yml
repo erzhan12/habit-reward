@@ -108,17 +108,8 @@ services:
       - habit_reward_network
     command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
 
-  # Certbot for SSL certificates (Let's Encrypt)
-  certbot:
-    image: certbot/certbot:latest
-    container_name: habit_reward_certbot
-    restart: unless-stopped
-    volumes:
-      - certbot_data:/etc/letsencrypt
-      - certbot_www:/var/www/certbot
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
-    networks:
-      - habit_reward_network
+  # NOTE: Certbot is not run as a service - use manual commands for SSL certificate management
+  # See deployment documentation for certificate issuance and renewal instructions
 
 volumes:
   postgres_data:
