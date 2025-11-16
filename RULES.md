@@ -1799,3 +1799,55 @@ For steps where users type text (habit name input), keep the `/cancel` command a
 2. **Consistency** - Inline buttons match the rest of the conversation flow
 3. **Clear exit path** - Obvious way to abort operation at any step
 4. **Direct navigation** - Returns user directly to Habits menu (not just ending conversation)
+
+## Docker Deployment Configuration
+
+**CRITICAL**: Certbot is NOT run as a continuous service to avoid port conflicts with nginx.
+
+### Port Conflict Issue (Fixed 2025-11-16)
+
+**Problem**: The `certbot/certbot` Docker image exposes ports 80/443 internally, which caused conflicts when nginx tried to bind to the same ports. This prevented nginx from starting even though certbot wasn't publishing ports to the host.
+
+**Solution**: Removed certbot service from docker-compose files. SSL certificates should be managed manually when needed.
+
+**SSL Certificate Management**:
+
+**Initial certificate issuance** (one-time):
+```bash
+# Stop nginx temporarily
+cd /home/deploy/habit_reward_bot/docker
+docker-compose --env-file ../.env -f docker-compose.yml -f docker-compose.prod.yml stop nginx
+
+# Obtain certificate using standalone mode
+docker run --rm -p 80:80 \
+  -v certbot_data:/etc/letsencrypt \
+  certbot/certbot certonly \
+  --standalone \
+  --email your-email@example.com \
+  --agree-tos \
+  --no-eff-email \
+  -d yourdomain.com
+
+# Start nginx again
+docker-compose --env-file ../.env -f docker-compose.yml -f docker-compose.prod.yml start nginx
+```
+
+**Certificate renewal** (every ~60 days):
+```bash
+# Nginx should be running (uses webroot method)
+docker run --rm \
+  -v certbot_data:/etc/letsencrypt \
+  -v certbot_www:/var/www/certbot \
+  certbot/certbot renew
+```
+
+**Files Modified** (Fix: Certbot Port Conflict):
+- `deployment/docker/docker-compose.yml` - Removed certbot service definition
+- `deployment/docker/docker-compose.prod.yml` - Removed certbot service overrides
+- `deployment/scripts/deploy.sh` - Removed certbot from startup and cleanup commands
+
+**Why Manual Certbot**:
+1. **No port conflicts** - Certbot doesn't compete with nginx for ports 80/443
+2. **Simpler deployment** - One less service to manage
+3. **Sufficient frequency** - Certificates last 90 days, manual renewal every 60 days is acceptable
+4. **Deployment portability** - Works on servers with limited resources
