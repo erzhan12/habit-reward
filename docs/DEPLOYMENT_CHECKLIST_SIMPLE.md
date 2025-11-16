@@ -87,18 +87,18 @@ Go to Settings → Secrets and variables → Actions → New repository secret
 - [ ] All checks green ✅
 
 ## ☐ Phase 8: SSL Certificate (10 min)
-- [ ] SSH to VPS: `ssh -i ~/.ssh/do_habit_bot deploy@YOUR_IP`
-- [ ] Navigate: `cd /home/deploy/habit_reward_bot/docker`
-- [ ] Verify DNS: `ping yourdomain.com`
-- [ ] Stop nginx: `docker-compose -f docker-compose.yml -f docker-compose.prod.yml stop nginx`
-- [ ] Get certificate: (see full guide for certbot command)
-- [ ] Start nginx: `docker-compose -f docker-compose.yml -f docker-compose.prod.yml start nginx`
-- [ ] Test HTTPS: Open `https://yourdomain.com` (should show lock icon)
+- [X] SSH to VPS: `ssh -i ~/.ssh/do_habit_bot deploy@YOUR_IP`
+- [X] Navigate: `cd /home/deploy/habit_reward_bot/docker`
+- [X] Verify DNS: `ping yourdomain.com`
+- [X] Stop nginx: `docker-compose -f docker-compose.yml -f docker-compose.prod.yml stop nginx`
+- [X] Get certificate: (see full guide for certbot command)
+- [X] Start nginx: `docker-compose -f docker-compose.yml -f docker-compose.prod.yml start nginx`
+- [X] Test HTTPS: Open `https://yourdomain.com` (should show lock icon)
 
 ## ☐ Phase 9: Verify (10 min)
-- [ ] Check containers: `docker-compose ps` (all should show "Up")
-- [ ] Check logs: `docker-compose logs web` (no errors)
-- [ ] Access admin: `https://yourdomain.com/admin/`
+- [X] Check containers: `docker-compose ps` (all should show "Up")
+- [X] Check logs: `docker-compose logs web` (no errors)
+- [X] Access admin: `https://yourdomain.com/admin/`
 - [ ] Login with superuser credentials
 - [ ] Open Telegram, find your bot
 - [ ] Send `/start` to bot

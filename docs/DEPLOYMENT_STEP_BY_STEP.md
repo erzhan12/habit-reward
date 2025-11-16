@@ -762,24 +762,24 @@ Proceed to Phase 9: Verification & Testing to verify everything is working.
    ```bash
    ssh -i ~/.ssh/do_habit_bot deploy@YOUR_IP
    cd /home/deploy/habit_reward_bot/docker
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+   docker-compose --env-file ../.env  -f docker-compose.yml -f docker-compose.prod.yml ps
    ```
    - All containers should show "Up" status
    - If any show "Exit" or "Restarting", check logs:
      ```bash
-     docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs <service-name>
+     docker-compose --env-file ../.env -f docker-compose.yml -f docker-compose.prod.yml logs <service-name>
      ```
 
 2. **Check web container logs:**
    ```bash
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs web
+   docker-compose --env-file ../.env -f docker-compose.yml -f docker-compose.prod.yml logs web
    ```
    - Should see "Uvicorn running" or similar
    - No red ERROR messages
 
 3. **Check database:**
    ```bash
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec db psql -U postgres -d habit_reward -c "SELECT COUNT(*) FROM core_user;"
+   docker-compose --env-file ../.env -f docker-compose.yml -f docker-compose.prod.yml exec db psql -U postgres -d habit_reward -c "SELECT COUNT(*) FROM users;"
    ```
    - Should return a count (even if 0)
    - No connection errors
@@ -807,7 +807,7 @@ Proceed to Phase 9: Verification & Testing to verify everything is working.
    ```bash
    # On VPS:
    cd /home/deploy/habit_reward_bot/docker
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python -c "
+   docker-compose --env-file ../.env -f docker-compose.yml -f docker-compose.prod.yml exec web python -c "
    import asyncio
    from telegram import Bot
 
@@ -859,7 +859,7 @@ Proceed to Phase 9: Verification & Testing to verify everything is working.
    mkdir -p $BACKUP_DIR
    cd /home/deploy/habit_reward_bot/docker
 
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db \
+   docker-compose --env-file ../.env  -f docker-compose.yml -f docker-compose.prod.yml exec -T db \
      pg_dump -U postgres habit_reward > $BACKUP_DIR/backup_$DATE.sql
 
    # Keep only last 7 days
@@ -929,10 +929,10 @@ df -h
 
 # Check container health
 cd /home/deploy/habit_reward_bot/docker
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+docker-compose --env-file ../.env -f docker-compose.yml -f docker-compose.prod.yml ps
 
 # Check logs for errors
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=100
+docker-compose --env-file ../.env  -f docker-compose.yml -f docker-compose.prod.yml logs --tail=100
 ```
 
 ### Monthly Tasks (10 minutes)
@@ -994,7 +994,7 @@ docker-compose logs certbot
 **Solution:**
 ```bash
 # Check webhook:
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python -c "
+docker-compose --env-file ../.env  -f docker-compose.yml -f docker-compose.prod.yml exec web python -c "
 import asyncio
 from telegram import Bot
 async def check():
