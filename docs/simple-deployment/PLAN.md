@@ -81,15 +81,21 @@ This plan replaces the current complex 3-container deployment (PostgreSQL + Djan
 │  │  habit_reward_web (Port 8000)           │  │
 │  │  - Django + Uvicorn                     │  │
 │  │  - Telegram Bot (webhook)               │  │
-│  │  - SQLite database (persistent volume)  │  │
+│  │  - SQLite database (bind mount)         │  │
+│  │    └─> /home/deploy/.../data/db.sqlite3│  │
 │  │  - All-in-one application container     │  │
 │  └─────────────────────────────────────────┘  │
+│                                                 │
+│  Data Persistence (Bind Mounts):                │
+│  - ./data → /app/data (SQLite database)        │
+│  - ./staticfiles → /app/staticfiles             │
 │                                                 │
 │  Benefits:                                      │
 │  - Automatic HTTPS (zero config)               │
 │  - No port conflicts                           │
-│  - Simple backup (one file)                    │
+│  - Simple backup (direct file copy)            │
 │  - Faster deployments                          │
+│  - Data survives container rebuilds            │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -137,6 +143,60 @@ This plan replaces the current complex 3-container deployment (PostgreSQL + Djan
 5. **Easy Migration Path**
    - Can switch to PostgreSQL later if needed
    - Django supports both transparently
+
+### Why Bind Mounts for Data Persistence?
+
+This plan uses **bind mounts** instead of Docker named volumes for application data, providing explicit control and transparency.
+
+**Bind Mounts** (Used in this plan):
+```yaml
+volumes:
+  - ./data:/app/data                    # Host path : Container path
+  - ./staticfiles:/app/staticfiles
+```
+
+**Benefits:**
+1. **Explicit Location**: Data is at `/home/deploy/habit_reward_bot/data/db.sqlite3`
+2. **Easy Access**: Can directly view/edit files on host: `ls data/`
+3. **Simple Backups**: Just `cp data/db.sqlite3 backups/`
+4. **Transparent**: You can see exactly where your data is
+5. **Version Control Friendly**: Can add `data/` to `.gitignore`
+6. **Direct Debugging**: Can inspect database file without Docker commands
+
+**What Happens on Container Rebuild:**
+```
+┌─────────────────────────────────────────────┐
+│ 1. Push code to GitHub                     │
+│ 2. GitHub Actions builds NEW image         │
+│ 3. docker-compose down (removes container) │
+│ 4. docker-compose up (new container)       │
+│ 5. Bind mount REATTACHES same host files   │
+│ ✅ Data in ./data/db.sqlite3 persists!     │
+└─────────────────────────────────────────────┘
+```
+
+**Data Location on VPS:**
+```
+/home/deploy/habit_reward_bot/
+├── data/
+│   └── db.sqlite3          ← SQLite database (persists)
+├── staticfiles/
+│   └── *.css, *.js, etc.   ← Static files (persists)
+├── docker/
+│   └── docker-compose.caddy.yml
+└── .env
+```
+
+**Backup Strategy:**
+```bash
+# Simple file copy (no Docker commands needed)
+cp data/db.sqlite3 backups/db_$(date +%Y%m%d).sqlite3
+
+# Or use rsync for incremental backups
+rsync -av data/ backups/data_$(date +%Y%m%d)/
+```
+
+**Note**: Caddy SSL certificates still use named volumes (`caddy_data`, `caddy_config`) because they're managed entirely by Caddy and don't need direct host access.
 
 ---
 
@@ -301,10 +361,10 @@ services:
       STREAK_MULTIPLIER_RATE: ${STREAK_MULTIPLIER_RATE:-0.1}
 
     volumes:
-      # Persist SQLite database
-      - app_data:/app/data
-      # Persist static files
-      - static_files:/app/staticfiles
+      # Persist SQLite database (bind mount for easy access)
+      - ./data:/app/data
+      # Persist static files (bind mount for easy access)
+      - ./staticfiles:/app/staticfiles
 
     # Don't expose port to host (Caddy handles this)
     expose:
@@ -337,11 +397,11 @@ services:
     volumes:
       # Caddy configuration
       - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      # Persistent SSL certificates and config
+      # Persistent SSL certificates and config (named volumes for Caddy-managed data)
       - caddy_data:/data
       - caddy_config:/config
-      # Static files (optional)
-      - static_files:/app/staticfiles:ro
+      # Static files (bind mount, same as web container)
+      - ./staticfiles:/app/staticfiles:ro
       # Logs
       - caddy_logs:/var/log/caddy
 
@@ -352,10 +412,8 @@ services:
       - DOMAIN=${DOMAIN:-habitreward.duckdns.org}
 
 volumes:
-  app_data:
-    driver: local
-  static_files:
-    driver: local
+  # Note: app_data and static_files use bind mounts (./data and ./staticfiles)
+  # Only Caddy-managed volumes are defined here
   caddy_data:
     driver: local
   caddy_config:
@@ -904,7 +962,22 @@ nano .env
 # - Other values as needed
 ```
 
-#### Step 5.4: Start New Containers
+#### Step 5.4: Create Data Directories
+
+```bash
+cd /home/deploy/habit_reward_bot
+
+# Create directories for bind mounts
+mkdir -p data staticfiles
+
+# Set appropriate permissions
+chmod 755 data staticfiles
+
+# Verify directories created
+ls -la | grep -E 'data|staticfiles'
+```
+
+#### Step 5.5: Start New Containers
 
 ```bash
 cd /home/deploy/habit_reward_bot/docker
@@ -920,7 +993,7 @@ docker-compose --env-file ../.env -f docker-compose.caddy.yml logs -f
 # - Caddy container: "serving initial configuration"
 ```
 
-#### Step 5.5: Verify Deployment
+#### Step 5.6: Verify Deployment
 
 ```bash
 # Check container status
@@ -942,7 +1015,7 @@ curl -I https://habitreward.duckdns.org/admin/login/
 # Should return: HTTP/2 302 (with valid SSL)
 ```
 
-#### Step 5.6: Verify SSL Certificate
+#### Step 5.7: Verify SSL Certificate
 
 ```bash
 # Check Caddy logs for SSL provisioning
@@ -1177,15 +1250,18 @@ docker-compose -f docker/docker-compose.caddy.yml up -d
 # Create backup directory
 mkdir -p /home/deploy/backups
 
-# Backup SQLite database
-docker cp habit_reward_web:/app/data/db.sqlite3 \
-  /home/deploy/backups/db_$(date +%Y%m%d_%H%M%S).sqlite3
+# Backup SQLite database (simple file copy with bind mount)
+cd /home/deploy/habit_reward_bot
+cp data/db.sqlite3 /home/deploy/backups/db_$(date +%Y%m%d_%H%M%S).sqlite3
 
 # Compress old backups
 find /home/deploy/backups -name "db_*.sqlite3" -mtime +1 -exec gzip {} \;
 
 # Keep only last 30 days
 find /home/deploy/backups -name "db_*.sqlite3.gz" -mtime +30 -delete
+
+# Note: With bind mounts, the database file is directly accessible at:
+# /home/deploy/habit_reward_bot/data/db.sqlite3
 ```
 
 **Check Disk Space:**
