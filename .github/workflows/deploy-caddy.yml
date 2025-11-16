@@ -77,7 +77,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./deployment/docker/Dockerfile.simple
+          file: ./deployment/docker/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -179,13 +179,13 @@ EOF
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
             # Pull latest application image
-            docker-compose --env-file .env -f docker/docker-compose.caddy.yml pull web
+            docker-compose --env-file .env -f docker/docker-compose.yml pull web
 
             # Stop existing containers gracefully
-            docker-compose --env-file .env -f docker/docker-compose.caddy.yml down --timeout 30
+            docker-compose --env-file .env -f docker/docker-compose.yml down --timeout 30
 
             # Start new containers
-            docker-compose --env-file .env -f docker/docker-compose.caddy.yml up -d
+            docker-compose --env-file .env -f docker/docker-compose.yml up -d
 
             # Wait for services to be ready
             echo "Waiting for containers to start..."
@@ -193,7 +193,7 @@ EOF
 
             # Show container status
             echo "Container Status:"
-            docker-compose --env-file .env -f docker/docker-compose.caddy.yml ps
+            docker-compose --env-file .env -f docker/docker-compose.yml ps
           DEPLOY
 
       - name: Verify deployment health
@@ -202,8 +202,8 @@ EOF
             cd ${{ secrets.DEPLOY_PATH }}
 
             echo "Checking container logs:"
-            docker-compose --env-file .env -f docker/docker-compose.caddy.yml logs --tail=30 web
-            docker-compose --env-file .env -f docker/docker-compose.caddy.yml logs --tail=30 caddy
+            docker-compose --env-file .env -f docker/docker-compose.yml logs --tail=30 web
+            docker-compose --env-file .env -f docker/docker-compose.yml logs --tail=30 caddy
 
             echo "Checking container health:"
             docker inspect habit_reward_web --format='{{.State.Health.Status}}' || echo "Health check not available yet"

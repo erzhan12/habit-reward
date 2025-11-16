@@ -17,28 +17,28 @@ fi
 cd "$(dirname "$0")/../docker"
 
 echo "📦 Pulling latest images..."
-docker-compose -f docker-compose.caddy.yml pull web
+docker-compose -f docker-compose.yml pull web
 
 echo "🛑 Stopping existing containers..."
-docker-compose -f docker-compose.caddy.yml down --timeout 30
+docker-compose -f docker-compose.yml down --timeout 30
 
 echo "🚀 Starting containers..."
-docker-compose -f docker-compose.caddy.yml up -d
+docker-compose -f docker-compose.yml up -d
 
 echo "⏳ Waiting for services to be ready..."
 sleep 15
 
 echo "📊 Container Status:"
-docker-compose -f docker-compose.caddy.yml ps
+docker-compose -f docker-compose.yml ps
 
 echo ""
 echo "📝 Recent Logs:"
 echo "=== Web Container ==="
-docker-compose -f docker-compose.caddy.yml logs --tail=20 web
+docker-compose -f docker-compose.yml logs --tail=20 web
 
 echo ""
 echo "=== Caddy Container ==="
-docker-compose -f docker-compose.caddy.yml logs --tail=20 caddy
+docker-compose -f docker-compose.yml logs --tail=20 caddy
 
 echo ""
 echo "✅ Deployment complete!"
@@ -51,4 +51,4 @@ echo "2. Test the admin panel"
 echo "3. Test Telegram bot webhook"
 echo ""
 echo "🔍 Monitor logs with:"
-echo "docker-compose -f docker-compose.caddy.yml logs -f"
+echo "docker-compose -f docker-compose.yml logs -f"
