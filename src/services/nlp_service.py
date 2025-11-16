@@ -1,8 +1,11 @@
 """NLP service for habit classification using configurable LLM providers."""
 
 import json
+import logging
 from openai import OpenAI
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 class NLPService:
@@ -12,13 +15,25 @@ class NLPService:
         """Initialize NLPService with configured LLM client."""
         self.provider = settings.LLM_PROVIDER.lower()
         self.model = settings.LLM_MODEL
+        self.enabled = False
+        self.client = None
 
         if self.provider == "openai":
             if not settings.LLM_API_KEY:
-                raise ValueError("LLM_API_KEY is required for OpenAI provider")
-            self.client = OpenAI(api_key=settings.LLM_API_KEY)
+                logger.warning(
+                    "⚠️ LLM_API_KEY is not configured. NLP habit classification will be disabled. "
+                    "Set LLM_API_KEY in your .env file to enable this feature."
+                )
+                return
+            try:
+                self.client = OpenAI(api_key=settings.LLM_API_KEY)
+                self.enabled = True
+                logger.info(f"✅ NLP service initialized with {self.provider}/{self.model}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to initialize OpenAI client: {e}. NLP features will be disabled.")
+                return
         else:
-            raise ValueError(f"Unsupported LLM provider: {self.provider}")
+            logger.warning(f"⚠️ Unsupported LLM provider: {self.provider}. NLP features will be disabled.")
 
     def classify_habit_from_text(
         self,
@@ -42,6 +57,11 @@ class NLPService:
         Returns:
             List of matched habit names (may be empty if no match)
         """
+        # Check if NLP service is enabled
+        if not self.enabled or not self.client:
+            logger.debug("NLP service is disabled, returning empty match list")
+            return []
+
         prompt = self.build_classification_prompt(user_text, available_habits)
 
         try:

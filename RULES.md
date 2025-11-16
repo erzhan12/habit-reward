@@ -503,6 +503,54 @@ Business logic lives in services (`src/services/`):
 
 Services coordinate between repositories and contain no direct database calls.
 
+### NLP Service Optional Pattern
+
+**CRITICAL**: The NLP service is optional and should gracefully degrade when LLM_API_KEY is not configured. This allows the application to start and run even without AI features.
+
+**Implementation Pattern** (`src/services/nlp_service.py`):
+
+```python
+class NLPService:
+    def __init__(self):
+        self.enabled = False
+        self.client = None
+
+        if not settings.LLM_API_KEY:
+            logger.warning("⚠️ LLM_API_KEY is not configured. NLP habit classification will be disabled.")
+            return  # Graceful degradation
+
+        try:
+            self.client = OpenAI(api_key=settings.LLM_API_KEY)
+            self.enabled = True
+            logger.info(f"✅ NLP service initialized")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to initialize client: {e}. NLP features will be disabled.")
+            return
+
+    def classify_habit_from_text(self, user_text: str, available_habits: list[str]) -> list[str]:
+        if not self.enabled or not self.client:
+            return []  # Return empty list when disabled
+
+        # Normal classification logic...
+```
+
+**Key Behaviors**:
+1. **No exceptions on missing config**: Service initializes successfully even without LLM_API_KEY
+2. **Disabled flag**: `self.enabled` tracks whether the service is functional
+3. **Graceful fallback**: Methods return empty results instead of failing
+4. **Clear logging**: Warning messages inform about disabled state
+5. **Try-catch protection**: Catches initialization errors and disables service
+
+**Why This Matters**:
+- Application can run in development without requiring API keys
+- Reduces dependencies for local testing
+- Prevents startup failures due to missing optional features
+- Makes deployment more resilient
+
+**Files Modified** (Feature: Optional NLP Service):
+- `src/services/nlp_service.py:14-36` - Made LLM_API_KEY optional with graceful degradation
+- `src/services/nlp_service.py:60-63` - Added enabled check in classify_habit_from_text()
+
 ### Streak Service Pattern
 
 **CRITICAL**: The `StreakService` has two distinct methods for different use cases:
