@@ -3,11 +3,10 @@ version: '3.8'
 services:
   # Django Application + Telegram Bot
   web:
-    build:
-      context: ../../
-      dockerfile: deployment/docker/Dockerfile.simple
+    image: ${DOCKER_REGISTRY:-ghcr.io}/${DOCKER_IMAGE_NAME:-erzhan12/habit-reward}:${IMAGE_TAG:-latest}
     container_name: habit_reward_web
     restart: unless-stopped
+    pull_policy: always
 
     environment:
       # Django Configuration
