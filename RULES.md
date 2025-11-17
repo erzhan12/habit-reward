@@ -1251,7 +1251,90 @@ with transaction.atomic():
         # Can be rolled back independently
 ```
 
+### Habit Completion Transaction Pattern
+
+**CRITICAL**: Habit completion operations MUST wrap both reward progress updates and habit log creation in an atomic transaction to prevent data inconsistencies.
+
+**Implementation** (`src/services/habit_service.py:184-205`):
+
+```python
+# Wrap both operations in atomic transaction
+async with self._atomic():
+    reward_progress = None
+    if got_reward:
+        # Update reward progress (creates entry if doesn't exist)
+        reward_progress = await maybe_await(
+            self.reward_service.update_reward_progress(
+                user_id=user.id,
+                reward_id=selected_reward.id,
+            )
+        )
+
+    # Create habit log
+    habit_log = HabitLog(...)
+    await maybe_await(self.habit_log_repo.create(habit_log))
+```
+
+**Why This Matters**:
+
+Without atomic transaction wrapping, the following data corruption can occur:
+
+1. **Orphaned progress entries**: `update_reward_progress()` creates entry with `pieces_earned=0`, but `habit_log.create()` fails
+   - Result: RewardProgress entry exists with 0 pieces, but no corresponding HabitLog
+   - This is how entries like "MacBook Pro: 0/10 pieces, no logs" can appear
+
+2. **Missing progress updates**: HabitLog created successfully, but progress update fails
+   - Result: Habit log shows reward was awarded, but progress counter wasn't incremented
+
+**Transaction guarantees**:
+- ✅ Both operations succeed together, or both are rolled back
+- ✅ No orphaned progress entries with 0 pieces
+- ✅ Reward progress always matches habit logs (for current cycle)
+
+### Reward Progress Validation Notes
+
+**IMPORTANT**: Do NOT attempt to validate `pieces_earned` by counting total HabitLogs for recurring multi-piece rewards.
+
+**Why HabitLog count ≠ pieces_earned**:
+
+For recurring rewards (rewards that reset after claiming), HabitLogs accumulate across ALL cycles, while RewardProgress tracks only the CURRENT cycle:
+
+**Example**: "MacBook Pro" (10 pieces required)
+
+```
+Cycle 1:
+- User earns 10 pieces → 10 HabitLogs created
+- User claims reward → pieces_earned=0, claimed=True
+- HabitLogs: 10 (still exist)
+
+Cycle 2:
+- User earns 3 pieces → 3 new HabitLogs created (total: 13)
+- RewardProgress: pieces_earned=3, claimed=False
+- HabitLogs: 13 (across all cycles)
+```
+
+At this point:
+- ✅ `pieces_earned=3` is CORRECT (current cycle)
+- ❌ Counting total HabitLogs (13) would be WRONG
+
+**Valid states**:
+- `pieces_earned=0, claimed=False, no HabitLogs` → Valid (user will earn reward in future)
+- `pieces_earned=0, claimed=True, HAS HabitLogs` → Valid (just claimed, starting new cycle)
+- `pieces_earned=N, claimed=False` → Valid (earning progress, current cycle)
+- `pieces_earned=0, claimed=False, HAS HabitLogs` → Possibly orphaned, but could be valid if logs are from past claimed cycles
+
+**Do NOT**:
+- ❌ Recalculate `pieces_earned` from total HabitLog count (breaks recurring rewards)
+- ❌ Delete progress entries with 0 pieces (could be claimed rewards or future rewards)
+- ❌ Validate consistency between total logs and current progress (logs span multiple cycles)
+
+**DO**:
+- ✅ Use atomic transactions to prevent future corruption
+- ✅ Trust existing progress entries as valid
+- ✅ Let the system naturally track progress within each cycle
+
 **Files affected**:
+- `src/services/habit_service.py:184-205` - Atomic transaction for habit completion
 - `src/bot/handlers/habit_revert_handler.py` - Uses transactions for atomic reverts
 - Any service that needs multi-step consistency
 

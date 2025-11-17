@@ -178,27 +178,31 @@ class HabitService:
 
             got_reward = selected_reward.type != RewardType.NONE
 
-            reward_progress = None
-            if got_reward:
-                reward_progress = await maybe_await(
-                    self.reward_service.update_reward_progress(
-                        user_id=user.id,
-                        reward_id=selected_reward.id,
+            # Wrap reward progress update and habit log creation in atomic transaction
+            # This ensures both operations succeed or both are rolled back,
+            # preventing orphaned progress entries with 0 pieces
+            async with self._atomic():
+                reward_progress = None
+                if got_reward:
+                    reward_progress = await maybe_await(
+                        self.reward_service.update_reward_progress(
+                            user_id=user.id,
+                            reward_id=selected_reward.id,
+                        )
                     )
-                )
 
-            habit_log = HabitLog(
-                user_id=user.id,
-                habit_id=habit.id,
-                timestamp=datetime.now(),
-                reward_id=selected_reward.id if got_reward else None,
-                got_reward=got_reward,
-                streak_count=streak_count,
-                habit_weight=habit_weight,
-                total_weight_applied=total_weight,
-                last_completed_date=date.today(),
-            )
-            await maybe_await(self.habit_log_repo.create(habit_log))
+                habit_log = HabitLog(
+                    user_id=user.id,
+                    habit_id=habit.id,
+                    timestamp=datetime.now(),
+                    reward_id=selected_reward.id if got_reward else None,
+                    got_reward=got_reward,
+                    streak_count=streak_count,
+                    habit_weight=habit_weight,
+                    total_weight_applied=total_weight,
+                    last_completed_date=date.today(),
+                )
+                await maybe_await(self.habit_log_repo.create(habit_log))
 
             return HabitCompletionResult(
                 habit_confirmed=True,
