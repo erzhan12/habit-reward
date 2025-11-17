@@ -21,6 +21,7 @@ class HabitCompletionResult(BaseModel):
     total_weight_applied: float = Field(..., description="Total weight used in calculation")
 
     model_config = ConfigDict(
+        from_attributes=True,
         json_schema_extra={
             "example": {
                 "habit_confirmed": True,

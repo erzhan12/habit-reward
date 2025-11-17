@@ -15,6 +15,7 @@ class HabitRevertResult(BaseModel):
     success: bool = Field(default=True, description="Indicates the revert succeeded")
 
     model_config = ConfigDict(
+        from_attributes=True,
         json_schema_extra={
             "example": {
                 "habit_name": "Walking",

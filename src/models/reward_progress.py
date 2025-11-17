@@ -42,6 +42,7 @@ class RewardProgress(BaseModel):
         return self.status
 
     model_config = ConfigDict(
+        from_attributes=True,
         json_schema_extra={
             "example": {
                 "user_id": "recXXXXXXXXXXXXXX",

@@ -23,6 +23,7 @@ class Reward(BaseModel):
     max_daily_claims: int | None = Field(default=None, description="Maximum times this reward can be claimed per day (NULL or 0 = unlimited)")
 
     model_config = ConfigDict(
+        from_attributes=True,
         json_schema_extra={
             "example": {
                 "name": "Coffee at favorite cafe",

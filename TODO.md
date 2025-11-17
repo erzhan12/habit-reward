@@ -2,6 +2,40 @@
 
 This document tracks planned features, improvements, and enhancements for the Habit Reward System.
 
+## 🎯 Core Habit System Features
+
+### High Priority
+
+- [ ] **Flexible Streak Tracking with Grace Days**
+  - Add new field to Habits model: `allowed_skip_days` (or `grace_days`) - integer field
+  - Allows habits to have configurable "grace days" where missing a habit doesn't break the streak
+  - **Default value**: 0 (strict by default, maintains backward compatibility)
+  - **Suggested field name options**: `allowed_skip_days`, `grace_days`, or `skip_tolerance`
+  - **Example use case**: A habit with `allowed_skip_days=1` can be skipped 1 day without breaking the streak
+  - **Weekend Grace Days Option**:
+    - Add field: `weekend_exempt` (boolean) or `exempt_weekdays` (array/CharField)
+    - When enabled, weekends (Saturday/Sunday) don't count against streak
+    - **Suggested field name options**: `weekend_exempt`, `skip_weekends`, or `exempt_weekdays`
+    - **Implementation approach 1** (Simple): Boolean field `weekend_exempt` - if True, Sat/Sun are automatically grace days
+    - **Implementation approach 2** (Flexible): Array/JSONField `exempt_weekdays` - allows selecting specific days (0=Monday, 6=Sunday)
+    - **Default value**: False (weekends count by default)
+    - **Example use cases**:
+      - Gym habit: skip weekends (`weekend_exempt=True`)
+      - Work habit: skip weekends and Wednesdays (`exempt_weekdays=[2, 5, 6]`)
+    - Streak calculation should skip these days when checking for breaks
+    - Combine with `allowed_skip_days` for maximum flexibility
+  - **Implementation notes**:
+    - Modify streak calculation logic in `src/services/habit_service.py` or `src/core/services/habit_service.py`
+    - Update `get_current_streak()` and related methods to account for grace days and exempt weekdays
+    - Should track consecutive completions with allowed gaps and exempt days
+    - Add validation to ensure `allowed_skip_days >= 0`
+    - Add validation for `exempt_weekdays` to ensure values are 0-6
+    - Update habit creation/edit forms to include both fields
+    - Add UI in bot for users to set grace days and weekend exemptions when creating/editing habits
+    - Consider UX: how to explain the difference between grace days (can skip any X days) vs exempt days (specific days always skipped)
+  - **Files**: `src/core/models.py`, `src/services/habit_service.py`, `src/bot/handlers/habit_management_handler.py`
+  - **Related**: Affects streak calculation, habit completion logic, and user experience
+
 ## 🔧 Admin Panel Improvements
 
 ### High Priority
@@ -37,6 +71,45 @@ This document tracks planned features, improvements, and enhancements for the Ha
 ## 🤖 Bot Features
 
 ### High Priority
+
+- [ ] **Backdate Habit Completion**
+  - Add ability to complete habits for past dates (yesterday or earlier) through Telegram bot
+  - Useful when users forget to log completion or weren't able to access the bot on completion day
+  - **Suggested command**: `/complete_for_date` or add "Log for Yesterday" button in habit list
+  - **Implementation approach**:
+    - Option 1: Quick button "Complete for Yesterday" alongside "Done" button
+    - Option 2: "Select Date" option that opens a calendar/date picker
+    - Option 3: Command like `/complete_yesterday <habit_name>` or `/complete_date DD-MM-YYYY <habit_name>`
+  - **Features to include**:
+    - Allow backdating up to a reasonable limit (e.g., 7 days back)
+    - Show confirmation with the selected date before logging
+    - Recalculate streaks and reward progress based on the backdated entry
+    - Prevent duplicate entries for the same habit on the same date
+    - Display calendar showing which days already have completions
+  - **Validation rules**:
+    - Cannot backdate to before habit was created
+    - Cannot backdate to a date that already has a completion for that habit
+    - Should respect user's timezone when determining "yesterday"
+  - **Files**: `src/bot/handlers/habit_done_handler.py`, `src/services/habit_service.py`, `src/bot/messages.py`
+  - **Related**: Improves user experience, helps maintain accurate streaks, affects reward calculation
+
+- [ ] **Reward Edit Interface**
+  - Add Telegram bot command/interface to edit existing rewards
+  - Currently rewards can only be created and deleted, but not edited
+  - Should allow editing:
+    - Reward name/title
+    - Reward description
+    - Reward type (small/medium/large)
+    - Target points required
+    - Active/inactive status
+  - **Suggested command**: `/edit_reward` or add "Edit" button in reward list view
+  - **Implementation approach**:
+    - Add edit buttons to reward list inline keyboard
+    - Create conversation flow for editing each field
+    - Allow partial edits (only change specific fields)
+    - Show confirmation before saving changes
+  - **Files**: `src/bot/handlers/reward_handler.py` or new `src/bot/handlers/reward_management_handler.py`, `src/bot/messages.py`
+  - **Related**: Completes CRUD operations for rewards in bot interface
 
 - [ ] **Undo Button for Recent Completions**
   - Add inline "Undo" button that appears after completing a habit (within 5 minutes)
