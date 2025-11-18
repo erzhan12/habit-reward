@@ -153,7 +153,7 @@ class TestStartCommand:
         )
 
     @pytest.mark.asyncio
-    @patch('src.bot.handlers.command_handlers.audit_log_service')
+    @patch('src.services.audit_log_service.audit_log_service')
     @patch('src.bot.handlers.command_handlers.default_user_repository')
     async def test_user_active_success(self, mock_user_repo, mock_audit_service, mock_telegram_update, mock_active_user, language):
         """
@@ -227,7 +227,7 @@ class TestHelpCommand:
         )
 
     @pytest.mark.asyncio
-    @patch('src.bot.handlers.command_handlers.audit_log_service')
+    @patch('src.services.audit_log_service.audit_log_service')
     @patch('src.bot.handlers.command_handlers.default_user_repository')
     async def test_user_active_success(self, mock_user_repo, mock_audit_service, mock_telegram_update, mock_active_user, language):
         """
