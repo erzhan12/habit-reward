@@ -12,8 +12,6 @@ from telegram.ext import (
 )
 
 from src.core.repositories import user_repository, habit_repository
-from src.services.habit_service import habit_service
-from asgiref.sync import sync_to_async
 from src.bot.keyboards import (
     build_weight_selection_keyboard,
     build_category_selection_keyboard,
@@ -25,7 +23,7 @@ from src.bot.keyboards import (
     build_cancel_only_keyboard
 )
 from src.bot.messages import msg
-from src.bot.language import get_message_language, get_message_language_async
+from src.bot.language import get_message_language_async
 from src.models.habit import Habit
 from src.config import HABIT_NAME_MAX_LENGTH
 from src.utils.async_compat import maybe_await

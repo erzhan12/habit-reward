@@ -14,7 +14,7 @@ class RewardType(str, Enum):
 class Reward(BaseModel):
     """Reward model with unified progress tracking."""
 
-    id: str | None = None  # Airtable record ID
+    id: str | int | None = None  # Airtable record ID (str) or Django PK (int)
     name: str = Field(..., description="Reward name")
     weight: float = Field(default=1.0, description="Reward weight for selection probability")
     type: RewardType = Field(..., description="Reward type")

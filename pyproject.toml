@@ -57,5 +57,17 @@ dev-dependencies = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
+    "pytest-django>=4.5.0",
     "ruff>=0.14.1",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "src.habit_reward_project.settings_test"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--reuse-db"
+# Automatically mark all tests as using the database
+markers = [
+    "django_db: mark test as requiring database access",
 ]

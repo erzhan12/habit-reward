@@ -18,7 +18,6 @@ from src.bot.formatters import format_habit_completion_message
 from src.core.repositories import user_repository
 from src.bot.messages import msg
 from src.bot.language import (
-    get_message_language,
     get_message_language_async,
     detect_language_from_telegram,
 )

@@ -41,6 +41,19 @@ class RewardProgress(BaseModel):
         """Backwards-compatible helper for legacy call sites/tests."""
         return self.status
 
+    def get_pieces_required(self) -> int:
+        """Get pieces required for this reward.
+
+        This method exists for compatibility with Django model interface.
+        Returns the pieces_required field value.
+        """
+        if self.pieces_required is not None:
+            return self.pieces_required
+        # Fallback: try to get from reward object if available
+        if self.reward and hasattr(self.reward, 'pieces_required'):
+            return self.reward.pieces_required
+        return 1  # Default fallback
+
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={

@@ -1,7 +1,7 @@
 """Menu handlers for the unified start menu and submenus."""
 
 import logging
-from telegram import Update, Message
+from telegram import Update
 from telegram.ext import ContextTypes, CallbackQueryHandler
 
 from src.bot.messages import msg
@@ -22,7 +22,6 @@ from src.bot.navigation import (
     get_current_navigation,
 )
 from src.services.habit_service import habit_service
-from asgiref.sync import sync_to_async
 from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
@@ -204,7 +203,6 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
     from src.bot.handlers.settings_handler import settings_command
     from src.bot.handlers.habit_management_handler import (
         add_habit_command,
-        edit_habit_command,
         remove_habit_command
     )
     from src.bot.handlers.habit_revert_handler import habit_revert_command

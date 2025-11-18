@@ -1,4 +1,5 @@
 """Main Telegram bot application."""
+# ruff: noqa: E402
 
 import os
 import django
@@ -28,7 +29,6 @@ from src.bot.handlers.reward_handlers import (
 from src.bot.handlers.streak_handler import streaks_command
 from src.bot.handlers.menu_handler import get_menu_handlers
 from src.bot.handlers.settings_handler import settings_conversation
-from src.core.repositories import user_repository
 
 # Configure logging
 setup_logging()

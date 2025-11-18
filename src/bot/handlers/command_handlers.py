@@ -8,7 +8,6 @@ when importing from webhook_handler.py.
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from asgiref.sync import sync_to_async
 
 from src.core.repositories import user_repository as default_user_repository
 from src.services.audit_log_service import audit_log_service
@@ -31,7 +30,7 @@ def _resolve_user_repository():
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE | None):
     """Handle /start command."""
     from src.bot.messages import msg
-    from src.bot.language import get_message_language_async, detect_language_from_telegram
+    from src.bot.language import detect_language_from_telegram
     from src.bot.navigation import clear_navigation, push_navigation
     from src.bot.keyboards import build_start_menu_keyboard
 

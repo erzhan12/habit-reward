@@ -18,9 +18,9 @@ env = environ.Env(
     SECRET_KEY=(str, 'django-insecure-development-key-CHANGE-IN-PRODUCTION'),
 )
 
-# Read .env file if it exists
+# Read .env file if it exists (skip during pytest to use test database)
 env_file = BASE_DIR / '.env'
-if env_file.exists():
+if env_file.exists() and not os.environ.get('PYTEST_RUNNING'):
     environ.Env.read_env(str(env_file))
 
 # SECURITY WARNING: keep the secret key used in production secret!

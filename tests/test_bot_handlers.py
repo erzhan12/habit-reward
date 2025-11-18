@@ -68,7 +68,7 @@ def mock_telegram_update(mock_telegram_user):
 def mock_active_user(language):
     """Create mock active user from Airtable with language support."""
     return User(
-        id="user123",
+        id=123,
         telegram_id="999999999",
         name="Test User",
         is_active=True,
@@ -80,7 +80,7 @@ def mock_active_user(language):
 def mock_inactive_user(language):
     """Create mock inactive user from Airtable with language support."""
     return User(
-        id="user456",
+        id=456,
         telegram_id="999999999",
         name="Inactive User",
         is_active=False,
@@ -92,9 +92,9 @@ def mock_inactive_user(language):
 def mock_active_habits():
     """Create mock active habits for testing."""
     return [
-        Habit(id="habit1", name="Walking", weight=10, category="health", active=True),
-        Habit(id="habit2", name="Reading", weight=15, category="education", active=True),
-        Habit(id="habit3", name="Meditation", weight=12, category="wellness", active=True)
+        Habit(id=1, name="Walking", weight=10, category="health", active=True),
+        Habit(id=2, name="Reading", weight=15, category="education", active=True),
+        Habit(id=3, name="Meditation", weight=12, category="wellness", active=True)
     ]
 
 
@@ -102,8 +102,8 @@ def mock_active_habits():
 def mock_inactive_habits():
     """Create mock inactive habits for testing."""
     return [
-        Habit(id="habit4", name="Old Habit 1", weight=10, category="other", active=False),
-        Habit(id="habit5", name="Old Habit 2", weight=10, category="other", active=False)
+        Habit(id=4, name="Old Habit 1", weight=10, category="other", active=False),
+        Habit(id=5, name="Old Habit 2", weight=10, category="other", active=False)
     ]
 
 
@@ -111,7 +111,7 @@ class TestStartCommand:
     """Test /start command handler with multi-language support."""
 
     @pytest.mark.asyncio
-    @patch('src.bot.main.user_repository')
+    @patch('src.bot.handlers.command_handlers.default_user_repository')
     async def test_user_not_found(self, mock_user_repo, mock_telegram_update, language):
         """
         TC1.1: User not found should return error message in user's language.
@@ -132,7 +132,7 @@ class TestStartCommand:
         )
 
     @pytest.mark.asyncio
-    @patch('src.bot.main.user_repository')
+    @patch('src.bot.handlers.command_handlers.default_user_repository')
     async def test_user_inactive(self, mock_user_repo, mock_telegram_update, mock_inactive_user, language):
         """
         TC1.3: Inactive user should be blocked with localized message.
@@ -153,8 +153,9 @@ class TestStartCommand:
         )
 
     @pytest.mark.asyncio
-    @patch('src.bot.main.user_repository')
-    async def test_user_active_success(self, mock_user_repo, mock_telegram_update, mock_active_user, language):
+    @patch('src.bot.handlers.command_handlers.audit_log_service')
+    @patch('src.bot.handlers.command_handlers.default_user_repository')
+    async def test_user_active_success(self, mock_user_repo, mock_audit_service, mock_telegram_update, mock_active_user, language):
         """
         TC1.2: Active user should see welcome message in their language.
 
@@ -164,6 +165,8 @@ class TestStartCommand:
         """
         # Mock: user exists and is active
         mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+        # Mock: audit log service to prevent database writes
+        mock_audit_service.log_command = AsyncMock()
 
         # Execute
         await start_command(mock_telegram_update, context=None)
@@ -182,7 +185,7 @@ class TestHelpCommand:
     """Test /help command handler with multi-language support."""
 
     @pytest.mark.asyncio
-    @patch('src.bot.main.user_repository')
+    @patch('src.bot.handlers.command_handlers.default_user_repository')
     async def test_user_not_found(self, mock_user_repo, mock_telegram_update, language):
         """
         User not found should return error message for /help in user's language.
@@ -203,7 +206,7 @@ class TestHelpCommand:
         )
 
     @pytest.mark.asyncio
-    @patch('src.bot.main.user_repository')
+    @patch('src.bot.handlers.command_handlers.default_user_repository')
     async def test_user_inactive(self, mock_user_repo, mock_telegram_update, mock_inactive_user, language):
         """
         Inactive user should be blocked from /help command with localized message.
@@ -224,8 +227,9 @@ class TestHelpCommand:
         )
 
     @pytest.mark.asyncio
-    @patch('src.bot.main.user_repository')
-    async def test_user_active_success(self, mock_user_repo, mock_telegram_update, mock_active_user, language):
+    @patch('src.bot.handlers.command_handlers.audit_log_service')
+    @patch('src.bot.handlers.command_handlers.default_user_repository')
+    async def test_user_active_success(self, mock_user_repo, mock_audit_service, mock_telegram_update, mock_active_user, language):
         """
         Active user should see help message in their language.
 
@@ -235,6 +239,8 @@ class TestHelpCommand:
         """
         # Mock: user exists and is active
         mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+        # Mock: audit log service to prevent database writes
+        mock_audit_service.log_command = AsyncMock()
 
         # Execute
         await help_command(mock_telegram_update, context=None)

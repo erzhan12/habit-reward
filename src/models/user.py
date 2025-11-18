@@ -6,11 +6,22 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 class User(BaseModel):
     """User model with telegram_id as primary identifier."""
 
-    id: str | None = None  # Airtable record ID
+    id: str | int | None = None  # Airtable record ID (str) or Django PK (int)
     telegram_id: str = Field(..., description="Unique Telegram user ID")
     name: str = Field(..., description="User display name")
     is_active: bool = Field(default=False, description="Whether user is active (default False for security)")
     language: str = Field(default='en', description="User's preferred language (ISO 639-1 code)")
+
+    @field_validator('id', mode='before')
+    @classmethod
+    def convert_id_to_string_or_int(cls, v):
+        """Accept both string and integer IDs for compatibility with Airtable and Django."""
+        if v is None:
+            return None
+        # Accept both string and int IDs
+        if isinstance(v, (str, int)):
+            return v
+        return str(v)
 
     @field_validator('telegram_id', mode='before')
     @classmethod

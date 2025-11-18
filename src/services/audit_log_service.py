@@ -2,11 +2,11 @@
 
 import logging
 from datetime import datetime, timedelta
-from typing import Awaitable, Any
+from typing import Awaitable
 from asgiref.sync import sync_to_async
 
-from src.core.models import BotAuditLog, User, Habit, Reward, HabitLog
-from src.utils.async_compat import run_sync_or_async, maybe_await
+from src.core.models import BotAuditLog, Habit, Reward, HabitLog
+from src.utils.async_compat import run_sync_or_async
 
 # Configure logging
 logger = logging.getLogger(__name__)

@@ -1,6 +1,5 @@
 """Django app configuration for core app."""
 
-import asyncio
 import logging
 from django.apps import AppConfig
 

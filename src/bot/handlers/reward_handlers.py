@@ -491,7 +491,7 @@ async def reward_name_received(update: Update, context: ContextTypes.DEFAULT_TYP
 
     existing = await maybe_await(reward_repository.get_by_name(name))
     if existing:
-        logger.warning(f"⚠️ Reward name '%s' already exists", name)
+        logger.warning("⚠️ Reward name '%s' already exists", name)
         await update.message.reply_text(
             f"{msg('ERROR_REWARD_NAME_EXISTS', lang)}\n\n{msg('HELP_ADD_REWARD_NAME_PROMPT', lang)}",
             reply_markup=build_reward_cancel_keyboard(lang),
@@ -501,7 +501,7 @@ async def reward_name_received(update: Update, context: ContextTypes.DEFAULT_TYP
 
     reward_data = _get_reward_context(context)
     reward_data['name'] = name
-    logger.info(f"✅ Stored reward name '%s' for user %s", name, telegram_id)
+    logger.info("✅ Stored reward name '%s' for user %s", name, telegram_id)
 
     await update.message.reply_text(
         msg('HELP_ADD_REWARD_TYPE_PROMPT', lang),

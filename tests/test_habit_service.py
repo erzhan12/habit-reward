@@ -21,7 +21,7 @@ def habit_service():
 def mock_user():
     """Create mock user."""
     return User(
-        id="user123",
+        id=123,
         telegram_id="123456789",
         name="Test User",
         is_active=True
@@ -32,7 +32,7 @@ def mock_user():
 def mock_habit():
     """Create mock habit."""
     return Habit(
-        id="habit123",
+        id=1,
         name="Walking",
         weight=10,
         category="health",
@@ -44,7 +44,7 @@ def mock_habit():
 def mock_reward():
     """Create mock reward."""
     return Reward(
-        id="reward123",
+        id=1,
         name="Coffee",
         weight=10,
         type=RewardType.REAL,
@@ -55,6 +55,7 @@ def mock_reward():
 class TestHabitCompletion:
     """Test habit completion orchestration."""
 
+    @patch('src.services.habit_service.audit_log_service')
     @patch('src.services.habit_service.user_repository')
     @patch('src.services.habit_service.habit_repository')
     @patch('src.services.habit_service.streak_service')
@@ -67,6 +68,7 @@ class TestHabitCompletion:
         mock_streak_service,
         mock_habit_repo,
         mock_user_repo,
+        mock_audit_service,
         habit_service,
         mock_user,
         mock_habit,
@@ -74,7 +76,7 @@ class TestHabitCompletion:
     ):
         """Test successful habit completion flow."""
         from src.models.reward_progress import RewardProgress, RewardStatus
-        
+
         # Setup mocks
         mock_user_repo.get_by_telegram_id.return_value = mock_user
         mock_habit_repo.get_by_name.return_value = mock_habit
@@ -82,10 +84,10 @@ class TestHabitCompletion:
         mock_reward_service.calculate_total_weight.return_value = 1.5
         mock_reward_service.select_reward.return_value = mock_reward
         mock_reward_service.get_todays_awarded_rewards.return_value = []
-        
+
         # Mock reward progress return
         mock_progress = RewardProgress(
-            id="prog1",
+            id=1,
             user_id=mock_user.id,
             reward_id=mock_reward.id,
             pieces_earned=1,
@@ -100,7 +102,8 @@ class TestHabitCompletion:
              patch.object(habit_service, 'habit_repo', mock_habit_repo), \
              patch.object(habit_service, 'streak_service', mock_streak_service), \
              patch.object(habit_service, 'reward_service', mock_reward_service), \
-             patch.object(habit_service, 'habit_log_repo', mock_log_repo):
+             patch.object(habit_service, 'habit_log_repo', mock_log_repo), \
+             patch.object(habit_service, 'audit_log_service', mock_audit_service):
 
             result = habit_service.process_habit_completion(
                 user_telegram_id="123456789",
@@ -152,6 +155,7 @@ class TestHabitCompletion:
                     habit_name="NonExistentHabit"
                 )
 
+    @patch('src.services.habit_service.audit_log_service')
     @patch('src.services.habit_service.user_repository')
     @patch('src.services.habit_service.habit_repository')
     @patch('src.services.habit_service.streak_service')
@@ -164,6 +168,7 @@ class TestHabitCompletion:
         mock_streak_service,
         mock_habit_repo,
         mock_user_repo,
+        mock_audit_service,
         habit_service,
         mock_user,
         mock_habit
@@ -191,7 +196,8 @@ class TestHabitCompletion:
              patch.object(habit_service, 'habit_repo', mock_habit_repo), \
              patch.object(habit_service, 'streak_service', mock_streak_service), \
              patch.object(habit_service, 'reward_service', mock_reward_service), \
-             patch.object(habit_service, 'habit_log_repo', mock_log_repo):
+             patch.object(habit_service, 'habit_log_repo', mock_log_repo), \
+             patch.object(habit_service, 'audit_log_service', mock_audit_service):
 
             result = habit_service.process_habit_completion(
                 user_telegram_id="123456789",
@@ -245,7 +251,8 @@ class TestHabitRevert:
     """Tests for reverting habit completions."""
 
     @pytest.mark.asyncio
-    async def test_revert_habit_completion_success_with_reward(self, habit_service):
+    @patch('src.services.habit_service.audit_log_service')
+    async def test_revert_habit_completion_success_with_reward(self, mock_audit_service, habit_service):
         """Reverting a habit removes the log and rolls back reward progress."""
         user = SimpleNamespace(id=1, is_active=True)
         habit = SimpleNamespace(id=2, name="Walking", active=True)
@@ -258,8 +265,12 @@ class TestHabitRevert:
             pieces_earned=2,
             pieces_required=5,
             claimed=False,
-            reward=SimpleNamespace(name="Coffee", pieces_required=5)
+            reward=SimpleNamespace(name="Coffee", pieces_required=5),
+            get_pieces_required=lambda: 5
         )
+
+        # Mock audit log to prevent database writes
+        mock_audit_service.log_habit_revert = AsyncMock()
 
         user_repo = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=user))
         habit_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=habit))
@@ -275,6 +286,7 @@ class TestHabitRevert:
         habit_service.habit_repo = habit_repo
         habit_service.habit_log_repo = habit_log_repo
         habit_service.reward_progress_repo = reward_progress_repo
+        habit_service.audit_log_service = mock_audit_service
 
         atomic_context = AsyncMock()
         atomic_context.__aenter__.return_value = None
@@ -319,7 +331,8 @@ class TestHabitRevert:
             await habit_service.revert_habit_completion('123', 2)
 
     @pytest.mark.asyncio
-    async def test_revert_habit_completion_success_no_reward(self, habit_service):
+    @patch('src.services.habit_service.audit_log_service')
+    async def test_revert_habit_completion_success_no_reward(self, mock_audit_service, habit_service):
         """Reverting a habit without a reward only deletes the log."""
         user = SimpleNamespace(id=1, is_active=True)
         habit = SimpleNamespace(id=2, name="Reading", active=True)
@@ -339,6 +352,7 @@ class TestHabitRevert:
         habit_service.habit_repo = habit_repo
         habit_service.habit_log_repo = habit_log_repo
         habit_service.reward_progress_repo = reward_progress_repo
+        habit_service.audit_log_service = mock_audit_service
 
         atomic_context = AsyncMock()
         atomic_context.__aenter__.return_value = None
@@ -354,7 +368,8 @@ class TestHabitRevert:
         assert result.reward_name is None
 
     @pytest.mark.asyncio
-    async def test_revert_habit_completion_reward_progress_at_zero(self, habit_service):
+    @patch('src.services.habit_service.audit_log_service')
+    async def test_revert_habit_completion_reward_progress_at_zero(self, mock_audit_service, habit_service):
         """Reverting when reward progress is already at zero returns progress at zero."""
         user = SimpleNamespace(id=1, is_active=True)
         habit = SimpleNamespace(id=2, name="Walking", active=True)
@@ -368,8 +383,12 @@ class TestHabitRevert:
             pieces_earned=0,  # Already at zero
             pieces_required=5,
             claimed=False,
-            reward=SimpleNamespace(name="Coffee", pieces_required=5)
+            reward=SimpleNamespace(name="Coffee", pieces_required=5),
+            get_pieces_required=lambda: 5
         )
+
+        # Mock audit log to prevent database writes
+        mock_audit_service.log_habit_revert = AsyncMock()
 
         user_repo = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=user))
         habit_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=habit))
@@ -385,6 +404,7 @@ class TestHabitRevert:
         habit_service.habit_repo = habit_repo
         habit_service.habit_log_repo = habit_log_repo
         habit_service.reward_progress_repo = reward_progress_repo
+        habit_service.audit_log_service = mock_audit_service
 
         atomic_context = AsyncMock()
         atomic_context.__aenter__.return_value = None

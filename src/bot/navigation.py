@@ -72,7 +72,7 @@ def pop_navigation(context: ContextTypes.DEFAULT_TYPE | None) -> dict:
         logger.info(f"↩️ Returning to: {prev['menu_type']}")
         return prev
     else:
-        logger.info(f"↩️ Stack empty, returning to start menu")
+        logger.info("↩️ Stack empty, returning to start menu")
         last_lang = context.user_data.get('last_language', 'en')
         return {'menu_type': 'start', 'lang': last_lang}
 
