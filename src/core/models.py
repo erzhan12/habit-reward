@@ -296,3 +296,97 @@ class HabitLog(models.Model):
 
     def __str__(self):
         return f"{self.user.name} - {self.habit.name} ({self.timestamp.date()})"
+
+
+class BotAuditLog(models.Model):
+    """Audit log for high-level Telegram bot interactions.
+
+    Captures event snapshots for debugging data corruption issues and user support.
+    Logs are retained for 90 days with automatic cleanup.
+    """
+
+    class EventType(models.TextChoices):
+        """Types of events logged in the audit trail."""
+        COMMAND = 'command', 'Command'
+        HABIT_COMPLETED = 'habit_completed', 'Habit Completed'
+        REWARD_SELECTED = 'reward_selected', 'Reward Selected'
+        REWARD_CLAIMED = 'reward_claimed', 'Reward Claimed'
+        REWARD_REVERTED = 'reward_reverted', 'Reward Reverted'
+        BUTTON_CLICK = 'button_click', 'Button Click'
+        ERROR = 'error', 'Error'
+
+    timestamp = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        help_text="When the event occurred"
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='audit_logs',
+        db_index=True,
+        help_text="User who triggered the event"
+    )
+    event_type = models.CharField(
+        max_length=20,
+        choices=EventType.choices,
+        db_index=True,
+        help_text="Type of event"
+    )
+    command = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Command name (e.g., /habit_done, /streaks)"
+    )
+    callback_data = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Button callback data from inline keyboards"
+    )
+    habit = models.ForeignKey(
+        Habit,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs',
+        help_text="Related habit (if applicable)"
+    )
+    reward = models.ForeignKey(
+        Reward,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs',
+        help_text="Related reward (if applicable)"
+    )
+    habit_log = models.ForeignKey(
+        HabitLog,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs',
+        help_text="Related habit log entry (if applicable)"
+    )
+    snapshot = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="State snapshot at time of event (JSON)"
+    )
+    error_message = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Error message and traceback (for ERROR events)"
+    )
+
+    class Meta:
+        db_table = 'bot_audit_logs'
+        indexes = [
+            models.Index(fields=['user', '-timestamp']),
+            models.Index(fields=['event_type', '-timestamp']),
+        ]
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"{self.user.name} - {self.event_type} ({self.timestamp})"

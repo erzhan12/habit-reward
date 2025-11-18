@@ -11,6 +11,7 @@ from telegram.ext import ContextTypes
 from asgiref.sync import sync_to_async
 
 from src.core.repositories import user_repository as default_user_repository
+from src.services.audit_log_service import audit_log_service
 from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE | Non
 
     logger.info(f"✅ Sending start menu to user {telegram_id} in language: {lang}")
 
+    # Log command execution to audit trail
+    await maybe_await(
+        audit_log_service.log_command(
+            user_id=user.id,
+            command="/start",
+            snapshot={"language": lang}
+        )
+    )
+
     sent_message = await update.message.reply_text(
         msg('START_MENU_TITLE', lang),
         reply_markup=build_start_menu_keyboard(lang),
@@ -126,6 +136,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE | None
         return
 
     logger.info(f"✅ Sending help message to user {telegram_id} in language: {lang}")
+
+    # Log command execution to audit trail
+    await maybe_await(
+        audit_log_service.log_command(
+            user_id=user.id,
+            command="/help",
+            snapshot={"language": lang}
+        )
+    )
+
     await update.message.reply_text(
         msg('HELP_COMMAND_MESSAGE', lang),
         reply_markup=build_back_to_menu_keyboard(lang),

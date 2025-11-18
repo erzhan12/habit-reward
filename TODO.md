@@ -36,6 +36,32 @@ This document tracks planned features, improvements, and enhancements for the Ha
   - **Files**: `src/core/models.py`, `src/services/habit_service.py`, `src/bot/handlers/habit_management_handler.py`
   - **Related**: Affects streak calculation, habit completion logic, and user experience
 
+- [ ] **Multi-User Support: User Field in Habits and Rewards**
+  - Add `user` field (ForeignKey to User model) to both Habits and Rewards tables
+  - Currently habits and rewards appear to be shared across all users
+  - Each user should have their own isolated habits and rewards
+  - **Implementation requirements**:
+    - Add `user` ForeignKey field to `Habit` model in `src/core/models.py`
+    - Add `user` ForeignKey field to `Reward` model in `src/core/models.py`
+    - Set `on_delete=models.CASCADE` to delete user's habits/rewards when user is deleted
+    - Add database migration to add the field (handle existing data migration strategy)
+    - Update all queries to filter by `user` (habits, rewards, habit logs, reward progress)
+    - Update bot handlers to automatically associate habits/rewards with current user
+    - Update admin panel to show user filter and allow filtering by user
+    - Update services to require user context for all operations
+    - Add validation to prevent users from accessing other users' habits/rewards
+  - **Data migration considerations**:
+    - If existing data exists, need migration strategy:
+      - Option 1: Assign all existing habits/rewards to a default/admin user
+      - Option 2: Create user records for existing Telegram users and assign accordingly
+      - Option 3: Mark existing data as "legacy" and start fresh
+  - **Security implications**:
+    - Ensure all API endpoints and bot commands filter by authenticated user
+    - Add permission checks to prevent cross-user data access
+    - Update tests to verify user isolation
+  - **Files**: `src/core/models.py`, `src/core/migrations/`, `src/services/habit_service.py`, `src/services/reward_service.py`, `src/bot/handlers/`, `src/core/admin.py`
+  - **Related**: Critical architectural change enabling true multi-user support, affects all habit and reward operations
+
 ## 🔧 Admin Panel Improvements
 
 ### High Priority

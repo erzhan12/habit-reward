@@ -13,6 +13,7 @@ from telegram.ext import (
 )
 
 from src.services.reward_service import reward_service
+from src.services.audit_log_service import audit_log_service
 from src.core.repositories import user_repository, reward_repository
 from src.bot.formatters import (
     format_reward_progress_message,
@@ -302,6 +303,21 @@ async def claim_reward_callback(
                 reward_service.mark_reward_claimed(user.id, reward_id)
             )
 
+            # Log reward claim to audit trail
+            claim_snapshot = {
+                "reward_name": reward_name,
+                "pieces_earned_before": updated_progress.get_pieces_required(),  # Was at pieces_required before claim
+                "pieces_earned_after": updated_progress.pieces_earned,  # Now 0 after claim
+                "claimed": updated_progress.claimed,
+            }
+            await maybe_await(
+                audit_log_service.log_reward_claim(
+                    user_id=user.id,
+                    reward=reward,
+                    progress_snapshot=claim_snapshot,
+                )
+            )
+
             # Fetch updated progress
             progress_list = await maybe_await(
                 reward_service.get_user_reward_progress(user.id)
@@ -327,6 +343,20 @@ async def claim_reward_callback(
 
         except ValueError as e:
             logger.error(f"❌ Error claiming reward for user {telegram_id}: {str(e)}")
+
+            # Log error to audit trail
+            await maybe_await(
+                audit_log_service.log_error(
+                    user_id=user.id,
+                    error_message=f"Error claiming reward: {str(e)}",
+                    context={
+                        "command": "claim_reward",
+                        "reward_id": reward_id,
+                        "reward_name": reward_name,
+                    }
+                )
+            )
+
             await query.edit_message_text(msg('ERROR_GENERAL', lang, error=str(e)))
             logger.info(f"📤 Sent error message to {telegram_id}")
 

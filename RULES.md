@@ -2070,3 +2070,258 @@ See detailed plan: `docs/simple-deployment/PLAN.md`
 - Added `.env.caddy.example` - Environment template
 - Added `deployment/scripts/deploy-caddy.sh` - Manual deployment
 - Added `docs/simple-deployment/PLAN.md` - Detailed implementation plan
+
+## Bot Audit Logging
+
+**CRITICAL**: All high-level Telegram bot interactions are logged to the `BotAuditLog` model for debugging data corruption issues and user support. The audit trail captures event snapshots, retains logs for 90 days, and provides helper methods to trace event timelines.
+
+### When to Use Audit Logging
+
+Use `audit_log_service` to log the following high-level events:
+
+1. **Commands** - User executes bot commands (`/start`, `/help`, `/habit_done`, etc.)
+2. **Habit Completions** - User completes a habit and earns reward piece
+3. **Reward Claims** - User claims an achieved reward
+4. **Reward Reverts** - Habit completion is reverted, rolling back reward progress
+5. **Button Clicks** - User clicks inline keyboard buttons (for significant state changes only)
+6. **Errors** - Exceptions and errors during user interactions
+
+**Do NOT log**:
+- Low-level operations (database queries, service calls)
+- Intermediate conversation states
+- Every button click (only significant ones)
+- Internal system operations
+
+### Implementation Pattern
+
+**Service Layer** (`src/services/audit_log_service.py`):
+
+All audit logging goes through the centralized `audit_log_service`:
+
+```python
+from src.services.audit_log_service import audit_log_service
+from src.utils.async_compat import maybe_await
+
+# Log command execution
+await maybe_await(
+    audit_log_service.log_command(
+        user_id=user.id,
+        command="/start",
+        snapshot={"language": lang}
+    )
+)
+
+# Log habit completion
+await maybe_await(
+    audit_log_service.log_habit_completion(
+        user_id=user.id,
+        habit=habit,
+        reward=selected_reward if got_reward else None,
+        habit_log=habit_log,
+        snapshot={
+            "habit_name": habit.name,
+            "streak_count": streak_count,
+            "total_weight": total_weight,
+            "selected_reward_name": selected_reward.name if got_reward else None,
+            "reward_progress": {
+                "pieces_earned": progress.pieces_earned,
+                "pieces_required": progress.get_pieces_required(),
+                "claimed": progress.claimed,
+            } if progress else None
+        }
+    )
+)
+
+# Log reward claim
+await maybe_await(
+    audit_log_service.log_reward_claim(
+        user_id=user.id,
+        reward=reward,
+        progress_snapshot={
+            "reward_name": reward.name,
+            "pieces_earned_before": pieces_required,
+            "pieces_earned_after": 0,
+            "claimed": True,
+        }
+    )
+)
+
+# Log errors
+await maybe_await(
+    audit_log_service.log_error(
+        user_id=user.id,
+        error_message=f"Error claiming reward: {str(e)}",
+        context={
+            "command": "claim_reward",
+            "reward_id": reward_id,
+            "reward_name": reward_name,
+        }
+    )
+)
+
+# Log button clicks (only for significant state changes)
+await maybe_await(
+    audit_log_service.log_button_click(
+        user_id=user.id,
+        callback_data=callback_data,
+        snapshot={"context": "habit_selection"}
+    )
+)
+```
+
+### Snapshot Structure
+
+Snapshots are JSON objects capturing state at the time of the event. Use consistent keys:
+
+**Habit Completion Snapshot**:
+```json
+{
+  "habit_name": "Morning Exercise",
+  "streak_count": 5,
+  "total_weight": 55.0,
+  "selected_reward_name": "Coffee break",
+  "reward_progress": {
+    "pieces_earned": 3,
+    "pieces_required": 5,
+    "claimed": false
+  }
+}
+```
+
+**Reward Claim Snapshot**:
+```json
+{
+  "reward_name": "Coffee break",
+  "pieces_earned_before": 5,
+  "pieces_earned_after": 0,
+  "claimed": true
+}
+```
+
+**Error Context Snapshot**:
+```json
+{
+  "command": "claim_reward",
+  "reward_id": "123",
+  "reward_name": "Coffee break",
+  "error_type": "ValueError"
+}
+```
+
+### Integration Points
+
+**Files Modified** (Feature 0015: Bot Audit Log System):
+
+1. **Data Layer**:
+   - `src/core/models.py:301-392` - Added `BotAuditLog` model with EventType choices
+   - `src/core/migrations/0003_add_bot_audit_log.py` - Database migration
+
+2. **Service Layer**:
+   - `src/services/audit_log_service.py` - Created `AuditLogService` with all logging methods
+
+3. **Integration**:
+   - `src/services/habit_service.py:19,43,209-232,334-354` - Log habit completions and reward reverts
+   - `src/bot/handlers/reward_handlers.py:16,306-319,347-358` - Log reward claims and errors
+   - `src/bot/handlers/command_handlers.py:14,85-92,140-147` - Log command executions
+
+4. **Admin & Maintenance**:
+   - `src/core/admin.py:5,168-204` - Registered `BotAuditLogAdmin` (read-only)
+   - `src/core/management/commands/cleanup_audit_logs.py` - Daily cleanup command
+
+### Querying Audit Logs
+
+Use service helper methods to query logs for debugging:
+
+```python
+# Get user's event timeline (last 24 hours)
+timeline = await maybe_await(
+    audit_log_service.get_user_timeline(
+        user_id=user.id,
+        hours=24
+    )
+)
+
+# Trace reward corruption (all events for specific reward)
+events = await maybe_await(
+    audit_log_service.trace_reward_corruption(
+        user_id=user.id,
+        reward_id=reward.id
+    )
+)
+
+# Each log entry has:
+# - timestamp: When event occurred
+# - event_type: Type of event (COMMAND, HABIT_COMPLETED, etc.)
+# - snapshot: State at time of event
+# - Related objects: user, habit, reward, habit_log (via ForeignKeys)
+```
+
+### Django Admin Interface
+
+Audit logs are accessible via Django admin at `/admin/core/botauditlog/`:
+
+- **List View**: timestamp, user, event_type, command, habit, reward
+- **Filters**: event_type, timestamp (date hierarchy)
+- **Search**: user telegram_id, command, error_message
+- **Read-Only**: Cannot add or edit logs (created automatically)
+- **Deletion**: Only superusers can delete (for cleanup)
+
+### Retention Policy & Cleanup
+
+**Retention Period**: 90 days (configurable)
+
+**Automatic Cleanup**: Run daily via cron:
+
+```bash
+# Add to crontab
+0 2 * * * cd /path/to/project && python manage.py cleanup_audit_logs
+
+# Manual cleanup with custom retention
+python manage.py cleanup_audit_logs --days 60
+```
+
+The cleanup command:
+- Calculates cutoff date (90 days ago from now)
+- Deletes `BotAuditLog` entries with `timestamp < cutoff_date`
+- Outputs count of deleted records
+- Logs completion to application logs
+
+### Debugging Data Corruption Example
+
+**Problem**: User reports "MacBook Pro: 0/10 pieces, no logs" - orphaned progress entry
+
+**Investigation**:
+
+```python
+# 1. Get user's reward timeline
+events = await audit_log_service.trace_reward_corruption(
+    user_id=user.id,
+    reward_id=macbook_reward.id
+)
+
+# 2. Review snapshots chronologically
+for event in events:
+    print(f"{event.timestamp}: {event.event_type}")
+    print(f"  Snapshot: {event.snapshot}")
+
+# Example output might show:
+# 2025-11-18 10:00: HABIT_COMPLETED
+#   Snapshot: {"reward_progress": {"pieces_earned": 0, ...}}
+# --> This shows progress was created with 0 pieces
+# --> Check if corresponding habit_log was created (event.habit_log)
+# --> If habit_log is None, this indicates transaction rollback issue
+```
+
+**Root Cause**: Audit log reveals `pieces_earned=0` at creation time with no linked `habit_log`, indicating the atomic transaction failed between progress creation and log creation.
+
+**Fix**: Implemented in Feature 0015 - wrapped both operations in `transaction.atomic()` (see `src/services/habit_service.py:184-205`).
+
+### Why Audit Logging Matters
+
+1. **Data Corruption Detection**: Trace exact sequence of events leading to inconsistent state
+2. **User Support**: Reconstruct user's interaction history for troubleshooting
+3. **Debugging**: See actual state snapshots at time of each event
+4. **Performance**: Identify slow operations or bottlenecks
+5. **Security**: Track unauthorized access or suspicious activity patterns
+
+See `docs/features/0015_PLAN.md` for full implementation details.

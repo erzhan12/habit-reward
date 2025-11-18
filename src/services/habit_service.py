@@ -16,6 +16,7 @@ from src.core.repositories import (
 from src.core.models import Reward, Habit, HabitLog, RewardProgress
 from src.services.streak_service import streak_service
 from src.services.reward_service import reward_service
+from src.services.audit_log_service import audit_log_service
 from src.models.habit_completion_result import HabitCompletionResult
 from src.models.habit_revert_result import HabitRevertResult
 from src.models.reward_progress import RewardProgress as RewardProgressModel
@@ -39,6 +40,7 @@ class HabitService:
         self.reward_progress_repo = reward_progress_repository
         self.streak_service = streak_service
         self.reward_service = reward_service
+        self.audit_log_service = audit_log_service
 
     @asynccontextmanager
     async def _atomic(self):
@@ -204,6 +206,31 @@ class HabitService:
                 )
                 await maybe_await(self.habit_log_repo.create(habit_log))
 
+            # Log habit completion to audit trail (after transaction commits)
+            snapshot = {
+                "habit_name": habit.name,
+                "streak_count": streak_count,
+                "total_weight": total_weight,
+                "selected_reward_name": selected_reward.name if got_reward else None,
+            }
+
+            if reward_progress:
+                snapshot["reward_progress"] = {
+                    "pieces_earned": reward_progress.pieces_earned,
+                    "pieces_required": reward_progress.get_pieces_required(),
+                    "claimed": reward_progress.claimed,
+                }
+
+            await maybe_await(
+                self.audit_log_service.log_habit_completion(
+                    user_id=user.id,
+                    habit=habit,
+                    reward=selected_reward if got_reward else None,
+                    habit_log=habit_log,
+                    snapshot=snapshot,
+                )
+            )
+
             return HabitCompletionResult(
                 habit_confirmed=True,
                 habit_name=habit.name,
@@ -303,6 +330,29 @@ class HabitService:
                 user.id,
                 habit.id,
             )
+
+            # Log reward revert to audit trail (if reward was reverted)
+            if reward_reverted and log.reward:
+                revert_snapshot = {
+                    "habit_name": habit.name,
+                    "reward_name": reward_name,
+                }
+                if progress:
+                    revert_snapshot["reward_progress"] = {
+                        "pieces_earned": progress.pieces_earned,
+                        "pieces_required": progress.get_pieces_required(),
+                        "claimed": progress.claimed,
+                    }
+
+                await maybe_await(
+                    self.audit_log_service.log_reward_revert(
+                        user_id=user.id,
+                        reward=log.reward,
+                        habit_log=log,
+                        progress_snapshot=revert_snapshot,
+                    )
+                )
+
             return HabitRevertResult(
                 habit_name=habit.name,
                 reward_reverted=reward_reverted,

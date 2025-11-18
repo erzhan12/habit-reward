@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from src.core.models import User, Habit, Reward, RewardProgress, HabitLog
+from src.core.models import User, Habit, Reward, RewardProgress, HabitLog, BotAuditLog
 
 
 @admin.register(User)
@@ -163,3 +163,42 @@ class HabitLogAdmin(admin.ModelAdmin):
         """Alias for timestamp (for consistency)."""
         return obj.timestamp
     created_at.short_description = 'Created At'
+
+
+@admin.register(BotAuditLog)
+class BotAuditLogAdmin(admin.ModelAdmin):
+    """Admin interface for BotAuditLog model (read-only)."""
+
+    list_display = ['timestamp', 'user', 'event_type', 'command', 'habit', 'reward']
+    list_filter = ['event_type', 'timestamp']
+    search_fields = ['user__telegram_id', 'user__name', 'command', 'error_message']
+    readonly_fields = ['timestamp', 'user', 'event_type', 'command', 'callback_data',
+                       'habit', 'reward', 'habit_log', 'snapshot', 'error_message']
+    ordering = ['-timestamp']
+    date_hierarchy = 'timestamp'
+    autocomplete_fields = []  # All fields are read-only
+
+    fieldsets = (
+        ('Event Information', {
+            'fields': ('timestamp', 'user', 'event_type')
+        }),
+        ('Event Details', {
+            'fields': ('command', 'callback_data', 'habit', 'reward', 'habit_log')
+        }),
+        ('Snapshot & Error', {
+            'fields': ('snapshot', 'error_message'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def has_add_permission(self, request):
+        """Disable add permission - logs are created automatically."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Allow viewing but not editing."""
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        """Allow deletion for cleanup purposes."""
+        return request.user.is_superuser
