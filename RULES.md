@@ -1883,6 +1883,79 @@ For steps where users type text (habit name input), keep the `/cancel` command a
 3. **Clear exit path** - Obvious way to abort operation at any step
 4. **Direct navigation** - Returns user directly to Habits menu (not just ending conversation)
 
+### Menu Callback Entry Points for ConversationHandler
+
+**CRITICAL**: All conversation handlers that can be triggered from inline menu buttons MUST register BOTH the command handler AND the callback handler as entry points.
+
+**The Problem**:
+When a conversation handler only has a command as entry point, clicking a menu button that's supposed to start the conversation will be received by the webhook but will have no handler. The callback is logged, returns 200 OK, but nothing happens for the user.
+
+**Example of Broken Pattern**:
+```python
+# ❌ BAD - Only command entry point
+claim_reward_conversation = ConversationHandler(
+    entry_points=[CommandHandler("claim_reward", claim_reward_command)],
+    ...
+)
+# User clicks "menu_rewards_claim" button → callback received → no handler → nothing happens
+```
+
+**Correct Pattern**:
+```python
+# ✅ GOOD - Both command and menu callback entry points
+claim_reward_conversation = ConversationHandler(
+    entry_points=[
+        CommandHandler("claim_reward", claim_reward_command),
+        CallbackQueryHandler(menu_claim_reward_callback, pattern="^menu_rewards_claim$")
+    ],
+    states={
+        AWAITING_REWARD_SELECTION: [
+            CallbackQueryHandler(claim_reward_callback, pattern="^claim_reward_"),
+            CallbackQueryHandler(claim_back_callback, pattern="^menu_back$")
+        ]
+    },
+    fallbacks=[CommandHandler("cancel", cancel_claim_handler)]
+)
+```
+
+**Implementation Pattern**:
+
+Create a menu callback version of the command handler:
+```python
+async def menu_claim_reward_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Entry point when reward claim starts from menu callback."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+    logger.info(f"📨 Received menu_rewards_claim callback from user {telegram_id} (@{username})")
+
+    # Same validation and logic as command handler...
+    # BUT use query.edit_message_text() instead of update.message.reply_text()
+
+    return AWAITING_FIRST_STATE
+```
+
+**Key Differences from Command Handler**:
+1. **Gets query from callback**: `query = update.callback_query`
+2. **Answers callback**: `await query.answer()` (required to remove loading state)
+3. **Edits existing message**: `await query.edit_message_text(...)` instead of `update.message.reply_text(...)`
+4. **Otherwise identical**: Same validation, same business logic, same return state
+
+**Files Modified** (Bug Fix: Menu Callback Entry Point for Claim Reward):
+- `src/bot/handlers/reward_handlers.py:252-312` - Added `menu_claim_reward_callback()` function
+- `src/bot/handlers/reward_handlers.py:1059-1061` - Added callback handler as second entry point to `claim_reward_conversation`
+
+**Why This Matters**:
+1. **Consistency** - Users can start conversations both from commands and menu buttons
+2. **UX** - Menu-driven navigation works as expected
+3. **No silent failures** - Callbacks don't just disappear into the void
+4. **Debugging** - Clear log messages distinguish command vs callback entry
+
+**Other Conversations Following This Pattern**:
+- `add_reward_conversation` - Has both `/add_reward` command and `menu_rewards_add` callback entry points
+
 ## Docker Deployment Configuration
 
 **CRITICAL**: Certbot is NOT run as a continuous service to avoid port conflicts with nginx.

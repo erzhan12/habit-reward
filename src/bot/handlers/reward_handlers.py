@@ -249,6 +249,69 @@ async def claim_reward_command(update: Update, context: ContextTypes.DEFAULT_TYP
     return AWAITING_REWARD_SELECTION
 
 
+async def menu_claim_reward_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Entry point when reward claim starts from menu callback.
+
+    Shows inline keyboard with achieved rewards or informative message if none.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+    logger.info(f"📨 Received menu_rewards_claim callback from user {telegram_id} (@{username})")
+
+    # Validate user exists
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    fallback_lang = detect_language_from_telegram(update)
+    if not user:
+        logger.warning(f"⚠️ User {telegram_id} not found in database")
+        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', fallback_lang))
+        logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
+        return ConversationHandler.END
+
+    # Check if user is active
+    if not user.is_active:
+        logger.warning(f"⚠️ User {telegram_id} is inactive")
+        await query.edit_message_text(msg('ERROR_USER_INACTIVE', fallback_lang))
+        logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
+        return ConversationHandler.END
+
+    lang = user.language or await get_message_language_async(telegram_id, update)
+
+    # Get achieved rewards
+    achieved_rewards = await maybe_await(
+        reward_service.get_actionable_rewards(user.id)
+    )
+    logger.info(f"🔍 Found {len(achieved_rewards)} achieved rewards for user {telegram_id}")
+
+    if not achieved_rewards:
+        logger.info(f"ℹ️ No achieved rewards found for user {telegram_id}")
+        from src.bot.keyboards import build_back_to_menu_keyboard
+        await query.edit_message_text(
+            msg('INFO_NO_REWARDS_TO_CLAIM', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        logger.info(f"📤 Sent INFO_NO_REWARDS_TO_CLAIM message to {telegram_id}")
+        return ConversationHandler.END
+
+    # Build rewards dictionary for keyboard
+    rewards_dict = await _get_rewards_dict(achieved_rewards)
+
+    # Build and send keyboard
+    keyboard = build_claimable_rewards_keyboard(achieved_rewards, rewards_dict, lang)
+    logger.info(f"✅ Showing claimable rewards keyboard to {telegram_id} with {len(achieved_rewards)} rewards")
+    await query.edit_message_text(
+        msg('HELP_SELECT_REWARD_TO_CLAIM', lang),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    logger.info(f"📤 Sent claimable rewards keyboard to {telegram_id}")
+
+    return AWAITING_REWARD_SELECTION
+
+
 async def claim_reward_callback(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -391,6 +454,26 @@ async def cancel_claim_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     lang = await get_message_language_async(telegram_id, update)
     await update.message.reply_text(msg('INFO_CANCELLED', lang))
     logger.info(f"📤 Sent conversation cancelled message to {telegram_id}")
+    return ConversationHandler.END
+
+
+async def claim_back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle Back button click during reward claim flow."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+    logger.info(f"🖱️ User {telegram_id} (@{username}) clicked Back during claim reward flow")
+
+    lang = await get_message_language_async(telegram_id, update)
+
+    # Edit message to show cancellation and provide back to menu button
+    await query.edit_message_text(
+        msg('INFO_CANCELLED', lang),
+        reply_markup=build_back_to_menu_keyboard(lang)
+    )
+    logger.info(f"📤 Sent claim flow cancelled message to {telegram_id}")
     return ConversationHandler.END
 
 
@@ -973,10 +1056,14 @@ add_reward_conversation = ConversationHandler(
 
 # Build conversation handler for claim_reward
 claim_reward_conversation = ConversationHandler(
-    entry_points=[CommandHandler("claim_reward", claim_reward_command)],
+    entry_points=[
+        CommandHandler("claim_reward", claim_reward_command),
+        CallbackQueryHandler(menu_claim_reward_callback, pattern="^menu_rewards_claim$")
+    ],
     states={
         AWAITING_REWARD_SELECTION: [
-            CallbackQueryHandler(claim_reward_callback, pattern="^claim_reward_")
+            CallbackQueryHandler(claim_reward_callback, pattern="^claim_reward_"),
+            CallbackQueryHandler(claim_back_callback, pattern="^menu_back$")
         ]
     },
     fallbacks=[CommandHandler("cancel", cancel_claim_handler)]
