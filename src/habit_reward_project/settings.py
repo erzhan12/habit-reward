@@ -29,7 +29,8 @@ SECRET_KEY = env('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env('DEBUG')
 
-ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', '[::1]'])
+# Base allowed hosts (can be extended by NGROK_URL)
+ALLOWED_HOSTS_BASE = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', '[::1]'])
 
 # CSRF Configuration for webhooks
 # Required for Django 4.0+ when using HTTPS webhooks in production
@@ -158,9 +159,26 @@ AIRTABLE_BASE_ID = env('AIRTABLE_BASE_ID', default='test_base')
 
 # Telegram Bot Configuration
 TELEGRAM_BOT_TOKEN = env('TELEGRAM_BOT_TOKEN', default='test_token')
-TELEGRAM_WEBHOOK_URL = env('TELEGRAM_WEBHOOK_URL', default=None)
+
+# Webhook URL: Use NGROK_URL if set (for development), otherwise use explicit TELEGRAM_WEBHOOK_URL
+NGROK_URL = env('NGROK_URL', default=None)
+if NGROK_URL and NGROK_URL.strip():
+    # Derive webhook URL from ngrok URL
+    TELEGRAM_WEBHOOK_URL = f"{NGROK_URL.rstrip('/')}/webhook/telegram"
+    # Extract domain and add to ALLOWED_HOSTS
+    import re
+    ngrok_domain = re.sub(r'https?://', '', NGROK_URL).split('/')[0]
+    # Combine base hosts with ngrok domain
+    ALLOWED_HOSTS = list(ALLOWED_HOSTS_BASE)
+    if ngrok_domain not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(ngrok_domain)
+else:
+    # Use explicit webhook URL if NGROK_URL is not set
+    TELEGRAM_WEBHOOK_URL = env('TELEGRAM_WEBHOOK_URL', default=None)
+    ALLOWED_HOSTS = ALLOWED_HOSTS_BASE
 
 # LLM Configuration
+NLP_ENABLED = env.bool('NLP_ENABLED', default=False)  # Set to True to enable NLP/AI features
 LLM_PROVIDER = env('LLM_PROVIDER', default='openai')  # e.g., "openai", "anthropic", "ollama"
 LLM_MODEL = env('LLM_MODEL', default='gpt-3.5-turbo')  # e.g., "gpt-4", "claude-3-sonnet"
 LLM_API_KEY = env('LLM_API_KEY', default=None)  # API key for the LLM provider

@@ -6,7 +6,7 @@ Manual regression checklist for verifying configurable daily reward frequency li
 
 ## Test Environment Prep
 - Apply latest schema: `make sync && make migrate`
-- Launch admin or shell for data setup: `uv run python manage.py shell_plus`
+- Launch admin or shell for data setup: `uv run python manage.py shell`
 - Use these helpers during the session:
   ```python
   from datetime import timedelta

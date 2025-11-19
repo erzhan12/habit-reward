@@ -6,12 +6,17 @@ Manual checklist for verifying the comprehensive audit logging feature. Run all 
 
 ## Test Environment Prep
 
+**Prerequisites:**
+- ngrok installed and authenticated (`brew install ngrok` on macOS)
+- `.env` file with `TELEGRAM_BOT_TOKEN` set (use test bot token)
+- Dependencies installed (`make sync`)
+
 1. Apply the latest code and schema:
    ```bash
    make sync
    make migrate
    ```
-2. Seed reference data via Django shell (`uv run python manage.py shell_plus`):
+2. Seed reference data via Django shell (`uv run python manage.py shell`):
    ```python
    from datetime import timedelta
    from django.utils import timezone
@@ -19,7 +24,7 @@ Manual checklist for verifying the comprehensive audit logging feature. Run all 
    from src.services.habit_service import habit_service
    from src.services.reward_service import reward_service
 
-   TEST_TELEGRAM_ID = '800015'
+   TEST_TELEGRAM_ID = '11891677'
 
    user, _ = User.objects.update_or_create(
        telegram_id=TEST_TELEGRAM_ID,
@@ -31,6 +36,7 @@ Manual checklist for verifying the comprehensive audit logging feature. Run all 
        }
    )
 
+   # Seed test habits
    drink_water, _ = Habit.objects.update_or_create(
        name='Drink Water',
        defaults={'weight': 40, 'active': True, 'category': 'health'}
@@ -39,7 +45,17 @@ Manual checklist for verifying the comprehensive audit logging feature. Run all 
        name='Evening Journal',
        defaults={'weight': 60, 'active': True, 'category': 'mindfulness'}
    )
+   # Additional habits for testing variety
+   exercise, _ = Habit.objects.update_or_create(
+       name='Morning Exercise',
+       defaults={'weight': 50, 'active': True, 'category': 'fitness'}
+   )
+   reading, _ = Habit.objects.update_or_create(
+       name='Reading',
+       defaults={'weight': 30, 'active': True, 'category': 'learning'}
+   )
 
+   # Seed test rewards
    coffee_break, _ = Reward.objects.update_or_create(
        name='Coffee Break',
        defaults={
@@ -60,11 +76,28 @@ Manual checklist for verifying the comprehensive audit logging feature. Run all 
            'active': True,
        }
    )
+   
+   # Verify seeded data
+   print(f"✅ Seeded: {User.objects.count()} user(s), {Habit.objects.count()} habit(s), {Reward.objects.count()} reward(s)")
    ```
-3. Start the Telegram bot locally with `make bot` (or `./run_bot.sh`). Use Telegram’s test chat tied to the seeded user ID.
-4. Keep a second terminal open with `uv run python manage.py shell_plus` to inspect `BotAuditLog` entries quickly:
+3. Start the Telegram bot in webhook mode using the development setup script:
+   ```bash
+   ./scripts/start_webhook_dev.sh
+   ```
+   This script will:
+   - Guide you to start ngrok tunnel (`ngrok http 8000`)
+   - Detect the ngrok URL and set `NGROK_URL` in `.env`
+   - Guide you to start the Django ASGI server (`make bot-webhook` or uvicorn command)
+   - Set the Telegram webhook automatically
+   
+   **Note**: Use Telegram's test chat tied to the seeded user ID (`TEST_TELEGRAM_ID`).
+   
+4. Keep a second terminal open with `uv run python manage.py shell` to inspect `BotAuditLog` entries quickly:
    ```python
-   from src.core.models import BotAuditLog, RewardProgress
+   from src.core.models import BotAuditLog, RewardProgress, User
+   
+   # Get the test user (created in step 2)
+   user = User.objects.get(telegram_id='11891677')
 
    def recent_logs(type=None):
        qs = BotAuditLog.objects.filter(user=user)
@@ -77,10 +110,10 @@ Manual checklist for verifying the comprehensive audit logging feature. Run all 
 
 ## Test Cases (GIVEN / WHEN / THEN)
 
-### TC-001 – Command Logging (/start and /help)
+### TC-001 – Command Logging (Basic Commands)
 - **GIVEN** user `Audit Logger QA` exists and bot is running.
-- **WHEN** you send `/start` followed by `/help` from the Telegram chat tied to `TEST_TELEGRAM_ID`.
-- **THEN** the audit table stores two new `COMMAND` entries (`command="/start"` and `command="/help"`) with snapshots that include the resolved language; `recent_logs('command')` shows the commands in chronological order.
+- **WHEN** you send `/start` and `/help` from the Telegram chat tied to `TEST_TELEGRAM_ID`.
+- **THEN** these commands are NOT logged to the audit trail (they are frequent, low-value events). Verify that `recent_logs('command')` does NOT contain `/start` or `/help` entries. Only significant commands that modify data or trigger important workflows should be logged.
 
 ### TC-002 – Habit Completion Snapshot
 - **GIVEN** `Drink Water` habit is active and rewards are enabled.
@@ -109,8 +142,13 @@ Manual checklist for verifying the comprehensive audit logging feature. Run all 
 
 ### TC-007 – Cleanup Management Command
 - **GIVEN** multiple audit rows exist.
-- **WHEN** you open the Django shell and age a few rows manually: 
+- **WHEN** you open the Django shell (`uv run python manage.py shell`) and age a few rows manually: 
   ```python
+  from datetime import timedelta
+  from django.utils import timezone
+  from src.core.models import BotAuditLog, User
+  
+  user = User.objects.get(telegram_id='11891677')
   cutoff = timezone.now() - timedelta(days=95)
   BotAuditLog.objects.filter(user=user).update(timestamp=cutoff)
   ```
@@ -122,4 +160,5 @@ Manual checklist for verifying the comprehensive audit logging feature. Run all 
 ## Post-Test Checklist
 - Delete any throwaway habits/rewards created during testing.
 - Review `django.log` (or console output) to ensure no unhandled exceptions occurred.
-- Reset the seeded user’s reward progress if future tests need a clean state.
+- Reset the seeded user's reward progress if future tests need a clean state.
+- (Optional) Delete webhook if switching back to polling mode: `uv run python scripts/set_webhook.py --delete`

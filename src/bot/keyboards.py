@@ -148,6 +148,14 @@ def build_claimable_rewards_keyboard(
             )
             keyboard.append([button])
 
+    # Add Back button to return to main menu
+    keyboard.append([
+        InlineKeyboardButton(
+            text=msg('MENU_BACK', language),
+            callback_data="menu_back"
+        )
+    ])
+
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
 

@@ -102,67 +102,42 @@ fi
 
 print_msg $GREEN "✅ Ngrok URL: $NGROK_URL"
 
-# Extract domain from URL
-NGROK_DOMAIN=$(echo "$NGROK_URL" | sed -E 's|https?://||' | sed 's|/.*||')
+# Update .env file with NGROK_URL (single variable for both webhook URL and ALLOWED_HOSTS)
+print_msg $BLUE "Updating .env with NGROK_URL..."
 
-# Update .env file with webhook URL
-WEBHOOK_URL="${NGROK_URL}/webhook/telegram"
-print_msg $BLUE "Updating .env with webhook URL..."
+# Remove old ngrok-related variables if they exist
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    sed -i '' '/^TELEGRAM_WEBHOOK_URL=.*ngrok/d' "$PROJECT_ROOT/.env" 2>/dev/null || true
+else
+    # Linux
+    sed -i '/^TELEGRAM_WEBHOOK_URL=.*ngrok/d' "$PROJECT_ROOT/.env" 2>/dev/null || true
+fi
 
-# Check if TELEGRAM_WEBHOOK_URL exists in .env
-if grep -q "^TELEGRAM_WEBHOOK_URL=" "$PROJECT_ROOT/.env"; then
+# Update or add NGROK_URL
+if grep -q "^NGROK_URL=" "$PROJECT_ROOT/.env"; then
     # Update existing line
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
-        sed -i '' "s|^TELEGRAM_WEBHOOK_URL=.*|TELEGRAM_WEBHOOK_URL=$WEBHOOK_URL|" "$PROJECT_ROOT/.env"
+        sed -i '' "s|^NGROK_URL=.*|NGROK_URL=$NGROK_URL|" "$PROJECT_ROOT/.env"
     else
         # Linux
-        sed -i "s|^TELEGRAM_WEBHOOK_URL=.*|TELEGRAM_WEBHOOK_URL=$WEBHOOK_URL|" "$PROJECT_ROOT/.env"
+        sed -i "s|^NGROK_URL=.*|NGROK_URL=$NGROK_URL|" "$PROJECT_ROOT/.env"
     fi
 else
     # Add new line
-    echo "TELEGRAM_WEBHOOK_URL=$WEBHOOK_URL" >> "$PROJECT_ROOT/.env"
+    echo "NGROK_URL=$NGROK_URL" >> "$PROJECT_ROOT/.env"
 fi
 
-# Update ALLOWED_HOSTS - ensure ngrok domain is present and remove old ones
-print_msg $BLUE "Updating ALLOWED_HOSTS with ngrok domain..."
-
-if grep -q "^ALLOWED_HOSTS=" "$PROJECT_ROOT/.env"; then
-    # Get current ALLOWED_HOSTS value
-    CURRENT_HOSTS=$(grep "^ALLOWED_HOSTS=" "$PROJECT_ROOT/.env" | sed 's/ALLOWED_HOSTS=//')
-    
-    # Check if this specific ngrok domain is already in ALLOWED_HOSTS
-    if ! echo "$CURRENT_HOSTS" | grep -qw "$NGROK_DOMAIN"; then
-        # Remove old ngrok domains (any domain containing .ngrok) and add new one
-        CLEAN_HOSTS=$(echo "$CURRENT_HOSTS" | sed -E 's/[^,]*\.ngrok[^,]*//g' | sed 's/,,*/,/g' | sed 's/^,//' | sed 's/,$//')
-        
-        # Ensure localhost and 127.0.0.1 are present
-        if ! echo "$CLEAN_HOSTS" | grep -qw "localhost"; then
-            CLEAN_HOSTS="localhost,$CLEAN_HOSTS"
-        fi
-        if ! echo "$CLEAN_HOSTS" | grep -qw "127.0.0.1"; then
-            CLEAN_HOSTS="127.0.0.1,$CLEAN_HOSTS"
-        fi
-        
-        # Add new ngrok domain
-        NEW_HOSTS="$CLEAN_HOSTS,$NGROK_DOMAIN"
-        
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s|^ALLOWED_HOSTS=.*|ALLOWED_HOSTS=$NEW_HOSTS|" "$PROJECT_ROOT/.env"
-        else
-            sed -i "s|^ALLOWED_HOSTS=.*|ALLOWED_HOSTS=$NEW_HOSTS|" "$PROJECT_ROOT/.env"
-        fi
-        print_msg $GREEN "✅ ALLOWED_HOSTS updated: $NEW_HOSTS"
-    else
-        print_msg $GREEN "✅ Domain already in ALLOWED_HOSTS"
-    fi
-else
-    # Add new ALLOWED_HOSTS line
-    echo "ALLOWED_HOSTS=localhost,127.0.0.1,$NGROK_DOMAIN" >> "$PROJECT_ROOT/.env"
-    print_msg $GREEN "✅ ALLOWED_HOSTS created: localhost,127.0.0.1,$NGROK_DOMAIN"
+# Ensure ALLOWED_HOSTS has localhost and 127.0.0.1 (ngrok domain will be added automatically by settings.py)
+if ! grep -q "^ALLOWED_HOSTS=" "$PROJECT_ROOT/.env"; then
+    echo "ALLOWED_HOSTS=localhost,127.0.0.1" >> "$PROJECT_ROOT/.env"
 fi
 
-print_msg $GREEN "✅ .env file updated"
+WEBHOOK_URL="${NGROK_URL}/webhook/telegram"
+print_msg $GREEN "✅ .env file updated with NGROK_URL"
+print_msg $BLUE "   Webhook URL will be: $WEBHOOK_URL (derived automatically)"
+print_msg $BLUE "   ALLOWED_HOSTS will include ngrok domain automatically"
 
 echo ""
 print_msg $GREEN "STEP 2: Start Django ASGI server"
@@ -194,7 +169,9 @@ print_msg $GREEN "🎉 Webhook setup complete!"
 print_msg $BLUE "=========================================="
 echo ""
 print_msg $YELLOW "Your webhook is now configured:"
-print_msg $BLUE "  URL: $WEBHOOK_URL"
+print_msg $BLUE "  NGROK_URL: $NGROK_URL"
+print_msg $BLUE "  Webhook URL: $WEBHOOK_URL (derived from NGROK_URL)"
+print_msg $BLUE "  ALLOWED_HOSTS: includes ngrok domain automatically"
 echo ""
 print_msg $YELLOW "📊 Monitor your webhook:"
 print_msg $BLUE "  ngrok web interface: http://127.0.0.1:4040"

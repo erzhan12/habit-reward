@@ -21,6 +21,7 @@ from src.bot.formatters import (
     format_claim_success_with_progress
 )
 from src.bot.keyboards import (
+    build_back_to_menu_keyboard,
     build_claimable_rewards_keyboard,
     build_reward_cancel_keyboard,
     build_reward_type_keyboard,

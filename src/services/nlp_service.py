@@ -17,23 +17,28 @@ class NLPService:
         self.model = settings.LLM_MODEL
         self.enabled = False
         self.client = None
+        self._initialized = False
+
+        # Check if NLP is disabled via setting (defaults to False - disabled)
+        if not getattr(settings, 'NLP_ENABLED', False):
+            logger.debug("NLP service is disabled via NLP_ENABLED setting")
+            return
 
         if self.provider == "openai":
             if not settings.LLM_API_KEY:
-                logger.warning(
-                    "⚠️ LLM_API_KEY is not configured. NLP habit classification will be disabled. "
-                    "Set LLM_API_KEY in your .env file to enable this feature."
-                )
+                # Only log warning if NLP is expected to be enabled
+                logger.debug("LLM_API_KEY not configured. NLP habit classification disabled.")
                 return
             try:
                 self.client = OpenAI(api_key=settings.LLM_API_KEY)
                 self.enabled = True
+                self._initialized = True
                 logger.info(f"✅ NLP service initialized with {self.provider}/{self.model}")
             except Exception as e:
                 logger.warning(f"⚠️ Failed to initialize OpenAI client: {e}. NLP features will be disabled.")
                 return
         else:
-            logger.warning(f"⚠️ Unsupported LLM provider: {self.provider}. NLP features will be disabled.")
+            logger.debug(f"Unsupported LLM provider: {self.provider}. NLP features disabled.")
 
     def classify_habit_from_text(
         self,
@@ -140,5 +145,6 @@ Only include habits that are clearly indicated by the user's text.
         return prompt
 
 
-# Global service instance
+# Global service instance (lazy initialization - only logs when actually enabled)
+# To disable NLP entirely, set NLP_ENABLED=False in Django settings
 nlp_service = NLPService()

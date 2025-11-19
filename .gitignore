@@ -32,6 +32,7 @@ uv.lock
 # Environment Variables
 .env
 .env.local
+.env.bak
 
 # IDE
 .vscode/
