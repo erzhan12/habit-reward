@@ -208,13 +208,49 @@ class RewardProgress(models.Model):
         ordering = ['reward__name']
 
     def get_status(self):
-        """Computed status (replaces Airtable formula)."""
+        """Computed status (replaces Airtable formula).
+
+        IMPORTANT: This method requires the reward relationship to be loaded
+        via select_related('reward') to avoid synchronous DB queries in async contexts.
+        """
         if self.claimed:
             return self.RewardStatus.CLAIMED
-        elif self.pieces_earned >= self.reward.pieces_required:
+
+        # Get pieces_required safely to avoid sync DB queries in async contexts
+        pieces_required = self._get_pieces_required_safe()
+
+        if self.pieces_earned >= pieces_required:
             return self.RewardStatus.ACHIEVED
         else:
             return self.RewardStatus.PENDING
+
+    def _get_pieces_required_safe(self):
+        """Safely get pieces_required without triggering sync DB queries.
+
+        Returns:
+            int: pieces_required value
+
+        Raises:
+            ValueError: If reward is not loaded and no cached value exists
+        """
+        # Check if we have a cached value (set by repository methods)
+        if hasattr(self, '_cached_pieces_required'):
+            return self._cached_pieces_required
+
+        # Check if reward is loaded in Django's cache
+        if hasattr(self, '_state') and 'reward' in self._state.fields_cache:
+            return self.reward.pieces_required
+
+        # Fallback: try to access reward (will fail in async context)
+        # This maintains backward compatibility but with better error message
+        try:
+            return self.reward.pieces_required
+        except Exception as e:
+            raise ValueError(
+                "RewardProgress.get_status() requires reward to be prefetched with "
+                "select_related('reward'), or _cached_pieces_required to be set. "
+                f"Original error: {e}"
+            ) from e
 
     def get_pieces_required(self):
         """Get pieces required from linked reward (replaces Airtable lookup).

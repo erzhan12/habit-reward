@@ -212,6 +212,24 @@ class RewardRepository:
 class RewardProgressRepository:
     """Reward progress repository using Django ORM."""
 
+    @staticmethod
+    def _attach_cached_pieces_required(progress: RewardProgress) -> RewardProgress:
+        """Attach cached pieces_required to avoid ForeignKey access in async contexts.
+
+        This prevents SynchronousOnlyOperation errors when get_status() is called
+        from async contexts by caching the pieces_required value directly on the instance.
+
+        Args:
+            progress: RewardProgress instance with reward loaded via select_related
+
+        Returns:
+            Same RewardProgress instance with _cached_pieces_required attached
+        """
+        if progress and hasattr(progress, 'reward'):
+            # Access reward.pieces_required now (in sync context) and cache it
+            progress._cached_pieces_required = progress.reward.pieces_required
+        return progress
+
     async def get_by_user_and_reward(self, user_id: int | str, reward_id: int | str) -> RewardProgress | None:
         """Get progress for specific user and reward.
 
@@ -225,10 +243,11 @@ class RewardProgressRepository:
         try:
             user_pk = int(user_id) if isinstance(user_id, str) else user_id
             reward_pk = int(reward_id) if isinstance(reward_id, str) else reward_id
-            return await sync_to_async(RewardProgress.objects.select_related('reward', 'user').get)(
+            progress = await sync_to_async(RewardProgress.objects.select_related('reward', 'user').get)(
                 user_id=user_pk,
                 reward_id=reward_pk
             )
+            return self._attach_cached_pieces_required(progress)
         except (RewardProgress.DoesNotExist, ValueError):
             return None
 
@@ -247,7 +266,8 @@ class RewardProgressRepository:
             .select_related('reward', 'user')
             .order_by('reward__name')
         )
-        return progress_list
+        # Attach cached pieces_required to each progress object
+        return [self._attach_cached_pieces_required(p) for p in progress_list]
 
     async def get_achieved_by_user(self, user_id: int | str) -> list[RewardProgress]:
         """Get all achieved (actionable) rewards for a user.
@@ -268,7 +288,8 @@ class RewardProgressRepository:
                 claimed=False
             ).select_related('reward', 'user')
         )
-        return achieved_list
+        # Attach cached pieces_required to each progress object
+        return [self._attach_cached_pieces_required(p) for p in achieved_list]
 
     async def decrement_pieces_earned(self, user_id: int | str, reward_id: int | str) -> RewardProgress | None:
         """Decrement pieces_earned by one and reset claimed when necessary."""
@@ -315,7 +336,11 @@ class RewardProgressRepository:
             reward_id=reward_id,
             defaults={'pieces_earned': pieces_earned}
         )
-        return progress_obj
+        # Refetch to ensure related objects are loaded (prevents sync queries in async contexts)
+        progress = await sync_to_async(
+            RewardProgress.objects.select_related('reward', 'user').get
+        )(pk=progress_obj.pk)
+        return self._attach_cached_pieces_required(progress)
 
     async def update(self, progress_id: int | str, updates: dict[str, Any]) -> RewardProgress:
         """Update reward progress fields.
@@ -329,7 +354,8 @@ class RewardProgressRepository:
         """
         pk = int(progress_id) if isinstance(progress_id, str) else progress_id
         await sync_to_async(RewardProgress.objects.filter(pk=pk).update)(**updates)
-        return await sync_to_async(RewardProgress.objects.select_related('reward', 'user').get)(pk=pk)
+        progress = await sync_to_async(RewardProgress.objects.select_related('reward', 'user').get)(pk=pk)
+        return self._attach_cached_pieces_required(progress)
 
 
 class HabitLogRepository:
