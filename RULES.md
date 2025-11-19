@@ -488,10 +488,87 @@ progress.get_pieces_required()  # Extra DB query!
 ```
 
 **Files affected**:
-- `src/core/models.py:205-234` - RewardProgress computed methods
+- `src/core/models.py:210-253` - RewardProgress computed methods
 - `src/services/reward_service.py` - Calls get_status() method
 - `src/bot/formatters.py` - Uses all computed methods
 - `src/bot/handlers/reward_handlers.py` - Uses get_status() method
+
+### Async-Safe ForeignKey Access Pattern
+
+**CRITICAL**: Django model methods that access ForeignKey relationships MUST NOT trigger synchronous database queries when called from async contexts.
+
+**The Problem**:
+When a Django model method accesses a ForeignKey field (e.g., `self.reward.pieces_required`), it triggers a database query if the related object is not loaded. In async contexts, this causes `SynchronousOnlyOperation` errors.
+
+**Example of Broken Pattern**:
+```python
+# ❌ Bad - Causes SynchronousOnlyOperation in async contexts
+class RewardProgress(models.Model):
+    reward = models.ForeignKey(Reward, on_delete=models.CASCADE)
+
+    def get_status(self):
+        # This triggers a sync DB query in async contexts!
+        if self.pieces_earned >= self.reward.pieces_required:
+            return self.RewardStatus.ACHIEVED
+```
+
+**The Solution - Cache ForeignKey Values**:
+
+1. **In Repository Methods**: After fetching objects with `select_related()`, cache the needed FK values directly on the instance:
+
+```python
+# In RewardProgressRepository
+@staticmethod
+def _attach_cached_pieces_required(progress: RewardProgress) -> RewardProgress:
+    """Attach cached pieces_required to avoid ForeignKey access in async contexts."""
+    if progress and hasattr(progress, 'reward'):
+        # Access reward.pieces_required now (in sync context) and cache it
+        progress._cached_pieces_required = progress.reward.pieces_required
+    return progress
+
+async def get_by_user_and_reward(self, user_id, reward_id):
+    progress = await sync_to_async(
+        RewardProgress.objects.select_related('reward').get
+    )(user_id=user_id, reward_id=reward_id)
+    return self._attach_cached_pieces_required(progress)  # Cache FK values
+```
+
+2. **In Model Methods**: Use the cached value instead of accessing the ForeignKey:
+
+```python
+# ✅ Good - Async-safe pattern
+class RewardProgress(models.Model):
+    def get_status(self):
+        pieces_required = self._get_pieces_required_safe()
+        if self.pieces_earned >= pieces_required:
+            return self.RewardStatus.ACHIEVED
+
+    def _get_pieces_required_safe(self):
+        # Check for cached value first (set by repository)
+        if hasattr(self, '_cached_pieces_required'):
+            return self._cached_pieces_required
+
+        # Check if FK is loaded in Django's cache
+        if hasattr(self, '_state') and 'reward' in self._state.fields_cache:
+            return self.reward.pieces_required
+
+        # Fallback with clear error message
+        raise ValueError(
+            "RewardProgress requires reward to be prefetched or cached"
+        )
+```
+
+**Why This Works**:
+- Repository methods access ForeignKeys inside `sync_to_async()` wrappers (sync context)
+- Values are cached as simple attributes on the instance
+- Model methods access cached attributes (no DB query)
+- Works reliably across async/sync boundaries
+
+**Files affected** (Bug Fix: 2025-11-19):
+- `src/core/models.py:210-253` - Added `_get_pieces_required_safe()` helper
+- `src/core/repositories.py:215-358` - Added caching helper, updated all methods
+
+**Related Bug**: Completing multiple habits in succession caused `SynchronousOnlyOperation` error on the second habit because `get_status()` tried to access `self.reward.pieces_required` in an async context.
 
 ## Service Layer
 
