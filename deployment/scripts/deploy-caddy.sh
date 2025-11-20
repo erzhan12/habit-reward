@@ -42,8 +42,8 @@ docker-compose -f docker-compose.yml logs --tail=20 caddy
 
 echo ""
 echo "✅ Deployment complete!"
-echo "🌐 Access your application at: https://habitreward.duckdns.org"
-echo "🔧 Admin panel: https://habitreward.duckdns.org/admin/"
+echo "🌐 Access your application at: https://habitreward.org"
+echo "🔧 Admin panel: https://habitreward.org/admin/"
 echo ""
 echo "📋 Next steps:"
 echo "1. Wait 1-2 minutes for Caddy to obtain SSL certificate"

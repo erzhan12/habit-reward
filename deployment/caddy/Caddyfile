@@ -1,11 +1,11 @@
 # Habit Reward Bot - Caddy Configuration
 # Automatic HTTPS with Let's Encrypt
 
-habitreward.duckdns.org {
+habitreward.org {
     # Automatic HTTPS via Let's Encrypt
     # Certificate obtained on first HTTPS request
     # Auto-renewal handled automatically
-    tls admin@example.com
+    tls erzhan.sarsenov@gmail.com
 
     # Reverse proxy to Django application
     reverse_proxy web:8000 {
@@ -48,8 +48,8 @@ habitreward.duckdns.org {
 }
 
 # Redirect www to non-www (if needed)
-www.habitreward.duckdns.org {
-    redir https://habitreward.duckdns.org{uri} permanent
+www.habitreward.org {
+    redir https://habitreward.org{uri} permanent
 }
 
 # Catch-all: Block all other domains and direct IP access

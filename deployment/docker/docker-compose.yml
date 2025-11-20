@@ -12,15 +12,15 @@ services:
       # Django Configuration
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
-      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-habitreward.duckdns.org}
-      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-https://habitreward.duckdns.org}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-habitreward.org}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-https://habitreward.org}
 
       # Database (SQLite for simplicity)
       DATABASE_URL: sqlite:////app/data/db.sqlite3
 
       # Telegram Bot Configuration
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://habitreward.duckdns.org/webhook/telegram}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://habitreward.org/webhook/telegram}
 
       # Optional: Django Superuser (created on first run)
       DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-admin}
@@ -86,7 +86,7 @@ services:
       - habit_reward_network
 
     environment:
-      - DOMAIN=${DOMAIN:-habitreward.duckdns.org}
+      - DOMAIN=${DOMAIN:-habitreward.org}
 
 volumes:
   # Note: app_data and static_files use bind mounts (./data and ./staticfiles)
