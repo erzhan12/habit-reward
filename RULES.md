@@ -2176,6 +2176,52 @@ echo | openssl s_client -servername habitreward.duckdns.org \
   openssl x509 -noout -dates
 ```
 
+### Security: Domain Blocking
+
+**Date**: 2025-11-20
+
+**Problem**: Public servers receive constant automated attacks and scanners. Without domain restrictions, any domain pointing to your IP address can use your server (domain fronting attack).
+
+**Solution**: Caddy catch-all block to reject all requests except legitimate domains.
+
+**Configuration** (`deployment/caddy/Caddyfile`):
+```caddy
+# Your legitimate domains first
+habitreward.duckdns.org { ... }
+www.habitreward.duckdns.org { ... }
+
+# Catch-all MUST come last - blocks everything else
+:80, :443 {
+    respond "Domain not configured" 444
+    log {
+        output file /var/log/caddy/blocked.log
+        format console
+    }
+}
+```
+
+**What this blocks**:
+- Direct IP access (http://206.189.40.240)
+- Unknown domains pointing to your IP (e.g., furnicraft.lk)
+- Attack attempts to /goform/, /cgi-bin/, /HNAP1/ (router exploits)
+- Domain fronting attempts
+
+**Important**: The catch-all (`:80, :443`) must come AFTER your legitimate domain blocks, otherwise it will intercept everything.
+
+### Health Check Logs
+
+**Expected Behavior**: You will see frequent requests to `/admin/login/` in logs:
+```
+INFO: 172.18.0.3:53114 - "GET /admin/login/ HTTP/1.1" 200 OK  # Caddy healthcheck
+INFO: 127.0.0.1:53190 - "GET /admin/login/ HTTP/1.1" 200 OK   # Docker healthcheck
+```
+
+**Why**: Two health checks run every 30 seconds:
+1. **Docker healthcheck** (127.0.0.1) - Verifies container is healthy
+2. **Caddy healthcheck** (172.18.0.3) - Verifies reverse proxy target is responding
+
+**Action**: No action needed - these logs confirm your application is healthy. This is normal and expected behavior.
+
 ### Comparison: nginx vs Caddy
 
 | Aspect | nginx (Old) | Caddy (New) |

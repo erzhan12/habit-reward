@@ -51,3 +51,14 @@ habitreward.duckdns.org {
 www.habitreward.duckdns.org {
     redir https://habitreward.duckdns.org{uri} permanent
 }
+
+# Catch-all: Block all other domains and direct IP access
+# This must come AFTER specific domain blocks
+:80, :443 {
+    respond "Domain not configured" 444
+
+    log {
+        output file /var/log/caddy/blocked.log
+        format console
+    }
+}
