@@ -692,3 +692,86 @@ def build_back_to_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
         )]
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+def build_grace_days_keyboard(current_grace_days: int | None = None, language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for grace days selection (0, 1, 2, 3).
+
+    Args:
+        current_grace_days: Current grace days value (will be highlighted with ✓)
+        language: Language code for translating Cancel button
+
+    Returns:
+        InlineKeyboardMarkup with grace days buttons
+    """
+    keyboard = []
+
+    # Create buttons for grace days (0-3)
+    row = []
+    for days in range(0, 4):
+        # Highlight current value with checkmark
+        button_text = f"✓ {days}" if current_grace_days == days else str(days)
+        button = InlineKeyboardButton(
+            text=button_text,
+            callback_data=f"grace_days_{days}"
+        )
+        row.append(button)
+
+    keyboard.append(row)
+
+    # Add Cancel button
+    keyboard.append([
+        InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_habit_flow"
+        )
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_exempt_days_keyboard(current_exempt_days: list[int] | None = None, language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for exempt days selection (None, Weekends, Custom).
+
+    Args:
+        current_exempt_days: Current exempt days list (will be highlighted with ✓)
+        language: Language code for translating Cancel button
+
+    Returns:
+        InlineKeyboardMarkup with exempt days buttons
+    """
+    keyboard = []
+
+    # Determine if current setting is None (empty list), Weekends (6,7), or Custom
+    current_is_none = not current_exempt_days or len(current_exempt_days) == 0
+    current_is_weekends = current_exempt_days and sorted(current_exempt_days) == [6, 7]
+
+    # None option
+    button_text = f"✓ {msg('BUTTON_EXEMPT_NONE', language)}" if current_is_none else msg('BUTTON_EXEMPT_NONE', language)
+    keyboard.append([
+        InlineKeyboardButton(
+            text=button_text,
+            callback_data="exempt_days_none"
+        )
+    ])
+
+    # Weekends option (Saturday=6, Sunday=7)
+    button_text = f"✓ {msg('BUTTON_EXEMPT_WEEKENDS', language)}" if current_is_weekends else msg('BUTTON_EXEMPT_WEEKENDS', language)
+    keyboard.append([
+        InlineKeyboardButton(
+            text=button_text,
+            callback_data="exempt_days_weekends"
+        )
+    ])
+
+    # Add Cancel button
+    keyboard.append([
+        InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_habit_flow"
+        )
+    ])
+
+    return InlineKeyboardMarkup(keyboard)

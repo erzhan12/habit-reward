@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 from typing import Awaitable
-from src.core.repositories import habit_log_repository
+from src.core.repositories import habit_log_repository, habit_repository
 from src.utils.async_compat import run_sync_or_async, maybe_await
 
 
@@ -10,15 +10,16 @@ class StreakService:
     """Service for calculating and managing habit streaks."""
 
     def __init__(self):
-        """Initialize StreakService with repository."""
+        """Initialize StreakService with repositories."""
         self.habit_log_repo = habit_log_repository
+        self.habit_repo = habit_repository
 
     def calculate_streak(
         self,
         user_id: str,
         habit_id: str
     ) -> int | Awaitable[int]:
-        """Calculate current streak for a specific habit and user."""
+        """Calculate current streak for a specific habit and user with grace days and exempt weekdays support."""
 
         async def _impl() -> int:
             last_log = await maybe_await(
@@ -28,15 +29,47 @@ class StreakService:
             if last_log is None:
                 return 1
 
+            # Get habit settings for flexible streak tracking
+            habit = await maybe_await(self.habit_repo.get_by_id(habit_id))
+            
             last_date = last_log.last_completed_date
             today = date.today()
             yesterday = today - timedelta(days=1)
 
+            # Simple cases: today or yesterday
             if last_date == today:
                 return last_log.streak_count
 
             if last_date == yesterday:
                 return last_log.streak_count + 1
+
+            # If habit not found, use strict logic (break streak for gap > 1 day)
+            if not habit:
+                return 1
+
+            # Gap of more than 1 day - check if flexible tracking preserves streak
+            if last_date < yesterday:
+                # Get all dates in the gap (exclusive of both endpoints)
+                current_date = last_date + timedelta(days=1)
+                missed_days = 0
+
+                while current_date < today:
+                    # Get weekday (1=Monday, 7=Sunday)
+                    weekday = current_date.isoweekday()
+
+                    # Only count as missed if not in exempt_weekdays
+                    if weekday not in habit.exempt_weekdays:
+                        missed_days += 1
+
+                    current_date += timedelta(days=1)
+
+                # Check if missed days are within allowed grace days
+                if missed_days <= habit.allowed_skip_days:
+                    # Streak preserved
+                    return last_log.streak_count + 1
+                else:
+                    # Streak broken
+                    return 1
 
             return 1
 

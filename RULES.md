@@ -330,13 +330,48 @@ The `StreakService` has two distinct methods:
    - Returns what the NEXT streak will be after logging
    - If `last_completed_date == yesterday`: increments streak
    - If `last_completed_date == today`: returns current streak
-   - If `last_completed_date < yesterday`: resets to 1
+   - If `last_completed_date < yesterday`: applies flexible streak logic (see below)
 
 2. **`get_current_streak(user_id, habit_id)`** - Used when DISPLAYING current streak
    - Returns the CURRENT streak from the most recent log
    - Does NOT increment or calculate - just retrieves stored value
 
 **Why Two Methods?**: Using `calculate_streak()` for display caused incorrect results when viewing streaks on Day 2 (habits not done today were incorrectly incremented).
+
+### Flexible Streak Tracking (Feature 0017)
+
+**CRITICAL**: Streaks now support grace days and exempt weekdays for more flexible tracking.
+
+**Habit Fields**:
+- `allowed_skip_days` (Integer, default=0): Number of consecutive days user can skip without breaking streak
+- `exempt_weekdays` (JSONField, default=[]): List of weekday numbers (1=Mon, 7=Sun) that don't count against streak
+
+**Streak Calculation Algorithm**:
+1. If `last_date == today`: return current streak
+2. If `last_date == yesterday`: return current streak + 1
+3. If gap > 1 day:
+   - Calculate all dates in gap (exclusive)
+   - For each date, get weekday using `date.isoweekday()` (1=Mon, 7=Sun)
+   - Filter out dates that fall on `exempt_weekdays`
+   - Count remaining "missed" days
+   - If `missed_days <= allowed_skip_days`: **preserve streak** (return current + 1)
+   - Otherwise: **break streak** (return 1)
+
+**Example**: Habit with weekends exempt (6=Sat, 7=Sun), last done Friday, today is Monday
+- Gap: Saturday, Sunday
+- Weekdays: 6, 7
+- Both exempt → missed_days = 0
+- Result: Streak preserved ✅
+
+**Bot UI Flow** (Add/Edit Habit):
+- User selects grace days (0, 1, 2, or 3)
+- User selects exempt days (None or Weekends)
+- Settings displayed in confirmation
+
+**Implementation Notes**:
+- Weekday numbering: 1=Monday, 7=Sunday (Python's `isoweekday()`)
+- Exempt weekends stored as `[6, 7]` in database
+- Both fields are **always required** when creating/editing habits
 
 ## Import Pattern
 

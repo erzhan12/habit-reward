@@ -20,6 +20,12 @@ def mock_habit_log_repo():
     return Mock()
 
 
+@pytest.fixture
+def mock_habit_repo():
+    """Create mock habit repository."""
+    return Mock()
+
+
 def create_mock_log(streak_count: int, last_completed_date: date):
     """Helper to create mock HabitLog."""
     return HabitLog(
@@ -30,6 +36,15 @@ def create_mock_log(streak_count: int, last_completed_date: date):
         total_weight_applied=11.0,
         last_completed_date=last_completed_date
     )
+
+
+def create_mock_habit(allowed_skip_days: int = 0, exempt_weekdays: list = None):
+    """Helper to create mock Habit."""
+    mock_habit = Mock()
+    mock_habit.id = "habit123"
+    mock_habit.allowed_skip_days = allowed_skip_days
+    mock_habit.exempt_weekdays = exempt_weekdays if exempt_weekdays is not None else []
+    return mock_habit
 
 
 class TestStreakCalculation:
@@ -44,36 +59,45 @@ class TestStreakCalculation:
 
         assert streak == 1
 
-    def test_same_day_completion(self, streak_service, mock_habit_log_repo):
+    def test_same_day_completion(self, streak_service, mock_habit_log_repo, mock_habit_repo):
         """Test streak when habit already logged today."""
         today = date.today()
         mock_log = create_mock_log(streak_count=5, last_completed_date=today)
+        mock_habit = create_mock_habit()
         mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
 
         with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
-            streak = streak_service.calculate_streak("user123", "habit123")
+            with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                streak = streak_service.calculate_streak("user123", "habit123")
 
         assert streak == 5
 
-    def test_consecutive_day_completion(self, streak_service, mock_habit_log_repo):
+    def test_consecutive_day_completion(self, streak_service, mock_habit_log_repo, mock_habit_repo):
         """Test streak increment for consecutive day."""
         yesterday = date.today() - timedelta(days=1)
         mock_log = create_mock_log(streak_count=5, last_completed_date=yesterday)
+        mock_habit = create_mock_habit()
         mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
 
         with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
-            streak = streak_service.calculate_streak("user123", "habit123")
+            with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                streak = streak_service.calculate_streak("user123", "habit123")
 
         assert streak == 6
 
-    def test_broken_streak(self, streak_service, mock_habit_log_repo):
+    def test_broken_streak(self, streak_service, mock_habit_log_repo, mock_habit_repo):
         """Test streak reset when broken."""
         three_days_ago = date.today() - timedelta(days=3)
         mock_log = create_mock_log(streak_count=10, last_completed_date=three_days_ago)
+        mock_habit = create_mock_habit()
         mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
 
         with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
-            streak = streak_service.calculate_streak("user123", "habit123")
+            with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                streak = streak_service.calculate_streak("user123", "habit123")
 
         assert streak == 1
 
@@ -171,3 +195,157 @@ class TestStreakCalculation:
             "BUG: calculate_streak() incorrectly increments to 2 when last_date is yesterday, "
             "even though we're not logging a new completion today."
         )
+
+
+class TestFlexibleStreakTracking:
+    """Test flexible streak tracking with grace days and exempt weekdays."""
+
+    def test_streak_with_1_grace_day_preserved(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        """Test streak preserved when skipping 1 day with 1 grace day allowed."""
+        two_days_ago = date.today() - timedelta(days=2)
+        mock_log = create_mock_log(streak_count=5, last_completed_date=two_days_ago)
+        mock_habit = create_mock_habit(allowed_skip_days=1)
+
+        mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
+
+        with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+            with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                streak = streak_service.calculate_streak("user123", "habit123")
+
+        # Gap of 1 day (yesterday), 1 grace day allowed → streak preserved
+        assert streak == 6
+
+    def test_streak_with_1_grace_day_broken(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        """Test streak broken when skipping 2 days with only 1 grace day allowed."""
+        three_days_ago = date.today() - timedelta(days=3)
+        mock_log = create_mock_log(streak_count=5, last_completed_date=three_days_ago)
+        mock_habit = create_mock_habit(allowed_skip_days=1)
+
+        mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
+
+        with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+            with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                streak = streak_service.calculate_streak("user123", "habit123")
+
+        # Gap of 2 days (yesterday + day before), only 1 grace day → streak broken
+        assert streak == 1
+
+    def test_streak_with_3_grace_days_preserved(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        """Test streak preserved when skipping 3 days with 3 grace days allowed."""
+        four_days_ago = date.today() - timedelta(days=4)
+        mock_log = create_mock_log(streak_count=10, last_completed_date=four_days_ago)
+        mock_habit = create_mock_habit(allowed_skip_days=3)
+
+        mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
+
+        with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+            with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                streak = streak_service.calculate_streak("user123", "habit123")
+
+        # Gap of 3 days, 3 grace days allowed → streak preserved
+        assert streak == 11
+
+    def test_streak_with_weekend_exempt_friday_to_monday(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        """Test streak preserved over weekend when weekends are exempt."""
+        # Use fixed dates: Friday Jan 5, 2024 → Monday Jan 8, 2024
+        # Jan 6 = Saturday, Jan 7 = Sunday (both should be exempt)
+        friday = date(2024, 1, 5)  # Friday
+        monday = date(2024, 1, 8)  # Monday (3 days later)
+
+        mock_log = create_mock_log(streak_count=5, last_completed_date=friday)
+        mock_habit = create_mock_habit(allowed_skip_days=0, exempt_weekdays=[6, 7])  # Sat=6, Sun=7
+
+        mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
+
+        # Mock date.today() to return Monday
+        with patch('src.services.streak_service.date') as mock_date:
+            mock_date.today.return_value = monday
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+
+            with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+                with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                    streak = streak_service.calculate_streak("user123", "habit123")
+
+        # Gap: Sat (6), Sun (7) - both exempt → missed_days = 0 → streak preserved
+        assert streak == 6
+
+    def test_streak_with_weekend_exempt_but_weekday_missed(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        """Test streak broken when weekday is missed even with weekends exempt."""
+        # Last done 4 days ago (should include at least one weekday in gap)
+        four_days_ago = date.today() - timedelta(days=4)
+
+        mock_log = create_mock_log(streak_count=5, last_completed_date=four_days_ago)
+        mock_habit = create_mock_habit(allowed_skip_days=0, exempt_weekdays=[6, 7])  # Sat=6, Sun=7
+
+        mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
+
+        with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+            with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                streak = streak_service.calculate_streak("user123", "habit123")
+
+        # Gap of 3 days will include at least 1 weekday → streak broken
+        assert streak == 1
+
+    def test_streak_with_grace_days_and_exempt_weekends_combined(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        """Test streak with both grace days AND exempt weekends."""
+        # Use fixed dates: Thursday Jan 4, 2024 → Tuesday Jan 9, 2024
+        # Gap includes: Fri Jan 5 (weekday), Sat Jan 6 (exempt), Sun Jan 7 (exempt), Mon Jan 8 (weekday)
+        # Non-exempt days in gap: Fri, Mon = 2 days
+        # With 2 grace days, streak should be preserved
+        thursday = date(2024, 1, 4)  # Thursday
+        tuesday = date(2024, 1, 9)   # Tuesday (5 days later)
+
+        mock_log = create_mock_log(streak_count=7, last_completed_date=thursday)
+        mock_habit = create_mock_habit(allowed_skip_days=2, exempt_weekdays=[6, 7])
+
+        mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
+
+        # Mock date.today() to return Tuesday
+        with patch('src.services.streak_service.date') as mock_date:
+            mock_date.today.return_value = tuesday
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+
+            with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+                with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                    streak = streak_service.calculate_streak("user123", "habit123")
+
+        # Gap: Fri (weekday), Sat (exempt), Sun (exempt), Mon (weekday)
+        # Missed weekdays: 2 (Fri, Mon), allowed: 2 → streak preserved
+        assert streak == 8
+
+    def test_streak_with_no_grace_days_strict_mode(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        """Test strict mode (0 grace days, no exemptions) breaks streak immediately."""
+        two_days_ago = date.today() - timedelta(days=2)
+        mock_log = create_mock_log(streak_count=10, last_completed_date=two_days_ago)
+        mock_habit = create_mock_habit(allowed_skip_days=0, exempt_weekdays=[])
+
+        mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
+
+        with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+            with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                streak = streak_service.calculate_streak("user123", "habit123")
+
+        # Strict mode: any gap > 1 day breaks streak
+        assert streak == 1
+
+    def test_streak_calculation_when_habit_not_found(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        """Test fallback behavior when habit is not found."""
+        two_days_ago = date.today() - timedelta(days=2)
+        mock_log = create_mock_log(streak_count=5, last_completed_date=two_days_ago)
+
+        mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = None  # Habit not found
+
+        with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+            with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                streak = streak_service.calculate_streak("user123", "habit123")
+
+        # When habit not found, should fallback to simple logic (break streak)
+        assert streak == 1

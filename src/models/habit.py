@@ -10,6 +10,8 @@ class Habit(BaseModel):
     name: str = Field(..., description="Habit name")
     weight: int = Field(default=10, ge=1, le=100, description="Habit base weight for reward calculations (1-100)")
     category: str | None = Field(default=None, description="Habit category (e.g., health, productivity)")
+    allowed_skip_days: int = Field(default=0, ge=0, description="Number of consecutive days user can skip without breaking streak (0 for strict)")
+    exempt_weekdays: list[int] = Field(default_factory=list, description="List of weekday numbers (1=Mon, 7=Sun) that don't count against streak")
     active: bool = Field(default=True, description="Whether habit is active")
 
     model_config = ConfigDict(
@@ -18,6 +20,8 @@ class Habit(BaseModel):
                 "name": "Walking",
                 "weight": 10,
                 "category": "health",
+                "allowed_skip_days": 0,
+                "exempt_weekdays": [],
                 "active": True
             }
         }

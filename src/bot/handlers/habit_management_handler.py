@@ -15,6 +15,8 @@ from src.core.repositories import user_repository, habit_repository
 from src.bot.keyboards import (
     build_weight_selection_keyboard,
     build_category_selection_keyboard,
+    build_grace_days_keyboard,
+    build_exempt_days_keyboard,
     build_habits_for_edit_keyboard,
     build_habit_confirmation_keyboard,
     build_remove_confirmation_keyboard,
@@ -34,14 +36,18 @@ logger = logging.getLogger(__name__)
 AWAITING_HABIT_NAME = 1
 AWAITING_HABIT_WEIGHT = 2
 AWAITING_HABIT_CATEGORY = 3
-AWAITING_HABIT_CONFIRMATION = 4
+AWAITING_GRACE_DAYS = 4
+AWAITING_EXEMPT_DAYS = 5
+AWAITING_HABIT_CONFIRMATION = 6
 
 # Conversation states for /edit_habit
 AWAITING_HABIT_SELECTION = 10
 AWAITING_EDIT_NAME = 11
 AWAITING_EDIT_WEIGHT = 12
 AWAITING_EDIT_CATEGORY = 13
-AWAITING_EDIT_CONFIRMATION = 14
+AWAITING_EDIT_GRACE_DAYS = 14
+AWAITING_EDIT_EXEMPT_DAYS = 15
+AWAITING_EDIT_CONFIRMATION = 16
 
 # Conversation states for /remove_habit
 AWAITING_REMOVE_SELECTION = 20
@@ -250,16 +256,117 @@ async def habit_category_selected(update: Update, context: ContextTypes.DEFAULT_
     context.user_data['habit_category'] = category
     logger.info(f"✅ Stored habit category in context for user {telegram_id}")
 
+    # Show grace days selection keyboard
+    keyboard = build_grace_days_keyboard(language=lang)
+    await query.edit_message_text(
+        msg('HELP_ADD_HABIT_GRACE_DAYS_PROMPT', lang),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    logger.info(f"📤 Sent grace days selection keyboard to {telegram_id}")
+
+    return AWAITING_GRACE_DAYS
+
+
+async def habit_grace_days_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle grace days selection from inline keyboard."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    callback_data = query.data
+
+    logger.info(f"🎯 User {telegram_id} selected grace days callback: {callback_data}")
+
+    # Extract grace days from callback_data (format: grace_days_0, grace_days_1, etc.)
+    try:
+        grace_days = int(callback_data.replace("grace_days_", ""))
+        logger.info(f"🎯 User {telegram_id} selected grace days: {grace_days}")
+    except ValueError:
+        logger.error(f"❌ Invalid grace days callback data: {callback_data}")
+        await query.edit_message_text(msg('ERROR_GENERAL', lang, error="Invalid grace days"))
+        return ConversationHandler.END
+
+    # Store in context
+    context.user_data['habit_grace_days'] = grace_days
+    logger.info(f"✅ Stored habit grace days in context for user {telegram_id}")
+
+    # Show exempt days selection keyboard
+    keyboard = build_exempt_days_keyboard(language=lang)
+    
+    # Custom prompt text
+    prompt = msg('HELP_ADD_HABIT_EXEMPT_DAYS_PROMPT', lang) + msg('HELP_EXEMPT_DAYS_OR_MANUAL', lang)
+    
+    await query.edit_message_text(
+        prompt,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    logger.info(f"📤 Sent exempt days selection keyboard to {telegram_id}")
+
+    return AWAITING_EXEMPT_DAYS
+
+
+async def habit_exempt_days_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle exempt days selection from inline keyboard."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    callback_data = query.data
+
+    logger.info(f"🎯 User {telegram_id} selected exempt days callback: {callback_data}")
+
+    # Parse exempt days from callback
+    exempt_days = []
+    exempt_days_display = msg('BUTTON_EXEMPT_NONE', lang)
+
+    if callback_data == "exempt_days_none":
+        exempt_days = []
+        exempt_days_display = msg('BUTTON_EXEMPT_NONE', lang)
+        logger.info(f"🎯 User {telegram_id} selected exempt days: None")
+    elif callback_data == "exempt_days_weekends":
+        exempt_days = [6, 7]  # Saturday=6, Sunday=7
+        exempt_days_display = msg('BUTTON_EXEMPT_WEEKENDS', lang)
+        logger.info(f"🎯 User {telegram_id} selected exempt days: Weekends")
+    elif callback_data == "exempt_days_custom":
+        # Custom button logic is replaced by direct text input in AWAITING_EXEMPT_DAYS
+        # But if we keep the button, we can just show a prompt
+        prompt_text = msg('HELP_EXEMPT_DAYS_MANUAL_ENTRY', lang)
+        keyboard = build_cancel_only_keyboard(language=lang)
+        await query.edit_message_text(
+            prompt_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        # Stay in same state to receive text
+        return AWAITING_EXEMPT_DAYS
+    else:
+        logger.error(f"❌ Invalid exempt days callback data: {callback_data}")
+        await query.edit_message_text(msg('ERROR_GENERAL', lang, error="Invalid exempt days"))
+        return ConversationHandler.END
+
+    # Store in context
+    context.user_data['habit_exempt_days'] = exempt_days
+    context.user_data['habit_exempt_days_display'] = exempt_days_display
+    logger.info(f"✅ Stored habit exempt days in context for user {telegram_id}")
+
     # Show confirmation with summary
     habit_name = context.user_data.get('habit_name')
     habit_weight = context.user_data.get('habit_weight')
+    habit_category = context.user_data.get('habit_category')
+    habit_grace_days = context.user_data.get('habit_grace_days')
 
     confirmation_message = msg(
         'HELP_ADD_HABIT_CONFIRM',
         lang,
         name=habit_name,
         weight=habit_weight,
-        category=category
+        category=habit_category,
+        grace_days=habit_grace_days,
+        exempt_days=exempt_days_display
     )
 
     keyboard = build_remove_confirmation_keyboard(language=lang)
@@ -271,6 +378,77 @@ async def habit_category_selected(update: Update, context: ContextTypes.DEFAULT_
     logger.info(f"📤 Sent confirmation message to {telegram_id}")
 
     return AWAITING_HABIT_CONFIRMATION
+
+
+async def habit_exempt_days_text_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle exempt days text input (e.g. '2, 4')."""
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    text = update.message.text.strip()
+
+    logger.info(f"📝 User {telegram_id} entered custom exempt days: '{text}'")
+
+    try:
+        # Parse "2, 4" -> [2, 4]
+        raw_days = [d.strip() for d in text.split(',')]
+        days = []
+        for d in raw_days:
+            if not d.isdigit():
+                raise ValueError("Non-digit characters found")
+            val = int(d)
+            if not (1 <= val <= 7):
+                raise ValueError(f"Day {val} out of range 1-7")
+            days.append(val)
+
+        # Deduplicate and sort
+        unique_days = sorted(list(set(days)))
+        if not unique_days:
+            raise ValueError("No valid days found")
+
+        # Store in context
+        context.user_data['habit_exempt_days'] = unique_days
+        
+        # Create display string (e.g., "Tue, Thu")
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        display_names = [day_names[d-1] for d in unique_days]
+        display_str = ", ".join(display_names)
+        context.user_data['habit_exempt_days_display'] = display_str
+
+        logger.info(f"✅ Stored custom exempt days: {unique_days} ({display_str})")
+
+        # Proceed to Confirmation
+        habit_name = context.user_data.get('habit_name')
+        habit_weight = context.user_data.get('habit_weight')
+        habit_category = context.user_data.get('habit_category')
+        habit_grace_days = context.user_data.get('habit_grace_days')
+
+        confirmation_message = msg(
+            'HELP_ADD_HABIT_CONFIRM',
+            lang,
+            name=habit_name,
+            weight=habit_weight,
+            category=habit_category,
+            grace_days=habit_grace_days,
+            exempt_days=display_str
+        )
+
+        keyboard = build_remove_confirmation_keyboard(language=lang)
+        await update.message.reply_text(
+            confirmation_message,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        return AWAITING_HABIT_CONFIRMATION
+
+    except ValueError:
+        logger.warning(f"⚠️ Invalid exempt days input from {telegram_id}: {text}")
+        error_msg = msg('ERROR_EXEMPT_DAYS_INVALID_FORMAT', lang)
+        await update.message.reply_text(
+            error_msg, 
+            parse_mode="HTML",
+            reply_markup=build_cancel_only_keyboard(language=lang)
+        )
+        return AWAITING_EXEMPT_DAYS
 
 
 async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -306,6 +484,8 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     habit_name = context.user_data.get('habit_name')
     habit_weight = context.user_data.get('habit_weight')
     habit_category = context.user_data.get('habit_category')
+    habit_grace_days = context.user_data.get('habit_grace_days', 0)
+    habit_exempt_days = context.user_data.get('habit_exempt_days', [])
 
     try:
         # Get user object to retrieve user.id
@@ -318,13 +498,15 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return ConversationHandler.END
 
-        logger.info(f"⚙️ Creating habit for user {telegram_id} (user.id={user.id}): name='{habit_name}', weight={habit_weight}, category={habit_category}")
+        logger.info(f"⚙️ Creating habit for user {telegram_id} (user.id={user.id}): name='{habit_name}', weight={habit_weight}, category={habit_category}, grace_days={habit_grace_days}, exempt_days={habit_exempt_days}")
 
         new_habit = {
             'user_id': user.id,
             'name': habit_name,
             'weight': habit_weight,
             'category': habit_category,
+            'allowed_skip_days': habit_grace_days,
+            'exempt_weekdays': habit_exempt_days,
             'active': True
         }
 
@@ -549,6 +731,8 @@ async def habit_edit_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['old_habit_name'] = habit.name
     context.user_data['old_habit_weight'] = habit.weight
     context.user_data['old_habit_category'] = habit.category or "None"
+    context.user_data['old_habit_grace_days'] = habit.allowed_skip_days
+    context.user_data['old_habit_exempt_days'] = habit.exempt_weekdays
     logger.info(f"✅ Stored habit info in context for user {telegram_id}")
 
     # Prompt for new name with Cancel button
@@ -662,12 +846,132 @@ async def habit_edit_category_selected(update: Update, context: ContextTypes.DEF
     context.user_data['new_habit_category'] = new_category
     logger.info(f"✅ Stored new habit category in context for user {telegram_id}")
 
+    # Show grace days selection keyboard
+    current_grace_days = context.user_data.get('old_habit_grace_days')
+    keyboard = build_grace_days_keyboard(current_grace_days=current_grace_days, language=lang)
+
+    prompt_message = msg('HELP_EDIT_HABIT_GRACE_DAYS_PROMPT', lang, current_grace_days=current_grace_days)
+    await query.edit_message_text(
+        prompt_message,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    logger.info(f"📤 Sent grace days selection keyboard to {telegram_id}")
+
+    return AWAITING_EDIT_GRACE_DAYS
+
+
+async def habit_edit_grace_days_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle grace days selection for editing."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    callback_data = query.data
+
+    logger.info(f"🎯 User {telegram_id} selected new grace days: {callback_data}")
+
+    # Extract grace days
+    try:
+        new_grace_days = int(callback_data.replace("grace_days_", ""))
+        logger.info(f"🎯 User {telegram_id} selected new grace days: {new_grace_days}")
+    except ValueError:
+        logger.error(f"❌ Invalid grace days callback data: {callback_data}")
+        await query.edit_message_text(msg('ERROR_GENERAL', lang, error="Invalid grace days"))
+        return ConversationHandler.END
+
+    # Store in context
+    context.user_data['new_habit_grace_days'] = new_grace_days
+    logger.info(f"✅ Stored new habit grace days in context for user {telegram_id}")
+
+    # Show exempt days selection keyboard
+    current_exempt_days = context.user_data.get('old_habit_exempt_days')
+    keyboard = build_exempt_days_keyboard(current_exempt_days=current_exempt_days, language=lang)
+
+    # Format current exempt days for display
+    if not current_exempt_days or len(current_exempt_days) == 0:
+        current_exempt_days_display = msg('BUTTON_EXEMPT_NONE', lang)
+    elif sorted(current_exempt_days) == [6, 7]:
+        current_exempt_days_display = msg('BUTTON_EXEMPT_WEEKENDS', lang)
+    else:
+        current_exempt_days_display = str(current_exempt_days)
+
+    prompt_message = msg('HELP_EDIT_HABIT_EXEMPT_DAYS_PROMPT', lang, current_exempt_days=current_exempt_days_display)
+    
+    # Add custom prompt for text input
+    prompt = f"{prompt_message}{msg('HELP_EXEMPT_DAYS_OR_MANUAL', lang)}"
+
+    await query.edit_message_text(
+        prompt,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    logger.info(f"📤 Sent exempt days selection keyboard to {telegram_id}")
+
+    return AWAITING_EDIT_EXEMPT_DAYS
+
+
+async def habit_edit_exempt_days_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle exempt days selection for editing."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    callback_data = query.data
+
+    logger.info(f"🎯 User {telegram_id} selected new exempt days: {callback_data}")
+
+    # Parse exempt days from callback
+    new_exempt_days = []
+    new_exempt_days_display = msg('BUTTON_EXEMPT_NONE', lang)
+
+    if callback_data == "exempt_days_none":
+        new_exempt_days = []
+        new_exempt_days_display = msg('BUTTON_EXEMPT_NONE', lang)
+        logger.info(f"🎯 User {telegram_id} selected new exempt days: None")
+    elif callback_data == "exempt_days_weekends":
+        new_exempt_days = [6, 7]  # Saturday=6, Sunday=7
+        new_exempt_days_display = msg('BUTTON_EXEMPT_WEEKENDS', lang)
+        logger.info(f"🎯 User {telegram_id} selected new exempt days: Weekends")
+    elif callback_data == "exempt_days_custom":
+        # Prompt for custom input (same state)
+        prompt_text = msg('HELP_EXEMPT_DAYS_MANUAL_ENTRY', lang)
+        keyboard = build_cancel_only_keyboard(language=lang)
+        await query.edit_message_text(
+            prompt_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        return AWAITING_EDIT_EXEMPT_DAYS
+    else:
+        logger.error(f"❌ Invalid exempt days callback data: {callback_data}")
+        await query.edit_message_text(msg('ERROR_GENERAL', lang, error="Invalid exempt days"))
+        return ConversationHandler.END
+
+    # Store in context
+    context.user_data['new_habit_exempt_days'] = new_exempt_days
+    logger.info(f"✅ Stored new habit exempt days in context for user {telegram_id}")
+
     # Show confirmation with before/after comparison
     old_name = context.user_data.get('old_habit_name')
     old_weight = context.user_data.get('old_habit_weight')
     old_category = context.user_data.get('old_habit_category')
+    old_grace_days = context.user_data.get('old_habit_grace_days')
+    old_exempt_days = context.user_data.get('old_habit_exempt_days', [])
     new_name = context.user_data.get('new_habit_name')
     new_weight = context.user_data.get('new_habit_weight')
+    new_category = context.user_data.get('new_habit_category')
+    new_grace_days = context.user_data.get('new_habit_grace_days')
+
+    # Format old exempt days for display
+    if not old_exempt_days or len(old_exempt_days) == 0:
+        old_exempt_days_display = msg('BUTTON_EXEMPT_NONE', lang)
+    elif sorted(old_exempt_days) == [6, 7]:
+        old_exempt_days_display = msg('BUTTON_EXEMPT_WEEKENDS', lang)
+    else:
+        old_exempt_days_display = str(old_exempt_days)
 
     confirmation_message = msg(
         'HELP_EDIT_HABIT_CONFIRM',
@@ -677,7 +981,11 @@ async def habit_edit_category_selected(update: Update, context: ContextTypes.DEF
         old_weight=old_weight,
         new_weight=new_weight,
         old_category=old_category,
-        new_category=new_category
+        new_category=new_category,
+        old_grace_days=old_grace_days,
+        new_grace_days=new_grace_days,
+        old_exempt_days=old_exempt_days_display,
+        new_exempt_days=new_exempt_days_display
     )
 
     keyboard = build_habit_confirmation_keyboard(language=lang)
@@ -689,6 +997,89 @@ async def habit_edit_category_selected(update: Update, context: ContextTypes.DEF
     logger.info(f"📤 Sent edit confirmation message to {telegram_id}")
 
     return AWAITING_EDIT_CONFIRMATION
+
+
+async def habit_edit_exempt_days_text_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle exempt days text input for editing."""
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    text = update.message.text.strip()
+
+    logger.info(f"📝 User {telegram_id} entered custom exempt days (edit): '{text}'")
+
+    try:
+        # Parse "2, 4" -> [2, 4]
+        raw_days = [d.strip() for d in text.split(',')]
+        days = []
+        for d in raw_days:
+            if not d.isdigit():
+                raise ValueError("Non-digit characters found")
+            val = int(d)
+            if not (1 <= val <= 7):
+                raise ValueError(f"Day {val} out of range 1-7")
+            days.append(val)
+
+        unique_days = sorted(list(set(days)))
+        if not unique_days:
+            raise ValueError("No valid days found")
+
+        # Store in context
+        context.user_data['new_habit_exempt_days'] = unique_days
+        
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        display_names = [day_names[d-1] for d in unique_days]
+        new_exempt_days_display = ", ".join(display_names)
+
+        # Prepare confirmation data
+        old_name = context.user_data.get('old_habit_name')
+        old_weight = context.user_data.get('old_habit_weight')
+        old_category = context.user_data.get('old_habit_category')
+        old_grace_days = context.user_data.get('old_habit_grace_days')
+        old_exempt_days = context.user_data.get('old_habit_exempt_days', [])
+        new_name = context.user_data.get('new_habit_name')
+        new_weight = context.user_data.get('new_habit_weight')
+        new_category = context.user_data.get('new_habit_category')
+        new_grace_days = context.user_data.get('new_habit_grace_days')
+
+        if not old_exempt_days:
+            old_exempt_days_display = msg('BUTTON_EXEMPT_NONE', lang)
+        elif sorted(old_exempt_days) == [6, 7]:
+            old_exempt_days_display = msg('BUTTON_EXEMPT_WEEKENDS', lang)
+        else:
+            old_exempt_days_display = str(old_exempt_days)
+
+        confirmation_message = msg(
+            'HELP_EDIT_HABIT_CONFIRM',
+            lang,
+            old_name=old_name,
+            new_name=new_name,
+            old_weight=old_weight,
+            new_weight=new_weight,
+            old_category=old_category,
+            new_category=new_category,
+            old_grace_days=old_grace_days,
+            new_grace_days=new_grace_days,
+            old_exempt_days=old_exempt_days_display,
+            new_exempt_days=new_exempt_days_display
+        )
+
+        keyboard = build_habit_confirmation_keyboard(language=lang)
+        await update.message.reply_text(
+            confirmation_message,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        return AWAITING_EDIT_CONFIRMATION
+
+    except ValueError:
+        logger.warning(f"⚠️ Invalid exempt days input from {telegram_id}: {text}")
+        error_msg = msg('ERROR_EXEMPT_DAYS_INVALID_FORMAT', lang)
+        await update.message.reply_text(
+            error_msg, 
+            parse_mode="HTML",
+            reply_markup=build_cancel_only_keyboard(language=lang)
+        )
+        return AWAITING_EDIT_EXEMPT_DAYS
 
 
 async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -725,6 +1116,8 @@ async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYP
     new_name = context.user_data.get('new_habit_name')
     new_weight = context.user_data.get('new_habit_weight')
     new_category = context.user_data.get('new_habit_category')
+    new_grace_days = context.user_data.get('new_habit_grace_days')
+    new_exempt_days = context.user_data.get('new_habit_exempt_days', [])
 
     try:
         logger.info(f"⚙️ Updating habit {habit_id} for user {telegram_id}")
@@ -732,7 +1125,9 @@ async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYP
         updates = {
             "name": new_name,
             "weight": new_weight,
-            "category": new_category
+            "category": new_category,
+            "allowed_skip_days": new_grace_days,
+            "exempt_weekdays": new_exempt_days
         }
 
         updated_habit = await maybe_await(
@@ -1115,6 +1510,15 @@ add_habit_conversation = ConversationHandler(
             CallbackQueryHandler(habit_category_selected, pattern="^category_"),
             CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
         ],
+        AWAITING_GRACE_DAYS: [
+            CallbackQueryHandler(habit_grace_days_selected, pattern="^grace_days_"),
+            CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
+        ],
+        AWAITING_EXEMPT_DAYS: [
+            CallbackQueryHandler(habit_exempt_days_selected, pattern="^exempt_days_"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, habit_exempt_days_text_received),
+            CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
+        ],
         AWAITING_HABIT_CONFIRMATION: [
             CallbackQueryHandler(habit_confirmed, pattern="^confirm_(yes|no)$"),
             CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
@@ -1145,6 +1549,15 @@ edit_habit_conversation = ConversationHandler(
         ],
         AWAITING_EDIT_CATEGORY: [
             CallbackQueryHandler(habit_edit_category_selected, pattern="^category_"),
+            CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
+        ],
+        AWAITING_EDIT_GRACE_DAYS: [
+            CallbackQueryHandler(habit_edit_grace_days_selected, pattern="^grace_days_"),
+            CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
+        ],
+        AWAITING_EDIT_EXEMPT_DAYS: [
+            CallbackQueryHandler(habit_edit_exempt_days_selected, pattern="^exempt_days_"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, habit_edit_exempt_days_text_received),
             CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
         ],
         AWAITING_EDIT_CONFIRMATION: [

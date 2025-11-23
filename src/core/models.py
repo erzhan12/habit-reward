@@ -95,6 +95,16 @@ class Habit(models.Model):
         blank=True,
         help_text="Habit category (e.g., health, productivity)"
     )
+    allowed_skip_days = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text="Number of consecutive days user can skip without breaking streak (0 for strict)"
+    )
+    exempt_weekdays = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of weekday numbers (1=Mon, 7=Sun) that don't count against streak"
+    )
     active = models.BooleanField(
         default=True,
         help_text="Whether habit is active"
