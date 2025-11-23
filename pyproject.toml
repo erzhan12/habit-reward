@@ -71,4 +71,5 @@ addopts = "--reuse-db"
 # Automatically mark all tests as using the database
 markers = [
     "django_db: mark test as requiring database access",
+    "local_only: mark test to run ONLY locally, skip in CI/CD (deselect with '-m \"not local_only\"')",
 ]
