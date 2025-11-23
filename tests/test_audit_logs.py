@@ -51,7 +51,7 @@ def test_user(db):
 
 
 @pytest.fixture
-def test_habits(db):
+def test_habits(test_user):
     """Create test habits."""
     habits = []
     habit_data = [
@@ -62,6 +62,7 @@ def test_habits(db):
 
     for data in habit_data:
         habit = Habit.objects.create(
+            user=test_user,
             name=data['name'],
             weight=data['weight'],
             category=data['category'],
@@ -77,7 +78,7 @@ def test_habits(db):
 
 
 @pytest.fixture
-def test_rewards(db):
+def test_rewards(test_user):
     """Create test rewards."""
     rewards = []
     reward_data = [
@@ -99,6 +100,7 @@ def test_rewards(db):
 
     for data in reward_data:
         reward = Reward.objects.create(
+            user=test_user,
             name=data['name'],
             weight=data['weight'],
             pieces_required=data['pieces_required'],
@@ -391,6 +393,7 @@ async def test_tc005_error_logging_duplicate_reward(test_user, test_rewards):
     # Act: Attempt to create duplicate reward
     try:
         await reward_service.create_reward(
+            user_id=test_user.id,
             name=existing_reward.name,  # Duplicate!
             reward_type='virtual',
             weight=50.0,

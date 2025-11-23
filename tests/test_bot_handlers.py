@@ -317,8 +317,12 @@ class TestMenuHandlers:
 
 class TestRemoveHabitBack:
     @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.user_repository')
     @patch('src.bot.handlers.habit_management_handler.habit_repository')
-    async def test_back_to_list_shows_selection(self, mock_habit_repo, mock_callback_update, mock_active_user, language):
+    async def test_back_to_list_shows_selection(self, mock_habit_repo, mock_user_repo, mock_callback_update, mock_active_user, language):
+        # Mock user repository to return active user
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
         # Mock habits list returned by repository
         from src.models.habit import Habit
         mock_habit_repo.get_all_active.return_value = [
@@ -330,8 +334,12 @@ class TestRemoveHabitBack:
         mock_callback_update.callback_query.edit_message_text.assert_called_once()
 
     @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.user_repository')
     @patch('src.bot.handlers.habit_management_handler.habit_repository')
-    async def test_back_to_list_deletes_when_empty(self, mock_habit_repo, mock_callback_update, language):
+    async def test_back_to_list_deletes_when_empty(self, mock_habit_repo, mock_user_repo, mock_callback_update, mock_active_user, language):
+        # Mock user repository to return active user
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
         mock_habit_repo.get_all_active.return_value = []
 
         result = await remove_back_to_list(mock_callback_update, context=None)
@@ -470,11 +478,11 @@ class TestHabitDoneCommand:
         habit_service.habit_repo = mock_habit_repo
 
         try:
-            # Execute
-            result = habit_service.get_all_active_habits()
+            # Execute - pass user_id since it's now required
+            result = habit_service.get_all_active_habits(user_id=1)
 
-            # Assert: Repository method was called
-            mock_habit_repo.get_all_active.assert_called_once()
+            # Assert: Repository method was called with user_id
+            mock_habit_repo.get_all_active.assert_called_once_with(1)
 
             # Assert: Only active habits returned
             assert len(result) == 3
@@ -606,17 +614,21 @@ class TestAddRewardConversationSteps:
     """Test reward creation conversation steps."""
 
     @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.user_repository')
     @patch('src.bot.handlers.reward_handlers.reward_repository')
     @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
     async def test_reward_name_step_valid(
         self,
         mock_lang,
         mock_reward_repo,
+        mock_user_repo,
         mock_telegram_update,
+        mock_active_user,
         language
     ):
         """Valid reward name should transition to type selection."""
         mock_lang.return_value = language
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
         mock_reward_repo.get_by_name = AsyncMock(return_value=None)
 
         mock_telegram_update.message.text = "Morning Coffee"
@@ -632,17 +644,21 @@ class TestAddRewardConversationSteps:
         mock_telegram_update.message.reply_text.assert_awaited_once()
 
     @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.user_repository')
     @patch('src.bot.handlers.reward_handlers.reward_repository')
     @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
     async def test_reward_name_step_duplicate(
         self,
         mock_lang,
         mock_reward_repo,
+        mock_user_repo,
         mock_telegram_update,
+        mock_active_user,
         language
     ):
         """Duplicate reward names should be rejected and re-prompted."""
         mock_lang.return_value = language
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
         mock_reward_repo.get_by_name = AsyncMock(return_value=Mock())
 
         mock_telegram_update.message.text = "Morning Coffee"

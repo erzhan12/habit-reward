@@ -216,7 +216,7 @@ class TestHabitCompletion:
         ]
 
         with patch.object(habit_service.habit_repo, 'get_all_active', return_value=mock_habits):
-            habits = habit_service.get_all_active_habits()
+            habits = habit_service.get_all_active_habits(user_id=1)
 
         assert len(habits) == 2
         assert habits[0].name == "Walking"

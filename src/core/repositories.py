@@ -98,16 +98,18 @@ class UserRepository:
 class HabitRepository:
     """Habit repository using Django ORM."""
 
-    async def get_by_name(self, name: str) -> Habit | None:
-        """Get habit by name (active habits only)."""
+    async def get_by_name(self, user_id: int | str, name: str) -> Habit | None:
+        """Get habit by name for a specific user (active habits only)."""
         try:
-            return await sync_to_async(Habit.objects.get)(name=name, active=True)
+            user_pk = int(user_id) if isinstance(user_id, str) else user_id
+            return await sync_to_async(Habit.objects.get)(user_id=user_pk, name=name, active=True)
         except Habit.DoesNotExist:
             return None
 
-    async def get_all_active(self) -> list[Habit]:
-        """Get all active habits."""
-        habits = await sync_to_async(list)(Habit.objects.filter(active=True).order_by('name'))
+    async def get_all_active(self, user_id: int | str) -> list[Habit]:
+        """Get all active habits for a specific user."""
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        habits = await sync_to_async(list)(Habit.objects.filter(user_id=user_pk, active=True).order_by('name'))
         return habits
 
     async def get_by_id(self, habit_id: int | str) -> Habit | None:
@@ -122,15 +124,20 @@ class HabitRepository:
         """Create new habit.
 
         Args:
-            habit: Habit model instance or dict with habit fields
+            habit: Habit model instance or dict with habit fields (must include user_id)
 
         Returns:
             Created Habit instance
         """
         if isinstance(habit, dict):
+            # Convert string user_id to int if needed
+            if 'user_id' in habit and isinstance(habit['user_id'], str):
+                habit['user_id'] = int(habit['user_id'])
             return await sync_to_async(Habit.objects.create)(**habit)
         else:
+            user_id = int(habit.user_id) if isinstance(habit.user_id, str) else habit.user_id
             return await sync_to_async(Habit.objects.create)(
+                user_id=user_id,
                 name=habit.name,
                 weight=habit.weight,
                 category=habit.category,
@@ -166,9 +173,10 @@ class HabitRepository:
 class RewardRepository:
     """Reward repository using Django ORM."""
 
-    async def get_all_active(self) -> list[Reward]:
-        """Get all active rewards."""
-        rewards = await sync_to_async(list)(Reward.objects.filter(active=True).order_by('name'))
+    async def get_all_active(self, user_id: int | str) -> list[Reward]:
+        """Get all active rewards for a specific user."""
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        rewards = await sync_to_async(list)(Reward.objects.filter(user_id=user_pk, active=True).order_by('name'))
         return rewards
 
     async def get_by_id(self, reward_id: int | str) -> Reward | None:
@@ -179,10 +187,11 @@ class RewardRepository:
         except (Reward.DoesNotExist, ValueError):
             return None
 
-    async def get_by_name(self, name: str) -> Reward | None:
-        """Get reward by name (active rewards only)."""
+    async def get_by_name(self, user_id: int | str, name: str) -> Reward | None:
+        """Get reward by name for a specific user (active rewards only)."""
         try:
-            return await sync_to_async(Reward.objects.get)(name=name, active=True)
+            user_pk = int(user_id) if isinstance(user_id, str) else user_id
+            return await sync_to_async(Reward.objects.get)(user_id=user_pk, name=name, active=True)
         except Reward.DoesNotExist:
             return None
 
@@ -190,15 +199,20 @@ class RewardRepository:
         """Create new reward.
 
         Args:
-            reward: Reward model instance or dict with reward fields
+            reward: Reward model instance or dict with reward fields (must include user_id)
 
         Returns:
             Created Reward instance
         """
         if isinstance(reward, dict):
+            # Convert string user_id to int if needed
+            if 'user_id' in reward and isinstance(reward['user_id'], str):
+                reward['user_id'] = int(reward['user_id'])
             return await sync_to_async(Reward.objects.create)(**reward)
         else:
+            user_id = int(reward.user_id) if isinstance(reward.user_id, str) else reward.user_id
             data = {
+                "user_id": user_id,
                 "name": reward.name,
                 "weight": reward.weight,
                 "type": reward.type if isinstance(reward.type, str) else reward.type.value,

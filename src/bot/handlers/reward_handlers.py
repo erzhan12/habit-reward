@@ -110,7 +110,13 @@ async def list_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYP
     logger.info(f"📨 Received /list_rewards command from user {telegram_id} (@{username})")
     lang = await get_message_language_async(telegram_id, update)
 
-    rewards = await maybe_await(reward_service.get_active_rewards())
+    # Get user to fetch user-specific rewards
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update)))
+        return
+
+    rewards = await maybe_await(reward_service.get_active_rewards(user.id))
     logger.info(f"🔍 Found {len(rewards)} active rewards for user {telegram_id}")
     message = format_rewards_list_message(rewards, lang)
 
@@ -573,9 +579,15 @@ async def reward_name_received(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return AWAITING_REWARD_NAME
 
-    existing = await maybe_await(reward_repository.get_by_name(name))
+    # Get user to check for duplicate names per user
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update)))
+        return ConversationHandler.END
+
+    existing = await maybe_await(reward_repository.get_by_name(user.id, name))
     if existing:
-        logger.warning("⚠️ Reward name '%s' already exists", name)
+        logger.warning("⚠️ Reward name '%s' already exists for user %s", name, user.id)
         await update.message.reply_text(
             f"{msg('ERROR_REWARD_NAME_EXISTS', lang)}\n\n{msg('HELP_ADD_REWARD_NAME_PROMPT', lang)}",
             reply_markup=build_reward_cancel_keyboard(lang),
@@ -870,9 +882,16 @@ async def reward_confirm_save(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return ConversationHandler.END
 
+    # Get user to create reward with user_id
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update)))
+        return ConversationHandler.END
+
     try:
         created_reward = await maybe_await(
             reward_service.create_reward(
+                user_id=user.id,
                 name=name,
                 reward_type=reward_type,
                 weight=float(weight),

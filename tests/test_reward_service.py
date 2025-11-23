@@ -73,7 +73,7 @@ class TestRewardSelection:
         mock_reward_repo.get_all_active.return_value = mock_rewards
 
         with patch.object(reward_service, 'reward_repo', mock_reward_repo):
-            selected = reward_service.select_reward(total_weight=10.0)
+            selected = reward_service.select_reward(user_id=1, total_weight=10.0)
 
         assert selected in mock_rewards
 
@@ -233,6 +233,7 @@ class TestCreateReward:
 
         with patch.object(reward_service, 'reward_repo', mock_repo):
             result = await reward_service.create_reward(
+                user_id=1,
                 name="Morning Coffee",
                 reward_type=RewardType.VIRTUAL,
                 weight=5.0,
@@ -241,7 +242,7 @@ class TestCreateReward:
             )
 
         assert result is created_reward
-        mock_repo.get_by_name.assert_awaited_once_with("Morning Coffee")
+        mock_repo.get_by_name.assert_awaited_once_with(1, "Morning Coffee")
         await_call = mock_repo.create.await_args
         payload = await_call.args[0]
         assert payload["type"] == RewardType.VIRTUAL.value
@@ -258,6 +259,7 @@ class TestCreateReward:
         with patch.object(reward_service, 'reward_repo', mock_repo):
             with pytest.raises(ValueError):
                 await reward_service.create_reward(
+                    user_id=1,
                     name="Morning Coffee",
                     reward_type=RewardType.VIRTUAL,
                     weight=5.0,

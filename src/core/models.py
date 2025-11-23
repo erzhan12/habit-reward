@@ -74,9 +74,14 @@ class User(AbstractUser):
 class Habit(models.Model):
     """Habit definition."""
 
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='habits',
+        help_text="User who owns this habit"
+    )
     name = models.CharField(
         max_length=255,
-        unique=True,
         help_text="Habit name"
     )
     weight = models.IntegerField(
@@ -99,13 +104,16 @@ class Habit(models.Model):
 
     class Meta:
         db_table = 'habits'
+        unique_together = [('user', 'name')]
         indexes = [
-            models.Index(fields=['active', 'name']),
+            models.Index(fields=['user', 'active', 'name']),
             models.Index(fields=['category']),
         ]
         ordering = ['name']
 
     def __str__(self):
+        if self.user:
+            return f"{self.user.name} - {self.name}"
         return self.name
 
 
@@ -118,9 +126,14 @@ class Reward(models.Model):
         REAL = 'real', 'Real'
         NONE = 'none', 'None'
 
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='rewards',
+        help_text="User who owns this reward"
+    )
     name = models.CharField(
         max_length=255,
-        unique=True,
         help_text="Reward name"
     )
     weight = models.FloatField(
@@ -156,13 +169,16 @@ class Reward(models.Model):
 
     class Meta:
         db_table = 'rewards'
+        unique_together = [('user', 'name')]
         indexes = [
-            models.Index(fields=['type']),
-            models.Index(fields=['active']),
+            models.Index(fields=['user', 'type']),
+            models.Index(fields=['user', 'active']),
         ]
         ordering = ['name']
 
     def __str__(self):
+        if self.user:
+            return f"{self.user.name} - {self.name}"
         return self.name
 
 

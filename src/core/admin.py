@@ -55,15 +55,16 @@ class UserAdmin(BaseUserAdmin):
 class HabitAdmin(admin.ModelAdmin):
     """Admin interface for Habit model."""
 
-    list_display = ['name', 'weight', 'category', 'active', 'created_at']
-    list_filter = ['active', 'category', 'created_at']
-    search_fields = ['name', 'category']
+    list_display = ['name', 'user', 'weight', 'category', 'active', 'created_at']
+    list_filter = ['active', 'category', 'created_at', 'user']
+    search_fields = ['name', 'category', 'user__name', 'user__telegram_id']
     readonly_fields = ['created_at', 'updated_at']
-    ordering = ['name']
+    ordering = ['user', 'name']
+    autocomplete_fields = ['user']
 
     fieldsets = (
         ('Habit Information', {
-            'fields': ('name', 'weight', 'category', 'active')
+            'fields': ('user', 'name', 'weight', 'category', 'active')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
@@ -76,15 +77,16 @@ class HabitAdmin(admin.ModelAdmin):
 class RewardAdmin(admin.ModelAdmin):
     """Admin interface for Reward model."""
 
-    list_display = ['name', 'type', 'weight', 'pieces_required', 'piece_value', 'max_daily_claims', 'active', 'created_at']
-    list_filter = ['type', 'active', 'created_at']
-    search_fields = ['name']
+    list_display = ['name', 'user', 'type', 'weight', 'pieces_required', 'piece_value', 'max_daily_claims', 'active', 'created_at']
+    list_filter = ['type', 'active', 'created_at', 'user']
+    search_fields = ['name', 'user__name', 'user__telegram_id']
     readonly_fields = ['created_at', 'updated_at']
-    ordering = ['name']
+    ordering = ['user', 'name']
+    autocomplete_fields = ['user']
 
     fieldsets = (
         ('Reward Information', {
-            'fields': ('name', 'type', 'weight', 'pieces_required', 'piece_value', 'active')
+            'fields': ('user', 'name', 'type', 'weight', 'pieces_required', 'piece_value', 'active')
         }),
         ('Daily Frequency Control', {
             'fields': ('max_daily_claims',),

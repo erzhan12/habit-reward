@@ -71,10 +71,20 @@ class RewardService:
                     len(exclude_reward_ids),
                 )
 
-            rewards = await maybe_await(self.reward_repo.get_all_active())
+            # user_id is required now since rewards are user-specific
+            if not user_id:
+                logger.error("user_id is required for select_reward")
+                return Reward(
+                    name="No reward",
+                    weight=1.0,
+                    type=RewardType.NONE,
+                    pieces_required=1,
+                )
+
+            rewards = await maybe_await(self.reward_repo.get_all_active(user_id))
 
             if not rewards:
-                logger.warning("No active rewards found, returning default 'none' reward")
+                logger.warning("No active rewards found for user %s, returning default 'none' reward", user_id)
                 return Reward(
                     name="No reward",
                     weight=1.0,
@@ -376,17 +386,18 @@ class RewardService:
         return run_sync_or_async(_impl())
 
 
-    def get_active_rewards(self) -> list[Reward] | Awaitable[list[Reward]]:
-        """Get all active rewards."""
+    def get_active_rewards(self, user_id: int | str) -> list[Reward] | Awaitable[list[Reward]]:
+        """Get all active rewards for a specific user."""
 
         async def _impl() -> list[Reward]:
-            return await maybe_await(self.reward_repo.get_all_active())
+            return await maybe_await(self.reward_repo.get_all_active(user_id))
 
         return run_sync_or_async(_impl())
 
     def create_reward(
         self,
         *,
+        user_id: int | str,
         name: str,
         reward_type: RewardType | str,
         weight: float,
@@ -397,7 +408,8 @@ class RewardService:
 
         async def _impl() -> Reward:
             logger.info(
-                "Creating reward name=%s type=%s weight=%s pieces_required=%s piece_value=%s",
+                "Creating reward for user=%s name=%s type=%s weight=%s pieces_required=%s piece_value=%s",
+                user_id,
                 name,
                 reward_type,
                 weight,
@@ -405,11 +417,12 @@ class RewardService:
                 piece_value,
             )
 
-            existing = await maybe_await(self.reward_repo.get_by_name(name))
+            existing = await maybe_await(self.reward_repo.get_by_name(user_id, name))
             if existing:
                 logger.warning(
-                    "Reward creation blocked: duplicate name '%s'",
+                    "Reward creation blocked: duplicate name '%s' for user %s",
                     name,
+                    user_id,
                 )
                 raise ValueError("Reward name already exists")
 
@@ -420,6 +433,7 @@ class RewardService:
             )
 
             data: dict[str, object] = {
+                "user_id": user_id,
                 "name": name,
                 "type": reward_type_value,
                 "weight": weight,
@@ -431,9 +445,10 @@ class RewardService:
 
             reward = await maybe_await(self.reward_repo.create(data))
             logger.info(
-                "Reward '%s' created with id=%s",
+                "Reward '%s' created with id=%s for user %s",
                 reward.name,
                 getattr(reward, "id", None),
+                user_id,
             )
             return reward
 

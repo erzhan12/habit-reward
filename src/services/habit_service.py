@@ -153,9 +153,9 @@ class HabitService:
                     f"User with telegram_id {user_telegram_id} not found"
                 )
 
-            habit = await maybe_await(self.habit_repo.get_by_name(habit_name))
+            habit = await maybe_await(self.habit_repo.get_by_name(user.id, habit_name))
             if not habit:
-                logger.error("Habit '%s' not found", habit_name)
+                logger.error("Habit '%s' not found for user %s", habit_name, user.id)
                 raise ValueError(f"Habit '{habit_name}' not found")
 
             habit_weight = habit.weight
@@ -365,19 +365,20 @@ class HabitService:
 
     def get_habit_by_name(
         self,
+        user_id: int | str,
         habit_name: str,
     ) -> Habit | None | Awaitable[Habit | None]:
-        """Get habit by name."""
+        """Get habit by name for a specific user."""
 
         async def _impl() -> Habit | None:
-            return await maybe_await(self.habit_repo.get_by_name(habit_name))
+            return await maybe_await(self.habit_repo.get_by_name(user_id, habit_name))
 
         return run_sync_or_async(_impl())
 
-    def get_all_active_habits(self) -> list[Habit] | Awaitable[list[Habit]]:
-        """Get all active habits supporting sync tests and async handlers."""
+    def get_all_active_habits(self, user_id: int | str) -> list[Habit] | Awaitable[list[Habit]]:
+        """Get all active habits for a specific user supporting sync tests and async handlers."""
 
-        result = self.habit_repo.get_all_active()
+        result = self.habit_repo.get_all_active(user_id)
         if inspect.isawaitable(result):
             return run_sync_or_async(result)
         return result
@@ -390,7 +391,7 @@ class HabitService:
         """Return active habits that have not been completed today."""
 
         async def _impl() -> list[Habit]:
-            habits = await maybe_await(self.habit_repo.get_all_active())
+            habits = await maybe_await(self.habit_repo.get_all_active(user_id))
             if not habits:
                 return []
 

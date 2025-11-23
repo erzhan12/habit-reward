@@ -24,7 +24,6 @@ from src.bot.keyboards import (
 )
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async
-from src.models.habit import Habit
 from src.config import HABIT_NAME_MAX_LENGTH
 from src.utils.async_compat import maybe_await
 
@@ -309,14 +308,25 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     habit_category = context.user_data.get('habit_category')
 
     try:
-        logger.info(f"⚙️ Creating habit for user {telegram_id}: name='{habit_name}', weight={habit_weight}, category={habit_category}")
+        # Get user object to retrieve user.id
+        user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+        if not user:
+            logger.error(f"❌ User {telegram_id} not found in database")
+            await query.edit_message_text(
+                msg('ERROR_USER_NOT_FOUND', lang),
+                parse_mode="HTML"
+            )
+            return ConversationHandler.END
 
-        new_habit = Habit(
-            name=habit_name,
-            weight=habit_weight,
-            category=habit_category,
-            active=True
-        )
+        logger.info(f"⚙️ Creating habit for user {telegram_id} (user.id={user.id}): name='{habit_name}', weight={habit_weight}, category={habit_category}")
+
+        new_habit = {
+            'user_id': user.id,
+            'name': habit_name,
+            'weight': habit_weight,
+            'category': habit_category,
+            'active': True
+        }
 
         created_habit = await maybe_await(habit_repository.create(new_habit))
         logger.info(f"✅ Created habit '{created_habit.name}' (ID: {created_habit.id}) for user {telegram_id}")
@@ -327,7 +337,7 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.info(f"📤 Sent success message to {telegram_id}")
 
         # Fetch all active habits including the newly created one
-        all_habits = await maybe_await(habit_repository.get_all_active())
+        all_habits = await maybe_await(habit_repository.get_all_active(user.id))
         logger.info(f"🔍 Fetched {len(all_habits)} active habits for post-creation menu")
 
         # Show the post-creation menu with habits list
@@ -439,8 +449,8 @@ async def edit_habit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return ConversationHandler.END
 
-    # Get all active habits
-    habits = await maybe_await(habit_repository.get_all_active())
+    # Get all active habits for this user
+    habits = await maybe_await(habit_repository.get_all_active(user.id))
     logger.info(f"🔍 Found {len(habits)} active habits for user {telegram_id}")
 
     if not habits:
@@ -485,8 +495,8 @@ async def edit_habit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return ConversationHandler.END
 
-    # Get all active habits
-    habits = await maybe_await(habit_repository.get_all_active())
+    # Get all active habits for this user
+    habits = await maybe_await(habit_repository.get_all_active(user.id))
     logger.info(f"🔍 Found {len(habits)} active habits for user {telegram_id}")
 
     if not habits:
@@ -833,8 +843,8 @@ async def remove_habit_command(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return ConversationHandler.END
 
-    # Get all active habits
-    habits = await maybe_await(habit_repository.get_all_active())
+    # Get all active habits for this user
+    habits = await maybe_await(habit_repository.get_all_active(user.id))
     logger.info(f"🔍 Found {len(habits)} active habits for user {telegram_id}")
 
     if not habits:
@@ -879,8 +889,8 @@ async def remove_habit_callback(update: Update, context: ContextTypes.DEFAULT_TY
         logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return ConversationHandler.END
 
-    # Get all active habits
-    habits = await maybe_await(habit_repository.get_all_active())
+    # Get all active habits for this user
+    habits = await maybe_await(habit_repository.get_all_active(user.id))
     logger.info(f"🔍 Found {len(habits)} active habits for user {telegram_id}")
 
     if not habits:
@@ -1030,8 +1040,14 @@ async def remove_back_to_list(update: Update, context: ContextTypes.DEFAULT_TYPE
     telegram_id = str(update.effective_user.id)
     lang = await get_message_language_async(telegram_id, update)
 
-    # Re-fetch active habits
-    habits = await maybe_await(habit_repository.get_all_active())
+    # Get user
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
+        return ConversationHandler.END
+
+    # Re-fetch active habits for this user
+    habits = await maybe_await(habit_repository.get_all_active(user.id))
     if not habits:
         # Nothing to show, delete the message
         try:
