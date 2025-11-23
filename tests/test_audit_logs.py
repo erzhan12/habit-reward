@@ -28,8 +28,6 @@ from src.services.habit_service import habit_service
 from src.services.reward_service import reward_service
 from src.services.audit_log_service import audit_log_service
 from src.bot.main import start_command, help_command
-from src.bot.handlers.habit_done_handler import habit_done_command
-from src.bot.handlers.reward_handlers import add_reward_command, reward_name_received
 from telegram import Update, Message, User as TelegramUser
 
 
@@ -38,8 +36,7 @@ from telegram import Update, Message, User as TelegramUser
 # ============================================================================
 
 @pytest.fixture
-@pytest.mark.django_db
-def test_user():
+def test_user(db):
     """Create test user for audit log tests."""
     user = User.objects.create(
         telegram_id='11891677',
@@ -54,8 +51,7 @@ def test_user():
 
 
 @pytest.fixture
-@pytest.mark.django_db
-def test_habits():
+def test_habits(db):
     """Create test habits."""
     habits = []
     habit_data = [
@@ -81,8 +77,7 @@ def test_habits():
 
 
 @pytest.fixture
-@pytest.mark.django_db
-def test_rewards():
+def test_rewards(db):
     """Create test rewards."""
     rewards = []
     reward_data = [
@@ -213,7 +208,7 @@ async def test_tc002_habit_completion_snapshot(test_user, test_habits, test_rewa
         mock_select.return_value = coffee_break
 
         # Act: Complete habit
-        result = await habit_service.process_habit_completion(
+        await habit_service.process_habit_completion(
             user_telegram_id=test_user.telegram_id,
             habit_name=drink_water.name
         )
@@ -452,7 +447,7 @@ async def test_tc006_reward_revert_logging(test_user, test_habits, test_rewards)
         mock_select.return_value = coffee_break
 
         # Complete habit
-        result = await habit_service.process_habit_completion(
+        await habit_service.process_habit_completion(
             user_telegram_id=test_user.telegram_id,
             habit_name=evening_journal.name
         )
@@ -477,7 +472,7 @@ async def test_tc006_reward_revert_logging(test_user, test_habits, test_rewards)
     # Prevent actual deletion to avoid FK constraint violation in Audit Log
     # The service attempts to create an AuditLog pointing to the deleted HabitLog
     with patch.object(habit_service.habit_log_repo, 'delete', return_value=1):
-        revert_result = await habit_service.revert_habit_completion(
+        await habit_service.revert_habit_completion(
             user_telegram_id=test_user.telegram_id,
             habit_id=evening_journal.id
         )
