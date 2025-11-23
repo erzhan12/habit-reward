@@ -6,35 +6,7 @@ This document tracks planned features, improvements, and enhancements for the Ha
 
 ### High Priority
 
-- [ ] **Flexible Streak Tracking with Grace Days**
-  - Add new field to Habits model: `allowed_skip_days` (or `grace_days`) - integer field
-  - Allows habits to have configurable "grace days" where missing a habit doesn't break the streak
-  - **Default value**: 0 (strict by default, maintains backward compatibility)
-  - **Suggested field name options**: `allowed_skip_days`, `grace_days`, or `skip_tolerance`
-  - **Example use case**: A habit with `allowed_skip_days=1` can be skipped 1 day without breaking the streak
-  - **Weekend Grace Days Option**:
-    - Add field: `weekend_exempt` (boolean) or `exempt_weekdays` (array/CharField)
-    - When enabled, weekends (Saturday/Sunday) don't count against streak
-    - **Suggested field name options**: `weekend_exempt`, `skip_weekends`, or `exempt_weekdays`
-    - **Implementation approach 1** (Simple): Boolean field `weekend_exempt` - if True, Sat/Sun are automatically grace days
-    - **Implementation approach 2** (Flexible): Array/JSONField `exempt_weekdays` - allows selecting specific days (0=Monday, 6=Sunday)
-    - **Default value**: False (weekends count by default)
-    - **Example use cases**:
-      - Gym habit: skip weekends (`weekend_exempt=True`)
-      - Work habit: skip weekends and Wednesdays (`exempt_weekdays=[2, 5, 6]`)
-    - Streak calculation should skip these days when checking for breaks
-    - Combine with `allowed_skip_days` for maximum flexibility
-  - **Implementation notes**:
-    - Modify streak calculation logic in `src/services/habit_service.py` or `src/core/services/habit_service.py`
-    - Update `get_current_streak()` and related methods to account for grace days and exempt weekdays
-    - Should track consecutive completions with allowed gaps and exempt days
-    - Add validation to ensure `allowed_skip_days >= 0`
-    - Add validation for `exempt_weekdays` to ensure values are 0-6
-    - Update habit creation/edit forms to include both fields
-    - Add UI in bot for users to set grace days and weekend exemptions when creating/editing habits
-    - Consider UX: how to explain the difference between grace days (can skip any X days) vs exempt days (specific days always skipped)
-  - **Files**: `src/core/models.py`, `src/services/habit_service.py`, `src/bot/handlers/habit_management_handler.py`
-  - **Related**: Affects streak calculation, habit completion logic, and user experience
+
 
 ## 🔧 Admin Panel Improvements
 

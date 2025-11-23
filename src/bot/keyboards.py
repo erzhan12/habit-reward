@@ -156,7 +156,7 @@ def build_claimable_rewards_keyboard(
         )
     ])
 
-    return InlineKeyboardMarkup(keyboard) if keyboard else None
+    return InlineKeyboardMarkup(keyboard)
 
 
 def build_settings_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
@@ -215,13 +215,18 @@ def build_language_selection_keyboard(language: str = 'en') -> InlineKeyboardMar
 
 
 
-def build_weight_selection_keyboard(current_weight: int | None = None, language: str = 'en') -> InlineKeyboardMarkup:
+def build_weight_selection_keyboard(
+    current_weight: int | None = None, 
+    language: str = 'en',
+    skip_callback: str | None = None
+) -> InlineKeyboardMarkup:
     """
     Build inline keyboard for habit weight selection (10, 20, 30...100).
 
     Args:
         current_weight: Current weight value (will be highlighted with ✓)
         language: Language code (reserved for future use)
+        skip_callback: If provided, adds a Skip button with this callback data
 
     Returns:
         InlineKeyboardMarkup with weight buttons
@@ -247,6 +252,15 @@ def build_weight_selection_keyboard(current_weight: int | None = None, language:
     if row:
         keyboard.append(row)
 
+    # Add Skip button if requested
+    if skip_callback:
+        keyboard.append([
+            InlineKeyboardButton(
+                text=msg('BUTTON_SKIP', language),
+                callback_data=skip_callback
+            )
+        ])
+
     # Add Cancel button
     keyboard.append([
         InlineKeyboardButton(
@@ -259,13 +273,18 @@ def build_weight_selection_keyboard(current_weight: int | None = None, language:
 
 
 
-def build_category_selection_keyboard(current_category: str | None = None, language: str = 'en') -> InlineKeyboardMarkup:
+def build_category_selection_keyboard(
+    current_category: str | None = None, 
+    language: str = 'en',
+    skip_callback: str | None = None
+) -> InlineKeyboardMarkup:
     """
     Build inline keyboard for habit category selection.
 
     Args:
         current_category: Current category value (will be highlighted with ✓)
         language: Language code (reserved for future use)
+        skip_callback: If provided, adds a Skip button with this callback data
 
     Returns:
         InlineKeyboardMarkup with category buttons
@@ -282,6 +301,15 @@ def build_category_selection_keyboard(current_category: str | None = None, langu
             callback_data=f"category_{category_id}"
         )
         keyboard.append([button])
+
+    # Add Skip button if requested
+    if skip_callback:
+        keyboard.append([
+            InlineKeyboardButton(
+                text=msg('BUTTON_SKIP', language),
+                callback_data=skip_callback
+            )
+        ])
 
     # Add Cancel button
     keyboard.append([
@@ -406,6 +434,31 @@ def build_cancel_only_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(keyboard)
 
+
+def build_skip_cancel_keyboard(language: str = 'en', skip_callback: str = 'skip_step') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard with Skip and Cancel buttons.
+
+    Used for text input steps in habit edit flow.
+
+    Args:
+        language: Language code for translating buttons
+        skip_callback: Callback data for the Skip button
+
+    Returns:
+        InlineKeyboardMarkup with Skip and Cancel buttons
+    """
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('BUTTON_SKIP', language),
+            callback_data=skip_callback
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_habit_flow"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 
 def build_reward_cancel_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
@@ -694,13 +747,18 @@ def build_back_to_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def build_grace_days_keyboard(current_grace_days: int | None = None, language: str = 'en') -> InlineKeyboardMarkup:
+def build_grace_days_keyboard(
+    current_grace_days: int | None = None, 
+    language: str = 'en',
+    skip_callback: str | None = None
+) -> InlineKeyboardMarkup:
     """
     Build inline keyboard for grace days selection (0, 1, 2, 3).
 
     Args:
         current_grace_days: Current grace days value (will be highlighted with ✓)
         language: Language code for translating Cancel button
+        skip_callback: If provided, adds a Skip button with this callback data
 
     Returns:
         InlineKeyboardMarkup with grace days buttons
@@ -720,6 +778,15 @@ def build_grace_days_keyboard(current_grace_days: int | None = None, language: s
 
     keyboard.append(row)
 
+    # Add Skip button if requested
+    if skip_callback:
+        keyboard.append([
+            InlineKeyboardButton(
+                text=msg('BUTTON_SKIP', language),
+                callback_data=skip_callback
+            )
+        ])
+
     # Add Cancel button
     keyboard.append([
         InlineKeyboardButton(
@@ -731,13 +798,18 @@ def build_grace_days_keyboard(current_grace_days: int | None = None, language: s
     return InlineKeyboardMarkup(keyboard)
 
 
-def build_exempt_days_keyboard(current_exempt_days: list[int] | None = None, language: str = 'en') -> InlineKeyboardMarkup:
+def build_exempt_days_keyboard(
+    current_exempt_days: list[int] | None = None, 
+    language: str = 'en',
+    skip_callback: str | None = None
+) -> InlineKeyboardMarkup:
     """
     Build inline keyboard for exempt days selection (None, Weekends, Custom).
 
     Args:
         current_exempt_days: Current exempt days list (will be highlighted with ✓)
         language: Language code for translating Cancel button
+        skip_callback: If provided, adds a Skip button with this callback data
 
     Returns:
         InlineKeyboardMarkup with exempt days buttons
@@ -765,6 +837,15 @@ def build_exempt_days_keyboard(current_exempt_days: list[int] | None = None, lan
             callback_data="exempt_days_weekends"
         )
     ])
+
+    # Add Skip button if requested
+    if skip_callback:
+        keyboard.append([
+            InlineKeyboardButton(
+                text=msg('BUTTON_SKIP', language),
+                callback_data=skip_callback
+            )
+        ])
 
     # Add Cancel button
     keyboard.append([

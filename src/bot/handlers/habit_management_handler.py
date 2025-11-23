@@ -1,5 +1,6 @@
 """Handlers for habit management commands: /add_habit, /edit_habit, /remove_habit."""
 
+import asyncio
 import logging
 from telegram import Update
 from telegram.ext import (
@@ -22,7 +23,8 @@ from src.bot.keyboards import (
     build_remove_confirmation_keyboard,
     build_no_habits_to_edit_keyboard,
     build_post_create_habit_keyboard,
-    build_cancel_only_keyboard
+    build_cancel_only_keyboard,
+    build_skip_cancel_keyboard
 )
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async
@@ -735,17 +737,49 @@ async def habit_edit_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['old_habit_exempt_days'] = habit.exempt_weekdays
     logger.info(f"✅ Stored habit info in context for user {telegram_id}")
 
-    # Prompt for new name with Cancel button
+    # Prompt for new name with Skip/Cancel buttons
     prompt_message = msg('HELP_EDIT_HABIT_NAME_PROMPT', lang, current_name=habit.name)
-    keyboard = build_cancel_only_keyboard(language=lang)
+    # Using build_skip_cancel_keyboard for name input
+    keyboard = build_skip_cancel_keyboard(language=lang, skip_callback="skip_name")
     await query.edit_message_text(
         prompt_message,
         reply_markup=keyboard,
         parse_mode="HTML"
     )
-    logger.info(f"📤 Sent edit name prompt with Cancel button to {telegram_id}")
+    logger.info(f"📤 Sent edit name prompt with Skip/Cancel button to {telegram_id}")
 
     return AWAITING_EDIT_NAME
+
+
+async def habit_edit_name_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle Skip button for name edit."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    
+    logger.info(f"⏭ User {telegram_id} skipped name edit")
+
+    # Keep old name
+    context.user_data['new_habit_name'] = context.user_data['old_habit_name']
+    
+    # Show weight selection keyboard (next step)
+    current_weight = context.user_data.get('old_habit_weight')
+    keyboard = build_weight_selection_keyboard(
+        current_weight=current_weight, 
+        language=lang,
+        skip_callback="skip_weight"
+    )
+
+    prompt_message = msg('HELP_EDIT_HABIT_WEIGHT_PROMPT', lang, current_weight=current_weight)
+    await query.edit_message_text(
+        prompt_message,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    
+    return AWAITING_EDIT_WEIGHT
 
 
 async def habit_edit_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -775,7 +809,11 @@ async def habit_edit_name_received(update: Update, context: ContextTypes.DEFAULT
 
     # Show weight selection keyboard
     current_weight = context.user_data.get('old_habit_weight')
-    keyboard = build_weight_selection_keyboard(current_weight=current_weight, language=lang)
+    keyboard = build_weight_selection_keyboard(
+        current_weight=current_weight, 
+        language=lang,
+        skip_callback="skip_weight"
+    )
 
     prompt_message = msg('HELP_EDIT_HABIT_WEIGHT_PROMPT', lang, current_weight=current_weight)
     await update.message.reply_text(
@@ -786,6 +824,37 @@ async def habit_edit_name_received(update: Update, context: ContextTypes.DEFAULT
     logger.info(f"📤 Sent weight selection keyboard to {telegram_id}")
 
     return AWAITING_EDIT_WEIGHT
+
+
+async def habit_edit_weight_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle Skip button for weight edit."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    
+    logger.info(f"⏭ User {telegram_id} skipped weight edit")
+
+    # Keep old weight
+    context.user_data['new_habit_weight'] = context.user_data['old_habit_weight']
+    
+    # Show category selection keyboard
+    current_category = context.user_data.get('old_habit_category')
+    keyboard = build_category_selection_keyboard(
+        current_category=current_category, 
+        language=lang,
+        skip_callback="skip_category"
+    )
+
+    prompt_message = msg('HELP_EDIT_HABIT_CATEGORY_PROMPT', lang, current_category=current_category)
+    await query.edit_message_text(
+        prompt_message,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    
+    return AWAITING_EDIT_CATEGORY
 
 
 async def habit_edit_weight_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -814,7 +883,11 @@ async def habit_edit_weight_selected(update: Update, context: ContextTypes.DEFAU
 
     # Show category selection keyboard
     current_category = context.user_data.get('old_habit_category')
-    keyboard = build_category_selection_keyboard(current_category=current_category, language=lang)
+    keyboard = build_category_selection_keyboard(
+        current_category=current_category, 
+        language=lang,
+        skip_callback="skip_category"
+    )
 
     prompt_message = msg('HELP_EDIT_HABIT_CATEGORY_PROMPT', lang, current_category=current_category)
     await query.edit_message_text(
@@ -825,6 +898,37 @@ async def habit_edit_weight_selected(update: Update, context: ContextTypes.DEFAU
     logger.info(f"📤 Sent category selection keyboard to {telegram_id}")
 
     return AWAITING_EDIT_CATEGORY
+
+
+async def habit_edit_category_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle Skip button for category edit."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    
+    logger.info(f"⏭ User {telegram_id} skipped category edit")
+
+    # Keep old category
+    context.user_data['new_habit_category'] = context.user_data['old_habit_category']
+    
+    # Show grace days selection keyboard
+    current_grace_days = context.user_data.get('old_habit_grace_days')
+    keyboard = build_grace_days_keyboard(
+        current_grace_days=current_grace_days, 
+        language=lang,
+        skip_callback="skip_grace_days"
+    )
+
+    prompt_message = msg('HELP_EDIT_HABIT_GRACE_DAYS_PROMPT', lang, current_grace_days=current_grace_days)
+    await query.edit_message_text(
+        prompt_message,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    
+    return AWAITING_EDIT_GRACE_DAYS
 
 
 async def habit_edit_category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -848,7 +952,11 @@ async def habit_edit_category_selected(update: Update, context: ContextTypes.DEF
 
     # Show grace days selection keyboard
     current_grace_days = context.user_data.get('old_habit_grace_days')
-    keyboard = build_grace_days_keyboard(current_grace_days=current_grace_days, language=lang)
+    keyboard = build_grace_days_keyboard(
+        current_grace_days=current_grace_days, 
+        language=lang,
+        skip_callback="skip_grace_days"
+    )
 
     prompt_message = msg('HELP_EDIT_HABIT_GRACE_DAYS_PROMPT', lang, current_grace_days=current_grace_days)
     await query.edit_message_text(
@@ -859,6 +967,49 @@ async def habit_edit_category_selected(update: Update, context: ContextTypes.DEF
     logger.info(f"📤 Sent grace days selection keyboard to {telegram_id}")
 
     return AWAITING_EDIT_GRACE_DAYS
+
+
+async def habit_edit_grace_days_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle Skip button for grace days edit."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    
+    logger.info(f"⏭ User {telegram_id} skipped grace days edit")
+
+    # Keep old grace days
+    context.user_data['new_habit_grace_days'] = context.user_data['old_habit_grace_days']
+    
+    # Show exempt days selection keyboard
+    current_exempt_days = context.user_data.get('old_habit_exempt_days')
+    keyboard = build_exempt_days_keyboard(
+        current_exempt_days=current_exempt_days, 
+        language=lang,
+        skip_callback="skip_exempt_days"
+    )
+
+    # Format current exempt days for display
+    if not current_exempt_days or len(current_exempt_days) == 0:
+        current_exempt_days_display = msg('BUTTON_EXEMPT_NONE', lang)
+    elif sorted(current_exempt_days) == [6, 7]:
+        current_exempt_days_display = msg('BUTTON_EXEMPT_WEEKENDS', lang)
+    else:
+        current_exempt_days_display = str(current_exempt_days)
+
+    prompt_message = msg('HELP_EDIT_HABIT_EXEMPT_DAYS_PROMPT', lang, current_exempt_days=current_exempt_days_display)
+    
+    # Add custom prompt for text input
+    prompt = f"{prompt_message}{msg('HELP_EXEMPT_DAYS_OR_MANUAL', lang)}"
+
+    await query.edit_message_text(
+        prompt,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    
+    return AWAITING_EDIT_EXEMPT_DAYS
 
 
 async def habit_edit_grace_days_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -887,7 +1038,11 @@ async def habit_edit_grace_days_selected(update: Update, context: ContextTypes.D
 
     # Show exempt days selection keyboard
     current_exempt_days = context.user_data.get('old_habit_exempt_days')
-    keyboard = build_exempt_days_keyboard(current_exempt_days=current_exempt_days, language=lang)
+    keyboard = build_exempt_days_keyboard(
+        current_exempt_days=current_exempt_days, 
+        language=lang,
+        skip_callback="skip_exempt_days"
+    )
 
     # Format current exempt days for display
     if not current_exempt_days or len(current_exempt_days) == 0:
@@ -910,6 +1065,67 @@ async def habit_edit_grace_days_selected(update: Update, context: ContextTypes.D
     logger.info(f"📤 Sent exempt days selection keyboard to {telegram_id}")
 
     return AWAITING_EDIT_EXEMPT_DAYS
+
+
+async def habit_edit_exempt_days_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle Skip button for exempt days edit."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    
+    logger.info(f"⏭ User {telegram_id} skipped exempt days edit")
+
+    # Keep old exempt days
+    context.user_data['new_habit_exempt_days'] = context.user_data['old_habit_exempt_days']
+    
+    # Proceed to confirmation
+    # Show confirmation with before/after comparison
+    old_name = context.user_data.get('old_habit_name')
+    old_weight = context.user_data.get('old_habit_weight')
+    old_category = context.user_data.get('old_habit_category')
+    old_grace_days = context.user_data.get('old_habit_grace_days')
+    old_exempt_days = context.user_data.get('old_habit_exempt_days', [])
+    new_name = context.user_data.get('new_habit_name')
+    new_weight = context.user_data.get('new_habit_weight')
+    new_category = context.user_data.get('new_habit_category')
+    new_grace_days = context.user_data.get('new_habit_grace_days')
+
+    # Format old exempt days for display
+    if not old_exempt_days or len(old_exempt_days) == 0:
+        old_exempt_days_display = msg('BUTTON_EXEMPT_NONE', lang)
+    elif sorted(old_exempt_days) == [6, 7]:
+        old_exempt_days_display = msg('BUTTON_EXEMPT_WEEKENDS', lang)
+    else:
+        old_exempt_days_display = str(old_exempt_days)
+
+    # New is same as old
+    new_exempt_days_display = old_exempt_days_display
+
+    confirmation_message = msg(
+        'HELP_EDIT_HABIT_CONFIRM',
+        lang,
+        old_name=old_name,
+        new_name=new_name,
+        old_weight=old_weight,
+        new_weight=new_weight,
+        old_category=old_category,
+        new_category=new_category,
+        old_grace_days=old_grace_days,
+        new_grace_days=new_grace_days,
+        old_exempt_days=old_exempt_days_display,
+        new_exempt_days=new_exempt_days_display
+    )
+
+    keyboard = build_habit_confirmation_keyboard(language=lang)
+    await query.edit_message_text(
+        confirmation_message,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    
+    return AWAITING_EDIT_CONFIRMATION
 
 
 async def habit_edit_exempt_days_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1136,8 +1352,37 @@ async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.info(f"✅ Updated habit '{updated_habit.name}' (ID: {updated_habit.id}) for user {telegram_id}")
 
         success_message = msg('SUCCESS_HABIT_UPDATED', lang, name=updated_habit.name)
-        await query.edit_message_text(success_message, parse_mode="HTML")
+        success_msg_obj = await query.edit_message_text(success_message, parse_mode="HTML")
         logger.info(f"📤 Sent success message to {telegram_id}")
+
+        # Show Main Menu (as if user pressed /start)
+        from src.bot.keyboards import build_start_menu_keyboard
+        await query.message.reply_text(
+            msg('START_MENU_TITLE', lang),
+            reply_markup=build_start_menu_keyboard(lang),
+            parse_mode="HTML"
+        )
+        logger.info(f"📤 Sent Main Menu to {telegram_id}")
+
+        # Delete success message with animation after user has time to read it
+        async def delete_success_message():
+            try:
+                # Wait 2.5 seconds for user to read the success message
+                await asyncio.sleep(2.5)
+                
+                # Animation: Show deleting indicator
+                await success_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+                await asyncio.sleep(0.5)
+                
+                # Delete the message
+                await success_msg_obj.delete()
+                logger.info(f"🗑️ Deleted success message for user {telegram_id}")
+            except Exception as e:
+                # If deletion fails (e.g., message too old or already deleted), just log it
+                logger.warning(f"⚠️ Could not delete success message for user {telegram_id}: {e}")
+        
+        # Run deletion in background (don't await to avoid blocking)
+        asyncio.create_task(delete_success_message())
 
     except Exception as e:
         logger.error(f"❌ Error updating habit for user {telegram_id}: {str(e)}")
@@ -1540,22 +1785,27 @@ edit_habit_conversation = ConversationHandler(
             CallbackQueryHandler(edit_back_to_menu, pattern="^edit_back$")
         ],
         AWAITING_EDIT_NAME: [
+            CallbackQueryHandler(habit_edit_name_skip, pattern="^skip_name$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, habit_edit_name_received),
             CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
         ],
         AWAITING_EDIT_WEIGHT: [
+            CallbackQueryHandler(habit_edit_weight_skip, pattern="^skip_weight$"),
             CallbackQueryHandler(habit_edit_weight_selected, pattern="^weight_"),
             CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
         ],
         AWAITING_EDIT_CATEGORY: [
+            CallbackQueryHandler(habit_edit_category_skip, pattern="^skip_category$"),
             CallbackQueryHandler(habit_edit_category_selected, pattern="^category_"),
             CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
         ],
         AWAITING_EDIT_GRACE_DAYS: [
+            CallbackQueryHandler(habit_edit_grace_days_skip, pattern="^skip_grace_days$"),
             CallbackQueryHandler(habit_edit_grace_days_selected, pattern="^grace_days_"),
             CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
         ],
         AWAITING_EDIT_EXEMPT_DAYS: [
+            CallbackQueryHandler(habit_edit_exempt_days_skip, pattern="^skip_exempt_days$"),
             CallbackQueryHandler(habit_edit_exempt_days_selected, pattern="^exempt_days_"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, habit_edit_exempt_days_text_received),
             CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
