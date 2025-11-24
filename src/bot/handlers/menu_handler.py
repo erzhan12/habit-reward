@@ -23,6 +23,7 @@ from src.bot.navigation import (
 )
 from src.services.habit_service import habit_service
 from src.utils.async_compat import maybe_await
+from src.core.repositories import user_repository
 
 logger = logging.getLogger(__name__)
 
