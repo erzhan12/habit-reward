@@ -279,6 +279,193 @@ Testing ngrok tunnel...
 
 ---
 
+### 4. `fix_allowed_hosts.py` - ALLOWED_HOSTS Quick Fix
+
+A utility script to quickly add ngrok domains to Django's ALLOWED_HOSTS configuration in your `.env` file. This resolves the common `DisallowedHost` error when using ngrok tunnels.
+
+#### Usage
+
+```bash
+# Add ngrok domain to ALLOWED_HOSTS
+uv run python scripts/fix_allowed_hosts.py abc123.ngrok-free.app
+
+# Also works with full URLs
+uv run python scripts/fix_allowed_hosts.py https://abc123.ngrok-free.app
+```
+
+#### What It Does
+
+1. **Validates Configuration**
+   - Checks for `.env` file existence
+   - Creates ALLOWED_HOSTS entry if missing
+
+2. **Cleans Domain Input**
+   - Removes https:// prefix automatically
+   - Strips trailing slashes and paths
+   - Extracts clean domain name
+
+3. **Updates .env File**
+   - Appends domain to existing ALLOWED_HOSTS
+   - Avoids duplicates (checks if already present)
+   - Preserves other environment variables
+
+4. **Provides Next Steps**
+   - Reminds you to restart Django server
+   - Shows restart command
+
+#### Features
+
+- 🔧 One-command fix for DisallowedHost errors
+- ✅ Automatic domain cleaning and validation
+- 🔍 Duplicate detection
+- 📝 Safe .env file modification
+- 💡 Clear next-step instructions
+
+#### Example Output
+
+```
+============================================================
+🔧 ALLOWED_HOSTS FIX UTILITY
+============================================================
+
+🔧 Adding 'abc123.ngrok-free.app' to ALLOWED_HOSTS...
+✅ Updated ALLOWED_HOSTS to: localhost,127.0.0.1,abc123.ngrok-free.app
+
+============================================================
+✅ .env file updated successfully!
+============================================================
+
+Next steps:
+1. Restart your Django server (Ctrl+C and restart uvicorn)
+2. The webhook should now work correctly
+
+To restart server:
+uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000 --reload
+```
+
+#### When to Use
+
+- ✅ After starting ngrok with a new URL
+- ✅ When you see DisallowedHost error in Django logs
+- ✅ When webhook returns 400 Bad Request
+- ✅ Faster alternative to manually editing .env
+
+---
+
+### 5. `reset_admin_password.py` - Django Admin Password Manager
+
+A Django management script to reset passwords for admin users or list all admin/staff users in the system.
+
+#### Usage
+
+```bash
+# Interactive mode (prompts for password)
+uv run python scripts/reset_admin_password.py
+
+# Reset specific username
+uv run python scripts/reset_admin_password.py --username admin
+
+# Non-interactive mode with password
+uv run python scripts/reset_admin_password.py --username admin --password mypassword123
+
+# List all admin users
+uv run python scripts/reset_admin_password.py --list
+```
+
+#### What It Does
+
+1. **Password Reset**
+   - Resets password for existing admin users
+   - Interactive password entry with confirmation
+   - Validates password match
+
+2. **User Information Display**
+   - Shows username, Telegram ID, and permissions
+   - Displays staff and superuser status
+   - Lists available admin users if username not found
+
+3. **Admin User Listing**
+   - Lists all staff/admin users in database
+   - Shows detailed user information
+   - Displays password status (usable/unusable)
+
+#### Features
+
+- 🔐 Secure password entry (hidden input)
+- ✅ Password confirmation in interactive mode
+- 📊 List all admin users with details
+- 🔍 Validates username existence
+- 💡 Helpful error messages and suggestions
+- 🚀 Both interactive and non-interactive modes
+
+#### Example Output
+
+**Reset Password:**
+```
+============================================================
+RESET PASSWORD FOR USER
+============================================================
+Username: admin
+Telegram ID: 123456789
+Name: Admin User
+Staff: True
+Superuser: True
+============================================================
+
+Enter new password: ********
+Confirm password: ********
+
+✅ Password reset successfully for user 'admin'!
+
+You can now login to Django admin at:
+  http://localhost:8000/admin/
+
+  Username: admin
+  Password: (the password you just set)
+```
+
+**List Users:**
+```
+============================================================
+ADMIN USERS
+============================================================
+
+Username: admin
+  Telegram ID: 123456789
+  Name: Admin User
+  Staff: ✓
+  Superuser: ✓
+  Active: ✓
+  Has usable password: ✓
+
+Username: staff_user
+  Telegram ID: 987654321
+  Name: Staff Member
+  Staff: ✓
+  Superuser: ✗
+  Active: ✓
+  Has usable password: ✓
+
+============================================================
+```
+
+#### When to Use
+
+- ✅ Forgot Django admin password
+- ✅ Need to reset password for admin access
+- ✅ Want to see all admin/staff users
+- ✅ Setting up development environment
+- ✅ Troubleshooting admin login issues
+
+#### Security Notes
+
+- Passwords are hidden during interactive input
+- Password confirmation required in interactive mode
+- Uses Django's built-in password hashing
+- Requires Django to be properly configured
+
+---
+
 ## Quick Reference Commands
 
 ### Development Workflow
