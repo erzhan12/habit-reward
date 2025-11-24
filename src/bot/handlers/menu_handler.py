@@ -382,8 +382,18 @@ async def habit_selected_standalone_callback(update: Update, context: ContextTyp
     if callback_data.startswith("habit_"):
         habit_id = callback_data.replace("habit_", "")
 
+        # Get user for multi-user support
+        user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+        if not user:
+            logger.error(f"❌ User {telegram_id} not found")
+            await query.edit_message_text(
+                msg('ERROR_USER_NOT_FOUND', lang),
+                reply_markup=build_back_to_menu_keyboard(lang)
+            )
+            return 0
+
         # Get habit by ID
-        habits = await maybe_await(habit_service.get_all_active_habits())
+        habits = await maybe_await(habit_service.get_all_active_habits(user.id))
         habit = next((h for h in habits if str(h.id) == habit_id), None)
 
         if not habit:

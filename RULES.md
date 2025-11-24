@@ -295,6 +295,39 @@ Business logic lives in services (`src/services/`):
 
 Services coordinate between repositories and contain no direct database calls.
 
+### Multi-User Service Pattern
+
+**CRITICAL**: After implementing multi-user support, many service methods now require `user_id` as a parameter. All handlers MUST pass the user ID when calling these methods.
+
+**Affected methods:**
+- `habit_service.get_all_active_habits(user_id)` - Requires user_id
+- `habit_service.get_active_habits_pending_for_today(user_id)` - Requires user_id
+- `habit_service.get_habit_by_name(user_id, habit_name)` - Requires user_id
+
+**Pattern when user object is available:**
+```python
+user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+if not user:
+    await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
+    return
+
+habits = await maybe_await(habit_service.get_all_active_habits(user.id))
+```
+
+**Pattern when only telegram_id is available:**
+```python
+# Get user for multi-user support
+user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+if not user:
+    logger.error(f"❌ User {telegram_id} not found")
+    await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
+    return
+
+habits = await maybe_await(habit_service.get_all_active_habits(user.id))
+```
+
+**Why**: Without user_id, service methods will fail with `TypeError: missing 1 required positional argument: 'user_id'`. This happens because the system now supports multiple users, and data must be filtered by user.
+
 ### NLP Service Optional Pattern
 
 The NLP service is optional and gracefully degrades when LLM_API_KEY is not configured:

@@ -65,7 +65,7 @@ async def habit_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = user.language or lang
 
     # Fetch all active habits for menu display
-    all_habits = await maybe_await(habit_service.get_all_active_habits())
+    all_habits = await maybe_await(habit_service.get_all_active_habits(user.id))
 
     # Attempt to filter habits already completed today (service method optional)
     habits = all_habits
@@ -146,8 +146,15 @@ async def habit_selected_callback(
         habit_id = callback_data.replace("habit_", "")
         logger.info(f"🎯 User {telegram_id} selected habit_id: {habit_id}")
 
+        # Get user for multi-user support
+        user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+        if not user:
+            logger.error(f"❌ User {telegram_id} not found")
+            await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
+            return ConversationHandler.END
+
         # Get habit by ID
-        habits = await maybe_await(habit_service.get_all_active_habits())
+        habits = await maybe_await(habit_service.get_all_active_habits(user.id))
         habit = next((h for h in habits if str(h.id) == habit_id), None)
 
         if not habit:
@@ -200,8 +207,18 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     logger.info(f"📨 Received custom text from user {telegram_id} (@{username}): '{user_text}'")
 
+    # Get user for multi-user support
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        logger.error(f"❌ User {telegram_id} not found")
+        await update.message.reply_text(
+            msg('ERROR_USER_NOT_FOUND', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        return ConversationHandler.END
+
     # Get all active habits
-    habits = await maybe_await(habit_service.get_all_active_habits())
+    habits = await maybe_await(habit_service.get_all_active_habits(user.id))
     habit_names = [h.name for h in habits]
 
     # Use NLP to classify

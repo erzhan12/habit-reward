@@ -53,7 +53,7 @@ async def habit_revert_command(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return ConversationHandler.END
 
-    habits = await maybe_await(habit_service.get_all_active_habits())
+    habits = await maybe_await(habit_service.get_all_active_habits(user.id))
     if not habits:
         logger.warning("⚠️ No active habits available for user %s during revert", telegram_id)
         await message.reply_text(
@@ -88,7 +88,17 @@ async def habit_revert_selected_callback(update: Update, context: ContextTypes.D
     habit = habit_map.get(habit_id)
 
     if not habit:
-        habits = await maybe_await(habit_service.get_all_active_habits())
+        # Get user for multi-user support
+        user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+        if not user:
+            logger.error(f"❌ User {telegram_id} not found")
+            await query.edit_message_text(
+                msg('ERROR_USER_NOT_FOUND', lang),
+                reply_markup=build_back_to_menu_keyboard(lang)
+            )
+            return ConversationHandler.END
+
+        habits = await maybe_await(habit_service.get_all_active_habits(user.id))
         habit = next((h for h in habits if str(h.id) == habit_id), None)
         context.user_data['revert_habit_map'] = {str(h.id): h for h in habits}
 
