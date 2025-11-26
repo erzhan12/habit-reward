@@ -66,6 +66,10 @@ services:
       web:
         condition: service_healthy
 
+    # Enable host.docker.internal to access host machine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     ports:
       - "80:80"       # HTTP
       - "443:443"     # HTTPS
