@@ -767,3 +767,130 @@ events = await maybe_await(
 **Retention**: 90 days (automatic cleanup via `python manage.py cleanup_audit_logs`).
 
 **Why**: Trace data corruption, reconstruct user interactions, debug issues with state snapshots.
+
+## Django Admin Custom Actions
+
+**CRITICAL**: Django admin runs in WSGI (synchronous) context. Never use `asyncio.run()` or async service layer methods in admin actions.
+
+### Async/Sync Context Issue
+
+**Problem**: Our services use async methods (via `run_sync_or_async()`), but Django admin actions run in synchronous WSGI context. Using `asyncio.run()` causes:
+```
+RuntimeError: You cannot submit onto CurrentThreadExecutor from its own thread
+```
+
+**Solution**: Use pure Django ORM in admin actions instead of calling async services.
+
+```python
+# ❌ Bad - Causes CurrentThreadExecutor error
+@admin.action(description='Revert selected habit logs')
+def revert_selected_logs(self, request, queryset):
+    for log in queryset:
+        # Don't do this!
+        asyncio.run(habit_service.revert_habit_completion(
+            user_telegram_id=log.user.telegram_id,
+            habit_id=log.habit.id
+        ))
+
+# ✅ Good - Use synchronous Django ORM
+@admin.action(description='Revert selected habit logs')
+def revert_selected_logs(self, request, queryset):
+    from django.db import transaction
+
+    for log in queryset:
+        with transaction.atomic():
+            # Direct Django ORM operations
+            user = log.user
+            habit = log.habit
+            reward = log.reward
+
+            # Delete log
+            log.delete()
+
+            # Update related records if needed
+            if reward:
+                progress = RewardProgress.objects.get(user=user, reward=reward)
+                progress.pieces_earned -= 1
+                progress.save()
+
+            # Create audit log
+            BotAuditLog.objects.create(
+                user=user,
+                event_type=BotAuditLog.EventType.HABIT_REVERTED,
+                habit=habit,
+                reward=reward,
+                snapshot={...}
+            )
+```
+
+### Consistency with Bot Actions
+
+**CRITICAL**: When creating admin actions that mirror bot functionality (e.g., habit reversion), ensure consistent audit logging.
+
+**Key requirements**:
+1. Use the same event type (e.g., `HABIT_REVERTED` not `REWARD_REVERTED`)
+2. Populate the same fields (both `habit` and `reward`)
+3. Always create audit logs (not conditionally based on reward existence)
+4. Use the same business logic for related updates (e.g., reward progress decrement)
+
+**Example**: The "Revert selected habit logs" admin action creates audit logs identical to the `/revert_habit` bot command.
+
+### Admin Action Best Practices
+
+1. **Prefetch Related Objects**: Use `select_related()` to avoid N+1 queries
+   ```python
+   queryset = queryset.select_related('user', 'habit', 'reward')
+   ```
+
+2. **Use Transactions**: Wrap multi-step operations in `transaction.atomic()`
+
+3. **Validate Data**: Check for required relationships before processing
+   ```python
+   if not log.user or not log.habit:
+       error_messages.append(f"Log #{log.id}: Missing required data")
+       continue
+   ```
+
+4. **Provide User Feedback**: Use Django messages framework
+   ```python
+   self.message_user(
+       request,
+       f"Successfully processed {count} records.",
+       messages.SUCCESS
+   )
+   ```
+
+5. **Handle Errors Gracefully**: Track success/failure counts and show detailed errors
+   ```python
+   success_count = 0
+   failed_count = 0
+   error_messages = []
+
+   for item in queryset:
+       try:
+           # Process...
+           success_count += 1
+       except Exception as e:
+           failed_count += 1
+           error_messages.append(f"Item #{item.id}: {str(e)}")
+   ```
+
+### Event Type Enum Usage
+
+**CRITICAL**: Always use enum constants for event types, never strings.
+
+```python
+# ✅ Good - Type-safe enum
+BotAuditLog.objects.create(
+    event_type=BotAuditLog.EventType.HABIT_REVERTED,
+    ...
+)
+
+# ❌ Bad - Typos cause NULL values in database
+BotAuditLog.objects.create(
+    event_type='habit_revert',  # Typo! Field will be NULL
+    ...
+)
+```
+
+**Why**: Django's `TextChoices` validates enum values. Invalid strings are silently rejected, resulting in NULL database values.
