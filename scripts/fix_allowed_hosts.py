@@ -7,7 +7,6 @@ Usage:
     python scripts/fix_allowed_hosts.py 74b6a10e97a5.ngrok-free.app
 """
 import sys
-import re
 from pathlib import Path
 
 def fix_allowed_hosts(ngrok_domain):

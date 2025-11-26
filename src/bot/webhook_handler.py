@@ -80,7 +80,7 @@ def setup_handlers_sync():
     async def debug_all_callbacks(update: Update, context):
         query = update.callback_query
         user_id = update.effective_user.id
-        logger.error(f"🟢 GLOBAL DEBUG: Callback received - user: {user_id}, data: {query.data}")
+        logger.debug(f"🟢 GLOBAL DEBUG: Callback received - user: {user_id}, data: {query.data}")
         # Don't answer, let other handlers process it
         return None
 

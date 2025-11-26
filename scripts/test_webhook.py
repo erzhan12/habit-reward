@@ -9,7 +9,6 @@ Usage:
     python scripts/test_webhook.py https://your-ngrok-url   # Test ngrok URL
 """
 import sys
-import json
 import requests
 from pathlib import Path
 
@@ -72,7 +71,7 @@ def test_webhook_endpoint(base_url="http://localhost:8000"):
         status_code = response.status_code
 
         if status_code == 400:
-            print(f"✅ PASS - Got expected 400 response")
+            print("✅ PASS - Got expected 400 response")
             print(f"   Response: {response.text[:100]}")
         else:
             print(f"⚠️ UNEXPECTED - Got {status_code} instead of 400")
@@ -117,9 +116,9 @@ def test_webhook_endpoint(base_url="http://localhost:8000"):
         status_code = response.status_code
 
         if status_code == 200:
-            print(f"✅ PASS - Got 200 OK response")
+            print("✅ PASS - Got 200 OK response")
             print(f"   Response: {response.text}")
-            print(f"   Note: Bot will process this update if user exists in DB")
+            print("   Note: Bot will process this update if user exists in DB")
         else:
             print(f"⚠️ UNEXPECTED - Got {status_code} instead of 200")
             print(f"   Response: {response.text[:100]}")

@@ -371,6 +371,7 @@ class BotAuditLog(models.Model):
         """Types of events logged in the audit trail."""
         COMMAND = 'command', 'Command'
         HABIT_COMPLETED = 'habit_completed', 'Habit Completed'
+        HABIT_REVERTED = 'habit_reverted', 'Habit Reverted'
         REWARD_SELECTED = 'reward_selected', 'Reward Selected'
         REWARD_CLAIMED = 'reward_claimed', 'Reward Claimed'
         REWARD_REVERTED = 'reward_reverted', 'Reward Reverted'

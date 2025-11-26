@@ -1,8 +1,12 @@
 """Django admin configuration for habit reward models."""
 
-from django.contrib import admin
+import logging
+from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.db import transaction
 from src.core.models import User, Habit, Reward, RewardProgress, HabitLog, BotAuditLog
+
+logger = logging.getLogger(__name__)
 
 
 @admin.register(User)
@@ -151,6 +155,7 @@ class HabitLogAdmin(admin.ModelAdmin):
     ordering = ['-timestamp']
     date_hierarchy = 'timestamp'
     autocomplete_fields = ['user', 'habit', 'reward']
+    actions = ['revert_selected_logs']
 
     fieldsets = (
         ('Log Information', {
@@ -165,6 +170,154 @@ class HabitLogAdmin(admin.ModelAdmin):
         """Alias for timestamp (for consistency)."""
         return obj.timestamp
     created_at.short_description = 'Created At'
+
+    @admin.action(description='Revert selected habit logs (and reward progress)')
+    def revert_selected_logs(self, request, queryset):
+        """Custom admin action to properly revert habit logs.
+
+        This action calls habit_service.revert_habit_completion() for each selected log,
+        which ensures proper rollback of reward progress and maintains data integrity.
+        """
+        # Optimize queries by prefetching related objects
+        queryset = queryset.select_related('user', 'habit', 'reward')
+
+        success_count = 0
+        failed_count = 0
+        error_messages = []
+
+        for log in queryset:
+            try:
+                # Validate that log has required relationships
+                if not log.user:
+                    failed_count += 1
+                    error_msg = f"Log #{log.id}: Missing user"
+                    error_messages.append(error_msg)
+                    logger.warning(f"⚠️ {error_msg}")
+                    continue
+
+                if not log.habit:
+                    failed_count += 1
+                    error_msg = f"Log #{log.id}: Missing habit"
+                    error_messages.append(error_msg)
+                    logger.warning(f"⚠️ {error_msg}")
+                    continue
+
+                # Revert the log using synchronous Django ORM
+                # This bypasses the async service layer to avoid event loop conflicts
+                user = log.user
+                habit = log.habit
+                reward = log.reward
+
+                logger.info(
+                    f"🔄 Admin reverting log #{log.id} for user {user.telegram_id}, habit {habit.id}"
+                )
+
+                # Use atomic transaction to ensure consistency
+                with transaction.atomic():
+                    # Store info before deletion
+                    log_id = log.id
+                    habit_name = habit.name
+                    got_reward = log.got_reward
+
+                    # Delete the habit log
+                    log.delete()
+
+                    # Prepare snapshot for audit log
+                    snapshot = {
+                        'habit_name': habit_name,
+                        'log_id': log_id,
+                    }
+
+                    # If log had a reward, decrement reward progress
+                    if got_reward and reward:
+                        try:
+                            progress = RewardProgress.objects.select_related('reward').get(
+                                user=user,
+                                reward=reward
+                            )
+
+                            # Decrement pieces_earned
+                            if progress.pieces_earned > 0:
+                                progress.pieces_earned -= 1
+
+                                # If was claimed, mark as unclaimed
+                                if progress.claimed:
+                                    progress.claimed = False
+
+                                progress.save()
+                                logger.info(
+                                    f"📉 Decremented reward progress for '{reward.name}': "
+                                    f"{progress.pieces_earned + 1} → {progress.pieces_earned}"
+                                )
+
+                                # Add reward info to snapshot
+                                snapshot.update({
+                                    'reward_name': reward.name,
+                                    'pieces_earned': progress.pieces_earned,
+                                    'pieces_required': reward.pieces_required,
+                                    'claimed': progress.claimed,
+                                })
+                        except RewardProgress.DoesNotExist:
+                            logger.warning(
+                                f"⚠️ Reward progress not found for log #{log_id}, skipping decrement"
+                            )
+
+                    # Create audit log entry for habit revert
+                    BotAuditLog.objects.create(
+                        user=user,
+                        event_type=BotAuditLog.EventType.HABIT_REVERTED,
+                        habit=habit,
+                        reward=reward if got_reward else None,
+                        snapshot=snapshot
+                    )
+
+                success_count += 1
+                logger.info(
+                    f"✅ Successfully reverted log #{log_id} for habit '{habit_name}'"
+                )
+
+            except ValueError as e:
+                failed_count += 1
+                error_msg = f"Log #{log.id}: {str(e)}"
+                error_messages.append(error_msg)
+                logger.error(f"❌ {error_msg}")
+
+            except Exception as e:
+                failed_count += 1
+                error_msg = f"Log #{log.id}: Unexpected error - {str(e)}"
+                error_messages.append(error_msg)
+                logger.error(f"❌ {error_msg}", exc_info=True)
+
+        # Display results to admin user
+        if failed_count == 0:
+            # Full success
+            self.message_user(
+                request,
+                f"Successfully reverted {success_count} habit log(s).",
+                messages.SUCCESS
+            )
+        elif success_count == 0:
+            # Total failure
+            error_summary = "\n".join(error_messages[:5])  # Show first 5 errors
+            if len(error_messages) > 5:
+                error_summary += f"\n... and {len(error_messages) - 5} more errors"
+
+            self.message_user(
+                request,
+                f"Failed to revert all {failed_count} log(s).\n\nErrors:\n{error_summary}",
+                messages.ERROR
+            )
+        else:
+            # Partial success
+            error_summary = "\n".join(error_messages[:3])  # Show first 3 errors
+            if len(error_messages) > 3:
+                error_summary += f"\n... and {len(error_messages) - 3} more errors"
+
+            self.message_user(
+                request,
+                f"Reverted {success_count} log(s). Failed: {failed_count}.\n\nErrors:\n{error_summary}",
+                messages.WARNING
+            )
 
 
 @admin.register(BotAuditLog)

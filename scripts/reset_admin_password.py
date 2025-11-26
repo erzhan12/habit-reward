@@ -56,7 +56,7 @@ def reset_password(username='admin', password=None, interactive=True):
         return False
 
     print(f"\n{'='*60}")
-    print(f"RESET PASSWORD FOR USER")
+    print("RESET PASSWORD FOR USER")
     print(f"{'='*60}")
     print(f"Username: {user.username}")
     print(f"Telegram ID: {user.telegram_id}")
@@ -86,10 +86,10 @@ def reset_password(username='admin', password=None, interactive=True):
     user.save()
 
     print(f"\n✅ Password reset successfully for user '{username}'!")
-    print(f"\nYou can now login to Django admin at:")
-    print(f"  http://localhost:8000/admin/")
+    print("\nYou can now login to Django admin at:")
+    print("  http://localhost:8000/admin/")
     print(f"\n  Username: {username}")
-    print(f"  Password: (the password you just set)")
+    print("  Password: (the password you just set)")
     print()
 
     return True

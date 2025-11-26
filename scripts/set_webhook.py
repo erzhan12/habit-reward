@@ -67,7 +67,7 @@ def display_webhook_info(info):
     url = info.get('url', '')
     if url:
         print(f"URL: {url}")
-        print(f"Status: ✅ Webhook is SET")
+        print("Status: ✅ Webhook is SET")
     else:
         print("URL: (not set)")
         print("Status: ⚠️ No webhook configured (using polling mode)")
@@ -79,12 +79,12 @@ def display_webhook_info(info):
         print(f"IP address: {info.get('ip_address')}")
 
     if info.get('last_error_date'):
-        print(f"\n⚠️ LAST ERROR:")
+        print("\n⚠️ LAST ERROR:")
         print(f"   Message: {info.get('last_error_message', 'Unknown')}")
         print(f"   Date: {info.get('last_error_date')}")
 
     if info.get('last_synchronization_error_date'):
-        print(f"\n⚠️ LAST SYNC ERROR:")
+        print("\n⚠️ LAST SYNC ERROR:")
         print(f"   Date: {info.get('last_synchronization_error_date')}")
 
     print("=" * 60 + "\n")
