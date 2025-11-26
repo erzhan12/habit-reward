@@ -12,13 +12,6 @@ This document tracks planned features, improvements, and enhancements for the Ha
 
 ### High Priority
 
-- [ ] **Custom Admin Action for Habit Log Reversion**
-  - Add a custom admin action `revert_selected_logs` to `HabitLogAdmin` that properly reverts selected habit logs
-  - Should call `habit_service.revert_habit_completion()` to ensure reward progress is also rolled back
-  - Prevents manual deletion of logs without reverting associated reward progress
-  - **File**: `src/core/admin.py`
-  - **Related**: Current manual deletion doesn't revert reward progress automatically
-
 - [ ] **Bulk Operations in Admin**
   - Add bulk edit capabilities for habits (e.g., change weight, category, active status)
   - Add bulk operations for users (e.g., activate/deactivate multiple users)
