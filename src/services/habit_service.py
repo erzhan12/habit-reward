@@ -331,27 +331,31 @@ class HabitService:
                 habit.id,
             )
 
-            # Log reward revert to audit trail (if reward was reverted)
-            if reward_reverted and log.reward:
-                revert_snapshot = {
-                    "habit_name": habit.name,
-                    "reward_name": reward_name,
-                }
-                if progress:
-                    revert_snapshot["reward_progress"] = {
-                        "pieces_earned": progress.pieces_earned,
-                        "pieces_required": progress.get_pieces_required(),
-                        "claimed": progress.claimed,
-                    }
+            # Log habit revert to audit trail (always, not just when reward exists)
+            revert_snapshot = {
+                "habit_name": habit.name,
+            }
 
-                await maybe_await(
-                    self.audit_log_service.log_reward_revert(
-                        user_id=user.id,
-                        reward=log.reward,
-                        habit_log=log,
-                        progress_snapshot=revert_snapshot,
-                    )
+            # Add reward info to snapshot if reward was reverted
+            if reward_reverted and reward_name:
+                revert_snapshot["reward_name"] = reward_name
+
+            if progress:
+                revert_snapshot["reward_progress"] = {
+                    "pieces_earned": progress.pieces_earned,
+                    "pieces_required": progress.get_pieces_required(),
+                    "claimed": progress.claimed,
+                }
+
+            await maybe_await(
+                self.audit_log_service.log_habit_revert(
+                    user_id=user.id,
+                    habit=habit,
+                    reward=log.reward if reward_reverted else None,
+                    habit_log=log,
+                    progress_snapshot=revert_snapshot,
                 )
+            )
 
             return HabitRevertResult(
                 habit_name=habit.name,

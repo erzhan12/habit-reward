@@ -144,19 +144,21 @@ class AuditLogService:
 
         return run_sync_or_async(_impl())
 
-    def log_reward_revert(
+    def log_habit_revert(
         self,
         user_id: int | str,
-        reward: Reward,
-        habit_log: HabitLog | None,
+        habit: Habit,
+        reward: Reward | None = None,
+        habit_log: HabitLog | None = None,
         progress_snapshot: dict | None = None
     ) -> BotAuditLog | Awaitable[BotAuditLog]:
-        """Log a reward revert event.
+        """Log a habit revert event.
 
         Args:
             user_id: User ID
-            reward: Reward that was reverted
-            habit_log: HabitLog that was deleted
+            habit: Habit that was reverted
+            reward: Reward that was reverted (optional, if log had reward)
+            habit_log: HabitLog that was deleted (optional)
             progress_snapshot: State snapshot with pieces_earned before/after revert
 
         Returns:
@@ -165,23 +167,25 @@ class AuditLogService:
 
         async def _impl() -> BotAuditLog:
             habit_log_id = habit_log.id if habit_log else None
+            reward_id = reward.id if reward else None
 
             logger.debug(
-                f"Logging reward revert: user={user_id}, reward={reward.id}, "
-                f"habit_log={habit_log_id}"
+                f"Logging habit revert: user={user_id}, habit={habit.id}, "
+                f"reward={reward_id}, habit_log={habit_log_id}"
             )
 
             log_entry = BotAuditLog(
                 user_id=user_id,
-                event_type=EventType.REWARD_REVERTED,
-                reward_id=reward.id,
+                event_type=EventType.HABIT_REVERTED,
+                habit_id=habit.id,
+                reward_id=reward_id,
                 habit_log_id=habit_log_id,
                 snapshot=progress_snapshot or {},
             )
             await sync_to_async(log_entry.save)()
 
             logger.info(
-                f"✅ Logged reward revert for user {user_id}, reward {reward.id}"
+                f"✅ Logged habit revert for user {user_id}, habit {habit.id}"
             )
             return log_entry
 
