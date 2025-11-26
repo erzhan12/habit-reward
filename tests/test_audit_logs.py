@@ -480,17 +480,20 @@ async def test_tc006_reward_revert_logging(test_user, test_habits, test_rewards)
             habit_id=evening_journal.id
         )
 
-    # Assert: Revert logged
+    # Assert: Revert logged (using HABIT_REVERTED event type)
     log = await sync_to_async(BotAuditLog.objects.get)(
         user=test_user,
-        event_type=BotAuditLog.EventType.REWARD_REVERTED
+        event_type=BotAuditLog.EventType.HABIT_REVERTED
     )
 
+    assert log.habit_id == evening_journal.id
     assert log.reward_id == coffee_break.id
+    assert log.habit_log_id is None  # Deleted log not referenced (FK constraint)
     # Service logs the new state in reward_progress, not diff keys
     assert 'reward_progress' in log.snapshot
     assert log.snapshot['reward_progress']['pieces_earned'] == pieces_before_revert - 1
     assert log.snapshot['habit_name'] == 'Evening Journal'
+    assert log.snapshot['log_id'] == habit_log.id  # Stored in snapshot
 
 
 # ============================================================================

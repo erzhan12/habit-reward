@@ -294,6 +294,9 @@ class HabitService:
                 )
                 raise ValueError("No habit completion found to revert")
 
+            # Store log info before deletion (for audit log)
+            log_id_before_deletion = log.id
+            reward_before_deletion = log.reward
             reward_name = log.reward.name if log.reward else None
             reward_reverted = bool(log.got_reward and log.reward_id)
             reward_progress_model: RewardProgressModel | None = None
@@ -334,6 +337,7 @@ class HabitService:
             # Log habit revert to audit trail (always, not just when reward exists)
             revert_snapshot = {
                 "habit_name": habit.name,
+                "log_id": log_id_before_deletion,  # Store deleted log ID in snapshot
             }
 
             # Add reward info to snapshot if reward was reverted
@@ -351,8 +355,8 @@ class HabitService:
                 self.audit_log_service.log_habit_revert(
                     user_id=user.id,
                     habit=habit,
-                    reward=log.reward if reward_reverted else None,
-                    habit_log=log,
+                    reward=reward_before_deletion if reward_reverted else None,
+                    habit_log=None,  # Don't pass deleted log (FK constraint)
                     progress_snapshot=revert_snapshot,
                 )
             )
