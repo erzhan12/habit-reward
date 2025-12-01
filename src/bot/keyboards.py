@@ -856,3 +856,133 @@ def build_exempt_days_keyboard(
     ])
 
     return InlineKeyboardMarkup(keyboard)
+
+
+def build_completion_date_options_keyboard(
+    habit_id: int | str,
+    language: str = 'en'
+) -> InlineKeyboardMarkup:
+    """Build keyboard with Today/Yesterday/Select Date options.
+
+    Args:
+        habit_id: Habit primary key
+        language: Language code for translating button text
+
+    Returns:
+        InlineKeyboardMarkup with date selection options
+    """
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('BUTTON_TODAY', language),
+            callback_data=f"habit_{habit_id}_today"
+        )],
+        [InlineKeyboardButton(
+            text=msg('BUTTON_YESTERDAY', language),
+            callback_data=f"habit_{habit_id}_yesterday"
+        )],
+        [InlineKeyboardButton(
+            text=msg('BUTTON_SELECT_DATE', language),
+            callback_data=f"backdate_habit_{habit_id}"
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_BACK', language),
+            callback_data="menu_back"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_date_picker_keyboard(
+    habit_id: int | str,
+    completed_dates: list,  # list[date]
+    language: str = 'en'
+) -> InlineKeyboardMarkup:
+    """Build 8-day date picker showing which dates are already completed.
+
+    Args:
+        habit_id: Habit primary key
+        completed_dates: List of dates that already have completions
+        language: Language code for translating Back button
+
+    Returns:
+        InlineKeyboardMarkup with 8-day calendar (today + 7 days back) and back button
+    """
+    from datetime import date, timedelta
+
+    keyboard = []
+    today = date.today()
+
+    # Build 8 days (today and 7 days back)
+    dates = [today - timedelta(days=i) for i in range(8)]
+    dates.reverse()  # Oldest to newest
+
+    # Create rows of 4 buttons each
+    row = []
+    for target_date in dates:
+        # Check if this date already has a completion
+        is_completed = target_date in completed_dates
+
+        # Format button text
+        day_month = target_date.strftime("%b %d")  # e.g., "Nov 24"
+
+        if is_completed:
+            # Already completed - show checkmark, make it disabled/informational
+            button_text = f"{day_month} ✓"
+            callback_data = f"backdate_date_completed_{habit_id}_{target_date.isoformat()}"
+        else:
+            # Available for logging
+            button_text = day_month
+            callback_data = f"backdate_date_{habit_id}_{target_date.isoformat()}"
+
+        button = InlineKeyboardButton(
+            text=button_text,
+            callback_data=callback_data
+        )
+        row.append(button)
+
+        # Create rows of 4 buttons
+        if len(row) == 4:
+            keyboard.append(row)
+            row = []
+
+    # Add remaining buttons
+    if row:
+        keyboard.append(row)
+
+    # Add Back button
+    keyboard.append([
+        InlineKeyboardButton(
+            text=msg('MENU_BACK', language),
+            callback_data="backdate_cancel"
+        )
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_backdate_confirmation_keyboard(
+    habit_id: int | str,
+    target_date,  # date
+    language: str = 'en'
+) -> InlineKeyboardMarkup:
+    """Build confirmation keyboard for backdated completion.
+
+    Args:
+        habit_id: Habit primary key
+        target_date: The date to backdate to
+        language: Language code for translating buttons
+
+    Returns:
+        InlineKeyboardMarkup with Confirm/Cancel buttons
+    """
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('BUTTON_YES', language),
+            callback_data=f"backdate_confirm_{habit_id}_{target_date.isoformat()}"
+        )],
+        [InlineKeyboardButton(
+            text=msg('BUTTON_NO', language),
+            callback_data="backdate_cancel"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)

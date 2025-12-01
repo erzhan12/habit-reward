@@ -84,6 +84,7 @@ class TestHabitCompletion:
         mock_reward_service.calculate_total_weight.return_value = 1.5
         mock_reward_service.select_reward.return_value = mock_reward
         mock_reward_service.get_todays_awarded_rewards.return_value = []
+        mock_log_repo.get_log_for_habit_on_date.return_value = None
 
         # Mock reward progress return
         mock_progress = RewardProgress(
@@ -180,6 +181,7 @@ class TestHabitCompletion:
         mock_streak_service.calculate_streak.return_value = 3
         mock_reward_service.calculate_total_weight.return_value = 1.3
         mock_reward_service.get_todays_awarded_rewards.return_value = []
+        mock_log_repo.get_log_for_habit_on_date.return_value = None
 
         # Create none reward
         none_reward = Reward(

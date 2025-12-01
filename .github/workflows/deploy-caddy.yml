@@ -155,7 +155,7 @@ jobs:
           IMAGE_TAG=latest
 
           # Domain
-          DOMAIN=habitreward.duckdns.org
+          DOMAIN=habitreward.org
 
           # Optional: LLM/AI Configuration
           LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
@@ -224,7 +224,7 @@ jobs:
       - name: Check HTTPS endpoint
         run: |
           echo "Testing HTTPS endpoint..."
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://habitreward.duckdns.org/admin/login/ || echo "000")
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://habitreward.org/admin/login/ || echo "000")
 
           if [ "$STATUS" == "200" ] || [ "$STATUS" == "302" ]; then
             echo "✅ HTTPS is working! (HTTP $STATUS)"
@@ -237,5 +237,5 @@ jobs:
       - name: Check SSL certificate
         run: |
           echo "Checking SSL certificate..."
-          echo | openssl s_client -servername habitreward.duckdns.org -connect habitreward.duckdns.org:443 2>/dev/null | \
+          echo | openssl s_client -servername habitreward.org -connect habitreward.org:443 2>/dev/null | \
             openssl x509 -noout -dates || echo "SSL cert not ready yet (will be provisioned automatically)"

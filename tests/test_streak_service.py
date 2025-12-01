@@ -11,7 +11,10 @@ from src.models.habit_log import HabitLog
 @pytest.fixture
 def streak_service():
     """Create streak service instance."""
-    return StreakService()
+    service = StreakService()
+    # Prevent _refresh_dependencies from overriding mocked repos in tests
+    service._refresh_dependencies = Mock()
+    return service
 
 
 @pytest.fixture

@@ -1,9 +1,12 @@
 """Streak calculation service for per-habit streak tracking."""
 
+import logging
 from datetime import date, timedelta
 from typing import Awaitable
 from src.core.repositories import habit_log_repository, habit_repository
 from src.utils.async_compat import run_sync_or_async, maybe_await
+
+logger = logging.getLogger(__name__)
 
 
 class StreakService:
@@ -11,6 +14,11 @@ class StreakService:
 
     def __init__(self):
         """Initialize StreakService with repositories."""
+        self.habit_log_repo = habit_log_repository
+        self.habit_repo = habit_repository
+
+    def _refresh_dependencies(self) -> None:
+        """Rebind repositories to allow test patching."""
         self.habit_log_repo = habit_log_repository
         self.habit_repo = habit_repository
 
@@ -22,6 +30,7 @@ class StreakService:
         """Calculate current streak for a specific habit and user with grace days and exempt weekdays support."""
 
         async def _impl() -> int:
+            self._refresh_dependencies()
             last_log = await maybe_await(
                 self.habit_log_repo.get_last_log_for_habit(user_id, habit_id)
             )
@@ -71,6 +80,91 @@ class StreakService:
                     # Streak broken
                     return 1
 
+            return 1
+
+        return run_sync_or_async(_impl())
+
+    def calculate_streak_for_date(
+        self,
+        user_id: str,
+        habit_id: str,
+        target_date: date
+    ) -> int | Awaitable[int]:
+        """Calculate streak for a specific target date (for backdated completions).
+
+        This method is used when logging a habit for a past date. It calculates what
+        the streak should be for that specific date, taking into account:
+        - Previous completions before the target date
+        - Grace days and exempt weekdays settings
+        - Whether target date continues an existing streak
+
+        Args:
+            user_id: User primary key
+            habit_id: Habit primary key
+            target_date: The date we're calculating the streak for (past date)
+
+        Returns:
+            Calculated streak count for the target date
+        """
+
+        async def _impl() -> int:
+            self._refresh_dependencies()
+            # Get the most recent log BEFORE the target date (not just any log)
+            last_log = await maybe_await(
+                self.habit_log_repo.get_last_log_before_date(user_id, habit_id, target_date)
+            )
+
+            # If no previous log exists, this is the first completion
+            if last_log is None:
+                return 1
+
+            # Get habit settings for flexible streak tracking
+            habit = await maybe_await(self.habit_repo.get_by_id(habit_id))
+
+            last_date = last_log.last_completed_date
+            day_before_target = target_date - timedelta(days=1)
+
+            # Simple case: target date is consecutive (day after last completion)
+            if last_date == day_before_target:
+                # Target date continues the streak (consecutive day)
+                return last_log.streak_count + 1
+
+            # If habit not found, use strict logic (break streak for gap > 1 day)
+            if not habit:
+                return 1
+
+            # Gap between last completion and day before target
+            if last_date < day_before_target:
+                # Calculate all dates in the gap (exclusive of both endpoints)
+                current_date = last_date + timedelta(days=1)
+                missed_days = 0
+
+                while current_date < target_date:
+                    # Get weekday (1=Monday, 7=Sunday)
+                    weekday = current_date.isoweekday()
+
+                    # Only count as missed if not in exempt_weekdays
+                    if weekday not in habit.exempt_weekdays:
+                        missed_days += 1
+
+                    current_date += timedelta(days=1)
+
+                # Check if missed days are within allowed grace days
+                if missed_days <= habit.allowed_skip_days:
+                    # Streak preserved
+                    return last_log.streak_count + 1
+                else:
+                    # Streak broken
+                    return 1
+
+            # This shouldn't happen (last_date > day_before_target means last_date >= target_date)
+            # But if it does, the target date is same as or before last completion
+            # This means duplicate, which should be caught earlier
+            logger.warning(
+                "Unexpected state in calculate_streak_for_date: last_date=%s >= target_date=%s",
+                last_date,
+                target_date
+            )
             return 1
 
         return run_sync_or_async(_impl())

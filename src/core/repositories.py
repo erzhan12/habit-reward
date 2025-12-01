@@ -482,6 +482,126 @@ class HabitLogRepository:
         logger.debug(f"Found {len(logs)} logs for user={user_pk} on date={target_date}")
         return logs
 
+    async def get_log_for_habit_on_date(
+        self,
+        user_id: int | str,
+        habit_id: int | str,
+        target_date: date
+    ) -> HabitLog | None:
+        """Check if a habit was already completed on a specific date.
+
+        Args:
+            user_id: User primary key
+            habit_id: Habit primary key
+            target_date: Date to check for completion
+
+        Returns:
+            HabitLog instance if found, None otherwise
+        """
+        try:
+            user_pk = int(user_id) if isinstance(user_id, str) else user_id
+            habit_pk = int(habit_id) if isinstance(habit_id, str) else habit_id
+
+            return await sync_to_async(HabitLog.objects.filter(
+                user_id=user_pk,
+                habit_id=habit_pk,
+                last_completed_date=target_date
+            ).select_related('habit', 'user', 'reward').first)()
+        except (ValueError, HabitLog.DoesNotExist):
+            return None
+
+    async def get_last_log_before_date(
+        self,
+        user_id: int | str,
+        habit_id: int | str,
+        target_date: date
+    ) -> HabitLog | None:
+        """Get the most recent log entry BEFORE a specific date.
+
+        Used for backdate streak calculation to find the previous completion
+        before the target date.
+
+        Args:
+            user_id: User primary key
+            habit_id: Habit primary key
+            target_date: Date to search before (exclusive)
+
+        Returns:
+            Most recent HabitLog before target_date or None
+        """
+        try:
+            user_pk = int(user_id) if isinstance(user_id, str) else user_id
+            habit_pk = int(habit_id) if isinstance(habit_id, str) else habit_id
+
+            return await sync_to_async(HabitLog.objects.filter(
+                user_id=user_pk,
+                habit_id=habit_pk,
+                last_completed_date__lt=target_date
+            ).select_related('habit', 'user', 'reward').order_by('-last_completed_date').first)()
+        except (ValueError, HabitLog.DoesNotExist):
+            return None
+
+    async def get_logs_for_habit_in_daterange(
+        self,
+        user_id: int | str,
+        habit_id: int | str,
+        start_date: date,
+        end_date: date
+    ) -> list[HabitLog]:
+        """Get all habit logs for a specific habit within a date range.
+
+        Args:
+            user_id: User primary key
+            habit_id: Habit primary key
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+
+        Returns:
+            List of HabitLog instances
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        habit_pk = int(habit_id) if isinstance(habit_id, str) else habit_id
+
+        logs = await sync_to_async(list)(
+            HabitLog.objects.filter(
+                user_id=user_pk,
+                habit_id=habit_pk,
+                last_completed_date__gte=start_date,
+                last_completed_date__lte=end_date
+            ).select_related('habit', 'user', 'reward')
+            .order_by('last_completed_date')
+        )
+
+        return logs
+
+    async def update(self, log_id: int | str, updates: dict[str, Any]) -> HabitLog:
+        """Update a habit log entry.
+
+        Args:
+            log_id: HabitLog primary key
+            updates: Dictionary of fields to update
+
+        Returns:
+            Updated HabitLog instance
+
+        Raises:
+            ValueError: If log not found
+        """
+        try:
+            pk = int(log_id) if isinstance(log_id, str) else log_id
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Invalid log_id: {log_id}") from e
+
+        log = await sync_to_async(HabitLog.objects.filter(pk=pk).select_related('habit', 'user', 'reward').first)()
+        if not log:
+            raise ValueError(f"HabitLog with id {log_id} not found")
+
+        for field, value in updates.items():
+            setattr(log, field, value)
+
+        await sync_to_async(log.save)()
+        return log
+
 
 # Global repository instances (for backward compatibility with Airtable pattern)
 user_repository = UserRepository()

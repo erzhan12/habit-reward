@@ -108,6 +108,7 @@ Track your habits and earn rewards!
 
 <b>Core Commands:</b>
 /habit_done - Log a habit completion and earn rewards
+/backdate - Log habits for past dates (up to 7 days back)
 /streaks - View your current streaks for all habits
 
 <b>Habit Management:</b>
@@ -134,7 +135,7 @@ Track your habits and earn rewards!
 Your streak multiplier increases your chances of getting rewards!"""
 
     # Formatter Messages
-    FORMAT_STREAK = "🔥 <b>Streak:</b> {streak_count} days"
+    FORMAT_STREAK = "<b>Streak:</b> {streak_count} days"
     FORMAT_REWARD = "🎁 <b>Reward:</b> {reward_name}"
     FORMAT_PROGRESS = "📊 Progress: {progress_bar} {pieces_earned}/{pieces_required}"
     FORMAT_STATUS = "Status: {status}"
@@ -182,6 +183,20 @@ Your streak multiplier increases your chances of getting rewards!"""
     ERROR_NO_HABITS_TO_EDIT_PROMPT = "❌ You don't have any habits to edit.\n\nWould you like to add a new habit?"
     ERROR_NO_HABITS_TO_REMOVE = "❌ You don't have any habits to remove."
     INFO_HABIT_CANCEL = "❌ Habit operation cancelled."
+
+    # Backdate Messages
+    HELP_BACKDATE_SELECT_HABIT = "📅 Which habit would you like to log for a past date?"
+    HELP_BACKDATE_SELECT_DATE = "📆 Select the date you completed <b>{habit_name}</b>:\n\n✓ = already logged"
+    HELP_BACKDATE_CONFIRM = "Log <b>{habit_name}</b> for <b>{date}</b>?"
+    HELP_SELECT_COMPLETION_DATE = "When did you complete <b>{habit_name}</b>?"
+    SUCCESS_BACKDATE_COMPLETED = "✅ <b>Habit logged:</b> {habit_name}\n📅 <b>Date:</b> {date}"
+    ERROR_BACKDATE_DUPLICATE = "❌ You already logged <b>{habit_name}</b> on {date}."
+    ERROR_BACKDATE_TOO_OLD = "❌ Cannot backdate more than 7 days."
+    ERROR_BACKDATE_FUTURE = "❌ Cannot log habits for future dates."
+    ERROR_BACKDATE_BEFORE_CREATED = "❌ Cannot backdate before habit was created ({date})."
+    BUTTON_TODAY = "✅ Today"
+    BUTTON_YESTERDAY = "📅 Yesterday"
+    BUTTON_SELECT_DATE = "📆 Select Different Date"
 
     # Reward Management Messages
     HELP_ADD_REWARD_NAME_PROMPT = "Please enter a name for your new reward:"
@@ -327,6 +342,7 @@ Your streak multiplier increases your chances of getting rewards!"""
 
 <b>Основные команды:</b>
 /habit_done - Зарегистрировать выполнение привычки и получить награды
+/backdate - Записать привычки за прошедшие дни (до 7 дней назад)
 /streaks - Посмотреть текущие серии для всех привычек
 
 <b>Управление привычками:</b>
@@ -353,7 +369,7 @@ Your streak multiplier increases your chances of getting rewards!"""
 Множитель серий увеличивает шансы получения наград!""",
 
             # Formatter Messages
-            'FORMAT_STREAK': "🔥 <b>Серия:</b> {streak_count} дней",
+            'FORMAT_STREAK': "<b>Серия:</b> {streak_count} дней",
             'FORMAT_REWARD': "🎁 <b>Награда:</b> {reward_name}",
             'FORMAT_PROGRESS': "📊 Прогресс: {progress_bar} {pieces_earned}/{pieces_required}",
             'FORMAT_STATUS': "Статус: {status}",
@@ -401,6 +417,20 @@ Your streak multiplier increases your chances of getting rewards!"""
             'ERROR_NO_HABITS_TO_EDIT_PROMPT': "❌ У вас нет привычек для редактирования.\n\nХотите добавить новую привычку?",
             'ERROR_NO_HABITS_TO_REMOVE': "❌ У вас нет привычек для удаления.",
             'INFO_HABIT_CANCEL': "❌ Операция с привычкой отменена.",
+
+            # Backdate Messages
+            'HELP_BACKDATE_SELECT_HABIT': "📅 Какую привычку вы хотите записать за прошлую дату?",
+            'HELP_BACKDATE_SELECT_DATE': "📆 Выберите дату, когда вы выполнили <b>{habit_name}</b>:\n\n✓ = уже записано",
+            'HELP_BACKDATE_CONFIRM': "Записать <b>{habit_name}</b> на <b>{date}</b>?",
+            'HELP_SELECT_COMPLETION_DATE': "Когда вы выполнили <b>{habit_name}</b>?",
+            'SUCCESS_BACKDATE_COMPLETED': "✅ <b>Привычка записана:</b> {habit_name}\n📅 <b>Дата:</b> {date}",
+            'ERROR_BACKDATE_DUPLICATE': "❌ Вы уже записали <b>{habit_name}</b> на {date}.",
+            'ERROR_BACKDATE_TOO_OLD': "❌ Нельзя записать дату старше 7 дней.",
+            'ERROR_BACKDATE_FUTURE': "❌ Нельзя записывать привычки на будущие даты.",
+            'ERROR_BACKDATE_BEFORE_CREATED': "❌ Нельзя записать дату раньше создания привычки ({date}).",
+            'BUTTON_TODAY': "✅ Сегодня",
+            'BUTTON_YESTERDAY': "📅 Вчера",
+            'BUTTON_SELECT_DATE': "📆 Выбрать другую дату",
 
             # Reward Management Messages
             'HELP_ADD_REWARD_NAME_PROMPT': "Введите название новой награды:",
@@ -544,6 +574,7 @@ Your streak multiplier increases your chances of getting rewards!"""
 
 <b>Негізгі командалар:</b>
 /habit_done - Әдет орындауды тіркеу және сыйлықтар алу
+/backdate - Өткен күндер үшін әдеттерді жазу (7 күнге дейін)
 /streaks - Барлық әдеттер үшін ағымдағы сериялар көру
 
 <b>Әдеттерді басқару:</b>
@@ -570,7 +601,7 @@ Your streak multiplier increases your chances of getting rewards!"""
 Сериялар көбейткіші сыйлық алу мүмкіндігін арттырады!""",
 
             # Formatter Messages
-            'FORMAT_STREAK': "🔥 <b>Серия:</b> {streak_count} күн",
+            'FORMAT_STREAK': "<b>Серия:</b> {streak_count} күн",
             'FORMAT_REWARD': "🎁 <b>Сыйлық:</b> {reward_name}",
             'FORMAT_PROGRESS': "📊 Прогресс: {progress_bar} {pieces_earned}/{pieces_required}",
             'FORMAT_STATUS': "Статус: {status}",
@@ -618,6 +649,20 @@ Your streak multiplier increases your chances of getting rewards!"""
             'ERROR_NO_HABITS_TO_EDIT_PROMPT': "❌ Өңдеуге әдеттеріңіз жоқ.\n\nЖаңа әдет қосқыңыз келе ме?",
             'ERROR_NO_HABITS_TO_REMOVE': "❌ Жоюға әдеттеріңіз жоқ.",
             'INFO_HABIT_CANCEL': "❌ Әдет операциясы болдырылмады.",
+
+            # Backdate Messages
+            'HELP_BACKDATE_SELECT_HABIT': "📅 Өткен күнге қай әдетті жазғыңыз келеді?",
+            'HELP_BACKDATE_SELECT_DATE': "📆 <b>{habit_name}</b> орындаған күніңізді таңдаңыз:\n\n✓ = жазылған",
+            'HELP_BACKDATE_CONFIRM': "<b>{habit_name}</b> әдетін <b>{date}</b> күніне жазу керек пе?",
+            'HELP_SELECT_COMPLETION_DATE': "<b>{habit_name}</b> қашан орындадыңыз?",
+            'SUCCESS_BACKDATE_COMPLETED': "✅ <b>Әдет жазылды:</b> {habit_name}\n📅 <b>Күні:</b> {date}",
+            'ERROR_BACKDATE_DUPLICATE': "❌ Сіз <b>{habit_name}</b> әдетін {date} күніне жазып қойдыңыз.",
+            'ERROR_BACKDATE_TOO_OLD': "❌ 7 күннен көп кешіктіруге болмайды.",
+            'ERROR_BACKDATE_FUTURE': "❌ Болашақ күндерге әдет жазуға болмайды.",
+            'ERROR_BACKDATE_BEFORE_CREATED': "❌ Әдет жасалғанға дейінгі күнге жазуға болмайды ({date}).",
+            'BUTTON_TODAY': "✅ Бүгін",
+            'BUTTON_YESTERDAY': "📅 Кеше",
+            'BUTTON_SELECT_DATE': "📆 Басқа күнді таңдау",
 
             # Reward Management Messages
             'HELP_ADD_REWARD_NAME_PROMPT': "Жаңа сыйлықтың атауын енгізіңіз:",

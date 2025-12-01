@@ -54,6 +54,7 @@ def test_user(db):
 def test_habits(test_user):
     """Create test habits."""
     habits = []
+    created_at = timezone.now() - timedelta(days=30)
     habit_data = [
         {'name': 'Drink Water', 'weight': 40, 'category': 'health'},
         {'name': 'Evening Journal', 'weight': 60, 'category': 'mindfulness'},
@@ -68,6 +69,9 @@ def test_habits(test_user):
             category=data['category'],
             active=True
         )
+        # Set creation date in the past to allow backdated completions in tests
+        Habit.objects.filter(pk=habit.id).update(created_at=created_at)
+        habit.refresh_from_db()
         habits.append(habit)
 
     yield habits
@@ -278,10 +282,12 @@ async def test_tc003_reward_claim_before_after(test_user, test_habits, test_rewa
     with patch.object(reward_service, 'select_reward', new_callable=AsyncMock) as mock_select:
         mock_select.return_value = coffee_break
 
-        for _ in range(3):
+        base_date = timezone.now().date()
+        for days_ago in reversed(range(3)):
             await habit_service.process_habit_completion(
                 user_telegram_id=test_user.telegram_id,
-                habit_name=test_habits[0].name  # Drink Water
+                habit_name=test_habits[0].name,  # Drink Water
+                target_date=base_date - timedelta(days=days_ago),
             )
 
     # Verify progress is ready to claim

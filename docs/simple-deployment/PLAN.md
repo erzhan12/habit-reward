@@ -1,6 +1,6 @@
 # Simple 2-Container Deployment Plan with Automatic HTTPS
 
-**Target Domain:** habitreward.duckdns.org
+**Target Domain:** habitreward.org
 **Target IP:** 206.189.40.240
 **Date:** 2025-11-16
 **Status:** Planning Phase
@@ -258,7 +258,7 @@ scp deploy@206.189.40.240:/home/deploy/habit_reward_bot/backup_*.sql ~/Desktop/
 # Habit Reward Bot - Caddy Configuration
 # Automatic HTTPS with Let's Encrypt
 
-habitreward.duckdns.org {
+habitreward.org {
     # Automatic HTTPS via Let's Encrypt
     # Certificate obtained on first HTTPS request
     # Auto-renewal handled automatically
@@ -310,8 +310,8 @@ habitreward.duckdns.org {
 }
 
 # Redirect www to non-www (if needed)
-www.habitreward.duckdns.org {
-    redir https://habitreward.duckdns.org{uri} permanent
+www.habitreward.org {
+    redir https://habitreward.org{uri} permanent
 }
 ```
 
@@ -335,15 +335,15 @@ services:
       # Django Configuration
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
-      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-habitreward.duckdns.org}
-      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-https://habitreward.duckdns.org}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-habitreward.org}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-https://habitreward.org}
 
       # Database (SQLite for simplicity)
       DATABASE_URL: sqlite:////app/data/db.sqlite3
 
       # Telegram Bot Configuration
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://habitreward.duckdns.org/webhook/telegram}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://habitreward.org/webhook/telegram}
 
       # Optional: Django Superuser (created on first run)
       DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-admin}
@@ -409,7 +409,7 @@ services:
       - habit_reward_network
 
     environment:
-      - DOMAIN=${DOMAIN:-habitreward.duckdns.org}
+      - DOMAIN=${DOMAIN:-habitreward.org}
 
 volumes:
   # Note: app_data and static_files use bind mounts (./data and ./staticfiles)
@@ -658,7 +658,7 @@ DOCKER_IMAGE_NAME=${{ env.IMAGE_NAME }}
 IMAGE_TAG=latest
 
 # Domain
-DOMAIN=habitreward.duckdns.org
+DOMAIN=habitreward.org
 
 # Optional: LLM/AI Configuration
 LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
@@ -726,7 +726,7 @@ EOF
       - name: Check HTTPS endpoint
         run: |
           echo "Testing HTTPS endpoint..."
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://habitreward.duckdns.org/admin/login/ || echo "000")
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://habitreward.org/admin/login/ || echo "000")
 
           if [ "$STATUS" == "200" ] || [ "$STATUS" == "302" ]; then
             echo "✅ HTTPS is working! (HTTP $STATUS)"
@@ -739,7 +739,7 @@ EOF
       - name: Check SSL certificate
         run: |
           echo "Checking SSL certificate..."
-          echo | openssl s_client -servername habitreward.duckdns.org -connect habitreward.duckdns.org:443 2>/dev/null | \
+          echo | openssl s_client -servername habitreward.org -connect habitreward.org:443 2>/dev/null | \
             openssl x509 -noout -dates || echo "SSL cert not ready yet (will be provisioned automatically)"
 ```
 
@@ -754,8 +754,8 @@ EOF
 # ===== Django Configuration =====
 SECRET_KEY=your-secret-key-generate-with-python-django-command
 DEBUG=False
-ALLOWED_HOSTS=habitreward.duckdns.org,localhost
-CSRF_TRUSTED_ORIGINS=https://habitreward.duckdns.org
+ALLOWED_HOSTS=habitreward.org,localhost
+CSRF_TRUSTED_ORIGINS=https://habitreward.org
 
 # ===== Database Configuration =====
 # Using SQLite for simplicity (stored in persistent volume)
@@ -763,7 +763,7 @@ DATABASE_URL=sqlite:////app/data/db.sqlite3
 
 # ===== Telegram Bot Configuration =====
 TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
-TELEGRAM_WEBHOOK_URL=https://habitreward.duckdns.org/webhook/telegram
+TELEGRAM_WEBHOOK_URL=https://habitreward.org/webhook/telegram
 
 # ===== Django Superuser (Auto-created on first run) =====
 DJANGO_SUPERUSER_USERNAME=admin
@@ -776,7 +776,7 @@ DOCKER_IMAGE_NAME=your-github-username/habit-reward
 IMAGE_TAG=latest
 
 # ===== Domain Configuration =====
-DOMAIN=habitreward.duckdns.org
+DOMAIN=habitreward.org
 
 # ===== Optional: AI/LLM Configuration =====
 LLM_PROVIDER=openai
@@ -835,8 +835,8 @@ echo "=== Caddy Container ==="
 docker-compose -f docker-compose.caddy.yml logs --tail=20 caddy
 
 echo "✅ Deployment complete!"
-echo "🌐 Access your application at: https://habitreward.duckdns.org"
-echo "🔧 Admin panel: https://habitreward.duckdns.org/admin/"
+echo "🌐 Access your application at: https://habitreward.org"
+echo "🔧 Admin panel: https://habitreward.org/admin/"
 echo ""
 echo "📋 Next steps:"
 echo "1. Wait 1-2 minutes for Caddy to obtain SSL certificate"
@@ -868,9 +868,9 @@ Navigate to: `https://github.com/YOUR_USERNAME/habit_reward/settings/secrets/act
 - `LLM_API_KEY` (optional)
 
 **Secrets to UPDATE:**
-- `ALLOWED_HOSTS` = `habitreward.duckdns.org`
-- `CSRF_TRUSTED_ORIGINS` = `https://habitreward.duckdns.org`
-- `TELEGRAM_WEBHOOK_URL` = `https://habitreward.duckdns.org/webhook/telegram`
+- `ALLOWED_HOSTS` = `habitreward.org`
+- `CSRF_TRUSTED_ORIGINS` = `https://habitreward.org`
+- `TELEGRAM_WEBHOOK_URL` = `https://habitreward.org/webhook/telegram`
 
 **Secrets to REMOVE (no longer needed):**
 - ~~`POSTGRES_DB`~~
@@ -1010,7 +1010,7 @@ curl -I http://localhost:8000/admin/login/
 # Should return: HTTP/1.1 302 Found (redirect to login)
 
 # Test HTTPS (will trigger SSL cert provisioning)
-curl -I https://habitreward.duckdns.org/admin/login/
+curl -I https://habitreward.org/admin/login/
 # First time: May take 10-30 seconds while Caddy gets certificate
 # Should return: HTTP/2 302 (with valid SSL)
 ```
@@ -1026,8 +1026,8 @@ docker-compose --env-file ../.env -f docker-compose.caddy.yml logs caddy | grep 
 # "serving remaining initial configuration"
 
 # Check certificate details
-echo | openssl s_client -servername habitreward.duckdns.org \
-  -connect habitreward.duckdns.org:443 2>/dev/null | \
+echo | openssl s_client -servername habitreward.org \
+  -connect habitreward.org:443 2>/dev/null | \
   openssl x509 -noout -text | grep -E "Issuer|Not After"
 
 # Should show Let's Encrypt as issuer
@@ -1042,7 +1042,7 @@ echo | openssl s_client -servername habitreward.duckdns.org \
 # The entrypoint.sh already runs migrations and creates superuser
 # Just access admin panel and recreate test data
 
-# 1. Open browser: https://habitreward.duckdns.org/admin/
+# 1. Open browser: https://habitreward.org/admin/
 # 2. Login with DJANGO_SUPERUSER credentials
 # 3. Create 2-3 test habits
 # 4. Test Telegram bot
@@ -1090,14 +1090,14 @@ curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 # {
 #   "ok": true,
 #   "result": {
-#     "url": "https://habitreward.duckdns.org/webhook/telegram",
+#     "url": "https://habitreward.org/webhook/telegram",
 #     "has_custom_certificate": false,
 #     "pending_update_count": 0
 #   }
 # }
 
 # If not set, set it manually:
-curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=https://habitreward.duckdns.org/webhook/telegram"
+curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=https://habitreward.org/webhook/telegram"
 ```
 
 ### Phase 8: Testing & Verification (15 minutes)
@@ -1107,7 +1107,7 @@ curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=https://h
 - [ ] **Admin Panel Access**
   ```bash
   # Open in browser
-  open https://habitreward.duckdns.org/admin/
+  open https://habitreward.org/admin/
 
   # Login with superuser credentials
   # Should work without SSL warnings
@@ -1116,7 +1116,7 @@ curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=https://h
 - [ ] **SSL Certificate**
   ```bash
   # Check SSL grade
-  curl -I https://habitreward.duckdns.org
+  curl -I https://habitreward.org
   # Should return HTTP/2 302
 
   # Check browser - should show secure lock icon
@@ -1290,8 +1290,8 @@ sudo apt upgrade -y
 docker-compose -f docker-compose.caddy.yml logs caddy | grep -i "renew"
 
 # Check expiry
-echo | openssl s_client -servername habitreward.duckdns.org \
-  -connect habitreward.duckdns.org:443 2>/dev/null | \
+echo | openssl s_client -servername habitreward.org \
+  -connect habitreward.org:443 2>/dev/null | \
   openssl x509 -noout -dates
 ```
 
@@ -1344,9 +1344,9 @@ Error obtaining certificate: acme: error: 403
 ```
 
 **Solutions:**
-1. **Check DNS:** Ensure `habitreward.duckdns.org` points to `206.189.40.240`
+1. **Check DNS:** Ensure `habitreward.org` points to `206.189.40.240`
    ```bash
-   nslookup habitreward.duckdns.org
+   nslookup habitreward.org
    ```
 
 2. **Check Firewall:** Ensure ports 80 and 443 are open
@@ -1401,7 +1401,7 @@ django.db.utils.OperationalError: unable to open database file
 
 2. **Reset Webhook:**
    ```bash
-   curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=https://habitreward.duckdns.org/webhook/telegram"
+   curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=https://habitreward.org/webhook/telegram"
    ```
 
 3. **Check Web Logs:**
@@ -1436,7 +1436,7 @@ django.db.utils.OperationalError: unable to open database file
 Deployment is successful when:
 
 - ✅ HTTPS works without certificate warnings
-- ✅ Admin panel accessible at https://habitreward.duckdns.org/admin/
+- ✅ Admin panel accessible at https://habitreward.org/admin/
 - ✅ Telegram bot responds to /start command
 - ✅ Habits can be created and logged
 - ✅ Data persists after container restart

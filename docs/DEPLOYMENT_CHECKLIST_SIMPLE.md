@@ -38,7 +38,7 @@ Print this page and check off each step as you complete it!
 
 ## ☐ Phase 4: Domain Setup (10 min)
 - [X] Buy domain OR use free subdomain (duckdns.org)
-- [X] **Write down domain:** habitreward.duckdns.org
+- [X] **Write down domain:** habitreward.org
 - [X] Add A record: `@` → Your VPS IP
 - [X] Add A record: `www` → Your VPS IP
 - [X] Wait for DNS propagation (5-60 min)

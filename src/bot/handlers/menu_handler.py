@@ -199,12 +199,10 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
 
     # Import handlers dynamically
     from src.bot.main import help_command
-    from src.bot.handlers.habit_done_handler import habit_done_command
     from src.bot.handlers.streak_handler import streaks_command
     from src.bot.handlers.settings_handler import settings_command
     from src.bot.handlers.habit_management_handler import (
-        add_habit_command,
-        remove_habit_command
+        add_habit_command
     )
     from src.bot.handlers.habit_revert_handler import habit_revert_command
     from src.bot.handlers.reward_handlers import (
@@ -257,14 +255,14 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
     synthetic_update._effective_chat = query.message.chat
 
     mapping = {
-        'menu_habit_done': habit_done_command,
+        'menu_habit_done': menu_habit_done_show_habits,
         'menu_streaks': streaks_command,
         'menu_settings': settings_command,
         'menu_help': help_command,
         'menu_habits_add': add_habit_command,
         'menu_habits_revert': habit_revert_command,
         # 'menu_habits_edit': edit_habit_command,  # Handled by ConversationHandler
-        'menu_habits_remove': remove_habit_command,
+        # 'menu_habits_remove': now in direct_command_map
         'menu_rewards_list': list_rewards_command,
         'menu_rewards_my': my_rewards_command,
         'menu_rewards_claim': claim_reward_command
@@ -286,7 +284,12 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
         )
 
         try:
-            await handler(synthetic_update, context)
+            # For menu_habit_done, use the original update (has callback_query)
+            # For other handlers, use synthetic update (has message)
+            if data == 'menu_habit_done':
+                await handler(update, context)
+            else:
+                await handler(synthetic_update, context)
         except Exception:
             pop_navigation(context)
             raise
@@ -368,8 +371,52 @@ async def settings_back_callback(update: Update, context: ContextTypes.DEFAULT_T
     return 0
 
 
+async def menu_habit_done_show_habits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'Habit Done' from menu - show habit selection with date options."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+
+    logger.info(f"📋 User {telegram_id} clicked 'Habit Done' from menu")
+
+    # Get user
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await query.edit_message_text(
+            msg('ERROR_USER_NOT_FOUND', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        return 0
+
+    # Get active habits
+    from src.bot.keyboards import build_habit_selection_keyboard
+    habits = await maybe_await(habit_service.get_all_active_habits(user.id))
+
+    if not habits:
+        await query.edit_message_text(
+            msg('ERROR_NO_HABITS', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        return 0
+
+    # Show habit selection keyboard
+    keyboard = build_habit_selection_keyboard(habits, lang)
+    await query.edit_message_text(
+        msg('HELP_HABIT_SELECTION', lang),
+        reply_markup=keyboard
+    )
+    logger.info(f"📤 Showed habit selection to {telegram_id}")
+    return 0
+
+
 async def habit_selected_standalone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle habit selection from habit_done menu (standalone, outside conversation)."""
+    """Handle habit selection from habit_done menu - show date options.
+
+    Note: This handler is in group 1, so it only runs when conversation handlers
+    (group 0) don't process the callback.
+    """
     query = update.callback_query
     await query.answer()
 
@@ -377,7 +424,7 @@ async def habit_selected_standalone_callback(update: Update, context: ContextTyp
     lang = await get_message_language_async(telegram_id, update)
     callback_data = query.data
 
-    logger.info(f"🎯 User {telegram_id} selected habit: {callback_data}")
+    logger.info(f"🎯 User {telegram_id} selected habit from menu: {callback_data}")
 
     # Extract habit_id from callback_data
     if callback_data.startswith("habit_"):
@@ -405,36 +452,377 @@ async def habit_selected_standalone_callback(update: Update, context: ContextTyp
             )
             return 0
 
-        # Process habit completion
-        try:
-            from src.bot.formatters import format_habit_completion_message
+        # Store habit info in context for date selection handlers
+        context.user_data['menu_habit_id'] = habit_id
+        context.user_data['menu_habit_name'] = habit.name
 
-            logger.info(f"⚙️ Processing habit completion for user {telegram_id}, habit '{habit.name}'")
-            result = await maybe_await(
-                habit_service.process_habit_completion(
-                    user_telegram_id=telegram_id,
-                    habit_name=habit.name
-                )
+        # Show date options keyboard
+        from src.bot.keyboards import build_completion_date_options_keyboard
+        keyboard = build_completion_date_options_keyboard(habit_id, lang)
+        await query.edit_message_text(
+            msg('HELP_SELECT_COMPLETION_DATE', lang, habit_name=habit.name),
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        logger.info(f"📤 Showed date options to {telegram_id} for habit '{habit.name}'")
+
+    return 0
+
+
+async def menu_habit_today_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'Today' button click from menu habit_done flow."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+
+    habit_name = context.user_data.get('menu_habit_name')
+    if not habit_name:
+        logger.error(f"❌ Missing habit_name in context for user {telegram_id}")
+        await query.edit_message_text(
+            msg('ERROR_HABIT_NOT_FOUND', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        return 0
+
+    # Process habit completion for today
+    try:
+        from src.bot.formatters import format_habit_completion_message
+
+        logger.info(f"⚙️ Processing habit completion for today: user {telegram_id}, habit '{habit_name}'")
+        result = await maybe_await(
+            habit_service.process_habit_completion(
+                user_telegram_id=telegram_id,
+                habit_name=habit_name,
+                target_date=None  # None defaults to today
             )
+        )
 
-            # Format and send response
-            message = format_habit_completion_message(result, lang)
-            logger.info(f"✅ Habit '{habit.name}' completed successfully for user {telegram_id}. Total weight: {result.total_weight_applied}, Current streak: {result.streak_count}")
-            await query.edit_message_text(
-                text=message,
-                reply_markup=build_back_to_menu_keyboard(lang),
-                parse_mode="HTML"
+        message = format_habit_completion_message(result, lang)
+        logger.info(f"✅ Habit '{habit_name}' completed for today. Streak: {result.streak_count}")
+        await query.edit_message_text(
+            text=message,
+            reply_markup=build_back_to_menu_keyboard(lang),
+            parse_mode="HTML"
+        )
+
+    except ValueError as e:
+        logger.error(f"❌ Error processing habit completion: {str(e)}")
+        await query.edit_message_text(
+            msg('ERROR_GENERAL', lang, error=str(e)),
+            reply_markup=build_back_to_menu_keyboard(lang),
+            parse_mode="HTML"
+        )
+
+    # Clean up context
+    context.user_data.pop('menu_habit_id', None)
+    context.user_data.pop('menu_habit_name', None)
+    return 0
+
+
+async def menu_habit_yesterday_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'Yesterday' button click from menu habit_done flow."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+
+    habit_name = context.user_data.get('menu_habit_name')
+    if not habit_name:
+        logger.error(f"❌ Missing habit_name in context for user {telegram_id}")
+        await query.edit_message_text(
+            msg('ERROR_HABIT_NOT_FOUND', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        return 0
+
+    # Calculate yesterday's date
+    from datetime import date, timedelta
+    yesterday = date.today() - timedelta(days=1)
+
+    # Process habit completion for yesterday
+    try:
+        from src.bot.formatters import format_habit_completion_message
+
+        logger.info(f"⚙️ Processing habit completion for yesterday ({yesterday}): user {telegram_id}, habit '{habit_name}'")
+        result = await maybe_await(
+            habit_service.process_habit_completion(
+                user_telegram_id=telegram_id,
+                habit_name=habit_name,
+                target_date=yesterday
             )
-            logger.info(f"📤 Sent habit completion success message to {telegram_id}")
+        )
 
-        except ValueError as e:
-            logger.error(f"❌ Error processing habit completion for user {telegram_id}: {str(e)}")
-            await query.edit_message_text(
-                msg('ERROR_GENERAL', lang, error=str(e)),
-                reply_markup=build_back_to_menu_keyboard(lang)
+        date_display = yesterday.strftime("%B %d, %Y")
+        message = format_habit_completion_message(result, lang)
+        message = msg('SUCCESS_BACKDATE_COMPLETED', lang, habit_name=habit_name, date=date_display) + "\n\n" + message
+
+        logger.info(f"✅ Habit '{habit_name}' completed for yesterday. Streak: {result.streak_count}")
+        await query.edit_message_text(
+            text=message,
+            reply_markup=build_back_to_menu_keyboard(lang),
+            parse_mode="HTML"
+        )
+
+    except ValueError as e:
+        error_msg = str(e)
+        logger.error(f"❌ Error processing habit completion: {error_msg}")
+
+        if "already completed" in error_msg.lower():
+            user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, habit_name=habit_name, date=yesterday.strftime("%B %d, %Y"))
+        elif "before habit was created" in error_msg.lower():
+            user_message = msg('ERROR_BACKDATE_BEFORE_CREATED', lang, date=error_msg.split()[-1])
+        else:
+            user_message = msg('ERROR_GENERAL', lang, error=error_msg)
+
+        await query.edit_message_text(
+            user_message,
+            reply_markup=build_back_to_menu_keyboard(lang),
+            parse_mode="HTML"
+        )
+
+    # Clean up context
+    context.user_data.pop('menu_habit_id', None)
+    context.user_data.pop('menu_habit_name', None)
+    return 0
+
+
+async def menu_select_date_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'Select Date' button click - show date picker."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    callback_data = query.data
+
+    logger.info(f"📅 User {telegram_id} clicked 'Select Date': {callback_data}")
+
+    # Extract habit_id from callback_data: "backdate_habit_{habit_id}"
+    habit_id = callback_data.replace("backdate_habit_", "")
+
+    # Get user
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await query.edit_message_text(
+            msg('ERROR_USER_NOT_FOUND', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        return 0
+
+    # Get habit by ID
+    habits = await maybe_await(habit_service.get_all_active_habits(user.id))
+    habit = next((h for h in habits if str(h.id) == habit_id), None)
+
+    if not habit:
+        await query.edit_message_text(
+            msg('ERROR_HABIT_NOT_FOUND', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        return 0
+
+    # Store habit info in context
+    context.user_data['menu_habit_id'] = habit_id
+    context.user_data['menu_habit_name'] = habit.name
+
+    # Get completed dates for this habit (last 7 days)
+    from datetime import date, timedelta
+    today = date.today()
+    start_date = today - timedelta(days=7)
+    completed_dates = await maybe_await(
+        habit_service.get_habit_completions_for_daterange(
+            user.id, habit.id, start_date, today
+        )
+    )
+
+    # Build and show date picker
+    from src.bot.keyboards import build_date_picker_keyboard
+    keyboard = build_date_picker_keyboard(habit_id, completed_dates, lang)
+    await query.edit_message_text(
+        msg('HELP_BACKDATE_SELECT_DATE', lang, habit_name=habit.name),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    logger.info(f"📤 Sent date picker to {telegram_id}")
+    return 0
+
+
+async def menu_backdate_date_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle date selection from picker - show confirmation."""
+    query = update.callback_query
+    # Don't answer the query yet - we'll do it conditionally below
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    callback_data = query.data
+
+    logger.info(f"📅 User {telegram_id} selected date: {callback_data}")
+
+    # Check if date is already completed
+    if callback_data.startswith("backdate_date_completed_"):
+        parts = callback_data.split("_")
+        if len(parts) >= 5:
+            from datetime import date
+            date_iso = parts[4]
+            try:
+                completed_date = date.fromisoformat(date_iso)
+                date_str = completed_date.strftime("%B %d, %Y")
+            except ValueError:
+                date_str = date_iso
+
+            habit_name = context.user_data.get('menu_habit_name', 'Unknown')
+            # Create plain text message for alert (no HTML formatting)
+            alert_text = f"❌ You already logged {habit_name} on {date_str}"
+            logger.info(f"⚠️ Showing duplicate alert to {telegram_id}: {alert_text}")
+            await query.answer(
+                text=alert_text,
+                show_alert=True
             )
-            logger.info(f"📤 Sent error message to {telegram_id}")
+            logger.info(f"✅ Alert shown to {telegram_id}")
+        return 0
 
+    # Answer the query for valid date selection
+    await query.answer()
+
+    # Parse callback data: "backdate_date_{habit_id}_{date_iso}"
+    parts = callback_data.split("_")
+    if len(parts) < 4:
+        logger.error(f"❌ Invalid callback format: {callback_data}")
+        await query.edit_message_text(
+            msg('ERROR_GENERAL', lang, error="Invalid date"),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        return 0
+
+    habit_id = parts[2]
+    date_str = parts[3]
+
+    try:
+        from datetime import date
+        target_date = date.fromisoformat(date_str)
+    except ValueError:
+        logger.error(f"❌ Invalid date format: {date_str}")
+        await query.edit_message_text(
+            msg('ERROR_GENERAL', lang, error="Invalid date"),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        return 0
+
+    # Store in context
+    context.user_data['menu_backdate_date'] = target_date
+    habit_name = context.user_data.get('menu_habit_name', 'Unknown')
+
+    # Format date for display
+    date_display = target_date.strftime("%B %d, %Y")
+
+    # Show confirmation
+    from src.bot.keyboards import build_backdate_confirmation_keyboard
+    keyboard = build_backdate_confirmation_keyboard(habit_id, target_date, lang)
+    await query.edit_message_text(
+        msg('HELP_BACKDATE_CONFIRM', lang, habit_name=habit_name, date=date_display),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    logger.info(f"📤 Sent confirmation prompt to {telegram_id}")
+    return 0
+
+
+async def menu_backdate_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Execute the backdated habit completion."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+
+    logger.info(f"✅ User {telegram_id} confirmed backdate")
+
+    # Get stored data from context
+    habit_name = context.user_data.get('menu_habit_name')
+    target_date = context.user_data.get('menu_backdate_date')
+
+    if not habit_name or not target_date:
+        logger.error(f"❌ Missing context data for user {telegram_id}")
+        await query.edit_message_text(
+            msg('ERROR_GENERAL', lang, error="Session data lost"),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        return 0
+
+    # Process habit completion with target_date
+    try:
+        from src.bot.formatters import format_habit_completion_message
+
+        logger.info(f"⚙️ Processing backdated completion: user {telegram_id}, habit '{habit_name}', date {target_date}")
+        result = await maybe_await(
+            habit_service.process_habit_completion(
+                user_telegram_id=telegram_id,
+                habit_name=habit_name,
+                target_date=target_date
+            )
+        )
+
+        date_display = target_date.strftime("%B %d, %Y")
+        message = format_habit_completion_message(result, lang)
+        message = msg('SUCCESS_BACKDATE_COMPLETED', lang, habit_name=habit_name, date=date_display) + "\n\n" + message
+
+        logger.info(f"✅ Habit '{habit_name}' backdated to {target_date}. Streak: {result.streak_count}")
+        await query.edit_message_text(
+            text=message,
+            reply_markup=build_back_to_menu_keyboard(lang),
+            parse_mode="HTML"
+        )
+
+    except ValueError as e:
+        error_msg = str(e)
+        logger.error(f"❌ Error processing backdate: {error_msg}")
+
+        if "already completed" in error_msg.lower():
+            user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, habit_name=habit_name, date=target_date.strftime("%B %d, %Y"))
+        elif "future date" in error_msg.lower():
+            user_message = msg('ERROR_BACKDATE_FUTURE', lang)
+        elif "more than" in error_msg.lower() and "days" in error_msg.lower():
+            user_message = msg('ERROR_BACKDATE_TOO_OLD', lang)
+        elif "before habit was created" in error_msg.lower():
+            user_message = msg('ERROR_BACKDATE_BEFORE_CREATED', lang, date=error_msg.split()[-1])
+        else:
+            user_message = msg('ERROR_GENERAL', lang, error=error_msg)
+
+        await query.edit_message_text(
+            user_message,
+            reply_markup=build_back_to_menu_keyboard(lang),
+            parse_mode="HTML"
+        )
+
+    # Clean up context
+    context.user_data.pop('menu_habit_id', None)
+    context.user_data.pop('menu_habit_name', None)
+    context.user_data.pop('menu_backdate_date', None)
+    return 0
+
+
+async def menu_backdate_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle cancel button from backdate confirmation."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+
+    logger.info(f"❌ User {telegram_id} cancelled backdate")
+
+    # Clean up context
+    context.user_data.pop('menu_habit_id', None)
+    context.user_data.pop('menu_habit_name', None)
+    context.user_data.pop('menu_backdate_date', None)
+
+    # Return to menu
+    await query.edit_message_text(
+        msg('INFO_CANCELLED', lang),
+        reply_markup=build_back_to_menu_keyboard(lang)
+    )
     return 0
 
 
@@ -453,7 +841,7 @@ def get_menu_handlers():
         CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_habits$"),
         CallbackQueryHandler(open_rewards_menu_callback, pattern="^menu_rewards$"),
         CallbackQueryHandler(close_menu_callback, pattern="^menu_close$"),
-        CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_streaks|menu_settings|menu_help|menu_habits_add|menu_habits_revert|menu_habits_remove|menu_rewards_list|menu_rewards_my|menu_rewards_claim)$"),
+        CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_habits_remove|menu_streaks|menu_settings|menu_help|menu_habits_add|menu_habits_revert|menu_rewards_list|menu_rewards_my|menu_rewards_claim)$"),
         CallbackQueryHandler(open_start_menu_callback, pattern="^menu_back_start$"),
         CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_back_habits$"),
         CallbackQueryHandler(generic_back_callback, pattern="^menu_back$"),
@@ -463,6 +851,14 @@ def get_menu_handlers():
         CallbackQueryHandler(settings_back_callback, pattern="^settings_back$"),
         # Habit display handler (view only, no action)
         CallbackQueryHandler(view_habit_display_callback, pattern="^view_habit_"),
+        # Menu habit_done flow handlers (Today/Yesterday/Select Date buttons)
+        CallbackQueryHandler(menu_habit_today_callback, pattern="^habit_.*_today$"),
+        CallbackQueryHandler(menu_habit_yesterday_callback, pattern="^habit_.*_yesterday$"),
+        CallbackQueryHandler(menu_select_date_callback, pattern="^backdate_habit_"),
+        CallbackQueryHandler(menu_backdate_date_selected_callback, pattern="^backdate_date_"),
+        CallbackQueryHandler(menu_backdate_confirm_callback, pattern="^backdate_confirm_"),
+        CallbackQueryHandler(menu_backdate_cancel_callback, pattern="^backdate_cancel$"),
         # Habit selection standalone handler (work outside conversation)
+        # This must be LAST to avoid catching other habit_* patterns
         CallbackQueryHandler(habit_selected_standalone_callback, pattern="^habit_")
     ]

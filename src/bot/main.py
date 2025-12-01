@@ -15,6 +15,7 @@ from src.utils.logging import setup_logging
 from src.bot.handlers.command_handlers import start_command, help_command
 from src.bot.handlers.habit_done_handler import habit_done_conversation
 from src.bot.handlers.habit_revert_handler import habit_revert_conversation
+from src.bot.handlers.backdate_handler import backdate_conversation
 from src.bot.handlers.habit_management_handler import (
     add_habit_conversation,
     edit_habit_conversation,
@@ -59,6 +60,7 @@ def main():
     # Add conversation handler for habit_done
     application.add_handler(habit_done_conversation)
     application.add_handler(habit_revert_conversation)
+    application.add_handler(backdate_conversation)
 
     # Add habit management conversation handlers
     application.add_handler(add_habit_conversation)
@@ -77,9 +79,10 @@ def main():
     # Add settings handler
     application.add_handler(settings_conversation)
 
-    # Register menu callbacks
+    # Register menu callbacks in group 1 (after conversation handlers in group 0)
+    # This ensures conversation handlers take precedence when active
     for handler in get_menu_handlers():
-        application.add_handler(handler)
+        application.add_handler(handler, group=1)
 
     # Start the bot in polling mode (development)
     logger.info("🤖 Running bot in POLLING mode (development)")

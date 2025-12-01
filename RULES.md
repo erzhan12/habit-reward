@@ -894,3 +894,170 @@ BotAuditLog.objects.create(
 ```
 
 **Why**: Django's `TextChoices` validates enum values. Invalid strings are silently rejected, resulting in NULL database values.
+
+## Backdate Habit Completion Pattern
+
+**Feature**: Allows users to log habits for past dates (up to 7 days back) through the Telegram bot.
+
+### Implementation Architecture
+
+**Three-layer approach**:
+
+1. **Repository Layer** (`src/core/repositories.py`):
+   - `get_log_for_habit_on_date()` - Check for duplicate completions on specific date
+   - `get_logs_for_habit_in_daterange()` - Get completions within date range (for calendar view)
+
+2. **Service Layer**:
+   - `HabitService.process_habit_completion(target_date=None)` - Accepts optional target_date parameter
+   - `StreakService.calculate_streak_for_date()` - Calculate streak for specific past date
+   - `HabitService.get_habit_completions_for_daterange()` - Get completion dates for calendar display
+
+3. **Bot Handler Layer** (`src/bot/handlers/backdate_handler.py`):
+   - ConversationHandler with three states: SELECTING_HABIT → SELECTING_DATE → CONFIRMING_COMPLETION
+   - Entry points: `/backdate` command or callback from other handlers
+
+### Key Design Decisions
+
+**HabitLog Model Fields**:
+- `timestamp` (auto_now_add) - When the log was created (always "now")
+- `last_completed_date` (DateField) - The actual completion date (can be backdated)
+
+**Why separate fields?**: Allows audit trail (when logged) while supporting backdating (when completed).
+
+**Validation Rules** (7-day limit):
+```python
+# In HabitService.process_habit_completion()
+max_backdate_days = 7
+earliest_allowed = today - timedelta(days=max_backdate_days)
+
+if target_date > today:
+    raise ValueError("Cannot log habits for future dates")
+if target_date < earliest_allowed:
+    raise ValueError(f"Cannot backdate more than {max_backdate_days} days")
+if target_date < habit.created_at.date():
+    raise ValueError("Cannot backdate before habit was created")
+```
+
+**Duplicate Prevention**:
+```python
+existing_log = await self.habit_log_repo.get_log_for_habit_on_date(
+    user.id, habit.id, target_date
+)
+if existing_log:
+    raise ValueError(f"Habit already completed on {target_date}")
+```
+
+### Streak Calculation for Backdating
+
+**Two methods in StreakService**:
+
+1. `calculate_streak()` - For today's completions (normal flow)
+2. `calculate_streak_for_date()` - For backdated completions (checks gap between last completion and target date)
+
+**Why two methods?**: Backdating into the middle of existing logs requires different logic than appending to the end.
+
+### UI/UX Patterns
+
+**Date Picker Keyboard** (`build_date_picker_keyboard()`):
+- Shows 7-day calendar (today and 6 days back)
+- Displays checkmarks (✓) on dates that already have completions
+- Dates with completions have different callback_data (disabled)
+- Organized in rows of 4 buttons
+
+**Confirmation Flow**:
+1. Select habit
+2. Select date from calendar
+3. Confirm with preview: "Log {habit} for {date}?"
+4. Process completion
+
+### Error Handling
+
+**User-friendly error mapping** in `confirm_backdate_completion()`:
+```python
+try:
+    result = await habit_service.process_habit_completion(
+        user_telegram_id=telegram_id,
+        habit_name=habit_name,
+        target_date=target_date
+    )
+except ValueError as e:
+    # Map service errors to localized user messages
+    if "already completed" in str(e).lower():
+        msg('ERROR_BACKDATE_DUPLICATE', lang, ...)
+    elif "future date" in str(e).lower():
+        msg('ERROR_BACKDATE_FUTURE', lang)
+    # ... etc
+```
+
+**Why map errors?**: Service layer raises generic ValueError with technical messages; handlers convert to user-friendly localized messages.
+
+### Multi-lingual Support
+
+**All backdate messages** in `src/bot/messages.py` with translations:
+- `HELP_BACKDATE_SELECT_HABIT`
+- `HELP_BACKDATE_SELECT_DATE`
+- `HELP_BACKDATE_CONFIRM`
+- `SUCCESS_BACKDATE_COMPLETED`
+- `ERROR_BACKDATE_DUPLICATE`
+- `ERROR_BACKDATE_TOO_OLD`
+- `ERROR_BACKDATE_FUTURE`
+- `ERROR_BACKDATE_BEFORE_CREATED`
+- `BUTTON_TODAY`, `BUTTON_YESTERDAY`, `BUTTON_SELECT_DATE`
+
+**Supported languages**: English, Russian, Kazakh
+
+### Context Management Pattern
+
+**Store intermediate state in `context.user_data`**:
+```python
+# Store after habit selection
+context.user_data['backdate_habit_id'] = habit_id
+context.user_data['backdate_habit_name'] = habit.name
+
+# Retrieve when confirming
+habit_name = context.user_data.get('backdate_habit_name')
+target_date = context.user_data.get('backdate_date')
+
+# Clean up on completion/cancellation
+context.user_data.pop('backdate_habit_id', None)
+context.user_data.pop('backdate_habit_name', None)
+context.user_data.pop('backdate_date', None)
+```
+
+**Why**: ConversationHandler states don't persist data between callbacks; use context.user_data for flow continuity.
+
+### Known Limitations
+
+**Streak Propagation**: When a past completion is inserted via backdating, the system DOES NOT recalculate streak counts for existing future logs. This means:
+
+- **Example scenario**: User completes habit today (streak=1), then backdates same habit to yesterday
+  - The backdated log gets streak=2 (correct, based on yesterday being consecutive)
+  - Today's log KEEPS streak=1 (not recalculated)
+  - This is intentional to avoid expensive cascading updates across all future logs
+
+**Why this is acceptable**:
+- The most recent log still shows the correct current streak via `get_current_streak()`
+- Future completions will calculate correctly based on the most recent log
+- Backdating is designed for filling missed entries, not reconstructing historical data
+
+**Alternative considered**: Recalculating all logs after the backdated entry was deemed too complex and error-prone for the initial implementation. Future enhancement could add a "Recalculate Streaks" admin action if needed.
+
+### Testing Considerations
+
+**Manual test scenarios**:
+1. Backdate to yesterday - should work
+2. Backdate to 7 days ago - should work (boundary)
+3. Backdate to 8 days ago - should fail (too old)
+4. Backdate to future date - should fail
+5. Backdate same habit twice on same date - should fail (duplicate)
+6. Backdate before habit creation - should fail
+7. Backdate fills gap in streak - streak should recalculate correctly (for the backdated entry)
+8. Calendar should show checkmarks on completed dates
+9. **Known limitation**: Existing future logs keep their old streak counts (see above)
+
+**Unit test focus areas**:
+- `get_log_for_habit_on_date()` - duplicate detection
+- `get_last_log_before_date()` - querying logs before target date
+- `calculate_streak_for_date()` - gap handling with grace days and exempt weekdays
+- Validation logic in `process_habit_completion()`
+

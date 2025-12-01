@@ -742,7 +742,7 @@
 6. **Verify HTTPS is working:**
    ```bash
    # On your local machine, open browser:
-   # https://habitreward.duckdns.org
+   # https://habitreward.org
 
    # Should show secure lock icon
    # May show login page or 404 (this is normal)
