@@ -40,6 +40,7 @@ class Messages:
     # Usage/Help Messages
     HELP_CLAIM_REWARD_USAGE = "Usage: /claim_reward <reward_name>\nExample: /claim_reward Coffee at favorite cafe"
     HELP_HABIT_SELECTION = "Which habit did you complete? 🎯\n\nSelect from the list below:"
+    HELP_SIMPLE_HABIT_SELECTION = "Which habit did you complete today? 🎯"
     HELP_CUSTOM_TEXT = "Please type what habit you completed:"
     HELP_REVERT_HABIT_SELECTION = "Which habit completion would you like to revert?"
     HELP_SELECT_REWARD_TO_CLAIM = "🎁 <b>Select a reward to claim:</b>"
@@ -68,6 +69,7 @@ class Messages:
     MENU_CLOSE = "✖ Close"
     MENU_CLOSED = "Menu closed. Use /start to open again."
     BUTTON_HABIT_DONE = "✅ Habit Done"
+    BUTTON_HABIT_DONE_DATE = "📅 Habit Done for Date"
     BUTTON_HABITS = "🧩 Habits"
     BUTTON_REWARDS = "🎁 Rewards"
     BUTTON_STREAKS = "🔥 Streaks"
@@ -274,6 +276,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             # Usage/Help Messages
             'HELP_CLAIM_REWARD_USAGE': "Использование: /claim_reward <название_награды>\nПример: /claim_reward Кофе в любимом кафе",
             'HELP_HABIT_SELECTION': "Какую привычку вы выполнили? 🎯\n\nВыберите из списка ниже:",
+            'HELP_SIMPLE_HABIT_SELECTION': "Какую привычку вы выполнили сегодня? 🎯",
             'HELP_CUSTOM_TEXT': "Напишите, какую привычку вы выполнили:",
             'HELP_REVERT_HABIT_SELECTION': "Какое завершение привычки вы хотите отменить?",
             'HELP_SELECT_REWARD_TO_CLAIM': "🎁 <b>Выберите награду для получения:</b>",
@@ -302,6 +305,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'MENU_CLOSE': "✖ Закрыть",
             'MENU_CLOSED': "Меню закрыто. Используйте /start чтобы открыть снова.",
             'BUTTON_HABIT_DONE': "✅ Отметить привычку",
+            'BUTTON_HABIT_DONE_DATE': "📅 Отметить за дату",
             'BUTTON_HABITS': "🧩 Привычки",
             'BUTTON_REWARDS': "🎁 Награды",
             'BUTTON_STREAKS': "🔥 Серии",
@@ -506,6 +510,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             # Usage/Help Messages
             'HELP_CLAIM_REWARD_USAGE': "Пайдалану: /claim_reward <сыйлық_аты>\nМысал: /claim_reward Сүйікті кафеде кофе",
             'HELP_HABIT_SELECTION': "Қандай әдетті орындадыңыз? 🎯\n\nТөмендегі тізімнен таңдаңыз:",
+            'HELP_SIMPLE_HABIT_SELECTION': "Бүгін қай әдетті орындадыңыз? 🎯",
             'HELP_CUSTOM_TEXT': "Қандай әдетті орындағаныңызды жазыңыз:",
             'HELP_REVERT_HABIT_SELECTION': "Қай әдет орындалуын қайтарғыңыз келеді?",
             'HELP_SELECT_REWARD_TO_CLAIM': "🎁 <b>Алатын сыйлықты таңдаңыз:</b>",
@@ -534,6 +539,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'MENU_CLOSE': "✖ Жабу",
             'MENU_CLOSED': "Мәзір жабылды. Қайта ашу үшін /start пайдаланыңыз.",
             'BUTTON_HABIT_DONE': "✅ Әдет аяқталды",
+            'BUTTON_HABIT_DONE_DATE': "📅 Күнге белгілеу",
             'BUTTON_HABITS': "🧩 Әдеттер",
             'BUTTON_REWARDS': "🎁 Марапаттар",
             'BUTTON_STREAKS': "🔥 Сериялар",

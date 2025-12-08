@@ -73,6 +73,42 @@ await update.message.reply_text(
 await update.message.reply_text("*Bold text*", parse_mode="Markdown")
 ```
 
+### Date Formatting Standard
+
+**CRITICAL**: All user-facing dates MUST use the format **"09 Dec 2025"** (format string: `"%d %b %Y"`).
+
+```python
+from datetime import date
+
+# ✅ Good - Standard format
+target_date = date(2025, 12, 9)
+date_display = target_date.strftime("%d %b %Y")  # "09 Dec 2025"
+
+# ❌ Bad - Don't use verbose format
+date_display = target_date.strftime("%B %d, %Y")  # "December 09, 2025"
+
+# ❌ Bad - Don't show ISO format to users
+date_display = str(target_date)  # "2025-12-09"
+```
+
+**Why this format?**:
+- **Concise**: Takes less screen space on mobile
+- **International**: Day-first format is more globally recognized
+- **Unambiguous**: 3-letter month abbreviation (Dec) is clear in all languages
+- **Consistent**: Same format across all success/error messages
+
+**Where to apply**:
+- Habit completion success messages
+- Backdate confirmations
+- Duplicate entry error messages
+- Date picker displays
+- Any user-visible date output
+
+**Implementation locations**:
+- `src/bot/handlers/menu_handler.py` - Menu flow handlers
+- `src/bot/handlers/habit_done_handler.py` - Habit completion handlers
+- `src/bot/handlers/backdate_handler.py` - Backdate flow handlers
+
 ## Logging Pattern
 
 **CRITICAL**: All Telegram bot command handlers MUST include comprehensive info-level logging to track user messages and bot reactions.

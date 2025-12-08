@@ -37,6 +37,39 @@ def build_habit_selection_keyboard(habits: list[Habit], language: str = 'en') ->
     return InlineKeyboardMarkup(keyboard)
 
 
+def build_simple_habit_selection_keyboard(habits: list[Habit], language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for simple habit selection (one-click completion).
+
+    Used in the simple habit_done flow where clicking a habit immediately
+    logs it as completed for today.
+
+    Args:
+        habits: List of active habits not yet completed today
+        language: Language code for translating Back button text
+
+    Returns:
+        InlineKeyboardMarkup with habit buttons (simple_ prefix) and Back button
+    """
+    keyboard = []
+    for habit in habits:
+        button = InlineKeyboardButton(
+            text=habit.name,
+            callback_data=f"simple_habit_{habit.id}"
+        )
+        keyboard.append([button])
+
+    # Add Back button to return to main menu
+    keyboard.append([
+        InlineKeyboardButton(
+            text=msg('MENU_BACK', language),
+            callback_data="menu_back"
+        )
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
 def build_habit_revert_keyboard(habits: list[Habit], language: str = 'en') -> InlineKeyboardMarkup:
     """
     Build inline keyboard for selecting a habit completion to revert.
@@ -665,6 +698,7 @@ def build_habits_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=msg('BUTTON_EDIT_HABIT', language), callback_data="menu_habits_edit")],
         [InlineKeyboardButton(text=msg('BUTTON_REMOVE_HABIT', language), callback_data="menu_habits_remove")],
         [InlineKeyboardButton(text=msg('BUTTON_REVERT_HABIT', language), callback_data="menu_habits_revert")],
+        [InlineKeyboardButton(text=msg('BUTTON_HABIT_DONE_DATE', language), callback_data="menu_habit_done_date")],
         [InlineKeyboardButton(text=msg('MENU_BACK', language), callback_data="menu_back_start")]
     ]
     return InlineKeyboardMarkup(keyboard)

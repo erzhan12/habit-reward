@@ -315,6 +315,174 @@ class TestMenuHandlers:
         mock_callback_update.callback_query.edit_message_text.assert_called_once()
 
 
+class TestSimpleHabitDoneFlow:
+    """Test Feature 0021: Simple habit completion flow (menu_habit_done_simple_show_habits)."""
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.menu_handler.habit_service')
+    @patch('src.bot.handlers.menu_handler.user_repository')
+    async def test_no_habits_configured_shows_error(
+        self, mock_user_repo, mock_habit_service, mock_callback_update, mock_active_user, language
+    ):
+        """
+        Bug Fix Verification: User with ZERO habits should see ERROR_NO_HABITS, not INFO_ALL_HABITS_COMPLETED.
+
+        Given: User exists and is active
+        And: User has NO habits configured
+        When: User clicks 'Habit Done' button (simple flow)
+        Then: Bot shows ERROR_NO_HABITS message
+        And: Shows 'Back to Menu' button
+        """
+        from src.bot.handlers.menu_handler import menu_habit_done_simple_show_habits
+
+        # Mock: user exists and is active
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Mock: NO habits exist (empty list from both calls)
+        mock_habit_service.get_all_active_habits.return_value = []
+        mock_habit_service.get_active_habits_pending_for_today.return_value = []
+
+        # Execute
+        result = await menu_habit_done_simple_show_habits(mock_callback_update, context=None)
+
+        # Assert: get_all_active_habits was called first (for the check)
+        mock_habit_service.get_all_active_habits.assert_called_once_with(mock_active_user.id)
+
+        # Assert: ERROR_NO_HABITS message shown (NOT INFO_ALL_HABITS_COMPLETED)
+        call_args = mock_callback_update.callback_query.edit_message_text.call_args
+        assert msg('ERROR_NO_HABITS', language) in call_args[0][0]
+
+        # Assert: Back button provided
+        assert 'reply_markup' in call_args[1]
+
+        # Assert: returned 0 (no conversation state)
+        assert result == 0
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.menu_handler.habit_service')
+    @patch('src.bot.handlers.menu_handler.user_repository')
+    async def test_all_habits_completed_shows_success(
+        self, mock_user_repo, mock_habit_service, mock_callback_update,
+        mock_active_user, mock_active_habits, language
+    ):
+        """
+        User with habits but all completed today should see INFO_ALL_HABITS_COMPLETED.
+
+        Given: User exists and is active
+        And: User has active habits configured
+        And: All habits are already completed for today
+        When: User clicks 'Habit Done' button (simple flow)
+        Then: Bot shows INFO_ALL_HABITS_COMPLETED message
+        And: Shows 'Back to Menu' button
+        """
+        from src.bot.handlers.menu_handler import menu_habit_done_simple_show_habits
+
+        # Mock: user exists and is active
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Mock: user HAS habits configured
+        mock_habit_service.get_all_active_habits.return_value = mock_active_habits
+
+        # Mock: but NO pending habits (all completed today)
+        mock_habit_service.get_active_habits_pending_for_today.return_value = []
+
+        # Execute
+        result = await menu_habit_done_simple_show_habits(mock_callback_update, context=None)
+
+        # Assert: Both service methods were called
+        mock_habit_service.get_all_active_habits.assert_called_once_with(mock_active_user.id)
+        mock_habit_service.get_active_habits_pending_for_today.assert_called_once_with(mock_active_user.id)
+
+        # Assert: INFO_ALL_HABITS_COMPLETED message shown
+        call_args = mock_callback_update.callback_query.edit_message_text.call_args
+        assert msg('INFO_ALL_HABITS_COMPLETED', language) in call_args[0][0]
+
+        # Assert: HTML parse mode used
+        assert call_args[1].get('parse_mode') == 'HTML'
+
+        # Assert: returned 0
+        assert result == 0
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.menu_handler.habit_service')
+    @patch('src.bot.handlers.menu_handler.user_repository')
+    async def test_pending_habits_shows_simple_keyboard(
+        self, mock_user_repo, mock_habit_service, mock_callback_update,
+        mock_active_user, mock_active_habits, language
+    ):
+        """
+        User with pending habits should see simple selection keyboard.
+
+        Given: User exists and is active
+        And: User has active habits configured
+        And: Some habits are not yet completed today
+        When: User clicks 'Habit Done' button (simple flow)
+        Then: Bot shows simple habit selection keyboard
+        And: Message is HELP_SIMPLE_HABIT_SELECTION
+        And: Only pending habits are shown
+        """
+        from src.bot.handlers.menu_handler import menu_habit_done_simple_show_habits
+
+        # Mock: user exists and is active
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Mock: user HAS habits configured
+        mock_habit_service.get_all_active_habits.return_value = mock_active_habits
+
+        # Mock: some pending habits (subset of all habits)
+        pending_habits = mock_active_habits[:2]  # Only first 2 are pending
+        mock_habit_service.get_active_habits_pending_for_today.return_value = pending_habits
+
+        # Execute
+        result = await menu_habit_done_simple_show_habits(mock_callback_update, context=None)
+
+        # Assert: Both service methods were called
+        mock_habit_service.get_all_active_habits.assert_called_once_with(mock_active_user.id)
+        mock_habit_service.get_active_habits_pending_for_today.assert_called_once_with(mock_active_user.id)
+
+        # Assert: HELP_SIMPLE_HABIT_SELECTION message shown
+        call_args = mock_callback_update.callback_query.edit_message_text.call_args
+        assert call_args[0][0] == msg('HELP_SIMPLE_HABIT_SELECTION', language)
+
+        # Assert: Keyboard provided
+        assert 'reply_markup' in call_args[1]
+
+        # Assert: returned 0
+        assert result == 0
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.menu_handler.habit_service')
+    @patch('src.bot.handlers.menu_handler.user_repository')
+    async def test_user_not_found_shows_error(
+        self, mock_user_repo, mock_habit_service, mock_callback_update, language
+    ):
+        """
+        User not found should show error message.
+
+        Given: User does NOT exist in database
+        When: User clicks 'Habit Done' button (simple flow)
+        Then: Bot shows ERROR_USER_NOT_FOUND message
+        """
+        from src.bot.handlers.menu_handler import menu_habit_done_simple_show_habits
+
+        # Mock: user doesn't exist
+        mock_user_repo.get_by_telegram_id.return_value = None
+
+        # Execute
+        result = await menu_habit_done_simple_show_habits(mock_callback_update, context=None)
+
+        # Assert: ERROR_USER_NOT_FOUND message shown
+        call_args = mock_callback_update.callback_query.edit_message_text.call_args
+        assert msg('ERROR_USER_NOT_FOUND', language) in call_args[0][0]
+
+        # Assert: habit service was NOT called
+        mock_habit_service.get_all_active_habits.assert_not_called()
+        mock_habit_service.get_active_habits_pending_for_today.assert_not_called()
+
+        # Assert: returned 0
+        assert result == 0
+
+
 class TestRemoveHabitBack:
     @pytest.mark.asyncio
     @patch('src.bot.handlers.habit_management_handler.user_repository')

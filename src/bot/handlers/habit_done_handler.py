@@ -374,7 +374,7 @@ async def handle_yesterday_selection(
         )
 
         # Format date for display
-        date_display = yesterday.strftime("%B %d, %Y")
+        date_display = yesterday.strftime("%d %b %Y")  # Format: 09 Dec 2025
 
         # Format and send response
         message = format_habit_completion_message(result, lang)
@@ -395,7 +395,7 @@ async def handle_yesterday_selection(
 
         # Map error messages to user-friendly messages
         if "already completed" in error_msg.lower():
-            user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, date=yesterday.strftime("%B %d, %Y"))
+            user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, date=yesterday.strftime("%d %b %Y"))
         elif "before habit was created" in error_msg.lower():
             user_message = msg('ERROR_BACKDATE_BEFORE_CREATED', lang, date=error_msg.split()[-1])
         else:
@@ -556,7 +556,7 @@ async def handle_backdate_date_selection(
     habit_name = context.user_data.get('habit_name', 'Unknown')
 
     # Format date for display
-    date_display = target_date.strftime("%B %d, %Y")
+    date_display = target_date.strftime("%d %b %Y")  # Format: 09 Dec 2025
 
     # Show confirmation
     keyboard = build_backdate_confirmation_keyboard(habit_id, target_date, lang)
@@ -608,7 +608,7 @@ async def handle_backdate_confirmation(
         )
 
         # Format date for display
-        date_display = target_date.strftime("%B %d, %Y")
+        date_display = target_date.strftime("%d %b %Y")  # Format: 09 Dec 2025
 
         # Format and send response
         message = format_habit_completion_message(result, lang)
@@ -628,7 +628,7 @@ async def handle_backdate_confirmation(
 
         # Map error messages to user-friendly messages
         if "already completed" in error_msg.lower():
-            user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, date=target_date.strftime("%B %d, %Y"))
+            user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, date=target_date.strftime("%d %b %Y"))
         elif "future date" in error_msg.lower():
             user_message = msg('ERROR_BACKDATE_FUTURE', lang)
         elif "more than" in error_msg.lower() and "days" in error_msg.lower():

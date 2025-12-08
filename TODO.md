@@ -37,7 +37,7 @@ This document tracks planned features, improvements, and enhancements for the Ha
 
 ### High Priority
 
-- [ ] **Reorganize Habit Completion Flow - Split into Two Commands**
+- [x] **Reorganize Habit Completion Flow - Split into Two Commands** ✅ COMPLETED (Feature 0021)
   - **Goal**: Make the default habit completion flow simpler and faster for the common use case (logging for today)
   - **Problem**: Current `/habit_done` shows all habits and date options (Today/Yesterday/Select Date), which is overkill when users mostly just want to mark habits done for today
   - **Solution**: Split into two separate flows:
@@ -46,22 +46,15 @@ This document tracks planned features, improvements, and enhancements for the Ha
        - Clicking a habit immediately marks it as done for TODAY
        - No date selection needed - optimized for speed
        - This should be the PRIMARY/TOP button in menus
-    2. **`/habit_done_date`** (Advanced flow with date selection - lower in menu)
+    2. **`/habit_done_date`** (Advanced flow with date selection - Habits submenu)
        - Shows ALL habits (including already logged today)
        - Offers date options: Today / Yesterday / Select Date
-       - Same as current implementation
-       - Move this button DOWN in menu order (below simple Habit Done)
-       - Consider moving to Habits submenu since it's rarely used
-  - **Menu Changes**:
-    - Main menu: Move "Habit Done" to top, "Habit Done for Date" to bottom or under Habits submenu
-    - Update menu keyboard order in `src/bot/keyboards.py`
-  - **Implementation**:
-    - Rename current `menu_habit_done_show_habits` to `menu_habit_done_date_show_habits`
-    - Create new simplified `menu_habit_done_simple` that filters to pending habits and logs immediately
-    - Update menu button labels and callback data
-    - Add `/habit_done_date` command alongside existing `/habit_done`
-  - **Files**: `src/bot/handlers/menu_handler.py`, `src/bot/keyboards.py`, `src/bot/messages.py`, `src/bot/main.py`
+       - Placed in Habits submenu below "Revert Habit" button
+  - **Implementation Details**: See `docs/features/0021_PLAN.md`
+  - **Manual Tests**: See `docs/features/0021_MANUAL_TESTS.md`
+  - **Files Modified**: `src/bot/handlers/menu_handler.py`, `src/bot/keyboards.py`, `src/bot/messages.py`
   - **Related**: UX improvement - optimizes for the 90% use case (logging today)
+  - **Bug Fixes**: Fixed empty habit list handling to correctly distinguish between "no habits" vs "all completed"
 
 - [ ] **Reward Edit Interface**
   - Add Telegram bot command/interface to edit existing rewards

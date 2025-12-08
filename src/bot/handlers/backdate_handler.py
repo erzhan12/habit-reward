@@ -228,7 +228,7 @@ async def date_selected_for_backdate(
     habit_name = context.user_data.get('backdate_habit_name', 'Unknown')
 
     # Format date for display
-    date_display = target_date.strftime("%B %d, %Y")  # e.g., "November 24, 2025"
+    date_display = target_date.strftime("%d %b %Y")  # Format: 09 Dec 2025
 
     # Show confirmation
     keyboard = build_backdate_confirmation_keyboard(habit_id, target_date, lang)
@@ -282,7 +282,7 @@ async def confirm_backdate_completion(
         )
 
         # Format date for display
-        date_display = target_date.strftime("%B %d, %Y")
+        date_display = target_date.strftime("%d %b %Y")  # Format: 09 Dec 2025
 
         # Format and send response
         message = format_habit_completion_message(result, lang)
@@ -303,7 +303,7 @@ async def confirm_backdate_completion(
 
         # Map error messages to user-friendly messages
         if "already completed" in error_msg.lower():
-            user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, date=target_date.strftime("%B %d, %Y"))
+            user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, date=target_date.strftime("%d %b %Y"))
         elif "future date" in error_msg.lower():
             user_message = msg('ERROR_BACKDATE_FUTURE', lang)
         elif "more than" in error_msg.lower() and "days" in error_msg.lower():

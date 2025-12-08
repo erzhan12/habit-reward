@@ -10,7 +10,8 @@ This is strictly a technical requirements document that should:
 1. Include a brief description to set context at the top
 2. Point to all the relevant files and functions that need to be changed or created
 3. Explain any algorithms that are used step-by-step
-4. If necessary, breaks up the work into logical phases. Ideally this should be done in a way that has an initial "data layer" phase that defines the types and db changes that need to run, followed by N phases that can be done in parallel (e.g. Phase 2A - UI, Phase 2B - API). Only include phases if it's a REALLY big feature.
+4. Include a section on unit tests that need to be written, specifying test scenarios and edge cases to cover
+5. If necessary, breaks up the work into logical phases. Ideally this should be done in a way that has an initial "data layer" phase that defines the types and db changes that need to run, followed by N phases that can be done in parallel (e.g. Phase 2A - UI, Phase 2B - API). Only include phases if it's a REALLY big feature.
 
 If the user's requirements are unclear, especially after researching the relevant files, you may ask up to 5 clarifying questions before writing the plan. If you do so, incorporate the user's answers into the plan.
 

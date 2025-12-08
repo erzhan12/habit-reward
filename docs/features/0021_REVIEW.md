@@ -1,0 +1,3 @@
+# Feature 0021 Code Review
+
+- ✅ **FIXED – Simple flow misreports empty habit list as completed.** When `get_active_habits_pending_for_today` returns empty (including when a user has zero habits), the handler replies with `INFO_ALL_HABITS_COMPLETED` instead of `ERROR_NO_HABITS`, misinforming new users. **Fix:** Added check for all active habits before checking pending habits (`src/bot/handlers/menu_handler.py:434-441`). Now correctly shows `ERROR_NO_HABITS` when user has no habits configured, and `INFO_ALL_HABITS_COMPLETED` only when user has habits but all are completed for today. **Unit Tests:** Added comprehensive test coverage in `tests/test_bot_handlers.py::TestSimpleHabitDoneFlow` (4 test scenarios × 3 languages = 12 tests, all passing).
