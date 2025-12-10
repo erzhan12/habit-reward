@@ -520,6 +520,53 @@ async with self._atomic():
 - ✅ `pieces_earned=3` is CORRECT (current cycle)
 - ❌ Counting total HabitLogs (13) would be WRONG
 
+## Code Quality & Linting
+
+**CRITICAL**: All code must pass the linting checks before committing.
+
+### Linting Requirements
+
+Run linting check:
+```bash
+uv run ruff check src/
+```
+
+Fix common issues automatically:
+```bash
+uv run ruff check src/ --fix
+```
+
+### Common Linting Issues
+
+1. **Unused Imports**: Remove all unused imports
+   ```python
+   # ❌ Bad
+   from fastapi import Depends, Header  # Header not used
+
+   # ✅ Good
+   from fastapi import Depends
+   ```
+
+2. **Ambiguous Variable Names**: Avoid single letters that look like numbers (especially `l`, `O`, `I`)
+   ```python
+   # ❌ Bad - looks like number 1
+   habit_logs = [l for l in logs if l.habit_id == habit_id]
+
+   # ✅ Good
+   habit_logs = [log for log in logs if log.habit_id == habit_id]
+   ```
+
+3. **Whitespace & Formatting**: Follow PEP 8 standards (handled by ruff --fix)
+
+### Before Committing
+
+Always run:
+```bash
+uv run ruff check src/
+```
+
+Ensure output shows: `All checks passed!`
+
 ## Testing
 
 ### Running Tests
@@ -1096,4 +1143,311 @@ context.user_data.pop('backdate_date', None)
 - `get_last_log_before_date()` - querying logs before target date
 - `calculate_streak_for_date()` - gap handling with grace days and exempt weekdays
 - Validation logic in `process_habit_completion()`
+
+## REST API (Feature 0022)
+
+### Architecture
+
+The REST API uses FastAPI alongside the existing Django application:
+
+```
+Mobile/Web Client
+    ↓ HTTP/JSON
+FastAPI REST API Layer (src/api/)
+    ↓
+Existing Service Layer (src/services/)
+    ↓
+Django ORM Repositories (src/core/repositories.py)
+    ↓
+PostgreSQL/SQLite
+```
+
+**Key Files**:
+- `src/api/main.py` - FastAPI application factory
+- `src/api/config.py` - API-specific settings (JWT, CORS)
+- `src/api/dependencies/auth.py` - JWT authentication
+- `src/api/v1/routers/` - Versioned API endpoints
+- `asgi.py` - Combined ASGI entry point for Django + FastAPI
+
+### Running the API
+
+```bash
+# Development
+uvicorn asgi:app --reload --port 8000
+
+# Access API docs
+# http://localhost:8000/api/docs (Swagger UI)
+# http://localhost:8000/api/redoc (ReDoc)
+```
+
+### JWT Authentication Pattern
+
+**Token Flow**:
+1. Client calls `POST /api/v1/auth/login` with `telegram_id`
+2. Server returns `access_token` (15min) + `refresh_token` (7 days)
+3. Client includes `Authorization: Bearer <access_token>` header
+4. When access token expires, call `POST /api/v1/auth/refresh`
+
+**Token Payload**:
+```json
+{
+  "sub": "user_id",
+  "telegram_id": "123456789",
+  "exp": 1234567890,
+  "type": "access"
+}
+```
+
+**Using Authentication Dependency**:
+```python
+from typing import Annotated
+from fastapi import Depends
+from src.api.dependencies.auth import get_current_active_user
+from src.core.models import User
+
+@router.get("/protected")
+async def protected_route(
+    current_user: Annotated[User, Depends(get_current_active_user)]
+):
+    # current_user is the authenticated, active User instance
+    return {"user_id": current_user.id}
+```
+
+### API Router Pattern
+
+All routers follow consistent patterns:
+
+```python
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+from src.api.dependencies.auth import get_current_active_user
+from src.api.exceptions import NotFoundException, ForbiddenException
+
+router = APIRouter()
+
+class ItemResponse(BaseModel):
+    id: int
+    name: str
+
+    class Config:
+        from_attributes = True  # Enable ORM mode
+
+@router.get("/{item_id}", response_model=ItemResponse)
+async def get_item(
+    item_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)]
+) -> ItemResponse:
+    item = await maybe_await(item_repository.get_by_id(item_id))
+
+    if item is None:
+        raise NotFoundException(message=f"Item {item_id} not found")
+
+    if item.user_id != current_user.id:
+        raise ForbiddenException(message="Access denied")
+
+    return ItemResponse(id=item.id, name=item.name)
+```
+
+### Exception Handling
+
+Use custom exceptions that map to HTTP status codes:
+
+```python
+from src.api.exceptions import (
+    UnauthorizedException,  # 401
+    ForbiddenException,     # 403
+    NotFoundException,      # 404
+    ConflictException,      # 409
+    ValidationException,    # 422
+)
+
+# All exceptions return standardized JSON:
+{
+    "error": {
+        "code": "HABIT_NOT_FOUND",
+        "message": "Habit 'Running' not found",
+        "details": {}
+    }
+}
+```
+
+### API Endpoint Summary
+
+**Authentication** (`/api/v1/auth`):
+- `POST /login` - Login with telegram_id
+- `POST /refresh` - Refresh access token
+- `POST /logout` - Logout
+
+**Users** (`/api/v1/users`):
+- `GET /me` - Get current user
+- `PATCH /me` - Update user profile
+- `GET /me/settings` - Get user settings
+
+**Habits** (`/api/v1/habits`):
+- `GET /` - List habits
+- `GET /{id}` - Get habit
+- `POST /` - Create habit
+- `PATCH /{id}` - Update habit
+- `DELETE /{id}` - Soft delete habit
+- `POST /{id}/complete` - Complete habit
+- `POST /batch-complete` - Complete multiple habits
+
+**Habit Logs** (`/api/v1/habit-logs`):
+- `GET /` - List logs (with date filters)
+- `GET /{id}` - Get log
+- `DELETE /{id}` - Revert completion
+
+**Rewards** (`/api/v1/rewards`):
+- `GET /` - List rewards with progress
+- `GET /progress` - Get all progress
+- `GET /{id}` - Get reward with progress
+- `POST /` - Create reward
+- `PATCH /{id}` - Update reward
+- `DELETE /{id}` - Delete reward
+- `POST /{id}/claim` - Claim achieved reward
+
+**Streaks** (`/api/v1/streaks`):
+- `GET /` - Get all habit streaks
+- `GET /{habit_id}` - Get habit streak detail
+
+### Configuration
+
+API settings in `.env`:
+
+```bash
+# JWT Configuration
+API_SECRET_KEY=your-secret-key-here  # Auto-generated if not set
+API_ACCESS_TOKEN_EXPIRE_MINUTES=15
+API_REFRESH_TOKEN_EXPIRE_DAYS=7
+API_ALGORITHM=HS256
+
+# CORS
+API_CORS_ORIGINS=https://yourfrontend.com,https://app.example.com
+```
+
+### Testing API Endpoints
+
+```bash
+# Login
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"telegram_id": "123456789"}'
+
+# Use access token
+curl http://localhost:8000/api/v1/users/me \
+  -H "Authorization: Bearer <access_token>"
+
+# Complete a habit
+curl -X POST http://localhost:8000/api/v1/habits/1/complete \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"target_date": "2025-12-10"}'
+```
+
+## REST API Implementation (Feature 0022)
+
+### Architecture Overview
+
+The REST API layer is in `src/api/` with the following structure:
+
+```
+src/api/
+├── main.py                 # FastAPI app factory
+├── config.py              # API configuration (JWT, CORS)
+├── exceptions.py          # Custom exception handlers
+├── dependencies/
+│   └── auth.py            # JWT utilities and auth dependencies
+├── middleware/
+│   ├── logging.py         # Request ID and timing logging
+│   └── rate_limiting.py   # Optional rate limiting (Phase 3)
+└── v1/
+    └── routers/
+        ├── auth.py        # Login, refresh, logout
+        ├── users.py       # User profile and settings
+        ├── habits.py      # Habit CRUD and completion
+        ├── rewards.py     # Reward CRUD and claiming
+        ├── habit_logs.py  # Habit log history and revert
+        └── streaks.py     # Streak information
+```
+
+### Key Implementation Notes
+
+**Authentication**: JWT-based with access tokens (15 min) and refresh tokens (7 days). All protected endpoints require `Authorization: Bearer <token>` header.
+
+**Endpoints**: 27 endpoints across 6 resource areas. Base path is `/v1/`. Health check available at `/health`.
+
+**Error Responses**: Standardized format:
+```json
+{
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human readable message",
+    "details": {}
+  }
+}
+```
+
+**Ownership Validation**: All endpoints validate that users can only access their own resources (habits, rewards, logs). Returns 403 Forbidden for cross-user access attempts.
+
+### Known Critical Issues (From 0022_REVIEW.md)
+
+**P0 - Critical (Fix Before Production):**
+
+1. **Habit Log Revert Bug** (`src/api/v1/routers/habit_logs.py:214-218`)
+   - Endpoint accepts `log_id` but calls `habit_service.revert_habit_completion()` with `habit_id`
+   - This reverts the MOST RECENT log for that habit, not the requested log
+   - If user has multiple logs for same habit, wrong one gets deleted
+   - Fix: Modify service to accept `log_id` parameter
+
+2. **JWT Secret Regenerates on Restart** (`src/api/config.py:11`)
+   - If `API_SECRET_KEY` env var not set, new random key generated each restart
+   - Invalidates all existing tokens on deployment
+   - Fix: Require explicit `API_SECRET_KEY` or persist to file
+
+**P1 - High (Fix Soon):**
+
+3. **Broken Active Filter** (`src/api/v1/routers/habits.py:150-154`)
+   - `GET /v1/habits?active=false` still returns only active habits
+   - Both branches call same `get_all_active()` method
+   - Fix: Add `get_all()` method to repository
+
+4. **Inefficient Log Lookup** (`src/api/v1/routers/habit_logs.py:150-151`)
+   - Fetches up to 1000 logs from DB just to find one by ID
+   - O(n) instead of O(1) operation
+   - Fix: Add `get_by_id()` method to `habit_log_repository`
+
+### API Test Script
+
+Comprehensive test suite at `scripts/test_api.sh`:
+- 70+ test assertions across all endpoints
+- Multi-user isolation testing
+- Error scenario validation
+- Edge case coverage
+
+**Run with:**
+```bash
+# Start API server
+uvicorn asgi:app --port 8000
+
+# In another terminal
+./scripts/test_api.sh
+```
+
+### Database Endpoint Locations (IMPORTANT!)
+
+- API endpoints: `/v1/*` (e.g., `/v1/habits`)
+- Health check: `/health` (NOT `/v1/health`)
+- OpenAPI docs: `/docs`
+- ReDoc: `/redoc`
+
+### Token Blacklist Not Implemented
+
+**Note**: The logout endpoint doesn't implement token blacklisting. Tokens remain valid until expiration (15 min for access, 7 days for refresh). This is noted as TODO in the code - implement with Redis for production.
+
+### Future Work (Phase 3)
+
+- Analytics endpoints (`/v1/analytics/*`)
+- Rate limiting middleware
+- API tests (`tests/api/`)
+- Webhook notifications (optional)
 
