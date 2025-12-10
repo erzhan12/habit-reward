@@ -1091,7 +1091,6 @@ async def habit_edit_exempt_days_skip(update: Update, context: ContextTypes.DEFA
     new_weight = context.user_data.get('new_habit_weight')
     new_category = context.user_data.get('new_habit_category')
     new_grace_days = context.user_data.get('new_habit_grace_days')
-
     # Format old exempt days for display
     if not old_exempt_days or len(old_exempt_days) == 0:
         old_exempt_days_display = msg('BUTTON_EXEMPT_NONE', lang)

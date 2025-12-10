@@ -576,6 +576,132 @@ class HabitService:
 
         return run_sync_or_async(_impl())
 
+    def revert_habit_completion_by_log_id(
+        self,
+        user_id: int | str,
+        log_id: int | str
+    ) -> HabitRevertResult | Awaitable[HabitRevertResult]:
+        """Revert a specific habit completion by log ID.
+
+        This method is used by the REST API to revert a specific log entry,
+        unlike revert_habit_completion which reverts the most recent log.
+
+        Args:
+            user_id: User primary key (for ownership verification)
+            log_id: HabitLog primary key to revert
+
+        Returns:
+            HabitRevertResult with revert details
+
+        Raises:
+            ValueError: If log not found or doesn't belong to user
+        """
+
+        async def _impl() -> HabitRevertResult:
+            logger.info(
+                "Reverting habit completion by log_id=%s for user=%s",
+                log_id,
+                user_id,
+            )
+
+            # Get the specific log by ID
+            log = await maybe_await(self.habit_log_repo.get_by_id(log_id))
+            if not log:
+                logger.warning("Habit log %s not found for revert", log_id)
+                raise ValueError(f"Habit log {log_id} not found")
+
+            # Verify ownership
+            if log.user_id != int(user_id):
+                logger.warning(
+                    "User %s attempted to revert log %s belonging to user %s",
+                    user_id,
+                    log_id,
+                    log.user_id,
+                )
+                raise ValueError("Access denied")
+
+            # Get habit for the response
+            habit = await maybe_await(self.habit_repo.get_by_id(log.habit_id))
+            if not habit:
+                logger.error("Habit %s not found for log %s", log.habit_id, log_id)
+                raise ValueError("Associated habit not found")
+
+            # Store log info before deletion (for audit log)
+            log_id_before_deletion = log.id
+            reward_before_deletion = log.reward
+            reward_name = log.reward.name if log.reward else None
+            reward_reverted = bool(log.got_reward and log.reward_id)
+            reward_progress_model: RewardProgressModel | None = None
+
+            try:
+                progress, reward_name = await self._revert_log_transaction(
+                    log=log,
+                    user_id=log.user_id,
+                    reward_reverted=reward_reverted,
+                    reward_name=reward_name,
+                )
+            except ValueError as error:
+                logger.error(
+                    "Failed to delete habit log %s for user %s: %s",
+                    log.id,
+                    log.user_id,
+                    error,
+                )
+                raise
+
+            if progress:
+                reward_progress_model = RewardProgressModel.model_validate(
+                    progress,
+                    from_attributes=True,
+                )
+                reward_name = reward_name or getattr(progress.reward, "name", None)
+            elif reward_reverted:
+                logger.warning(
+                    "Reward progress missing during revert; rolling back without progress snapshot"
+                )
+
+            logger.info(
+                "Habit completion revert successful for log_id=%s, user=%s",
+                log_id,
+                log.user_id,
+            )
+
+            # Log habit revert to audit trail
+            revert_snapshot = {
+                "habit_name": habit.name,
+                "log_id": log_id_before_deletion,
+            }
+
+            if reward_reverted and reward_name:
+                revert_snapshot["reward_name"] = reward_name
+
+            if progress:
+                revert_snapshot["reward_progress"] = {
+                    "pieces_earned": progress.pieces_earned,
+                    "pieces_required": progress.get_pieces_required(),
+                    "claimed": progress.claimed,
+                }
+
+            await maybe_await(
+                self.audit_log_service.log_habit_revert(
+                    user_id=log.user_id,
+                    habit=habit,
+                    reward=reward_before_deletion if reward_reverted else None,
+                    habit_log=None,  # Don't pass deleted log (FK constraint)
+                    progress_snapshot=revert_snapshot,
+                )
+            )
+
+            return HabitRevertResult(
+                habit_name=habit.name,
+                reward_reverted=reward_reverted,
+                reward_name=reward_name,
+                reward_progress=reward_progress_model,
+                success=True,
+            )
+
+        return run_sync_or_async(_impl())
+
     def get_habit_by_name(
         self,
         user_id: int | str,
