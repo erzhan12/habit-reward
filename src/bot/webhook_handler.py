@@ -31,6 +31,7 @@ def setup_handlers_sync():
     from src.bot.handlers.command_handlers import start_command, help_command
     from src.bot.handlers.habit_done_handler import habit_done_conversation
     from src.bot.handlers.habit_revert_handler import habit_revert_conversation
+    from src.bot.handlers.backdate_handler import backdate_conversation
     from src.bot.handlers.habit_management_handler import (
         add_habit_conversation,
         edit_habit_conversation,
@@ -40,7 +41,8 @@ def setup_handlers_sync():
         list_rewards_command,
         my_rewards_command,
         claim_reward_conversation,
-        add_reward_conversation
+        add_reward_conversation,
+        edit_reward_conversation,
     )
     from src.bot.handlers.streak_handler import streaks_command
     from src.bot.handlers.settings_handler import settings_conversation
@@ -53,6 +55,7 @@ def setup_handlers_sync():
     # Add conversation handler for habit_done
     application.add_handler(habit_done_conversation)
     application.add_handler(habit_revert_conversation)
+    application.add_handler(backdate_conversation)
 
     # Add habit management conversation handlers
     application.add_handler(add_habit_conversation)
@@ -64,6 +67,7 @@ def setup_handlers_sync():
     application.add_handler(CommandHandler("my_rewards", my_rewards_command))
     application.add_handler(claim_reward_conversation)
     application.add_handler(add_reward_conversation)
+    application.add_handler(edit_reward_conversation)
 
     # Add streak handler
     application.add_handler(CommandHandler("streaks", streaks_command))

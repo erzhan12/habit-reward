@@ -7,7 +7,8 @@
 #   ./scripts/test_api.sh
 #
 # Prerequisites:
-#   - API server running on localhost:8000 (uvicorn asgi:app --port 8000)
+#   - FastAPI server running on localhost:8000 (uvicorn asgi:app --host 0.0.0.0 --port 8000 --reload)
+#   - Note: This is different from the Django ASGI app (src.habit_reward_project.asgi:application) used for webhooks
 #   - curl and jq installed
 #   - Python/Django environment available
 #
@@ -325,8 +326,12 @@ check_api_server() {
         echo -e "  ${GREEN}OK${NC}: API server is running at http://localhost:8000"
         echo -e "  ${GREEN}OK${NC}: API endpoints available at ${BASE_URL}"
     else
-        echo -e "${RED}ERROR: API server is not running at http://localhost:8000${NC}"
-        echo -e "${YELLOW}Please start the server with: uvicorn asgi:app --port 8000${NC}"
+        echo -e "${RED}ERROR: FastAPI server is not running at http://localhost:8000${NC}"
+        echo -e "${YELLOW}Please start the FastAPI server with:${NC}"
+        echo -e "${YELLOW}  uvicorn asgi:app --host 0.0.0.0 --port 8000 --reload${NC}"
+        echo ""
+        echo -e "${YELLOW}Note: This is different from the Django ASGI app used for webhooks:${NC}"
+        echo -e "${YELLOW}  uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000 --reload${NC}"
         exit 1
     fi
 }
