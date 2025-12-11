@@ -16,7 +16,9 @@ from src.bot.handlers.reward_handlers import (
     reward_weight_received,
     AWAITING_REWARD_NAME,
     AWAITING_REWARD_TYPE,
-    AWAITING_REWARD_WEIGHT
+    AWAITING_REWARD_WEIGHT,
+    menu_edit_reward_callback,
+    AWAITING_REWARD_EDIT_SELECTION,
 )
 from src.bot.handlers.menu_handler import (
     open_habits_menu_callback,
@@ -27,7 +29,7 @@ from src.bot.handlers.habit_management_handler import (
     remove_back_to_list,
     AWAITING_REMOVE_SELECTION
 )
-from src.bot.keyboards import build_start_menu_keyboard
+from src.bot.keyboards import build_start_menu_keyboard, build_rewards_menu_keyboard
 from src.models.user import User
 from src.models.habit import Habit
 from src.bot.messages import msg
@@ -274,6 +276,16 @@ class TestStartMenuKeyboard:
         assert 'menu_back_start' not in callbacks  # not in root menu
 
 
+class TestRewardsMenuKeyboard:
+    """Tests for the Rewards submenu keyboard layout."""
+
+    def test_rewards_menu_contains_edit_button(self, language):
+        keyboard = build_rewards_menu_keyboard(language)
+        rows = keyboard.inline_keyboard
+        callbacks = [btn.callback_data for row in rows for btn in row]
+        assert "menu_rewards_edit" in callbacks
+
+
 @pytest.fixture
 def mock_callback_update(mock_telegram_user):
     """Create a mock update with callback_query and chat for menu tests."""
@@ -313,6 +325,54 @@ class TestMenuHandlers:
         mock_callback_update.callback_query.data = 'menu_back_start'
         await open_start_menu_callback(mock_callback_update, context=None)
         mock_callback_update.callback_query.edit_message_text.assert_called_once()
+
+
+class TestEditRewardFromMenu:
+    """Unit tests for Rewards -> Edit flow entry point."""
+
+    @pytest.mark.asyncio
+    @patch("src.bot.handlers.reward_handlers.reward_repository")
+    @patch("src.bot.handlers.reward_handlers.user_repository")
+    async def test_no_rewards_shows_error(
+        self, mock_user_repo, mock_reward_repo, mock_callback_update, mock_active_user, language
+    ):
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+        mock_reward_repo.get_all_active = AsyncMock(return_value=[])
+
+        context = Mock()
+        context.user_data = {}
+
+        result = await menu_edit_reward_callback(mock_callback_update, context=context)
+
+        assert result == ConversationHandler.END
+        call_args = mock_callback_update.callback_query.edit_message_text.call_args
+        assert msg("ERROR_NO_REWARDS_TO_EDIT", language) in call_args.args[0]
+        assert call_args.kwargs.get("reply_markup") is not None
+
+    @pytest.mark.asyncio
+    @patch("src.bot.handlers.reward_handlers.reward_repository")
+    @patch("src.bot.handlers.reward_handlers.user_repository")
+    async def test_rewards_present_shows_selection(
+        self, mock_user_repo, mock_reward_repo, mock_callback_update, mock_active_user, language
+    ):
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+        reward1 = Mock()
+        reward1.id = 1
+        reward1.name = "Coffee"
+        reward2 = Mock()
+        reward2.id = 2
+        reward2.name = "Walk"
+        mock_reward_repo.get_all_active = AsyncMock(return_value=[reward1, reward2])
+
+        context = Mock()
+        context.user_data = {}
+
+        result = await menu_edit_reward_callback(mock_callback_update, context=context)
+
+        assert result == AWAITING_REWARD_EDIT_SELECTION
+        call_args = mock_callback_update.callback_query.edit_message_text.call_args
+        assert call_args.args[0] == msg("HELP_EDIT_REWARD_SELECT", language)
+        assert call_args.kwargs.get("reply_markup") is not None
 
 
 class TestSimpleHabitDoneFlow:

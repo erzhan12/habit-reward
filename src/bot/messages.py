@@ -80,6 +80,7 @@ class Messages:
     BUTTON_REMOVE_HABIT = "🗑 Remove Habit"
     BUTTON_REVERT_HABIT = "↩️ Revert Habit"
     BUTTON_ADD_REWARD = "➕ Add Reward"
+    BUTTON_EDIT_REWARD_MENU = "✏️ Edit Reward"
     BUTTON_LIST_REWARDS = "📄 List Rewards"
     BUTTON_MY_REWARDS = "📊 My Rewards"
     BUTTON_CLAIM_REWARD = "🎯 Claim Reward"
@@ -229,11 +230,34 @@ Your streak multiplier increases your chances of getting rewards!"""
     BUTTON_ADD_ANOTHER_REWARD = "➕ Add Another Reward"
     BUTTON_BACK_TO_REWARDS = "🎁 Back to Rewards"
     BUTTON_SKIP = "⏭ Skip"
+    BUTTON_CLEAR = "🧹 Clear"
     BUTTON_CONFIRM = "✅ Create Reward"
     BUTTON_EDIT_REWARD = "✏️ Edit Details"
     BUTTON_PIECES_NOT_ACCUMULATIVE = "1 (Not accumulative)"
     TEXT_NOT_SET = "Not set"
     KEYWORD_SKIP = "skip"
+
+    HELP_EDIT_REWARD_SELECT = "Select a reward to edit:"
+    ERROR_NO_REWARDS_TO_EDIT = "❌ You don't have any rewards to edit."
+    HELP_EDIT_REWARD_NAME_PROMPT = "Current name: <b>{current_name}</b>\n\nEnter new name:"
+    HELP_EDIT_REWARD_TYPE_PROMPT = "Current type: <b>{current_type}</b>\n\nSelect new type:"
+    HELP_EDIT_REWARD_WEIGHT_PROMPT = "Current weight: <b>{current_weight}</b>\n\nSelect a new weight (or type one):"
+    HELP_EDIT_REWARD_PIECES_PROMPT = "Current pieces required: <b>{current_pieces}</b>\n\nEnter new pieces required:"
+    HELP_EDIT_REWARD_PIECE_VALUE_PROMPT = (
+        "Current piece value: <b>{current_value}</b>\n\n"
+        "Enter new piece value, tap Clear to remove it, or Skip to keep current:"
+    )
+    HELP_EDIT_REWARD_CONFIRM = (
+        "Review changes:\n"
+        "<b>Name:</b> {old_name} → {new_name}\n"
+        "<b>Type:</b> {old_type} → {new_type}\n"
+        "<b>Weight:</b> {old_weight} → {new_weight}\n"
+        "<b>Pieces Required:</b> {old_pieces} → {new_pieces}\n"
+        "<b>Piece Value:</b> {old_value} → {new_value}\n\n"
+        "Save changes?"
+    )
+    SUCCESS_REWARD_UPDATED = "✅ Reward '<b>{name}</b>' updated successfully!"
+    INFO_REWARD_EDIT_CANCEL = "❌ Reward editing cancelled."
 
     # Settings Menu
     SETTINGS_MENU = "⚙️ <b>Settings</b>\n\nSelect an option:"
@@ -316,6 +340,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'BUTTON_REMOVE_HABИТ': "🗑 Удалить привычку",
             'BUTTON_REVERT_HABIT': "↩️ Отменить выполнение",
             'BUTTON_ADD_REWARD': "➕ Добавить награду",
+            'BUTTON_EDIT_REWARD_MENU': "✏️ Изменить награду",
             'BUTTON_LIST_REWARDS': "📄 Список наград",
             'BUTTON_MY_REWARDS': "📊 Мои награды",
             'BUTTON_CLAIM_REWARD': "🎯 Получить награду",
@@ -465,11 +490,34 @@ Your streak multiplier increases your chances of getting rewards!"""
             'BUTTON_ADD_ANOTHER_REWARD': "➕ Добавить ещё награду",
             'BUTTON_BACK_TO_REWARDS': "🎁 Назад к наградам",
             'BUTTON_SKIP': "⏭ Пропустить",
+            'BUTTON_CLEAR': "🧹 Очистить",
             'BUTTON_CONFIRM': "✅ Создать награду",
             'BUTTON_EDIT_REWARD': "✏️ Изменить данные",
             'BUTTON_PIECES_NOT_ACCUMULATIVE': "1 (Без накопления)",
             'TEXT_NOT_SET': "Не указано",
             'KEYWORD_SKIP': "пропустить",
+
+            'HELP_EDIT_REWARD_SELECT': "Выберите награду для редактирования:",
+            'ERROR_NO_REWARDS_TO_EDIT': "❌ У вас нет наград для редактирования.",
+            'HELP_EDIT_REWARD_NAME_PROMPT': "Текущее название: <b>{current_name}</b>\n\nВведите новое название:",
+            'HELP_EDIT_REWARD_TYPE_PROMPT': "Текущий тип: <b>{current_type}</b>\n\nВыберите новый тип:",
+            'HELP_EDIT_REWARD_WEIGHT_PROMPT': "Текущий вес: <b>{current_weight}</b>\n\nВыберите новый вес (или введите вручную):",
+            'HELP_EDIT_REWARD_PIECES_PROMPT': "Текущее количество частей: <b>{current_pieces}</b>\n\nВведите новое количество частей:",
+            'HELP_EDIT_REWARD_PIECE_VALUE_PROMPT': (
+                "Текущая ценность части: <b>{current_value}</b>\n\n"
+                "Введите новую ценность, нажмите «Очистить» чтобы убрать её, или «Пропустить» чтобы оставить:"
+            ),
+            'HELP_EDIT_REWARD_CONFIRM': (
+                "Проверьте изменения:\n"
+                "<b>Название:</b> {old_name} → {new_name}\n"
+                "<b>Тип:</b> {old_type} → {new_type}\n"
+                "<b>Вес:</b> {old_weight} → {new_weight}\n"
+                "<b>Количество частей:</b> {old_pieces} → {new_pieces}\n"
+                "<b>Ценность части:</b> {old_value} → {new_value}\n\n"
+                "Сохранить изменения?"
+            ),
+            'SUCCESS_REWARD_UPDATED': "✅ Награда '<b>{name}</b>' успешно обновлена!",
+            'INFO_REWARD_EDIT_CANCEL': "❌ Редактирование награды отменено.",
 
             # Settings Menu
             'SETTINGS_MENU': "⚙️ <b>Настройки</b>\n\nВыберите опцию:",
@@ -550,6 +598,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'BUTTON_REMOVE_HABIT': "🗑 Әдетті жою",
             'BUTTON_REVERT_HABIT': "↩️ Әдетті қайтару",
             'BUTTON_ADD_REWARD': "➕ Марапат қосу",
+            'BUTTON_EDIT_REWARD_MENU': "✏️ Марапатты өңдеу",
             'BUTTON_LIST_REWARDS': "📄 Марапаттар тізімі",
             'BUTTON_MY_REWARDS': "📊 Менің марапаттарым",
             'BUTTON_CLAIM_REWARD': "🎯 Марапат алу",
@@ -699,11 +748,34 @@ Your streak multiplier increases your chances of getting rewards!"""
             'BUTTON_ADD_ANOTHER_REWARD': "➕ Тағы бір сыйлық қосу",
             'BUTTON_BACK_TO_REWARDS': "🎁 Сыйлықтар мәзіріне оралу",
             'BUTTON_SKIP': "⏭ Өткізу",
+            'BUTTON_CLEAR': "🧹 Тазарту",
             'BUTTON_CONFIRM': "✅ Сыйлық жасау",
             'BUTTON_EDIT_REWARD': "✏️ Мәліметтерді түзету",
             'BUTTON_PIECES_NOT_ACCUMULATIVE': "1 (Жинақсыз)",
             'TEXT_NOT_SET': "Көрсетілмеген",
             'KEYWORD_SKIP': "өткізу",
+
+            'HELP_EDIT_REWARD_SELECT': "Өңдеу үшін марапатты таңдаңыз:",
+            'ERROR_NO_REWARDS_TO_EDIT': "❌ Өңдеуге марапаттарыңыз жоқ.",
+            'HELP_EDIT_REWARD_NAME_PROMPT': "Ағымдағы атауы: <b>{current_name}</b>\n\nЖаңа атауын енгізіңіз:",
+            'HELP_EDIT_REWARD_TYPE_PROMPT': "Ағымдағы түрі: <b>{current_type}</b>\n\nЖаңа түрін таңдаңыз:",
+            'HELP_EDIT_REWARD_WEIGHT_PROMPT': "Ағымдағы салмағы: <b>{current_weight}</b>\n\nЖаңа салмақты таңдаңыз (немесе енгізіңіз):",
+            'HELP_EDIT_REWARD_PIECES_PROMPT': "Ағымдағы қажет бөліктер: <b>{current_pieces}</b>\n\nЖаңа қажет бөліктер санын енгізіңіз:",
+            'HELP_EDIT_REWARD_PIECE_VALUE_PROMPT': (
+                "Ағымдағы бөлік құны: <b>{current_value}</b>\n\n"
+                "Жаңа құнды енгізіңіз, алып тастау үшін «Тазарту», сақтау үшін «Өткізу» басыңыз:"
+            ),
+            'HELP_EDIT_REWARD_CONFIRM': (
+                "Өзгерістерді тексеріңіз:\n"
+                "<b>Атауы:</b> {old_name} → {new_name}\n"
+                "<b>Түрі:</b> {old_type} → {new_type}\n"
+                "<b>Салмағы:</b> {old_weight} → {new_weight}\n"
+                "<b>Қажет бөліктер:</b> {old_pieces} → {new_pieces}\n"
+                "<b>Бөлік құны:</b> {old_value} → {new_value}\n\n"
+                "Өзгерістерді сақтау керек пе?"
+            ),
+            'SUCCESS_REWARD_UPDATED': "✅ '<b>{name}</b>' марапаты сәтті жаңартылды!",
+            'INFO_REWARD_EDIT_CANCEL': "❌ Марапатты өңдеу тоқтатылды.",
 
             # Settings Menu
             'SETTINGS_MENU': "⚙️ <b>Параметрлер</b>\n\nОпцияны таңдаңыз:",

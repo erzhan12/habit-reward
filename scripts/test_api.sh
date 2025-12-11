@@ -744,6 +744,34 @@ test_reward_crud() {
     assert_status 200 "$RESPONSE_STATUS" "Update reward returns 200"
     assert_json_field "$RESPONSE_BODY" "name" "Extra Gaming Time" "Name was updated"
 
+    # Test 5b: Update reward type
+    response=$(http_patch "${BASE_URL}/rewards/${REWARD1_ID}" '{"type": "real"}' "$USER1_TOKEN")
+    parse_response "$response"
+
+    assert_status 200 "$RESPONSE_STATUS" "Update reward type returns 200"
+    assert_json_field "$RESPONSE_BODY" "type" "real" "Type was updated"
+
+    # Test 5c: Update reward pieces_required
+    response=$(http_patch "${BASE_URL}/rewards/${REWARD1_ID}" '{"pieces_required": 7}' "$USER1_TOKEN")
+    parse_response "$response"
+
+    assert_status 200 "$RESPONSE_STATUS" "Update reward pieces_required returns 200"
+    assert_json_field "$RESPONSE_BODY" "pieces_required" "7" "pieces_required was updated"
+
+    # Test 5d: Clear reward piece_value (set to null)
+    response=$(http_patch "${BASE_URL}/rewards/${REWARD1_ID}" '{"piece_value": null}' "$USER1_TOKEN")
+    parse_response "$response"
+
+    assert_status 200 "$RESPONSE_STATUS" "Clear reward piece_value returns 200"
+    # jq will output null for this field when cleared
+    if [ "$(echo "$RESPONSE_BODY" | jq -r '.piece_value')" = "null" ]; then
+        echo -e "  ${GREEN}PASS${NC}: piece_value cleared (null)"
+        ((PASSED++))
+    else
+        echo -e "  ${RED}FAIL${NC}: piece_value not cleared"
+        ((FAILED++))
+    fi
+
     # Test 6: Create duplicate reward name (error)
     response=$(http_post "${BASE_URL}/rewards" '{"name": "Extra Gaming Time"}' "$USER1_TOKEN")
     parse_response "$response"

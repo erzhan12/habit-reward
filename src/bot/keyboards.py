@@ -711,10 +711,182 @@ def build_rewards_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     """
     keyboard = [
         [InlineKeyboardButton(text=msg('BUTTON_ADD_REWARD', language), callback_data="menu_rewards_add")],
+        [InlineKeyboardButton(text=msg('BUTTON_EDIT_REWARD_MENU', language), callback_data="menu_rewards_edit")],
         [InlineKeyboardButton(text=msg('BUTTON_LIST_REWARDS', language), callback_data="menu_rewards_list")],
         [InlineKeyboardButton(text=msg('BUTTON_MY_REWARDS', language), callback_data="menu_rewards_my")],
         [InlineKeyboardButton(text=msg('BUTTON_CLAIM_REWARD', language), callback_data="menu_rewards_claim")],
         [InlineKeyboardButton(text=msg('MENU_BACK', language), callback_data="menu_back_start")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_rewards_for_edit_keyboard(
+    rewards: list[Reward],
+    language: str = "en",
+) -> InlineKeyboardMarkup:
+    """Build inline keyboard for selecting a reward to edit."""
+    keyboard: list[list[InlineKeyboardButton]] = []
+
+    for reward in rewards:
+        keyboard.append([
+            InlineKeyboardButton(
+                text=reward.name,
+                callback_data=f"edit_reward_{reward.id}"
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(
+            text=msg('MENU_BACK', language),
+            callback_data="reward_edit_back"
+        )
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_skip_cancel_keyboard(
+    language: str = "en",
+    skip_callback: str = "reward_edit_skip",
+) -> InlineKeyboardMarkup:
+    """Build inline keyboard with Skip and Cancel buttons for reward edit flow."""
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('BUTTON_SKIP', language),
+            callback_data=skip_callback
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_edit_type_keyboard(
+    current_type: str | None = None,
+    language: str = "en",
+) -> InlineKeyboardMarkup:
+    """Build type selection keyboard for reward edit flow (with Skip/Cancel)."""
+    def _label(type_key: str, base_key: str) -> str:
+        text = msg(base_key, language)
+        return f"✓ {text}" if current_type == type_key else text
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text=_label("virtual", "BUTTON_REWARD_TYPE_VIRTUAL"),
+                callback_data="edit_reward_type_virtual"
+            ),
+            InlineKeyboardButton(
+                text=_label("real", "BUTTON_REWARD_TYPE_REAL"),
+                callback_data="edit_reward_type_real"
+            )
+        ],
+        [InlineKeyboardButton(
+            text=_label("none", "BUTTON_REWARD_TYPE_NONE"),
+            callback_data="edit_reward_type_none"
+        )],
+        [InlineKeyboardButton(
+            text=msg('BUTTON_SKIP', language),
+            callback_data="edit_reward_type_skip"
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_edit_weight_keyboard(
+    current_weight: float | None = None,
+    language: str = "en",
+) -> InlineKeyboardMarkup:
+    """Build weight selection keyboard for reward edit flow (with Skip/Cancel)."""
+    keyboard: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+
+    # Quick options 10..100 (like create flow)
+    for idx, weight in enumerate(range(10, 101, 10), start=1):
+        is_current = False
+        if current_weight is not None:
+            try:
+                is_current = float(current_weight) == float(weight)
+            except Exception:
+                is_current = False
+        text = f"✓ {weight}" if is_current else str(weight)
+        row.append(InlineKeyboardButton(text=text, callback_data=f"edit_reward_weight_{weight}"))
+        if idx % 3 == 0:
+            keyboard.append(row)
+            row = []
+
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([
+        InlineKeyboardButton(text=msg('BUTTON_SKIP', language), callback_data="edit_reward_weight_skip")
+    ])
+    keyboard.append([
+        InlineKeyboardButton(text=msg('MENU_CANCEL', language), callback_data="cancel_reward_flow")
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_edit_pieces_keyboard(language: str = "en") -> InlineKeyboardMarkup:
+    """Build pieces selection keyboard for reward edit flow (quick 1 + Skip/Cancel)."""
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('BUTTON_PIECES_NOT_ACCUMULATIVE', language),
+            callback_data="edit_reward_pieces_1"
+        )],
+        [InlineKeyboardButton(
+            text=msg('BUTTON_SKIP', language),
+            callback_data="edit_reward_pieces_skip"
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_edit_piece_value_keyboard(language: str = "en") -> InlineKeyboardMarkup:
+    """Build piece value keyboard for reward edit flow (Skip/Clear/Cancel)."""
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('BUTTON_SKIP', language),
+            callback_data="edit_reward_value_skip"
+        )],
+        [InlineKeyboardButton(
+            text=msg('BUTTON_CLEAR', language),
+            callback_data="edit_reward_value_clear"
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_edit_confirm_keyboard(language: str = "en") -> InlineKeyboardMarkup:
+    """Build confirmation keyboard for reward edit flow."""
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('BUTTON_YES', language),
+            callback_data="reward_edit_confirm_yes"
+        )],
+        [InlineKeyboardButton(
+            text=msg('BUTTON_NO', language),
+            callback_data="reward_edit_confirm_no"
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )],
     ]
     return InlineKeyboardMarkup(keyboard)
 

@@ -7,6 +7,7 @@ as the Airtable repositories, allowing services to work without changes.
 import logging
 from datetime import date
 from typing import Any
+from decimal import Decimal
 from asgiref.sync import sync_to_async
 from django.db.models import F
 
@@ -256,6 +257,30 @@ class RewardRepository:
             if reward.piece_value is not None:
                 data["piece_value"] = reward.piece_value
             return await sync_to_async(Reward.objects.create)(**data)
+
+    async def update(self, reward_id: int | str, updates: dict[str, Any]) -> Reward:
+        """Update reward fields.
+
+        Args:
+            reward_id: Django primary key
+            updates: Dict with fields to update (name, weight, type, pieces_required, piece_value, max_daily_claims, active)
+
+        Returns:
+            Updated Reward instance
+        """
+        pk = int(reward_id) if isinstance(reward_id, str) else reward_id
+
+        # Normalize piece_value to Decimal when provided as float/int/str
+        if "piece_value" in updates and updates["piece_value"] is not None:
+            value = updates["piece_value"]
+            if isinstance(value, Decimal):
+                normalized = value
+            else:
+                normalized = Decimal(str(value))
+            updates["piece_value"] = normalized
+
+        await sync_to_async(Reward.objects.filter(pk=pk).update)(**updates)
+        return await sync_to_async(Reward.objects.get)(pk=pk)
 
 
 class RewardProgressRepository:

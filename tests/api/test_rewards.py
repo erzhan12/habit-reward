@@ -214,6 +214,38 @@ class TestUpdateReward:
         assert data["piece_value"] is None
 
     @patch("src.api.v1.routers.rewards.reward_repository")
+    def test_update_reward_type_success(self, mock_repo, client, mock_reward):
+        """Test updating reward type."""
+        updated_reward = mock_reward
+        updated_reward.type = "real"
+        mock_repo.get_by_id = AsyncMock(side_effect=[mock_reward, updated_reward])
+        mock_repo.get_by_name = AsyncMock(return_value=None)
+
+        response = client.patch(
+            f"/v1/rewards/{mock_reward.id}", json={"type": "real"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["type"] == "real"
+
+    @patch("src.api.v1.routers.rewards.reward_repository")
+    def test_update_reward_pieces_required_success(self, mock_repo, client, mock_reward):
+        """Test updating pieces_required."""
+        updated_reward = mock_reward
+        updated_reward.pieces_required = 7
+        mock_repo.get_by_id = AsyncMock(side_effect=[mock_reward, updated_reward])
+        mock_repo.get_by_name = AsyncMock(return_value=None)
+
+        response = client.patch(
+            f"/v1/rewards/{mock_reward.id}", json={"pieces_required": 7}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["pieces_required"] == 7
+
+    @patch("src.api.v1.routers.rewards.reward_repository")
     def test_update_reward_not_found(self, mock_repo, client):
         """Test updating non-existent reward."""
         mock_repo.get_by_id = AsyncMock(return_value=None)

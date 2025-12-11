@@ -30,7 +30,14 @@ from src.bot.keyboards import (
     build_reward_piece_value_keyboard,
     build_reward_confirmation_keyboard,
     build_reward_post_create_keyboard,
-    build_rewards_menu_keyboard
+    build_rewards_menu_keyboard,
+    build_rewards_for_edit_keyboard,
+    build_reward_skip_cancel_keyboard,
+    build_reward_edit_type_keyboard,
+    build_reward_edit_weight_keyboard,
+    build_reward_edit_pieces_keyboard,
+    build_reward_edit_piece_value_keyboard,
+    build_reward_edit_confirm_keyboard,
 )
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async, detect_language_from_telegram
@@ -58,7 +65,17 @@ AWAITING_REWARD_VALUE = 14
 AWAITING_REWARD_CONFIRM = 15
 AWAITING_REWARD_POST_ACTION = 16
 
+# Conversation states for reward edit
+AWAITING_REWARD_EDIT_SELECTION = 30
+AWAITING_REWARD_EDIT_NAME = 31
+AWAITING_REWARD_EDIT_TYPE = 32
+AWAITING_REWARD_EDIT_WEIGHT = 33
+AWAITING_REWARD_EDIT_PIECES = 34
+AWAITING_REWARD_EDIT_VALUE = 35
+AWAITING_REWARD_EDIT_CONFIRM = 36
+
 REWARD_DATA_KEY = "reward_creation_data"
+REWARD_EDIT_DATA_KEY = "reward_edit_data"
 
 
 def _get_reward_context(context: ContextTypes.DEFAULT_TYPE) -> dict:
@@ -69,6 +86,36 @@ def _get_reward_context(context: ContextTypes.DEFAULT_TYPE) -> dict:
 def _clear_reward_context(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Clear stored reward creation data."""
     context.user_data.pop(REWARD_DATA_KEY, None)
+
+
+def _get_reward_edit_context(context: ContextTypes.DEFAULT_TYPE) -> dict:
+    """Return mutable dict holding interim reward edit data."""
+    return context.user_data.setdefault(REWARD_EDIT_DATA_KEY, {})
+
+
+def _clear_reward_edit_context(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Clear stored reward edit data."""
+    context.user_data.pop(REWARD_EDIT_DATA_KEY, None)
+
+
+def _reward_type_label(lang: str, reward_type: str | None) -> str:
+    type_mapping = {
+        RewardType.VIRTUAL.value: msg('BUTTON_REWARD_TYPE_VIRTUAL', lang),
+        RewardType.REAL.value: msg('BUTTON_REWARD_TYPE_REAL', lang),
+        RewardType.NONE.value: msg('BUTTON_REWARD_TYPE_NONE', lang),
+    }
+    if not reward_type:
+        return msg('TEXT_NOT_SET', lang)
+    return type_mapping.get(reward_type, str(reward_type))
+
+
+def _format_piece_value_display(lang: str, value) -> str:
+    if value is None:
+        return msg('TEXT_NOT_SET', lang)
+    try:
+        return f"{float(value):.2f}"
+    except Exception:
+        return str(value)
 
 
 def _format_reward_summary(lang: str, data: dict) -> str:
@@ -1027,6 +1074,669 @@ async def cancel_add_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
     return ConversationHandler.END
 
+
+# ============================================================================
+# /edit_reward CONVERSATION HANDLER (Rewards submenu)
+# ============================================================================
+
+async def edit_reward_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Entry point for /edit_reward command."""
+    telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+    logger.info("📨 Received /edit_reward command from user %s (@%s)", telegram_id, username)
+
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update)))
+        return ConversationHandler.END
+    if not user.is_active:
+        await update.message.reply_text(msg('ERROR_USER_INACTIVE', detect_language_from_telegram(update)))
+        return ConversationHandler.END
+
+    lang = user.language or await get_message_language_async(telegram_id, update)
+    rewards = await maybe_await(reward_repository.get_all_active(user.id))
+    if not rewards:
+        await update.message.reply_text(
+            msg('ERROR_NO_REWARDS_TO_EDIT', lang),
+            reply_markup=build_rewards_menu_keyboard(lang),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
+    keyboard = build_rewards_for_edit_keyboard(rewards, lang)
+    await update.message.reply_text(
+        msg('HELP_EDIT_REWARD_SELECT', lang),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_SELECTION
+
+
+async def menu_edit_reward_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Entry point when reward editing starts from Rewards submenu button."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    logger.info("📨 Received menu_rewards_edit callback from user %s", telegram_id)
+
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    fallback_lang = detect_language_from_telegram(update)
+    if not user:
+        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', fallback_lang))
+        return ConversationHandler.END
+    if not user.is_active:
+        await query.edit_message_text(msg('ERROR_USER_INACTIVE', fallback_lang))
+        return ConversationHandler.END
+
+    lang = user.language or await get_message_language_async(telegram_id, update)
+    rewards = await maybe_await(reward_repository.get_all_active(user.id))
+    if not rewards:
+        await query.edit_message_text(
+            msg('ERROR_NO_REWARDS_TO_EDIT', lang),
+            reply_markup=build_rewards_menu_keyboard(lang),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
+    _clear_reward_edit_context(context)
+    keyboard = build_rewards_for_edit_keyboard(rewards, lang)
+    await query.edit_message_text(
+        msg('HELP_EDIT_REWARD_SELECT', lang),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_SELECTION
+
+
+async def reward_edit_back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Back from reward selection to rewards menu."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+
+    _clear_reward_edit_context(context)
+    await query.edit_message_text(
+        msg('REWARDS_MENU_TITLE', lang),
+        reply_markup=build_rewards_menu_keyboard(lang),
+        parse_mode="HTML",
+    )
+    return ConversationHandler.END
+
+
+async def reward_edit_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle reward selection for editing."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    callback_data = query.data
+
+    reward_id = callback_data.replace("edit_reward_", "")
+    reward = await maybe_await(reward_repository.get_by_id(reward_id))
+    if not reward:
+        await query.edit_message_text(msg('ERROR_GENERAL', lang, error="Reward not found"), parse_mode="HTML")
+        return ConversationHandler.END
+
+    # Validate ownership (multi-user safety)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user or reward.user_id != user.id:
+        await query.edit_message_text(msg('ERROR_GENERAL', lang, error="Access denied"), parse_mode="HTML")
+        return ConversationHandler.END
+
+    data = _get_reward_edit_context(context)
+    data.clear()
+    data["reward_id"] = reward.id
+    data["old_name"] = reward.name
+    data["old_type"] = reward.type
+    data["old_weight"] = float(reward.weight)
+    data["old_pieces_required"] = int(reward.pieces_required)
+    data["old_piece_value"] = reward.piece_value
+
+    # Prompt for name
+    keyboard = build_reward_skip_cancel_keyboard(lang, skip_callback="reward_edit_skip_name")
+    await query.edit_message_text(
+        msg('HELP_EDIT_REWARD_NAME_PROMPT', lang, current_name=html.escape(reward.name)),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_NAME
+
+
+async def reward_edit_name_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skip name edit -> proceed to type."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    data = _get_reward_edit_context(context)
+    data["new_name"] = data.get("old_name")
+
+    current_type = data.get("old_type")
+    keyboard = build_reward_edit_type_keyboard(current_type=current_type, language=lang)
+    await query.edit_message_text(
+        msg('HELP_EDIT_REWARD_TYPE_PROMPT', lang, current_type=_reward_type_label(lang, current_type)),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_TYPE
+
+
+async def reward_edit_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle new reward name input."""
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    name = (update.message.text or "").strip()
+
+    if not name:
+        await update.message.reply_text(
+            msg('ERROR_REWARD_NAME_EMPTY', lang),
+            reply_markup=build_reward_skip_cancel_keyboard(lang, skip_callback="reward_edit_skip_name"),
+            parse_mode="HTML",
+        )
+        return AWAITING_REWARD_EDIT_NAME
+
+    if len(name) > REWARD_NAME_MAX_LENGTH:
+        await update.message.reply_text(
+            msg('ERROR_REWARD_NAME_TOO_LONG', lang),
+            reply_markup=build_reward_skip_cancel_keyboard(lang, skip_callback="reward_edit_skip_name"),
+            parse_mode="HTML",
+        )
+        return AWAITING_REWARD_EDIT_NAME
+
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update)))
+        return ConversationHandler.END
+
+    data = _get_reward_edit_context(context)
+    reward_id = data.get("reward_id")
+    existing = await maybe_await(reward_repository.get_by_name(user.id, name))
+    if existing and str(getattr(existing, "id", "")) != str(reward_id):
+        await update.message.reply_text(
+            msg('ERROR_REWARD_NAME_EXISTS', lang),
+            reply_markup=build_reward_skip_cancel_keyboard(lang, skip_callback="reward_edit_skip_name"),
+            parse_mode="HTML",
+        )
+        return AWAITING_REWARD_EDIT_NAME
+
+    data["new_name"] = name
+
+    current_type = data.get("old_type")
+    keyboard = build_reward_edit_type_keyboard(current_type=current_type, language=lang)
+    await update.message.reply_text(
+        msg('HELP_EDIT_REWARD_TYPE_PROMPT', lang, current_type=_reward_type_label(lang, current_type)),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_TYPE
+
+
+async def reward_edit_type_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skip type edit -> proceed to weight."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    data = _get_reward_edit_context(context)
+    data["new_type"] = data.get("old_type")
+
+    current_weight = data.get("old_weight")
+    keyboard = build_reward_edit_weight_keyboard(current_weight=current_weight, language=lang)
+    await query.edit_message_text(
+        msg('HELP_EDIT_REWARD_WEIGHT_PROMPT', lang, current_weight=f"{current_weight:.2f}"),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_WEIGHT
+
+
+async def reward_edit_type_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle reward type selection for editing."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    callback_data = query.data.replace("edit_reward_type_", "")
+
+    if callback_data not in ("virtual", "real", "none"):
+        await query.answer("Unknown reward type", show_alert=True)
+        return AWAITING_REWARD_EDIT_TYPE
+
+    data = _get_reward_edit_context(context)
+    data["new_type"] = callback_data
+
+    current_weight = data.get("old_weight")
+    keyboard = build_reward_edit_weight_keyboard(current_weight=current_weight, language=lang)
+    await query.edit_message_text(
+        msg('HELP_EDIT_REWARD_WEIGHT_PROMPT', lang, current_weight=f"{current_weight:.2f}"),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_WEIGHT
+
+
+async def reward_edit_weight_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skip weight edit -> proceed to pieces."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    data = _get_reward_edit_context(context)
+    data["new_weight"] = data.get("old_weight")
+
+    current_pieces = data.get("old_pieces_required")
+    keyboard = build_reward_edit_pieces_keyboard(lang)
+    await query.edit_message_text(
+        msg('HELP_EDIT_REWARD_PIECES_PROMPT', lang, current_pieces=current_pieces),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_PIECES
+
+
+async def reward_edit_weight_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle quick weight selection for editing."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    try:
+        weight_value = float(query.data.replace("edit_reward_weight_", ""))
+    except ValueError:
+        await query.answer("Invalid weight", show_alert=True)
+        return AWAITING_REWARD_EDIT_WEIGHT
+
+    if not (REWARD_WEIGHT_MIN <= weight_value <= REWARD_WEIGHT_MAX):
+        await query.answer(
+            msg('ERROR_REWARD_WEIGHT_INVALID', lang, min=REWARD_WEIGHT_MIN, max=REWARD_WEIGHT_MAX),
+            show_alert=True
+        )
+        return AWAITING_REWARD_EDIT_WEIGHT
+
+    data = _get_reward_edit_context(context)
+    data["new_weight"] = weight_value
+
+    current_pieces = data.get("old_pieces_required")
+    keyboard = build_reward_edit_pieces_keyboard(lang)
+    await query.edit_message_text(
+        msg('HELP_EDIT_REWARD_PIECES_PROMPT', lang, current_pieces=current_pieces),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_PIECES
+
+
+async def reward_edit_weight_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle manually entered reward weight for editing."""
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    text = (update.message.text or "").strip().replace(",", ".")
+
+    try:
+        weight_value = float(text)
+    except ValueError:
+        await update.message.reply_text(
+            msg('ERROR_REWARD_WEIGHT_INVALID', lang, min=REWARD_WEIGHT_MIN, max=REWARD_WEIGHT_MAX),
+            reply_markup=build_reward_edit_weight_keyboard(language=lang),
+            parse_mode="HTML",
+        )
+        return AWAITING_REWARD_EDIT_WEIGHT
+
+    if not (REWARD_WEIGHT_MIN <= weight_value <= REWARD_WEIGHT_MAX):
+        await update.message.reply_text(
+            msg('ERROR_REWARD_WEIGHT_INVALID', lang, min=REWARD_WEIGHT_MIN, max=REWARD_WEIGHT_MAX),
+            reply_markup=build_reward_edit_weight_keyboard(language=lang),
+            parse_mode="HTML",
+        )
+        return AWAITING_REWARD_EDIT_WEIGHT
+
+    data = _get_reward_edit_context(context)
+    data["new_weight"] = weight_value
+
+    current_pieces = data.get("old_pieces_required")
+    keyboard = build_reward_edit_pieces_keyboard(lang)
+    await update.message.reply_text(
+        msg('HELP_EDIT_REWARD_PIECES_PROMPT', lang, current_pieces=current_pieces),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_PIECES
+
+
+async def reward_edit_pieces_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skip pieces edit -> proceed to piece value."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    data = _get_reward_edit_context(context)
+    data["new_pieces_required"] = data.get("old_pieces_required")
+
+    current_value = _format_piece_value_display(lang, data.get("old_piece_value"))
+    keyboard = build_reward_edit_piece_value_keyboard(lang)
+    await query.edit_message_text(
+        msg('HELP_EDIT_REWARD_PIECE_VALUE_PROMPT', lang, current_value=current_value),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_VALUE
+
+
+async def reward_edit_pieces_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle quick pieces selection (1) for editing."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    data = _get_reward_edit_context(context)
+    data["new_pieces_required"] = 1
+
+    current_value = _format_piece_value_display(lang, data.get("old_piece_value"))
+    keyboard = build_reward_edit_piece_value_keyboard(lang)
+    await query.edit_message_text(
+        msg('HELP_EDIT_REWARD_PIECE_VALUE_PROMPT', lang, current_value=current_value),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_VALUE
+
+
+async def reward_edit_pieces_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle manually entered pieces required for editing."""
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    text = (update.message.text or "").strip()
+
+    try:
+        pieces_required = int(text)
+    except ValueError:
+        await update.message.reply_text(
+            msg('ERROR_REWARD_PIECES_INVALID', lang),
+            reply_markup=build_reward_edit_pieces_keyboard(lang),
+            parse_mode="HTML",
+        )
+        return AWAITING_REWARD_EDIT_PIECES
+
+    if pieces_required < REWARD_PIECES_MIN:
+        await update.message.reply_text(
+            msg('ERROR_REWARD_PIECES_INVALID', lang),
+            reply_markup=build_reward_edit_pieces_keyboard(lang),
+            parse_mode="HTML",
+        )
+        return AWAITING_REWARD_EDIT_PIECES
+
+    data = _get_reward_edit_context(context)
+    data["new_pieces_required"] = pieces_required
+
+    current_value = _format_piece_value_display(lang, data.get("old_piece_value"))
+    keyboard = build_reward_edit_piece_value_keyboard(lang)
+    await update.message.reply_text(
+        msg('HELP_EDIT_REWARD_PIECE_VALUE_PROMPT', lang, current_value=current_value),
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_VALUE
+
+
+async def reward_edit_value_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skip piece value edit -> proceed to confirmation."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    data = _get_reward_edit_context(context)
+    data["new_piece_value"] = data.get("old_piece_value")
+
+    return await _reward_edit_show_confirm(query, context, lang)
+
+
+async def reward_edit_value_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Clear piece value -> proceed to confirmation."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    data = _get_reward_edit_context(context)
+    data["new_piece_value"] = None
+
+    return await _reward_edit_show_confirm(query, context, lang)
+
+
+async def reward_edit_value_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle manually entered piece value for editing."""
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    text = (update.message.text or "").strip()
+
+    # Support typing the localized skip keyword
+    skip_keyword = msg('KEYWORD_SKIP', lang).lower()
+    if text.lower() == skip_keyword:
+        data = _get_reward_edit_context(context)
+        data["new_piece_value"] = data.get("old_piece_value")
+        # We don't have a query here; reply with confirmation message
+        confirm_message, keyboard = _reward_edit_build_confirm(lang, data)
+        await update.message.reply_text(confirm_message, reply_markup=keyboard, parse_mode="HTML")
+        return AWAITING_REWARD_EDIT_CONFIRM
+
+    text_normalized = text.replace(",", ".")
+    try:
+        value = float(text_normalized)
+    except ValueError:
+        await update.message.reply_text(
+            msg('ERROR_REWARD_PIECE_VALUE_INVALID', lang),
+            reply_markup=build_reward_edit_piece_value_keyboard(lang),
+            parse_mode="HTML",
+        )
+        return AWAITING_REWARD_EDIT_VALUE
+
+    if value < 0:
+        await update.message.reply_text(
+            msg('ERROR_REWARD_PIECE_VALUE_INVALID', lang),
+            reply_markup=build_reward_edit_piece_value_keyboard(lang),
+            parse_mode="HTML",
+        )
+        return AWAITING_REWARD_EDIT_VALUE
+
+    data = _get_reward_edit_context(context)
+    data["new_piece_value"] = round(value, 2)
+
+    confirm_message, keyboard = _reward_edit_build_confirm(lang, data)
+    await update.message.reply_text(confirm_message, reply_markup=keyboard, parse_mode="HTML")
+    return AWAITING_REWARD_EDIT_CONFIRM
+
+
+def _reward_edit_build_confirm(lang: str, data: dict) -> tuple[str, object]:
+    old_name = html.escape(str(data.get("old_name", "")))
+    new_name = html.escape(str(data.get("new_name", "")))
+    old_type = _reward_type_label(lang, data.get("old_type"))
+    new_type = _reward_type_label(lang, data.get("new_type"))
+    old_weight = f"{float(data.get('old_weight', 0.0)):.2f}"
+    new_weight = f"{float(data.get('new_weight', data.get('old_weight', 0.0))):.2f}"
+    old_pieces = str(int(data.get("old_pieces_required", 1)))
+    new_pieces = str(int(data.get("new_pieces_required", data.get("old_pieces_required", 1))))
+    old_value = _format_piece_value_display(lang, data.get("old_piece_value"))
+    new_value = _format_piece_value_display(lang, data.get("new_piece_value"))
+
+    message = msg(
+        "HELP_EDIT_REWARD_CONFIRM",
+        lang,
+        old_name=old_name,
+        new_name=new_name,
+        old_type=old_type,
+        new_type=new_type,
+        old_weight=old_weight,
+        new_weight=new_weight,
+        old_pieces=old_pieces,
+        new_pieces=new_pieces,
+        old_value=old_value,
+        new_value=new_value,
+    )
+    keyboard = build_reward_edit_confirm_keyboard(lang)
+    return message, keyboard
+
+
+async def _reward_edit_show_confirm(query, context: ContextTypes.DEFAULT_TYPE, lang: str) -> int:
+    data = _get_reward_edit_context(context)
+    confirm_message, keyboard = _reward_edit_build_confirm(lang, data)
+    await query.edit_message_text(confirm_message, reply_markup=keyboard, parse_mode="HTML")
+    return AWAITING_REWARD_EDIT_CONFIRM
+
+
+async def reward_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle confirmation for editing a reward."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+
+    if query.data == "reward_edit_confirm_no":
+        _clear_reward_edit_context(context)
+        await query.edit_message_text(
+            msg('INFO_REWARD_EDIT_CANCEL', lang),
+            reply_markup=build_rewards_menu_keyboard(lang),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
+    data = _get_reward_edit_context(context)
+    reward_id = data.get("reward_id")
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update)))
+        _clear_reward_edit_context(context)
+        return ConversationHandler.END
+
+    # Final duplicate check (in case race conditions)
+    new_name = data.get("new_name", data.get("old_name"))
+    existing = await maybe_await(reward_repository.get_by_name(user.id, new_name))
+    if existing and str(getattr(existing, "id", "")) != str(reward_id):
+        await query.edit_message_text(
+            msg('ERROR_REWARD_NAME_EXISTS', lang),
+            reply_markup=build_rewards_menu_keyboard(lang),
+            parse_mode="HTML",
+        )
+        _clear_reward_edit_context(context)
+        return ConversationHandler.END
+
+    updates = {
+        "name": new_name,
+        "type": data.get("new_type", data.get("old_type")),
+        "weight": float(data.get("new_weight", data.get("old_weight"))),
+        "pieces_required": int(data.get("new_pieces_required", data.get("old_pieces_required"))),
+        "piece_value": data.get("new_piece_value", data.get("old_piece_value")),
+    }
+
+    try:
+        updated = await maybe_await(reward_repository.update(reward_id, updates))
+    except Exception as e:
+        logger.exception("❌ Failed to update reward %s for user %s", reward_id, telegram_id)
+        await query.edit_message_text(msg('ERROR_GENERAL', lang, error=str(e)), parse_mode="HTML")
+        _clear_reward_edit_context(context)
+        return ConversationHandler.END
+
+    _clear_reward_edit_context(context)
+    await query.edit_message_text(
+        msg('SUCCESS_REWARD_UPDATED', lang, name=html.escape(updated.name)),
+        reply_markup=build_rewards_menu_keyboard(lang),
+        parse_mode="HTML",
+    )
+    return ConversationHandler.END
+
+
+async def cancel_reward_edit_flow_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel reward edit flow via Cancel button."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    logger.info("❌ User %s cancelled reward edit flow via button", telegram_id)
+
+    _clear_reward_edit_context(context)
+    await query.edit_message_text(
+        msg('INFO_REWARD_EDIT_CANCEL', lang),
+        reply_markup=build_rewards_menu_keyboard(lang),
+        parse_mode="HTML",
+    )
+    return ConversationHandler.END
+
+
+async def cancel_edit_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel /edit_reward conversation via /cancel."""
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    logger.info("❌ User %s cancelled reward edit flow via command", telegram_id)
+
+    _clear_reward_edit_context(context)
+    await update.message.reply_text(
+        msg('INFO_REWARD_EDIT_CANCEL', lang),
+        reply_markup=build_rewards_menu_keyboard(lang),
+        parse_mode="HTML",
+    )
+    return ConversationHandler.END
+
+
+# Build conversation handler for edit_reward
+edit_reward_conversation = ConversationHandler(
+    entry_points=[
+        CommandHandler("edit_reward", edit_reward_command),
+        CallbackQueryHandler(menu_edit_reward_callback, pattern="^menu_rewards_edit$"),
+    ],
+    states={
+        AWAITING_REWARD_EDIT_SELECTION: [
+            CallbackQueryHandler(reward_edit_selected, pattern="^edit_reward_"),
+            CallbackQueryHandler(reward_edit_back_to_menu, pattern="^reward_edit_back$"),
+        ],
+        AWAITING_REWARD_EDIT_NAME: [
+            CallbackQueryHandler(reward_edit_name_skip, pattern="^reward_edit_skip_name$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, reward_edit_name_received),
+            CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
+        ],
+        AWAITING_REWARD_EDIT_TYPE: [
+            CallbackQueryHandler(reward_edit_type_selected, pattern="^edit_reward_type_(virtual|real|none)$"),
+            CallbackQueryHandler(reward_edit_type_skip, pattern="^edit_reward_type_skip$"),
+            CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
+        ],
+        AWAITING_REWARD_EDIT_WEIGHT: [
+            CallbackQueryHandler(reward_edit_weight_selected, pattern="^edit_reward_weight_(\\d+)$"),
+            CallbackQueryHandler(reward_edit_weight_skip, pattern="^edit_reward_weight_skip$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, reward_edit_weight_received),
+            CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
+        ],
+        AWAITING_REWARD_EDIT_PIECES: [
+            CallbackQueryHandler(reward_edit_pieces_selected, pattern="^edit_reward_pieces_1$"),
+            CallbackQueryHandler(reward_edit_pieces_skip, pattern="^edit_reward_pieces_skip$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, reward_edit_pieces_received),
+            CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
+        ],
+        AWAITING_REWARD_EDIT_VALUE: [
+            CallbackQueryHandler(reward_edit_value_skip, pattern="^edit_reward_value_skip$"),
+            CallbackQueryHandler(reward_edit_value_clear, pattern="^edit_reward_value_clear$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, reward_edit_value_received),
+            CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
+        ],
+        AWAITING_REWARD_EDIT_CONFIRM: [
+            CallbackQueryHandler(reward_edit_confirmed, pattern="^reward_edit_confirm_(yes|no)$"),
+            CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
+        ],
+    },
+    fallbacks=[CommandHandler("cancel", cancel_edit_reward)],
+    per_message=False,
+)
 
 # Build conversation handler for add_reward
 add_reward_conversation = ConversationHandler(
