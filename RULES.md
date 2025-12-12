@@ -707,6 +707,14 @@ reward_service.mark_reward_claimed(user_id, reward_id)
 - Day 2: Earn 1 piece → 2/5 (cannot earn more today)
 - ...takes 5 days minimum to complete
 
+### Piece Value (`piece_value`) Field
+
+The `Reward.piece_value` field is optional metadata used for analytics and dashboard views (e.g., total monetary value of earned rewards). It SHOULD NOT be managed through the Telegram bot reward flows for now:
+
+- ADD_REWARD and EDIT_REWARD command flows MUST NOT prompt the user to enter or edit any "piece price" / `piece_value` value.
+- When creating or editing rewards from the bot, rely on the model default (`NULL`/`None`) for `piece_value` unless explicitly set by backend/admin or API flows.
+- Future features may re-enable editing `piece_value` via bot or dashboard; keep implementation flexible but do not expose this field in current Telegram UX.
+
 ## Caddy Deployment (Simplified)
 
 **Architecture**: 2 containers (Web + Caddy)
@@ -1450,4 +1458,3 @@ uvicorn asgi:app --port 8000
 - Rate limiting middleware
 - API tests (`tests/api/`)
 - Webhook notifications (optional)
-
