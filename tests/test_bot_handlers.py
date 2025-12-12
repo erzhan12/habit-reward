@@ -14,9 +14,16 @@ from src.bot.handlers.reward_handlers import (
     add_reward_command,
     reward_name_received,
     reward_weight_received,
+    reward_pieces_received,
+    reward_pieces_selected,
+    reward_edit_pieces_received,
+    reward_edit_pieces_selected,
+    reward_edit_selected,
     AWAITING_REWARD_NAME,
     AWAITING_REWARD_TYPE,
     AWAITING_REWARD_WEIGHT,
+    AWAITING_REWARD_CONFIRM,
+    AWAITING_REWARD_EDIT_CONFIRM,
     menu_edit_reward_callback,
     AWAITING_REWARD_EDIT_SELECTION,
 )
@@ -964,6 +971,248 @@ class TestClaimRewardCommand:
         mock_telegram_update.message.reply_text.assert_called_once_with(
             msg('ERROR_USER_INACTIVE', language)
         )
+
+
+class TestAddRewardPieceValueRemoval:
+    """Test that /add_reward flow skips piece_value step (Feature 0023)."""
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
+    async def test_pieces_received_goes_directly_to_confirm(
+        self,
+        mock_lang,
+        mock_telegram_update,
+        language
+    ):
+        """After entering pieces_required, should go directly to confirmation, not piece_value."""
+        mock_lang.return_value = language
+        mock_telegram_update.message.text = "5"
+        context = Mock()
+        context.user_data = {
+            'reward_creation_data': {
+                'name': 'Coffee',
+                'type': 'virtual',
+                'weight': 10.0
+            }
+        }
+
+        result = await reward_pieces_received(mock_telegram_update, context)
+
+        # Should go directly to AWAITING_REWARD_CONFIRM, NOT AWAITING_REWARD_VALUE
+        assert result == AWAITING_REWARD_CONFIRM
+        # Verify confirmation message was sent
+        mock_telegram_update.message.reply_text.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
+    async def test_pieces_selected_goes_directly_to_confirm(
+        self,
+        mock_lang,
+        mock_callback_update,
+        language
+    ):
+        """After selecting pieces=1 via button, should go directly to confirmation."""
+        mock_lang.return_value = language
+        context = Mock()
+        context.user_data = {
+            'reward_creation_data': {
+                'name': 'Coffee',
+                'type': 'virtual',
+                'weight': 10.0
+            }
+        }
+
+        result = await reward_pieces_selected(mock_callback_update, context)
+
+        # Should go directly to AWAITING_REWARD_CONFIRM
+        assert result == AWAITING_REWARD_CONFIRM
+        # Verify confirmation message was sent via edit
+        mock_callback_update.callback_query.edit_message_text.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
+    async def test_confirmation_message_excludes_piece_value(
+        self,
+        mock_lang,
+        mock_telegram_update,
+        language
+    ):
+        """Confirmation message should NOT mention 'Piece Value' or 'piece_value'."""
+        mock_lang.return_value = language
+        mock_telegram_update.message.text = "3"
+        context = Mock()
+        context.user_data = {
+            'reward_creation_data': {
+                'name': 'Coffee',
+                'type': 'virtual',
+                'weight': 10.0
+            }
+        }
+
+        await reward_pieces_received(mock_telegram_update, context)
+
+        # Get the confirmation message that was sent
+        call_args = mock_telegram_update.message.reply_text.await_args
+        message_text = call_args.args[0]
+
+        # Verify confirmation message does NOT mention piece value
+        assert 'piece' not in message_text.lower() or 'pieces' in message_text.lower()  # "pieces" is ok (pieces_required)
+        # The message should contain name, type, weight, and pieces_required
+        assert 'Coffee' in message_text
+        assert '10' in message_text  # weight
+        assert '3' in message_text  # pieces_required
+
+
+class TestEditRewardPieceValueRemoval:
+    """Test that /edit_reward flow skips piece_value step (Feature 0023)."""
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.reward_repository')
+    @patch('src.bot.handlers.reward_handlers.user_repository')
+    @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
+    async def test_pieces_received_goes_directly_to_confirm(
+        self,
+        mock_lang,
+        mock_user_repo,
+        mock_reward_repo,
+        mock_telegram_update,
+        mock_active_user,
+        language
+    ):
+        """After editing pieces_required, should go directly to confirmation."""
+        mock_lang.return_value = language
+        mock_telegram_update.message.text = "5"
+
+        context = Mock()
+        context.user_data = {
+            'reward_edit_data': {
+                'reward_id': 'reward123',
+                'old_name': 'Coffee',
+                'old_type': 'virtual',
+                'old_weight': 10.0,
+                'old_pieces_required': 3,
+                'new_name': 'Coffee',
+                'new_type': 'virtual',
+                'new_weight': 10.0
+            }
+        }
+
+        result = await reward_edit_pieces_received(mock_telegram_update, context)
+
+        # Should go directly to AWAITING_REWARD_EDIT_CONFIRM, NOT AWAITING_REWARD_EDIT_VALUE
+        assert result == AWAITING_REWARD_EDIT_CONFIRM
+        # Verify confirmation message was sent
+        mock_telegram_update.message.reply_text.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
+    async def test_pieces_selected_goes_directly_to_confirm(
+        self,
+        mock_lang,
+        mock_callback_update,
+        language
+    ):
+        """After selecting pieces=1 via button in edit, should go directly to confirmation."""
+        mock_lang.return_value = language
+        context = Mock()
+        context.user_data = {
+            'reward_edit_data': {
+                'reward_id': 'reward123',
+                'old_name': 'Coffee',
+                'old_type': 'virtual',
+                'old_weight': 10.0,
+                'old_pieces_required': 3,
+                'new_name': 'Coffee',
+                'new_type': 'virtual',
+                'new_weight': 10.0
+            }
+        }
+
+        result = await reward_edit_pieces_selected(mock_callback_update, context)
+
+        # Should go directly to AWAITING_REWARD_EDIT_CONFIRM
+        assert result == AWAITING_REWARD_EDIT_CONFIRM
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.reward_repository')
+    @patch('src.bot.handlers.reward_handlers.user_repository')
+    @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
+    async def test_edit_context_excludes_piece_value(
+        self,
+        mock_lang,
+        mock_user_repo,
+        mock_reward_repo,
+        mock_callback_update,
+        mock_active_user,
+        language
+    ):
+        """When selecting reward for edit, context should NOT store old_piece_value."""
+        mock_lang.return_value = language
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Mock reward with piece_value set
+        mock_reward = Mock()
+        mock_reward.id = 'reward123'
+        mock_reward.name = 'Coffee'
+        mock_reward.type = 'virtual'
+        mock_reward.weight = 10.0
+        mock_reward.pieces_required = 3
+        mock_reward.piece_value = 5.0  # This should NOT be stored in context
+        mock_reward.user_id = mock_active_user.id
+
+        mock_reward_repo.get_by_id = AsyncMock(return_value=mock_reward)
+
+        mock_callback_update.callback_query.data = "edit_reward_reward123"
+
+        context = Mock()
+        context.user_data = {}
+
+        await reward_edit_selected(mock_callback_update, context)
+
+        # Verify old_piece_value is NOT in context
+        edit_data = context.user_data.get('reward_edit_data', {})
+        assert 'old_piece_value' not in edit_data
+        # But other fields should be present
+        assert edit_data['old_name'] == 'Coffee'
+        assert edit_data['old_weight'] == 10.0
+        assert edit_data['old_pieces_required'] == 3
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
+    async def test_edit_confirmation_excludes_piece_value(
+        self,
+        mock_lang,
+        mock_telegram_update,
+        language
+    ):
+        """Edit confirmation message should NOT mention piece_value."""
+        mock_lang.return_value = language
+        mock_telegram_update.message.text = "5"
+
+        context = Mock()
+        context.user_data = {
+            'reward_edit_data': {
+                'reward_id': 'reward123',
+                'old_name': 'Coffee',
+                'old_type': 'virtual',
+                'old_weight': 10.0,
+                'old_pieces_required': 3,
+                'new_name': 'Coffee',
+                'new_type': 'virtual',
+                'new_weight': 10.0
+            }
+        }
+
+        await reward_edit_pieces_received(mock_telegram_update, context)
+
+        # Get the confirmation message
+        call_args = mock_telegram_update.message.reply_text.await_args
+        message_text = call_args.args[0]
+
+        # Should NOT mention piece value in any form
+        assert 'piece_value' not in message_text.lower()
+        assert 'piece value' not in message_text.lower()
+        assert 'piece price' not in message_text.lower()
 
 
 # Note: set_reward_status_command has been deprecated and removed in Feature 0005

@@ -27,6 +27,7 @@ from src.bot.keyboards import (
     build_reward_type_keyboard,
     build_reward_weight_keyboard,
     build_reward_pieces_keyboard,
+    # Dormant keyboards kept for potential future reactivation of piece_value editing
     build_reward_piece_value_keyboard,
     build_reward_confirmation_keyboard,
     build_reward_post_create_keyboard,
@@ -61,7 +62,6 @@ AWAITING_REWARD_NAME = 10
 AWAITING_REWARD_TYPE = 11
 AWAITING_REWARD_WEIGHT = 12
 AWAITING_REWARD_PIECES = 13
-AWAITING_REWARD_VALUE = 14
 AWAITING_REWARD_CONFIRM = 15
 AWAITING_REWARD_POST_ACTION = 16
 
@@ -71,7 +71,6 @@ AWAITING_REWARD_EDIT_NAME = 31
 AWAITING_REWARD_EDIT_TYPE = 32
 AWAITING_REWARD_EDIT_WEIGHT = 33
 AWAITING_REWARD_EDIT_PIECES = 34
-AWAITING_REWARD_EDIT_VALUE = 35
 AWAITING_REWARD_EDIT_CONFIRM = 36
 
 REWARD_DATA_KEY = "reward_creation_data"
@@ -130,12 +129,6 @@ def _format_reward_summary(lang: str, data: dict) -> str:
     type_key = reward_type_value.value if isinstance(reward_type_value, RewardType) else reward_type_value
     type_label = type_mapping.get(type_key, type_key or msg('TEXT_NOT_SET', lang))
 
-    piece_value = data.get('piece_value')
-    if piece_value is None:
-        piece_value_display = msg('TEXT_NOT_SET', lang)
-    else:
-        piece_value_display = f"{piece_value:.2f}"
-
     weight = data.get('weight')
     weight_display = f"{weight:.2f}" if isinstance(weight, (int, float)) else msg('TEXT_NOT_SET', lang)
 
@@ -145,8 +138,7 @@ def _format_reward_summary(lang: str, data: dict) -> str:
         name=html.escape(data.get('name', '')),
         type_label=type_label,
         weight=weight_display,
-        pieces=data.get('pieces_required', msg('TEXT_NOT_SET', lang)),
-        piece_value=piece_value_display
+        pieces=data.get('pieces_required', msg('TEXT_NOT_SET', lang))
     )
 
 
@@ -783,12 +775,14 @@ async def reward_pieces_selected(update: Update, context: ContextTypes.DEFAULT_T
     reward_data['pieces_required'] = pieces_required
     logger.info("✅ Stored pieces_required=%s for user %s via button", pieces_required, telegram_id)
 
+    # Skip piece value step - go directly to confirmation
+    summary = _format_reward_summary(lang, reward_data)
     await query.edit_message_text(
-        msg('HELP_ADD_REWARD_PIECE_VALUE_PROMPT', lang),
-        reply_markup=build_reward_piece_value_keyboard(lang),
+        summary,
+        reply_markup=build_reward_confirmation_keyboard(lang),
         parse_mode="HTML"
     )
-    return AWAITING_REWARD_VALUE
+    return AWAITING_REWARD_CONFIRM
 
 
 async def reward_pieces_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -825,16 +819,22 @@ async def reward_pieces_received(update: Update, context: ContextTypes.DEFAULT_T
     reward_data['pieces_required'] = pieces_required
     logger.info("✅ Stored pieces_required=%s for user %s", pieces_required, telegram_id)
 
+    # Skip piece value step - go directly to confirmation
+    summary = _format_reward_summary(lang, reward_data)
     await update.message.reply_text(
-        msg('HELP_ADD_REWARD_PIECE_VALUE_PROMPT', lang),
-        reply_markup=build_reward_piece_value_keyboard(lang),
+        summary,
+        reply_markup=build_reward_confirmation_keyboard(lang),
         parse_mode="HTML"
     )
-    return AWAITING_REWARD_VALUE
+    return AWAITING_REWARD_CONFIRM
 
 
 async def reward_piece_value_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle optional piece value input."""
+    """Handle optional piece value input.
+
+    NOTE: This handler is DORMANT - not registered in add_reward_conversation states.
+    Kept for potential future reactivation of piece_value editing via Telegram.
+    """
     telegram_id = str(update.effective_user.id)
     lang = await get_message_language_async(telegram_id, update)
     text = (update.message.text or "").strip()
@@ -862,7 +862,8 @@ async def reward_piece_value_received(update: Update, context: ContextTypes.DEFA
             reply_markup=build_reward_piece_value_keyboard(lang),
             parse_mode="HTML"
         )
-        return AWAITING_REWARD_VALUE
+        # DORMANT: Would return to piece_value state, but state removed in Feature 0023
+        return ConversationHandler.END
 
     if value < 0:
         logger.warning("⚠️ User %s entered negative piece value %.2f", telegram_id, value)
@@ -871,7 +872,8 @@ async def reward_piece_value_received(update: Update, context: ContextTypes.DEFA
             reply_markup=build_reward_piece_value_keyboard(lang),
             parse_mode="HTML"
         )
-        return AWAITING_REWARD_VALUE
+        # DORMANT: Would return to piece_value state, but state removed in Feature 0023
+        return ConversationHandler.END
 
     reward_data = _get_reward_context(context)
     reward_data['piece_value'] = round(value, 2)
@@ -887,7 +889,11 @@ async def reward_piece_value_received(update: Update, context: ContextTypes.DEFA
 
 
 async def reward_piece_value_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle skip button for piece value."""
+    """Handle skip button for piece value.
+
+    NOTE: This handler is DORMANT - not registered in add_reward_conversation states.
+    Kept for potential future reactivation of piece_value editing via Telegram.
+    """
     query = update.callback_query
     await query.answer()
 
@@ -936,6 +942,7 @@ async def reward_confirm_save(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
 
     try:
+        # Note: piece_value is not collected via Telegram; rely on service defaults
         created_reward = await maybe_await(
             reward_service.create_reward(
                 user_id=user.id,
@@ -943,7 +950,7 @@ async def reward_confirm_save(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reward_type=reward_type,
                 weight=float(weight),
                 pieces_required=int(pieces_required),
-                piece_value=reward_data.get('piece_value')
+                piece_value=None
             )
         )
     except ValueError as error:
@@ -1194,7 +1201,6 @@ async def reward_edit_selected(update: Update, context: ContextTypes.DEFAULT_TYP
     data["old_type"] = reward.type
     data["old_weight"] = float(reward.weight)
     data["old_pieces_required"] = int(reward.pieces_required)
-    data["old_piece_value"] = reward.piece_value
 
     # Prompt for name
     keyboard = build_reward_skip_cancel_keyboard(lang, skip_callback="reward_edit_skip_name")
@@ -1413,7 +1419,7 @@ async def reward_edit_weight_received(update: Update, context: ContextTypes.DEFA
 
 
 async def reward_edit_pieces_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Skip pieces edit -> proceed to piece value."""
+    """Skip pieces edit -> proceed to confirmation (skip piece value step)."""
     query = update.callback_query
     await query.answer()
 
@@ -1422,18 +1428,12 @@ async def reward_edit_pieces_skip(update: Update, context: ContextTypes.DEFAULT_
     data = _get_reward_edit_context(context)
     data["new_pieces_required"] = data.get("old_pieces_required")
 
-    current_value = _format_piece_value_display(lang, data.get("old_piece_value"))
-    keyboard = build_reward_edit_piece_value_keyboard(lang)
-    await query.edit_message_text(
-        msg('HELP_EDIT_REWARD_PIECE_VALUE_PROMPT', lang, current_value=current_value),
-        reply_markup=keyboard,
-        parse_mode="HTML",
-    )
-    return AWAITING_REWARD_EDIT_VALUE
+    # Skip piece value step - go directly to confirmation
+    return await _reward_edit_show_confirm(query, context, lang)
 
 
 async def reward_edit_pieces_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle quick pieces selection (1) for editing."""
+    """Handle quick pieces selection (1) for editing -> proceed to confirmation."""
     query = update.callback_query
     await query.answer()
 
@@ -1442,18 +1442,12 @@ async def reward_edit_pieces_selected(update: Update, context: ContextTypes.DEFA
     data = _get_reward_edit_context(context)
     data["new_pieces_required"] = 1
 
-    current_value = _format_piece_value_display(lang, data.get("old_piece_value"))
-    keyboard = build_reward_edit_piece_value_keyboard(lang)
-    await query.edit_message_text(
-        msg('HELP_EDIT_REWARD_PIECE_VALUE_PROMPT', lang, current_value=current_value),
-        reply_markup=keyboard,
-        parse_mode="HTML",
-    )
-    return AWAITING_REWARD_EDIT_VALUE
+    # Skip piece value step - go directly to confirmation
+    return await _reward_edit_show_confirm(query, context, lang)
 
 
 async def reward_edit_pieces_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle manually entered pieces required for editing."""
+    """Handle manually entered pieces required for editing -> proceed to confirmation."""
     telegram_id = str(update.effective_user.id)
     lang = await get_message_language_async(telegram_id, update)
     text = (update.message.text or "").strip()
@@ -1479,18 +1473,18 @@ async def reward_edit_pieces_received(update: Update, context: ContextTypes.DEFA
     data = _get_reward_edit_context(context)
     data["new_pieces_required"] = pieces_required
 
-    current_value = _format_piece_value_display(lang, data.get("old_piece_value"))
-    keyboard = build_reward_edit_piece_value_keyboard(lang)
-    await update.message.reply_text(
-        msg('HELP_EDIT_REWARD_PIECE_VALUE_PROMPT', lang, current_value=current_value),
-        reply_markup=keyboard,
-        parse_mode="HTML",
-    )
-    return AWAITING_REWARD_EDIT_VALUE
+    # Skip piece value step - go directly to confirmation
+    confirm_message, keyboard = _reward_edit_build_confirm(lang, data)
+    await update.message.reply_text(confirm_message, reply_markup=keyboard, parse_mode="HTML")
+    return AWAITING_REWARD_EDIT_CONFIRM
 
 
 async def reward_edit_value_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Skip piece value edit -> proceed to confirmation."""
+    """Skip piece value edit -> proceed to confirmation.
+
+    NOTE: This handler is DORMANT - not registered in edit_reward_conversation states.
+    Kept for potential future reactivation of piece_value editing via Telegram.
+    """
     query = update.callback_query
     await query.answer()
 
@@ -1503,7 +1497,11 @@ async def reward_edit_value_skip(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def reward_edit_value_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Clear piece value -> proceed to confirmation."""
+    """Clear piece value -> proceed to confirmation.
+
+    NOTE: This handler is DORMANT - not registered in edit_reward_conversation states.
+    Kept for potential future reactivation of piece_value editing via Telegram.
+    """
     query = update.callback_query
     await query.answer()
 
@@ -1516,7 +1514,11 @@ async def reward_edit_value_clear(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def reward_edit_value_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle manually entered piece value for editing."""
+    """Handle manually entered piece value for editing.
+
+    NOTE: This handler is DORMANT - not registered in edit_reward_conversation states.
+    Kept for potential future reactivation of piece_value editing via Telegram.
+    """
     telegram_id = str(update.effective_user.id)
     lang = await get_message_language_async(telegram_id, update)
     text = (update.message.text or "").strip()
@@ -1540,7 +1542,8 @@ async def reward_edit_value_received(update: Update, context: ContextTypes.DEFAU
             reply_markup=build_reward_edit_piece_value_keyboard(lang),
             parse_mode="HTML",
         )
-        return AWAITING_REWARD_EDIT_VALUE
+        # DORMANT: Would return to edit piece_value state, but state removed in Feature 0023
+        return ConversationHandler.END
 
     if value < 0:
         await update.message.reply_text(
@@ -1548,7 +1551,8 @@ async def reward_edit_value_received(update: Update, context: ContextTypes.DEFAU
             reply_markup=build_reward_edit_piece_value_keyboard(lang),
             parse_mode="HTML",
         )
-        return AWAITING_REWARD_EDIT_VALUE
+        # DORMANT: Would return to edit piece_value state, but state removed in Feature 0023
+        return ConversationHandler.END
 
     data = _get_reward_edit_context(context)
     data["new_piece_value"] = round(value, 2)
@@ -1559,6 +1563,7 @@ async def reward_edit_value_received(update: Update, context: ContextTypes.DEFAU
 
 
 def _reward_edit_build_confirm(lang: str, data: dict) -> tuple[str, object]:
+    """Build confirmation message for reward editing (without piece_value)."""
     old_name = html.escape(str(data.get("old_name", "")))
     new_name = html.escape(str(data.get("new_name", "")))
     old_type = _reward_type_label(lang, data.get("old_type"))
@@ -1567,8 +1572,6 @@ def _reward_edit_build_confirm(lang: str, data: dict) -> tuple[str, object]:
     new_weight = f"{float(data.get('new_weight', data.get('old_weight', 0.0))):.2f}"
     old_pieces = str(int(data.get("old_pieces_required", 1)))
     new_pieces = str(int(data.get("new_pieces_required", data.get("old_pieces_required", 1))))
-    old_value = _format_piece_value_display(lang, data.get("old_piece_value"))
-    new_value = _format_piece_value_display(lang, data.get("new_piece_value"))
 
     message = msg(
         "HELP_EDIT_REWARD_CONFIRM",
@@ -1581,8 +1584,6 @@ def _reward_edit_build_confirm(lang: str, data: dict) -> tuple[str, object]:
         new_weight=new_weight,
         old_pieces=old_pieces,
         new_pieces=new_pieces,
-        old_value=old_value,
-        new_value=new_value,
     )
     keyboard = build_reward_edit_confirm_keyboard(lang)
     return message, keyboard
@@ -1632,12 +1633,12 @@ async def reward_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TY
         _clear_reward_edit_context(context)
         return ConversationHandler.END
 
+    # Note: piece_value is not edited via Telegram; preserve existing value
     updates = {
         "name": new_name,
         "type": data.get("new_type", data.get("old_type")),
         "weight": float(data.get("new_weight", data.get("old_weight"))),
         "pieces_required": int(data.get("new_pieces_required", data.get("old_pieces_required"))),
-        "piece_value": data.get("new_piece_value", data.get("old_piece_value")),
     }
 
     try:
@@ -1691,6 +1692,7 @@ async def cancel_edit_reward(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # Build conversation handler for edit_reward
+# Note: AWAITING_REWARD_EDIT_VALUE state removed - piece_value is not edited via Telegram
 edit_reward_conversation = ConversationHandler(
     entry_points=[
         CommandHandler("edit_reward", edit_reward_command),
@@ -1723,12 +1725,6 @@ edit_reward_conversation = ConversationHandler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, reward_edit_pieces_received),
             CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
         ],
-        AWAITING_REWARD_EDIT_VALUE: [
-            CallbackQueryHandler(reward_edit_value_skip, pattern="^edit_reward_value_skip$"),
-            CallbackQueryHandler(reward_edit_value_clear, pattern="^edit_reward_value_clear$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, reward_edit_value_received),
-            CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
-        ],
         AWAITING_REWARD_EDIT_CONFIRM: [
             CallbackQueryHandler(reward_edit_confirmed, pattern="^reward_edit_confirm_(yes|no)$"),
             CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
@@ -1739,6 +1735,7 @@ edit_reward_conversation = ConversationHandler(
 )
 
 # Build conversation handler for add_reward
+# Note: AWAITING_REWARD_VALUE state removed - piece_value is not collected via Telegram
 add_reward_conversation = ConversationHandler(
     entry_points=[
         CommandHandler("add_reward", add_reward_command),
@@ -1762,11 +1759,6 @@ add_reward_conversation = ConversationHandler(
             CallbackQueryHandler(reward_pieces_selected, pattern="^reward_pieces_1$"),
             CallbackQueryHandler(cancel_reward_flow_callback, pattern="^cancel_reward_flow$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, reward_pieces_received)
-        ],
-        AWAITING_REWARD_VALUE: [
-            CallbackQueryHandler(reward_piece_value_skip, pattern="^reward_value_skip$"),
-            CallbackQueryHandler(cancel_reward_flow_callback, pattern="^cancel_reward_flow$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, reward_piece_value_received)
         ],
         AWAITING_REWARD_CONFIRM: [
             CallbackQueryHandler(reward_confirm_save, pattern="^reward_confirm_save$"),
