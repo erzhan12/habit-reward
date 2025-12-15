@@ -1215,5 +1215,184 @@ class TestEditRewardPieceValueRemoval:
         assert 'piece price' not in message_text.lower()
 
 
+class TestCategoryRemovalFromTelegram:
+    """Test that category field is removed from Telegram habit flows (Feature 0024).
+
+    Verifies:
+    1. Add/Edit habit flows skip category step
+    2. Confirmation messages don't show category
+    3. Keyboards don't show brackets after habit names
+    4. Created habits have category=None
+    """
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.get_message_language_async', new_callable=AsyncMock)
+    @patch('src.bot.handlers.habit_management_handler.habit_repository')
+    @patch('src.bot.handlers.habit_management_handler.user_repository')
+    async def test_add_habit_confirmation_no_category(
+        self,
+        mock_user_repo,
+        mock_habit_repo,
+        mock_lang,
+        mock_telegram_update,
+        mock_active_user,
+        language
+    ):
+        """Add habit confirmation message should NOT mention category (Feature 0024)."""
+        from src.bot.handlers.habit_management_handler import habit_exempt_days_selected
+
+        mock_lang.return_value = language
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Setup callback query
+        mock_telegram_update.callback_query = Mock()
+        mock_telegram_update.callback_query.answer = AsyncMock()
+        mock_telegram_update.callback_query.edit_message_text = AsyncMock()
+        mock_telegram_update.callback_query.data = "exempt_days_weekends"
+
+        context = Mock()
+        context.user_data = {
+            'habit_name': 'Running',
+            'habit_weight': 30,
+            'habit_grace_days': 2
+        }
+
+        await habit_exempt_days_selected(mock_telegram_update, context)
+
+        # Get the confirmation message
+        call_args = mock_telegram_update.callback_query.edit_message_text.await_args
+        message_text = call_args.args[0] if call_args.args else call_args.kwargs.get('text', '')
+
+        # Should NOT mention category in any form
+        assert 'category' not in message_text.lower()
+        assert 'Category' not in message_text
+
+        # Should show name, weight, grace days, exempt days
+        assert 'name' in message_text.lower() or 'название' in message_text.lower() or 'аты' in message_text.lower()
+        assert 'weight' in message_text.lower() or 'вес' in message_text.lower() or 'салмақ' in message_text.lower()
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.get_message_language_async', new_callable=AsyncMock)
+    @patch('src.bot.handlers.habit_management_handler.habit_repository')
+    @patch('src.bot.handlers.habit_management_handler.user_repository')
+    async def test_edit_habit_confirmation_no_category(
+        self,
+        mock_user_repo,
+        mock_habit_repo,
+        mock_lang,
+        mock_telegram_update,
+        mock_active_user,
+        language
+    ):
+        """Edit habit confirmation message should NOT mention category (Feature 0024)."""
+        from src.bot.handlers.habit_management_handler import habit_edit_exempt_days_selected
+
+        mock_lang.return_value = language
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Setup callback query
+        mock_telegram_update.callback_query = Mock()
+        mock_telegram_update.callback_query.answer = AsyncMock()
+        mock_telegram_update.callback_query.edit_message_text = AsyncMock()
+        mock_telegram_update.callback_query.data = "exempt_days_weekends"
+
+        context = Mock()
+        context.user_data = {
+            'old_habit_name': 'Running',
+            'new_habit_name': 'Morning Run',
+            'old_habit_weight': 30,
+            'new_habit_weight': 40,
+            'old_habit_grace_days': 1,
+            'new_habit_grace_days': 2
+        }
+
+        await habit_edit_exempt_days_selected(mock_telegram_update, context)
+
+        # Get the confirmation message
+        call_args = mock_telegram_update.callback_query.edit_message_text.await_args
+        message_text = call_args.args[0] if call_args.args else call_args.kwargs.get('text', '')
+
+        # Should NOT mention category in any form
+        assert 'category' not in message_text.lower()
+        assert 'Category' not in message_text
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.habit_repository')
+    @patch('src.bot.handlers.habit_management_handler.user_repository')
+    async def test_created_habit_has_no_category(
+        self,
+        mock_user_repo,
+        mock_habit_repo,
+        mock_telegram_update,
+        mock_active_user,
+        language
+    ):
+        """Habits created via Telegram should have category=None (Feature 0024)."""
+        from src.bot.handlers.habit_management_handler import habit_confirmed
+
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Setup callback query
+        mock_telegram_update.callback_query = Mock()
+        mock_telegram_update.callback_query.answer = AsyncMock()
+        mock_telegram_update.callback_query.edit_message_text = AsyncMock()
+        mock_telegram_update.callback_query.data = "confirm_yes"
+
+        context = Mock()
+        context.user_data = {
+            'habit_name': 'Running',
+            'habit_weight': 30,
+            'habit_grace_days': 2,
+            'habit_exempt_days': [6, 7]
+        }
+
+        await habit_confirmed(mock_telegram_update, context)
+
+        # Verify habit was created WITHOUT category field
+        create_call = mock_habit_repo.create.call_args
+        habit_data = create_call[0][0] if create_call.args else create_call.kwargs
+
+        # Category should either be absent or explicitly None
+        assert habit_data.get('category') is None or 'category' not in habit_data
+
+    def test_habit_keyboard_no_brackets(self, language):
+        """Habit keyboards should NOT show brackets after habit names (Feature 0024)."""
+        from src.bot.keyboards import build_habits_for_edit_keyboard
+
+        # Create simple habit objects (not mocks, to avoid Mock attribute issues)
+        class SimpleHabit:
+            def __init__(self, id, name, category):
+                self.id = id
+                self.name = name
+                self.category = category
+
+        mock_habits = [
+            SimpleHabit(id='1', name='Running', category='Health'),
+            SimpleHabit(id='2', name='Reading', category=None),
+            SimpleHabit(id='3', name='Meditation', category='Wellness')
+        ]
+
+        keyboard = build_habits_for_edit_keyboard(mock_habits, operation='edit', language=language)
+
+        # Expected habit names (without category)
+        expected_names = ['Running', 'Reading', 'Meditation']
+
+        # Check that no button text contains brackets
+        for row in keyboard.inline_keyboard:
+            for button in row:
+                # Skip the Back button
+                if 'back' in button.callback_data.lower():
+                    continue
+
+                # Should NOT show "Habit Name (Category)" format
+                assert '(' not in button.text, f"Button text '{button.text}' contains opening bracket"
+                assert ')' not in button.text, f"Button text '{button.text}' contains closing bracket"
+
+                # Buttons should just be habit names (no category suffix)
+                if button.callback_data.startswith('edit_habit_'):
+                    # Button text should be one of the habit names (no category suffix)
+                    assert button.text in expected_names, f"Button text '{button.text}' not in expected names"
+
+
 # Note: set_reward_status_command has been deprecated and removed in Feature 0005
 # Status is now automatically computed by Airtable based on pieces_earned and claimed fields

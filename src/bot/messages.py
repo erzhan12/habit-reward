@@ -165,11 +165,12 @@ Your streak multiplier increases your chances of getting rewards!"""
         "Please enter numbers 1-7 separated by commas (1=Mon, 7=Sun).\n"
         "Example: <code>2, 4</code> for Tuesday and Thursday."
     )
-    HELP_ADD_HABIT_CONFIRM = "Review your new habit:\n<b>Name:</b> {name}\n<b>Weight:</b> {weight}\n<b>Category:</b> {category}\n<b>Grace Days:</b> {grace_days}\n<b>Exempt Days:</b> {exempt_days}\n\nCreate this habit?"
+    HELP_ADD_HABIT_CONFIRM = "Review your new habit:\n<b>Name:</b> {name}\n<b>Weight:</b> {weight}\n<b>Grace Days:</b> {grace_days}\n<b>Exempt Days:</b> {exempt_days}\n\nCreate this habit?"
     SUCCESS_HABIT_CREATED = "✅ Habit '<b>{name}</b>' created successfully!"
     HELP_HABIT_CREATED_NEXT = "🧩 <b>Your habits:</b>"
     ERROR_HABIT_NAME_TOO_LONG = "❌ Habit name is too long (max 100 characters)."
     ERROR_HABIT_NAME_EMPTY = "❌ Habit name cannot be empty."
+    ERROR_HABIT_NAME_EXISTS = "❌ You already have a habit named '<b>{name}</b>'.\n\nPlease choose a different name:"
     ERROR_WEIGHT_INVALID = "❌ Invalid weight. Please select a value between 1-100."
     HELP_EDIT_HABIT_SELECT = "Select a habit to edit:"
     HELP_EDIT_HABIT_NAME_PROMPT = "Current name: <b>{current_name}</b>\n\nEnter new name:"
@@ -177,7 +178,7 @@ Your streak multiplier increases your chances of getting rewards!"""
     HELP_EDIT_HABIT_CATEGORY_PROMPT = "Current category: <b>{current_category}</b>\n\nSelect new category:"
     HELP_EDIT_HABIT_GRACE_DAYS_PROMPT = "Current grace days: <b>{current_grace_days}</b>\n\nSelect new grace days:"
     HELP_EDIT_HABIT_EXEMPT_DAYS_PROMPT = "Current exempt days: <b>{current_exempt_days}</b>\n\nSelect new exempt days:"
-    HELP_EDIT_HABIT_CONFIRM = "Review changes:\n<b>Name:</b> {old_name} → {new_name}\n<b>Weight:</b> {old_weight} → {new_weight}\n<b>Category:</b> {old_category} → {new_category}\n<b>Grace Days:</b> {old_grace_days} → {new_grace_days}\n<b>Exempt Days:</b> {old_exempt_days} → {new_exempt_days}\n\nSave changes?"
+    HELP_EDIT_HABIT_CONFIRM = "Review changes:\n<b>Name:</b> {old_name} → {new_name}\n<b>Weight:</b> {old_weight} → {new_weight}\n<b>Grace Days:</b> {old_grace_days} → {new_grace_days}\n<b>Exempt Days:</b> {old_exempt_days} → {new_exempt_days}\n\nSave changes?"
     SUCCESS_HABIT_UPDATED = "✅ Habit '<b>{name}</b>' updated successfully!"
     HELP_REMOVE_HABIT_SELECT = "Select a habit to remove:"
     HELP_REMOVE_HABIT_CONFIRM = "Are you sure you want to remove '<b>{name}</b>'?\n\n⚠️ This will deactivate the habit. Your history will be preserved."
@@ -423,7 +424,7 @@ Your streak multiplier increases your chances of getting rewards!"""
                 "Пожалуйста, введите цифры 1-7 через запятую (1=Пн, 7=Вс).\n"
                 "Пример: <code>2, 4</code>"
             ),
-            'HELP_ADD_HABIT_CONFIRM': "Проверьте вашу новую привычку:\n<b>Название:</b> {name}\n<b>Вес:</b> {weight}\n<b>Категория:</b> {category}\n<b>Дни отсрочки:</b> {grace_days}\n<b>Исключённые дни:</b> {exempt_days}\n\nСоздать эту привычку?",
+            'HELP_ADD_HABIT_CONFIRM': "Проверьте вашу новую привычку:\n<b>Название:</b> {name}\n<b>Вес:</b> {weight}\n<b>Дни отсрочки:</b> {grace_days}\n<b>Исключённые дни:</b> {exempt_days}\n\nСоздать эту привычку?",
             'SUCCESS_HABIT_CREATED': "✅ Привычка '<b>{name}</b>' успешно создана!",
             'HELP_HABIT_CREATED_NEXT': "🧩 <b>Ваши привычки:</b>",
             'ERROR_HABIT_NAME_TOO_LONG': "❌ Название привычки слишком длинное (макс. 100 символов).",
@@ -435,7 +436,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'HELP_EDIT_HABIT_CATEGORY_PROMPT': "Текущая категория: <b>{current_category}</b>\n\nВыберите новую категорию:",
             'HELP_EDIT_HABIT_GRACE_DAYS_PROMPT': "Текущие дни отсрочки: <b>{current_grace_days}</b>\n\nВыберите новые дни отсрочки:",
             'HELP_EDIT_HABIT_EXEMPT_DAYS_PROMPT': "Текущие исключённые дни: <b>{current_exempt_days}</b>\n\nВыберите новые исключённые дни:",
-            'HELP_EDIT_HABIT_CONFIRM': "Проверьте изменения:\n<b>Название:</b> {old_name} → {new_name}\n<b>Вес:</b> {old_weight} → {new_weight}\n<b>Категория:</b> {old_category} → {new_category}\n<b>Дни отсрочки:</b> {old_grace_days} → {new_grace_days}\n<b>Исключённые дни:</b> {old_exempt_days} → {new_exempt_days}\n\nСохранить изменения?",
+            'HELP_EDIT_HABIT_CONFIRM': "Проверьте изменения:\n<b>Название:</b> {old_name} → {new_name}\n<b>Вес:</b> {old_weight} → {new_weight}\n<b>Дни отсрочки:</b> {old_grace_days} → {new_grace_days}\n<b>Исключённые дни:</b> {old_exempt_days} → {new_exempt_days}\n\nСохранить изменения?",
             'SUCCESS_HABIT_UPDATED': "✅ Привычка '<b>{name}</b>' успешно обновлена!",
             'HELP_REMOVE_HABIT_SELECT': "Выберите привычку для удаления:",
             'HELP_REMOVE_HABIT_CONFIRM': "Вы уверены, что хотите удалить '<b>{name}</b>'?\n\n⚠️ Это деактивирует привычку. Ваша история будет сохранена.",
@@ -679,11 +680,12 @@ Your streak multiplier increases your chances of getting rewards!"""
                 "Сандарды 1-7 аралығында үтір арқылы енгізіңіз (1=Дүй, 7=Жек).\n"
                 "Мысалы: <code>2, 4</code>"
             ),
-            'HELP_ADD_HABIT_CONFIRM': "Жаңа әдетіңізді тексеріңіз:\n<b>Аты:</b> {name}\n<b>Салмақ:</b> {weight}\n<b>Санат:</b> {category}\n<b>Шегерім күндері:</b> {grace_days}\n<b>Ерекше күндер:</b> {exempt_days}\n\nОсы әдетті жасау керек пе?",
+            'HELP_ADD_HABIT_CONFIRM': "Жаңа әдетіңізді тексеріңіз:\n<b>Аты:</b> {name}\n<b>Салмақ:</b> {weight}\n<b>Шегерім күндері:</b> {grace_days}\n<b>Ерекше күндер:</b> {exempt_days}\n\nОсы әдетті жасау керек пе?",
             'SUCCESS_HABIT_CREATED': "✅ '<b>{name}</b>' әдеті сәтті жасалды!",
             'HELP_HABIT_CREATED_NEXT': "🧩 <b>Сіздің әдеттеріңіз:</b>",
             'ERROR_HABIT_NAME_TOO_LONG': "❌ Әдет атауы тым ұзын (макс. 100 таңба).",
             'ERROR_HABIT_NAME_EMPTY': "❌ Әдет атауы бос болуы мүмкін емес.",
+            'ERROR_HABIT_NAME_EXISTS': "❌ Сізде '<b>{name}</b>' атты әдет бар.\n\nБасқа атау таңдаңыз:",
             'ERROR_WEIGHT_INVALID': "❌ Қате салмақ. 1-ден 100-ге дейін мән таңдаңыз.",
             'HELP_EDIT_HABIT_SELECT': "Өңдеу үшін әдетті таңдаңыз:",
             'HELP_EDIT_HABIT_NAME_PROMPT': "Ағымдағы аты: <b>{current_name}</b>\n\nЖаңа атын енгізіңіз:",
@@ -691,7 +693,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'HELP_EDIT_HABIT_CATEGORY_PROMPT': "Ағымдағы санат: <b>{current_category}</b>\n\nЖаңа санатты таңдаңыз:",
             'HELP_EDIT_HABIT_GRACE_DAYS_PROMPT': "Ағымдағы шегерім күндері: <b>{current_grace_days}</b>\n\nЖаңа шегерім күндерін таңдаңыз:",
             'HELP_EDIT_HABIT_EXEMPT_DAYS_PROMPT': "Ағымдағы ерекше күндер: <b>{current_exempt_days}</b>\n\nЖаңа ерекше күндерді таңдаңыз:",
-            'HELP_EDIT_HABIT_CONFIRM': "Өзгерістерді тексеріңіз:\n<b>Аты:</b> {old_name} → {new_name}\n<b>Салмақ:</b> {old_weight} → {new_weight}\n<b>Санат:</b> {old_category} → {new_category}\n<b>Шегерім күндері:</b> {old_grace_days} → {new_grace_days}\n<b>Ерекше күндер:</b> {old_exempt_days} → {new_exempt_days}\n\nӨзгерістерді сақтау керек пе?",
+            'HELP_EDIT_HABIT_CONFIRM': "Өзгерістерді тексеріңіз:\n<b>Аты:</b> {old_name} → {new_name}\n<b>Салмақ:</b> {old_weight} → {new_weight}\n<b>Шегерім күндері:</b> {old_grace_days} → {new_grace_days}\n<b>Ерекше күндер:</b> {old_exempt_days} → {new_exempt_days}\n\nӨзгерістерді сақтау керек пе?",
             'SUCCESS_HABIT_UPDATED': "✅ '<b>{name}</b>' әдеті сәтті жаңартылды!",
             'HELP_REMOVE_HABIT_SELECT': "Жою үшін әдетті таңдаңыз:",
             'HELP_REMOVE_HABIT_CONFIRM': "Сіз '<b>{name}</b>' жоюға сенімдісіз бе?\n\n⚠️ Бұл әдетті белсенсіз етеді. Тарихыңыз сақталады.",

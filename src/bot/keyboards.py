@@ -371,10 +371,8 @@ def build_habits_for_edit_keyboard(habits: list[Habit], operation: str, language
     keyboard = []
 
     for habit in habits:
-        # Display format: "Habit Name (category)"
-        display_text = f"{habit.name}"
-        if habit.category:
-            display_text += f" ({habit.category})"
+        # Display format: "Habit Name" (no category)
+        display_text = habit.name
 
         callback_prefix = "edit_habit" if operation == "edit" else "remove_habit"
         button = InlineKeyboardButton(
@@ -411,11 +409,9 @@ def build_post_create_habit_keyboard(habits: list[Habit], language: str = 'en') 
     """
     keyboard = []
 
-    # Display all habits (non-clickable, just for display)
+    # Display all habits (non-clickable, just for display) - no category
     for habit in habits:
         display_text = f"• {habit.name}"
-        if habit.category:
-            display_text += f" ({habit.category})"
         # Use a dummy callback to make it non-interactive
         button = InlineKeyboardButton(
             text=display_text,

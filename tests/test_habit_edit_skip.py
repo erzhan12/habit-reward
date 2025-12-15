@@ -1,4 +1,8 @@
-"""Unit tests for habit edit skip functionality."""
+"""Unit tests for habit edit skip functionality.
+
+Note: Category step has been removed from the Telegram edit flow (Feature 0024).
+The flow now goes: name -> weight -> grace_days -> exempt_days -> confirmation.
+"""
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
@@ -7,11 +11,9 @@ from telegram import Update, CallbackQuery
 from src.bot.handlers.habit_management_handler import (
     habit_edit_name_skip,
     habit_edit_weight_skip,
-    habit_edit_category_skip,
     habit_edit_grace_days_skip,
     habit_edit_exempt_days_skip,
     AWAITING_EDIT_WEIGHT,
-    AWAITING_EDIT_CATEGORY,
     AWAITING_EDIT_GRACE_DAYS,
     AWAITING_EDIT_EXEMPT_DAYS,
     AWAITING_EDIT_CONFIRMATION
@@ -19,7 +21,6 @@ from src.bot.handlers.habit_management_handler import (
 from src.bot.keyboards import (
     build_skip_cancel_keyboard,
     build_weight_selection_keyboard,
-    build_category_selection_keyboard,
     build_grace_days_keyboard,
     build_exempt_days_keyboard
 )
@@ -63,11 +64,13 @@ def mock_context():
 
 @pytest.fixture
 def mock_habit_data():
-    """Create mock habit data for testing."""
+    """Create mock habit data for testing.
+
+    Note: old_habit_category removed - category is no longer edited via Telegram.
+    """
     return {
         'old_habit_name': 'Test Habit',
         'old_habit_weight': 30,
-        'old_habit_category': 'health',
         'old_habit_grace_days': 2,
         'old_habit_exempt_days': [6, 7]
     }
@@ -116,66 +119,32 @@ class TestHabitEditWeightSkip:
 
     @pytest.mark.asyncio
     @patch('src.bot.handlers.habit_management_handler.get_message_language_async')
-    @patch('src.bot.handlers.habit_management_handler.build_category_selection_keyboard')
+    @patch('src.bot.handlers.habit_management_handler.build_grace_days_keyboard')
     async def test_habit_edit_weight_skip_preserves_old_weight(
         self, mock_build_keyboard, mock_get_lang,
         mock_update_with_callback, mock_context, mock_habit_data, language
     ):
         """
-        TC2: Skipping weight edit preserves old weight and advances to category selection.
-        
+        TC2: Skipping weight edit preserves old weight and advances to grace days selection.
+
         Given: User clicks Skip on weight selection
         When: habit_edit_weight_skip() is called
-        Then: new_habit_weight = old_habit_weight, state advances to AWAITING_EDIT_CATEGORY
+        Then: new_habit_weight = old_habit_weight, state advances to AWAITING_EDIT_GRACE_DAYS
+
+        Note: Category step removed in Feature 0024 - flow now skips directly to grace days.
         """
         # Setup
         mock_context.user_data = mock_habit_data.copy()
         mock_get_lang.return_value = language
         mock_keyboard = Mock()
         mock_build_keyboard.return_value = mock_keyboard
-        
+
         # Execute
         result = await habit_edit_weight_skip(mock_update_with_callback, mock_context)
-        
-        # Assert
-        assert result == AWAITING_EDIT_CATEGORY
-        assert mock_context.user_data['new_habit_weight'] == 30
-        mock_build_keyboard.assert_called_once_with(
-            current_category='health',
-            language=language,
-            skip_callback="skip_category"
-        )
 
-
-class TestHabitEditCategorySkip:
-    """Test skip functionality for habit category editing."""
-
-    @pytest.mark.asyncio
-    @patch('src.bot.handlers.habit_management_handler.get_message_language_async')
-    @patch('src.bot.handlers.habit_management_handler.build_grace_days_keyboard')
-    async def test_habit_edit_category_skip_preserves_old_category(
-        self, mock_build_keyboard, mock_get_lang,
-        mock_update_with_callback, mock_context, mock_habit_data, language
-    ):
-        """
-        TC3: Skipping category edit preserves old category and advances to grace days selection.
-        
-        Given: User clicks Skip on category selection
-        When: habit_edit_category_skip() is called
-        Then: new_habit_category = old_habit_category, state advances to AWAITING_EDIT_GRACE_DAYS
-        """
-        # Setup
-        mock_context.user_data = mock_habit_data.copy()
-        mock_get_lang.return_value = language
-        mock_keyboard = Mock()
-        mock_build_keyboard.return_value = mock_keyboard
-        
-        # Execute
-        result = await habit_edit_category_skip(mock_update_with_callback, mock_context)
-        
         # Assert
         assert result == AWAITING_EDIT_GRACE_DAYS
-        assert mock_context.user_data['new_habit_category'] == 'health'
+        assert mock_context.user_data['new_habit_weight'] == 30
         mock_build_keyboard.assert_called_once_with(
             current_grace_days=2,
             language=language,
@@ -261,44 +230,44 @@ class TestSkipAllFields:
     @pytest.mark.asyncio
     @patch('src.bot.handlers.habit_management_handler.get_message_language_async')
     @patch('src.bot.handlers.habit_management_handler.build_weight_selection_keyboard')
-    @patch('src.bot.handlers.habit_management_handler.build_category_selection_keyboard')
     @patch('src.bot.handlers.habit_management_handler.build_grace_days_keyboard')
     @patch('src.bot.handlers.habit_management_handler.build_exempt_days_keyboard')
     @patch('src.bot.handlers.habit_management_handler.build_habit_confirmation_keyboard')
     @patch('src.bot.handlers.habit_management_handler.msg')
     async def test_skip_all_fields_preserves_original_values(
         self, mock_msg, mock_build_confirmation, mock_build_exempt, mock_build_grace,
-        mock_build_category, mock_build_weight, mock_get_lang,
+        mock_build_weight, mock_get_lang,
         mock_update_with_callback, mock_context, mock_habit_data, language
     ):
         """
         TC6: Skipping all fields preserves all original values.
-        
+
         Given: User skips all fields during edit
         When: All skip handlers are called sequentially
         Then: All new_habit_* values match old_habit_* values
+
+        Note: Category step removed in Feature 0024 - flow is now:
+        name -> weight -> grace_days -> exempt_days -> confirmation
         """
         # Setup
         mock_context.user_data = mock_habit_data.copy()
         mock_get_lang.return_value = language
         mock_msg.side_effect = lambda key, lang, **kwargs: f"{key}_{lang}"
-        
+
         # Mock keyboards
-        for mock_build in [mock_build_weight, mock_build_category, mock_build_grace, 
+        for mock_build in [mock_build_weight, mock_build_grace,
                           mock_build_exempt, mock_build_confirmation]:
             mock_build.return_value = Mock()
-        
-        # Execute: Skip all fields sequentially
+
+        # Execute: Skip all fields sequentially (no category step)
         await habit_edit_name_skip(mock_update_with_callback, mock_context)
         await habit_edit_weight_skip(mock_update_with_callback, mock_context)
-        await habit_edit_category_skip(mock_update_with_callback, mock_context)
         await habit_edit_grace_days_skip(mock_update_with_callback, mock_context)
         await habit_edit_exempt_days_skip(mock_update_with_callback, mock_context)
-        
-        # Assert: All values preserved
+
+        # Assert: All values preserved (no category)
         assert mock_context.user_data['new_habit_name'] == mock_context.user_data['old_habit_name']
         assert mock_context.user_data['new_habit_weight'] == mock_context.user_data['old_habit_weight']
-        assert mock_context.user_data['new_habit_category'] == mock_context.user_data['old_habit_category']
         assert mock_context.user_data['new_habit_grace_days'] == mock_context.user_data['old_habit_grace_days']
         assert mock_context.user_data['new_habit_exempt_days'] == mock_context.user_data['old_habit_exempt_days']
 
@@ -309,34 +278,36 @@ class TestSkipMixedWithChanges:
     @pytest.mark.asyncio
     @patch('src.bot.handlers.habit_management_handler.get_message_language_async')
     @patch('src.bot.handlers.habit_management_handler.build_weight_selection_keyboard')
-    @patch('src.bot.handlers.habit_management_handler.build_category_selection_keyboard')
+    @patch('src.bot.handlers.habit_management_handler.build_grace_days_keyboard')
     async def test_skip_some_fields_mixed_with_changes(
-        self, mock_build_category, mock_build_weight, mock_get_lang,
+        self, mock_build_grace, mock_build_weight, mock_get_lang,
         mock_update_with_callback, mock_context, mock_habit_data, language
     ):
         """
         TC7: Skipping some fields while changing others works correctly.
-        
-        Given: User skips name and weight, changes category
-        When: Skip handlers called for name/weight, category changed manually
+
+        Given: User skips name and weight, changes grace days manually
+        When: Skip handlers called for name/weight, grace days changed manually
         Then: Skipped fields preserve old values, changed field has new value
+
+        Note: Category step removed in Feature 0024 - now testing with grace days.
         """
         # Setup
         mock_context.user_data = mock_habit_data.copy()
         mock_get_lang.return_value = language
-        
+
         # Execute: Skip name and weight
         await habit_edit_name_skip(mock_update_with_callback, mock_context)
         await habit_edit_weight_skip(mock_update_with_callback, mock_context)
-        
-        # Manually set new category (simulating user selection)
-        mock_context.user_data['new_habit_category'] = 'productivity'
-        
+
+        # Manually set new grace days (simulating user selection)
+        mock_context.user_data['new_habit_grace_days'] = 5
+
         # Assert: Skipped fields preserved, changed field updated
         assert mock_context.user_data['new_habit_name'] == mock_context.user_data['old_habit_name']
         assert mock_context.user_data['new_habit_weight'] == mock_context.user_data['old_habit_weight']
-        assert mock_context.user_data['new_habit_category'] == 'productivity'
-        assert mock_context.user_data['new_habit_category'] != mock_context.user_data['old_habit_category']
+        assert mock_context.user_data['new_habit_grace_days'] == 5
+        assert mock_context.user_data['new_habit_grace_days'] != mock_context.user_data['old_habit_grace_days']
 
 
 class TestSkipButtonTranslations:
@@ -392,23 +363,6 @@ class TestKeyboardSkipCallbacks:
         
         assert skip_button is not None
         assert skip_button.text == msg('BUTTON_SKIP', language)
-
-    def test_category_keyboard_includes_skip_button(self, language):
-        """Category selection keyboard includes Skip button when skip_callback provided."""
-        keyboard = build_category_selection_keyboard(
-            current_category='health',
-            language=language,
-            skip_callback="skip_category"
-        )
-        
-        skip_button = None
-        for row in keyboard.inline_keyboard:
-            for button in row:
-                if button.callback_data == "skip_category":
-                    skip_button = button
-                    break
-        
-        assert skip_button is not None
 
     def test_grace_days_keyboard_includes_skip_button(self, language):
         """Grace days keyboard includes Skip button when skip_callback provided."""

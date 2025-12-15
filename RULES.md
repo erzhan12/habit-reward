@@ -414,6 +414,7 @@ The `StreakService` has two distinct methods:
 **Habit Fields**:
 - `allowed_skip_days` (Integer, default=0): Number of consecutive days user can skip without breaking streak
 - `exempt_weekdays` (JSONField, default=[]): List of weekday numbers (1=Mon, 7=Sun) that don't count against streak
+- `category` (CharField, optional, null=True): Category field for analytical purposes. **NOT managed via Telegram** (Feature 0024). Habits created via Telegram have `category=None`. Category remains available via REST API and Django admin for external clients.
 
 **Streak Calculation Algorithm**:
 1. If `last_date == today`: return current streak
@@ -433,9 +434,12 @@ The `StreakService` has two distinct methods:
 - Result: Streak preserved ✅
 
 **Bot UI Flow** (Add/Edit Habit):
+- User enters habit name
+- User selects weight (10-100)
 - User selects grace days (0, 1, 2, or 3)
 - User selects exempt days (None or Weekends)
 - Settings displayed in confirmation
+- **Note**: Category selection was removed from Telegram in Feature 0024. The flow previously included category selection but this was simplified for better UX.
 
 **Implementation Notes**:
 - Weekday numbering: 1=Monday, 7=Sunday (Python's `isoweekday()`)

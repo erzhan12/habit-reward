@@ -15,7 +15,6 @@ from telegram.ext import (
 from src.core.repositories import user_repository, habit_repository
 from src.bot.keyboards import (
     build_weight_selection_keyboard,
-    build_category_selection_keyboard,
     build_grace_days_keyboard,
     build_exempt_days_keyboard,
     build_habits_for_edit_keyboard,
@@ -84,11 +83,14 @@ async def add_habit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     # Prompt for habit name with Cancel button
     keyboard = build_cancel_only_keyboard(language=lang)
-    await update.message.reply_text(
+    prompt_msg = await update.message.reply_text(
         msg('HELP_ADD_HABIT_NAME_PROMPT', lang),
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+    # Store the active conversation message for in-place editing later
+    context.user_data['active_msg_chat_id'] = prompt_msg.chat_id
+    context.user_data['active_msg_id'] = prompt_msg.message_id
     logger.info(f"📤 Sent habit name prompt with Cancel button to {telegram_id}")
     logger.error(f"🔵 CONVERSATION STATE: Returning {AWAITING_HABIT_NAME} for user {telegram_id}")
 
@@ -124,6 +126,9 @@ async def menu_add_habit_callback(update: Update, context: ContextTypes.DEFAULT_
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+    # Store the active conversation message for in-place editing later
+    context.user_data['active_msg_chat_id'] = query.message.chat_id
+    context.user_data['active_msg_id'] = query.message.message_id
     logger.info(f"📤 Sent habit name prompt with Cancel button to {telegram_id} (via menu)")
     logger.error(f"🔵 CONVERSATION STATE: Returning {AWAITING_HABIT_NAME} for user {telegram_id} (menu)")
 
@@ -161,6 +166,9 @@ async def post_create_add_another_callback(update: Update, context: ContextTypes
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+    # Store the active conversation message for in-place editing later
+    context.user_data['active_msg_chat_id'] = query.message.chat_id
+    context.user_data['active_msg_id'] = query.message.message_id
     logger.info(f"📤 Sent habit name prompt with Cancel button to {telegram_id} (via callback)")
 
     return AWAITING_HABIT_NAME
@@ -187,18 +195,60 @@ async def habit_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.info(f"📤 Sent ERROR_HABIT_NAME_TOO_LONG to {telegram_id}")
         return AWAITING_HABIT_NAME
 
+    # Check if duplicate
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if user:
+        existing_habit = await maybe_await(habit_repository.get_by_name(user.id, habit_name))
+        if existing_habit and getattr(existing_habit, 'active', True):
+            logger.warning(f"⚠️ User {telegram_id} entered duplicate habit name: {habit_name}")
+            keyboard = build_cancel_only_keyboard(language=lang)
+            error_msg_obj = await update.message.reply_text(
+                msg('ERROR_HABIT_NAME_EXISTS', lang, name=habit_name),
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+            # Update active message ID so next prompt edits this error message instead of the old one
+            context.user_data['active_msg_chat_id'] = error_msg_obj.chat_id
+            context.user_data['active_msg_id'] = error_msg_obj.message_id
+            return AWAITING_HABIT_NAME
+
     # Store in context
     context.user_data['habit_name'] = habit_name
     logger.info(f"✅ Stored habit name in context for user {telegram_id}")
 
     # Show weight selection keyboard
     keyboard = build_weight_selection_keyboard(language=lang)
-    await update.message.reply_text(
-        msg('HELP_ADD_HABIT_WEIGHT_PROMPT', lang),
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
-    logger.info(f"📤 Sent weight selection keyboard to {telegram_id}")
+    
+    # Try to edit the active conversation message in-place
+    active_chat_id = context.user_data.get('active_msg_chat_id')
+    active_msg_id = context.user_data.get('active_msg_id')
+    
+    if active_chat_id and active_msg_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=active_chat_id,
+                message_id=active_msg_id,
+                text=msg('HELP_ADD_HABIT_WEIGHT_PROMPT', lang),
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            logger.info(f"📤 Edited active message to weight selection keyboard for {telegram_id}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not edit active message for {telegram_id}, falling back to reply_text: {e}")
+            await update.message.reply_text(
+                msg('HELP_ADD_HABIT_WEIGHT_PROMPT', lang),
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            logger.info(f"📤 Sent weight selection keyboard (fallback) to {telegram_id}")
+    else:
+        # Fallback if no active message stored
+        await update.message.reply_text(
+            msg('HELP_ADD_HABIT_WEIGHT_PROMPT', lang),
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        logger.info(f"📤 Sent weight selection keyboard to {telegram_id}")
 
     return AWAITING_HABIT_WEIGHT
 
@@ -227,16 +277,16 @@ async def habit_weight_selected(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['habit_weight'] = weight
     logger.info(f"✅ Stored habit weight in context for user {telegram_id}")
 
-    # Show category selection keyboard
-    keyboard = build_category_selection_keyboard(language=lang)
+    # Skip category selection - go directly to grace days
+    keyboard = build_grace_days_keyboard(language=lang)
     await query.edit_message_text(
-        msg('HELP_ADD_HABIT_CATEGORY_PROMPT', lang),
+        msg('HELP_ADD_HABIT_GRACE_DAYS_PROMPT', lang),
         reply_markup=keyboard,
         parse_mode="HTML"
     )
-    logger.info(f"📤 Sent category selection keyboard to {telegram_id}")
+    logger.info(f"📤 Sent grace days selection keyboard to {telegram_id}")
 
-    return AWAITING_HABIT_CATEGORY
+    return AWAITING_GRACE_DAYS
 
 
 async def habit_category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -355,10 +405,9 @@ async def habit_exempt_days_selected(update: Update, context: ContextTypes.DEFAU
     context.user_data['habit_exempt_days_display'] = exempt_days_display
     logger.info(f"✅ Stored habit exempt days in context for user {telegram_id}")
 
-    # Show confirmation with summary
+    # Show confirmation with summary (no category)
     habit_name = context.user_data.get('habit_name')
     habit_weight = context.user_data.get('habit_weight')
-    habit_category = context.user_data.get('habit_category')
     habit_grace_days = context.user_data.get('habit_grace_days')
 
     confirmation_message = msg(
@@ -366,7 +415,6 @@ async def habit_exempt_days_selected(update: Update, context: ContextTypes.DEFAU
         lang,
         name=habit_name,
         weight=habit_weight,
-        category=habit_category,
         grace_days=habit_grace_days,
         exempt_days=exempt_days_display
     )
@@ -418,10 +466,9 @@ async def habit_exempt_days_text_received(update: Update, context: ContextTypes.
 
         logger.info(f"✅ Stored custom exempt days: {unique_days} ({display_str})")
 
-        # Proceed to Confirmation
+        # Proceed to Confirmation (no category)
         habit_name = context.user_data.get('habit_name')
         habit_weight = context.user_data.get('habit_weight')
-        habit_category = context.user_data.get('habit_category')
         habit_grace_days = context.user_data.get('habit_grace_days')
 
         confirmation_message = msg(
@@ -429,7 +476,6 @@ async def habit_exempt_days_text_received(update: Update, context: ContextTypes.
             lang,
             name=habit_name,
             weight=habit_weight,
-            category=habit_category,
             grace_days=habit_grace_days,
             exempt_days=display_str
         )
@@ -466,7 +512,7 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if callback_data == "confirm_no":
         logger.info(f"❌ User {telegram_id} cancelled habit creation")
-        await query.edit_message_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
+        cancel_msg_obj = await query.edit_message_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
         logger.info(f"📤 Sent cancellation message to {telegram_id}")
 
         # Show Habits menu
@@ -478,6 +524,26 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         logger.info(f"📤 Sent Habits menu to {telegram_id}")
 
+        # Delete cancellation message with animation after a short delay
+        async def delete_cancel_message():
+            try:
+                # Wait 2.5 seconds
+                await asyncio.sleep(2.5)
+                
+                # Animation: Show deleting indicator
+                await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+                await asyncio.sleep(0.5)
+                
+                # Delete the message
+                await cancel_msg_obj.delete()
+                logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
+            except Exception as e:
+                # If deletion fails (e.g., message too old or already deleted), just log it
+                logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
+        
+        # Run deletion in background
+        asyncio.create_task(delete_cancel_message())
+
         # Clear context
         context.user_data.clear()
         return ConversationHandler.END
@@ -485,7 +551,6 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # User confirmed - create the habit
     habit_name = context.user_data.get('habit_name')
     habit_weight = context.user_data.get('habit_weight')
-    habit_category = context.user_data.get('habit_category')
     habit_grace_days = context.user_data.get('habit_grace_days', 0)
     habit_exempt_days = context.user_data.get('habit_exempt_days', [])
 
@@ -500,13 +565,13 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return ConversationHandler.END
 
-        logger.info(f"⚙️ Creating habit for user {telegram_id} (user.id={user.id}): name='{habit_name}', weight={habit_weight}, category={habit_category}, grace_days={habit_grace_days}, exempt_days={habit_exempt_days}")
+        logger.info(f"⚙️ Creating habit for user {telegram_id} (user.id={user.id}): name='{habit_name}', weight={habit_weight}, grace_days={habit_grace_days}, exempt_days={habit_exempt_days}")
 
         new_habit = {
             'user_id': user.id,
             'name': habit_name,
             'weight': habit_weight,
-            'category': habit_category,
+            'category': None,  # Category removed from Telegram interface
             'allowed_skip_days': habit_grace_days,
             'exempt_weekdays': habit_exempt_days,
             'active': True
@@ -517,7 +582,7 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         # Show success message
         success_message = msg('SUCCESS_HABIT_CREATED', lang, name=created_habit.name)
-        await query.edit_message_text(success_message, parse_mode="HTML")
+        success_msg_obj = await query.edit_message_text(success_message, parse_mode="HTML")
         logger.info(f"📤 Sent success message to {telegram_id}")
 
         # Fetch all active habits including the newly created one
@@ -535,6 +600,26 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parse_mode="HTML"
         )
         logger.info(f"📤 Sent post-creation menu with {len(all_habits)} habits to {telegram_id}")
+
+        # Delete success message with animation after user has time to read it
+        async def delete_success_message():
+            try:
+                # Wait 2.5 seconds for user to read the success message
+                await asyncio.sleep(2.5)
+                
+                # Animation: Show deleting indicator
+                await success_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+                await asyncio.sleep(0.5)
+                
+                # Delete the message
+                await success_msg_obj.delete()
+                logger.info(f"🗑️ Deleted success message for user {telegram_id}")
+            except Exception as e:
+                # If deletion fails (e.g., message too old or already deleted), just log it
+                logger.warning(f"⚠️ Could not delete success message for user {telegram_id}: {e}")
+        
+        # Run deletion in background (don't await to avoid blocking)
+        asyncio.create_task(delete_success_message())
 
     except Exception as e:
         logger.error(f"❌ Error creating habit for user {telegram_id}: {str(e)}")
@@ -572,7 +657,7 @@ async def cancel_habit_flow_callback(update: Update, context: ContextTypes.DEFAU
     logger.info(f"❌ User {telegram_id} cancelled habit flow via Cancel button")
 
     # Show cancellation message
-    await query.edit_message_text(
+    cancel_msg_obj = await query.edit_message_text(
         msg('INFO_HABIT_CANCEL', lang),
         parse_mode="HTML"
     )
@@ -587,6 +672,26 @@ async def cancel_habit_flow_callback(update: Update, context: ContextTypes.DEFAU
     )
     logger.info(f"📤 Sent Habits menu to {telegram_id}")
 
+    # Delete cancellation message with animation after a short delay
+    async def delete_cancel_message():
+        try:
+            # Wait 2.5 seconds
+            await asyncio.sleep(2.5)
+            
+            # Animation: Show deleting indicator
+            await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+            await asyncio.sleep(0.5)
+            
+            # Delete the message
+            await cancel_msg_obj.delete()
+            logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
+        except Exception as e:
+            # If deletion fails (e.g., message too old or already deleted), just log it
+            logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
+    
+    # Run deletion in background
+    asyncio.create_task(delete_cancel_message())
+
     # Clear context
     context.user_data.clear()
     return ConversationHandler.END
@@ -599,8 +704,28 @@ async def cancel_add_habit(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     logger.info(f"📨 Received /cancel from user {telegram_id} (@{username}) in add_habit flow")
     lang = await get_message_language_async(telegram_id, update)
 
-    await update.message.reply_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
+    cancel_msg_obj = await update.message.reply_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
     logger.info(f"📤 Sent cancellation message to {telegram_id}")
+
+    # Delete cancellation message with animation after a short delay
+    async def delete_cancel_message():
+        try:
+            # Wait 2.5 seconds
+            await asyncio.sleep(2.5)
+            
+            # Animation: Show deleting indicator
+            await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+            await asyncio.sleep(0.5)
+            
+            # Delete the message
+            await cancel_msg_obj.delete()
+            logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
+        except Exception as e:
+            # If deletion fails (e.g., message too old or already deleted), just log it
+            logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
+    
+    # Run deletion in background
+    asyncio.create_task(delete_cancel_message())
 
     # Clear context
     context.user_data.clear()
@@ -728,11 +853,10 @@ async def habit_edit_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.info(f"📤 Sent ERROR_HABIT_NOT_FOUND to {telegram_id}")
         return ConversationHandler.END
 
-    # Store habit info in context
+    # Store habit info in context (category removed from Telegram interface)
     context.user_data['editing_habit_id'] = habit.id
     context.user_data['old_habit_name'] = habit.name
     context.user_data['old_habit_weight'] = habit.weight
-    context.user_data['old_habit_category'] = habit.category or "None"
     context.user_data['old_habit_grace_days'] = habit.allowed_skip_days
     context.user_data['old_habit_exempt_days'] = habit.exempt_weekdays
     logger.info(f"✅ Stored habit info in context for user {telegram_id}")
@@ -803,6 +927,26 @@ async def habit_edit_name_received(update: Update, context: ContextTypes.DEFAULT
         logger.info(f"📤 Sent ERROR_HABIT_NAME_TOO_LONG to {telegram_id}")
         return AWAITING_EDIT_NAME
 
+    # Check if duplicate (excluding the habit being edited)
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if user:
+        existing_habit = await maybe_await(habit_repository.get_by_name(user.id, new_name))
+        current_habit_id = context.user_data.get('editing_habit_id')
+        
+        # If habit exists AND it's NOT the same habit we're editing
+        if existing_habit and getattr(existing_habit, 'active', True) and str(existing_habit.id) != str(current_habit_id):
+            logger.warning(f"⚠️ User {telegram_id} entered duplicate habit name: {new_name}")
+            keyboard = build_cancel_only_keyboard(language=lang)
+            error_msg_obj = await update.message.reply_text(
+                msg('ERROR_HABIT_NAME_EXISTS', lang, name=new_name),
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+            # Update active message ID so next prompt edits this error message
+            context.user_data['active_msg_chat_id'] = error_msg_obj.chat_id
+            context.user_data['active_msg_id'] = error_msg_obj.message_id
+            return AWAITING_EDIT_NAME
+
     # Store in context
     context.user_data['new_habit_name'] = new_name
     logger.info(f"✅ Stored new habit name in context for user {telegram_id}")
@@ -816,11 +960,34 @@ async def habit_edit_name_received(update: Update, context: ContextTypes.DEFAULT
     )
 
     prompt_message = msg('HELP_EDIT_HABIT_WEIGHT_PROMPT', lang, current_weight=current_weight)
-    await update.message.reply_text(
-        prompt_message,
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    
+    # Try to edit the active error message if present (from duplicate check)
+    active_chat_id = context.user_data.get('active_msg_chat_id')
+    active_msg_id = context.user_data.get('active_msg_id')
+    
+    if active_chat_id and active_msg_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=active_chat_id,
+                message_id=active_msg_id,
+                text=prompt_message,
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            logger.info(f"📤 Edited active message to weight selection keyboard for {telegram_id}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not edit active message for {telegram_id}, falling back to reply_text: {e}")
+            await update.message.reply_text(
+                prompt_message,
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+    else:
+        await update.message.reply_text(
+            prompt_message,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
     logger.info(f"📤 Sent weight selection keyboard to {telegram_id}")
 
     return AWAITING_EDIT_WEIGHT
@@ -833,28 +1000,28 @@ async def habit_edit_weight_skip(update: Update, context: ContextTypes.DEFAULT_T
 
     telegram_id = str(update.effective_user.id)
     lang = await get_message_language_async(telegram_id, update)
-    
+
     logger.info(f"⏭ User {telegram_id} skipped weight edit")
 
     # Keep old weight
     context.user_data['new_habit_weight'] = context.user_data['old_habit_weight']
-    
-    # Show category selection keyboard
-    current_category = context.user_data.get('old_habit_category')
-    keyboard = build_category_selection_keyboard(
-        current_category=current_category, 
+
+    # Skip category - go directly to grace days selection
+    current_grace_days = context.user_data.get('old_habit_grace_days')
+    keyboard = build_grace_days_keyboard(
+        current_grace_days=current_grace_days,
         language=lang,
-        skip_callback="skip_category"
+        skip_callback="skip_grace_days"
     )
 
-    prompt_message = msg('HELP_EDIT_HABIT_CATEGORY_PROMPT', lang, current_category=current_category)
+    prompt_message = msg('HELP_EDIT_HABIT_GRACE_DAYS_PROMPT', lang, current_grace_days=current_grace_days)
     await query.edit_message_text(
         prompt_message,
         reply_markup=keyboard,
         parse_mode="HTML"
     )
-    
-    return AWAITING_EDIT_CATEGORY
+
+    return AWAITING_EDIT_GRACE_DAYS
 
 
 async def habit_edit_weight_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -881,79 +1048,10 @@ async def habit_edit_weight_selected(update: Update, context: ContextTypes.DEFAU
     context.user_data['new_habit_weight'] = new_weight
     logger.info(f"✅ Stored new habit weight in context for user {telegram_id}")
 
-    # Show category selection keyboard
-    current_category = context.user_data.get('old_habit_category')
-    keyboard = build_category_selection_keyboard(
-        current_category=current_category, 
-        language=lang,
-        skip_callback="skip_category"
-    )
-
-    prompt_message = msg('HELP_EDIT_HABIT_CATEGORY_PROMPT', lang, current_category=current_category)
-    await query.edit_message_text(
-        prompt_message,
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
-    logger.info(f"📤 Sent category selection keyboard to {telegram_id}")
-
-    return AWAITING_EDIT_CATEGORY
-
-
-async def habit_edit_category_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle Skip button for category edit."""
-    query = update.callback_query
-    await query.answer()
-
-    telegram_id = str(update.effective_user.id)
-    lang = await get_message_language_async(telegram_id, update)
-    
-    logger.info(f"⏭ User {telegram_id} skipped category edit")
-
-    # Keep old category
-    context.user_data['new_habit_category'] = context.user_data['old_habit_category']
-    
-    # Show grace days selection keyboard
+    # Skip category - go directly to grace days selection
     current_grace_days = context.user_data.get('old_habit_grace_days')
     keyboard = build_grace_days_keyboard(
-        current_grace_days=current_grace_days, 
-        language=lang,
-        skip_callback="skip_grace_days"
-    )
-
-    prompt_message = msg('HELP_EDIT_HABIT_GRACE_DAYS_PROMPT', lang, current_grace_days=current_grace_days)
-    await query.edit_message_text(
-        prompt_message,
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
-    
-    return AWAITING_EDIT_GRACE_DAYS
-
-
-async def habit_edit_category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle category selection for editing."""
-    query = update.callback_query
-    await query.answer()
-
-    telegram_id = str(update.effective_user.id)
-    lang = await get_message_language_async(telegram_id, update)
-    callback_data = query.data
-
-    logger.info(f"🎯 User {telegram_id} selected new category: {callback_data}")
-
-    # Extract category
-    new_category = callback_data.replace("category_", "")
-    logger.info(f"🎯 User {telegram_id} selected new category: {new_category}")
-
-    # Store in context
-    context.user_data['new_habit_category'] = new_category
-    logger.info(f"✅ Stored new habit category in context for user {telegram_id}")
-
-    # Show grace days selection keyboard
-    current_grace_days = context.user_data.get('old_habit_grace_days')
-    keyboard = build_grace_days_keyboard(
-        current_grace_days=current_grace_days, 
+        current_grace_days=current_grace_days,
         language=lang,
         skip_callback="skip_grace_days"
     )
@@ -1074,22 +1172,19 @@ async def habit_edit_exempt_days_skip(update: Update, context: ContextTypes.DEFA
 
     telegram_id = str(update.effective_user.id)
     lang = await get_message_language_async(telegram_id, update)
-    
+
     logger.info(f"⏭ User {telegram_id} skipped exempt days edit")
 
     # Keep old exempt days
     context.user_data['new_habit_exempt_days'] = context.user_data['old_habit_exempt_days']
-    
-    # Proceed to confirmation
-    # Show confirmation with before/after comparison
+
+    # Proceed to confirmation (no category)
     old_name = context.user_data.get('old_habit_name')
     old_weight = context.user_data.get('old_habit_weight')
-    old_category = context.user_data.get('old_habit_category')
     old_grace_days = context.user_data.get('old_habit_grace_days')
     old_exempt_days = context.user_data.get('old_habit_exempt_days', [])
     new_name = context.user_data.get('new_habit_name')
     new_weight = context.user_data.get('new_habit_weight')
-    new_category = context.user_data.get('new_habit_category')
     new_grace_days = context.user_data.get('new_habit_grace_days')
     # Format old exempt days for display
     if not old_exempt_days or len(old_exempt_days) == 0:
@@ -1109,8 +1204,6 @@ async def habit_edit_exempt_days_skip(update: Update, context: ContextTypes.DEFA
         new_name=new_name,
         old_weight=old_weight,
         new_weight=new_weight,
-        old_category=old_category,
-        new_category=new_category,
         old_grace_days=old_grace_days,
         new_grace_days=new_grace_days,
         old_exempt_days=old_exempt_days_display,
@@ -1123,7 +1216,7 @@ async def habit_edit_exempt_days_skip(update: Update, context: ContextTypes.DEFA
         reply_markup=keyboard,
         parse_mode="HTML"
     )
-    
+
     return AWAITING_EDIT_CONFIRMATION
 
 
@@ -1169,15 +1262,13 @@ async def habit_edit_exempt_days_selected(update: Update, context: ContextTypes.
     context.user_data['new_habit_exempt_days'] = new_exempt_days
     logger.info(f"✅ Stored new habit exempt days in context for user {telegram_id}")
 
-    # Show confirmation with before/after comparison
+    # Show confirmation with before/after comparison (no category)
     old_name = context.user_data.get('old_habit_name')
     old_weight = context.user_data.get('old_habit_weight')
-    old_category = context.user_data.get('old_habit_category')
     old_grace_days = context.user_data.get('old_habit_grace_days')
     old_exempt_days = context.user_data.get('old_habit_exempt_days', [])
     new_name = context.user_data.get('new_habit_name')
     new_weight = context.user_data.get('new_habit_weight')
-    new_category = context.user_data.get('new_habit_category')
     new_grace_days = context.user_data.get('new_habit_grace_days')
 
     # Format old exempt days for display
@@ -1195,8 +1286,6 @@ async def habit_edit_exempt_days_selected(update: Update, context: ContextTypes.
         new_name=new_name,
         old_weight=old_weight,
         new_weight=new_weight,
-        old_category=old_category,
-        new_category=new_category,
         old_grace_days=old_grace_days,
         new_grace_days=new_grace_days,
         old_exempt_days=old_exempt_days_display,
@@ -1245,15 +1334,13 @@ async def habit_edit_exempt_days_text_received(update: Update, context: ContextT
         display_names = [day_names[d-1] for d in unique_days]
         new_exempt_days_display = ", ".join(display_names)
 
-        # Prepare confirmation data
+        # Prepare confirmation data (no category)
         old_name = context.user_data.get('old_habit_name')
         old_weight = context.user_data.get('old_habit_weight')
-        old_category = context.user_data.get('old_habit_category')
         old_grace_days = context.user_data.get('old_habit_grace_days')
         old_exempt_days = context.user_data.get('old_habit_exempt_days', [])
         new_name = context.user_data.get('new_habit_name')
         new_weight = context.user_data.get('new_habit_weight')
-        new_category = context.user_data.get('new_habit_category')
         new_grace_days = context.user_data.get('new_habit_grace_days')
 
         if not old_exempt_days:
@@ -1270,8 +1357,6 @@ async def habit_edit_exempt_days_text_received(update: Update, context: ContextT
             new_name=new_name,
             old_weight=old_weight,
             new_weight=new_weight,
-            old_category=old_category,
-            new_category=new_category,
             old_grace_days=old_grace_days,
             new_grace_days=new_grace_days,
             old_exempt_days=old_exempt_days_display,
@@ -1310,7 +1395,7 @@ async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if callback_data == "confirm_no":
         logger.info(f"❌ User {telegram_id} cancelled habit editing")
-        await query.edit_message_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
+        cancel_msg_obj = await query.edit_message_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
         logger.info(f"📤 Sent cancellation message to {telegram_id}")
 
         # Show Habits menu
@@ -1322,25 +1407,44 @@ async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         logger.info(f"📤 Sent Habits menu to {telegram_id}")
 
+        # Delete cancellation message with animation after a short delay
+        async def delete_cancel_message():
+            try:
+                # Wait 2.5 seconds
+                await asyncio.sleep(2.5)
+                
+                # Animation: Show deleting indicator
+                await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+                await asyncio.sleep(0.5)
+                
+                # Delete the message
+                await cancel_msg_obj.delete()
+                logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
+            except Exception as e:
+                # If deletion fails (e.g., message too old or already deleted), just log it
+                logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
+        
+        # Run deletion in background
+        asyncio.create_task(delete_cancel_message())
+
         # Clear context
         context.user_data.clear()
         return ConversationHandler.END
 
-    # User confirmed - update the habit
+    # User confirmed - update the habit (category not modified via Telegram)
     habit_id = context.user_data.get('editing_habit_id')
     new_name = context.user_data.get('new_habit_name')
     new_weight = context.user_data.get('new_habit_weight')
-    new_category = context.user_data.get('new_habit_category')
     new_grace_days = context.user_data.get('new_habit_grace_days')
     new_exempt_days = context.user_data.get('new_habit_exempt_days', [])
 
     try:
         logger.info(f"⚙️ Updating habit {habit_id} for user {telegram_id}")
 
+        # Note: category is NOT included in updates to preserve existing value
         updates = {
             "name": new_name,
             "weight": new_weight,
-            "category": new_category,
             "allowed_skip_days": new_grace_days,
             "exempt_weekdays": new_exempt_days
         }
@@ -1448,8 +1552,28 @@ async def cancel_edit_habit(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     logger.info(f"📨 Received /cancel from user {telegram_id} (@{username}) in edit_habit flow")
     lang = await get_message_language_async(telegram_id, update)
 
-    await update.message.reply_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
+    cancel_msg_obj = await update.message.reply_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
     logger.info(f"📤 Sent cancellation message to {telegram_id}")
+
+    # Delete cancellation message with animation after a short delay
+    async def delete_cancel_message():
+        try:
+            # Wait 2.5 seconds
+            await asyncio.sleep(2.5)
+            
+            # Animation: Show deleting indicator
+            await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+            await asyncio.sleep(0.5)
+            
+            # Delete the message
+            await cancel_msg_obj.delete()
+            logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
+        except Exception as e:
+            # If deletion fails (e.g., message too old or already deleted), just log it
+            logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
+    
+    # Run deletion in background
+    asyncio.create_task(delete_cancel_message())
 
     # Clear context
     context.user_data.clear()
@@ -1604,7 +1728,7 @@ async def habit_remove_confirmed(update: Update, context: ContextTypes.DEFAULT_T
 
     if callback_data == "confirm_no":
         logger.info(f"❌ User {telegram_id} cancelled habit removal")
-        await query.edit_message_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
+        cancel_msg_obj = await query.edit_message_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
         logger.info(f"📤 Sent cancellation message to {telegram_id}")
 
         # Show Habits menu
@@ -1615,6 +1739,26 @@ async def habit_remove_confirmed(update: Update, context: ContextTypes.DEFAULT_T
             parse_mode="HTML"
         )
         logger.info(f"📤 Sent Habits menu to {telegram_id}")
+
+        # Delete cancellation message with animation after a short delay
+        async def delete_cancel_message():
+            try:
+                # Wait 2.5 seconds
+                await asyncio.sleep(2.5)
+                
+                # Animation: Show deleting indicator
+                await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+                await asyncio.sleep(0.5)
+                
+                # Delete the message
+                await cancel_msg_obj.delete()
+                logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
+            except Exception as e:
+                # If deletion fails (e.g., message too old or already deleted), just log it
+                logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
+        
+        # Run deletion in background
+        asyncio.create_task(delete_cancel_message())
 
         # Clear context
         context.user_data.clear()
@@ -1663,8 +1807,28 @@ async def cancel_remove_habit(update: Update, context: ContextTypes.DEFAULT_TYPE
     logger.info(f"📨 Received /cancel from user {telegram_id} (@{username}) in remove_habit flow")
     lang = await get_message_language_async(telegram_id, update)
 
-    await update.message.reply_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
+    cancel_msg_obj = await update.message.reply_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
     logger.info(f"📤 Sent cancellation message to {telegram_id}")
+
+    # Delete cancellation message with animation after a short delay
+    async def delete_cancel_message():
+        try:
+            # Wait 2.5 seconds
+            await asyncio.sleep(2.5)
+            
+            # Animation: Show deleting indicator
+            await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+            await asyncio.sleep(0.5)
+            
+            # Delete the message
+            await cancel_msg_obj.delete()
+            logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
+        except Exception as e:
+            # If deletion fails (e.g., message too old or already deleted), just log it
+            logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
+    
+    # Run deletion in background
+    asyncio.create_task(delete_cancel_message())
 
     # Clear context
     context.user_data.clear()
@@ -1732,6 +1896,7 @@ async def remove_back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ============================================================================
 
 # /add_habit conversation handler
+# Note: AWAITING_HABIT_CATEGORY removed - category step skipped, defaults to None
 add_habit_conversation = ConversationHandler(
     entry_points=[
         CommandHandler("add_habit", add_habit_command),
@@ -1748,10 +1913,6 @@ add_habit_conversation = ConversationHandler(
         ],
         AWAITING_HABIT_WEIGHT: [
             CallbackQueryHandler(habit_weight_selected, pattern="^weight_"),
-            CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
-        ],
-        AWAITING_HABIT_CATEGORY: [
-            CallbackQueryHandler(habit_category_selected, pattern="^category_"),
             CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
         ],
         AWAITING_GRACE_DAYS: [
@@ -1773,6 +1934,7 @@ add_habit_conversation = ConversationHandler(
 )
 
 # /edit_habit conversation handler
+# Note: AWAITING_EDIT_CATEGORY removed - category step skipped to preserve existing value
 edit_habit_conversation = ConversationHandler(
     entry_points=[
         CommandHandler("edit_habit", edit_habit_command),
@@ -1791,11 +1953,6 @@ edit_habit_conversation = ConversationHandler(
         AWAITING_EDIT_WEIGHT: [
             CallbackQueryHandler(habit_edit_weight_skip, pattern="^skip_weight$"),
             CallbackQueryHandler(habit_edit_weight_selected, pattern="^weight_"),
-            CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
-        ],
-        AWAITING_EDIT_CATEGORY: [
-            CallbackQueryHandler(habit_edit_category_skip, pattern="^skip_category$"),
-            CallbackQueryHandler(habit_edit_category_selected, pattern="^category_"),
             CallbackQueryHandler(cancel_habit_flow_callback, pattern="^cancel_habit_flow$")
         ],
         AWAITING_EDIT_GRACE_DAYS: [
