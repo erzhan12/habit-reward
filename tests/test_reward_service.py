@@ -179,7 +179,7 @@ class TestCumulativeProgress:
         assert updated.pieces_earned == 10
         assert updated.get_status() == RewardStatus.ACHIEVED
 
-    def test_mark_reward_claimed(self, reward_service, mock_progress_repo):
+    def test_mark_reward_claimed(self, reward_service, mock_progress_repo, mock_reward_repo):
         """Test marking reward as claimed (Feature 0014: also resets pieces_earned)."""
         achieved_progress = RewardProgress(
             id="prog1",
@@ -206,7 +206,19 @@ class TestCumulativeProgress:
 
         mock_progress_repo.update.side_effect = mock_update
 
-        with patch.object(reward_service, 'progress_repo', mock_progress_repo):
+        # Mock reward repository to return a reward
+        mock_reward = Reward(
+            id="r1",
+            name="Test Reward",
+            type=RewardType.VIRTUAL,
+            weight=10.0,
+            pieces_required=10,
+            is_recurring=True
+        )
+        mock_reward_repo.get_by_id.return_value = mock_reward
+
+        with patch.object(reward_service, 'progress_repo', mock_progress_repo), \
+             patch.object(reward_service, 'reward_repo', mock_reward_repo):
             updated = reward_service.mark_reward_claimed("user123", "r1")
 
         # Verify update was called with claimed=True AND pieces_earned=0
