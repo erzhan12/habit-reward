@@ -27,6 +27,7 @@ from src.bot.handlers.reward_handlers import (
     claim_reward_conversation,
     add_reward_conversation,
     edit_reward_conversation,
+    toggle_reward_conversation,
 )
 from src.bot.handlers.streak_handler import streaks_command
 from src.bot.handlers.menu_handler import get_menu_handlers
@@ -74,6 +75,7 @@ def main():
     application.add_handler(claim_reward_conversation)
     application.add_handler(add_reward_conversation)
     application.add_handler(edit_reward_conversation)
+    application.add_handler(toggle_reward_conversation)
 
     # Add streak handler
     application.add_handler(CommandHandler("streaks", streaks_command))

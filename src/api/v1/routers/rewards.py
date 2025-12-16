@@ -35,6 +35,7 @@ class RewardResponse(BaseModel):
     pieces_required: int
     piece_value: float | None
     max_daily_claims: int | None
+    is_recurring: bool
     active: bool
 
     class Config:
@@ -83,6 +84,7 @@ class RewardCreateRequest(BaseModel):
     pieces_required: int = Field(default=1, ge=1)
     piece_value: float | None = Field(default=None, ge=0)
     max_daily_claims: int | None = Field(default=None, ge=0)
+    is_recurring: bool = Field(default=True, description="If True, reward can be claimed multiple times. If False, reward auto-deactivates after first claim.")
 
 
 class RewardUpdateRequest(BaseModel):
@@ -94,7 +96,17 @@ class RewardUpdateRequest(BaseModel):
     pieces_required: int | None = Field(default=None, ge=1)
     piece_value: float | None = None
     max_daily_claims: int | None = None
+    is_recurring: bool | None = None
     active: bool | None = None
+
+
+class ToggleActiveRequest(BaseModel):
+    """Request to toggle reward active status."""
+
+    active: bool | None = Field(
+        default=None,
+        description="New active status. If not provided, toggles to opposite of current status."
+    )
 
 
 class MessageResponse(BaseModel):
@@ -204,6 +216,7 @@ async def list_rewards(
                     if reward.piece_value
                     else None,
                     max_daily_claims=reward.max_daily_claims,
+                    is_recurring=reward.is_recurring,
                     active=reward.active,
                 ),
                 progress=progress_response,
@@ -244,6 +257,7 @@ async def get_all_progress(
                         if reward.piece_value
                         else None,
                         max_daily_claims=reward.max_daily_claims,
+                        is_recurring=reward.is_recurring,
                         active=reward.active,
                     ),
                     progress=_build_progress_response(progress, reward),
@@ -299,6 +313,7 @@ async def get_reward(
             pieces_required=reward.pieces_required,
             piece_value=float(reward.piece_value) if reward.piece_value else None,
             max_daily_claims=reward.max_daily_claims,
+            is_recurring=reward.is_recurring,
             active=reward.active,
         ),
         progress=progress_response,
@@ -343,6 +358,7 @@ async def create_reward(
             weight=request.weight,
             pieces_required=request.pieces_required,
             piece_value=request.piece_value,
+            is_recurring=request.is_recurring,
         )
     )
 
@@ -368,6 +384,7 @@ async def create_reward(
         pieces_required=reward.pieces_required,
         piece_value=float(reward.piece_value) if reward.piece_value else None,
         max_daily_claims=reward.max_daily_claims,
+        is_recurring=reward.is_recurring,
         active=reward.active,
     )
 
@@ -432,6 +449,8 @@ async def update_reward(
         update_dict["piece_value"] = request.piece_value
     if "max_daily_claims" in request.model_fields_set:
         update_dict["max_daily_claims"] = request.max_daily_claims
+    if request.is_recurring is not None:
+        update_dict["is_recurring"] = request.is_recurring
     if request.active is not None:
         update_dict["active"] = request.active
 
@@ -450,6 +469,7 @@ async def update_reward(
         pieces_required=reward.pieces_required,
         piece_value=float(reward.piece_value) if reward.piece_value else None,
         max_daily_claims=reward.max_daily_claims,
+        is_recurring=reward.is_recurring,
         active=reward.active,
     )
 
@@ -548,6 +568,9 @@ async def claim_reward(
 
     logger.info("Reward %s claimed by user %s", reward_id, current_user.id)
 
+    # Reload reward to get updated active status (non-recurring rewards auto-deactivate)
+    reward = await maybe_await(reward_repository.get_by_id(reward_id))
+
     return ClaimResponse(
         message="Reward claimed",
         reward=RewardResponse(
@@ -558,6 +581,70 @@ async def claim_reward(
             pieces_required=reward.pieces_required,
             piece_value=float(reward.piece_value) if reward.piece_value else None,
             max_daily_claims=reward.max_daily_claims,
+            is_recurring=reward.is_recurring,
             active=reward.active,
         ),
+    )
+
+
+@router.post("/{reward_id}/toggle-active", response_model=RewardResponse)
+async def toggle_reward_active(
+    reward_id: int,
+    request: ToggleActiveRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)]
+) -> RewardResponse:
+    """Toggle reward active status.
+
+    Toggles the active status of a reward between active and inactive.
+    This allows manual activation/deactivation regardless of recurring status.
+
+    Args:
+        reward_id: Reward primary key
+        request: Optional active status (defaults to opposite of current)
+        current_user: Currently authenticated user
+
+    Returns:
+        RewardResponse with updated reward
+
+    Raises:
+        NotFoundException: If reward not found
+        ForbiddenException: If reward belongs to another user
+    """
+    logger.info("Toggle active status for reward %s for user %s", reward_id, current_user.id)
+
+    reward = await maybe_await(reward_repository.get_by_id(reward_id))
+
+    if reward is None:
+        raise NotFoundException(
+            message=f"Reward {reward_id} not found", code="REWARD_NOT_FOUND"
+        )
+
+    if reward.user_id != current_user.id:
+        raise ForbiddenException(message="Access denied", code="NOT_OWNER")
+
+    # Determine new active status
+    new_active = request.active if request.active is not None else not reward.active
+
+    # Toggle through service
+    reward = await maybe_await(
+        reward_service.toggle_reward_active(current_user.id, reward_id, new_active)
+    )
+
+    logger.info(
+        "Reward %s active status set to %s for user %s",
+        reward_id,
+        reward.active,
+        current_user.id,
+    )
+
+    return RewardResponse(
+        id=reward.id,
+        name=reward.name,
+        weight=reward.weight,
+        type=reward.type,
+        pieces_required=reward.pieces_required,
+        piece_value=float(reward.piece_value) if reward.piece_value else None,
+        max_daily_claims=reward.max_daily_claims,
+        is_recurring=reward.is_recurring,
+        active=reward.active,
     )

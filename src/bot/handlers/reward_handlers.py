@@ -1,5 +1,6 @@
 """Handlers for reward-related commands."""
 
+import asyncio
 import html
 import logging
 from telegram import Update
@@ -27,12 +28,14 @@ from src.bot.keyboards import (
     build_reward_type_keyboard,
     build_reward_weight_keyboard,
     build_reward_pieces_keyboard,
+    build_recurring_keyboard,
     # Dormant keyboards kept for potential future reactivation of piece_value editing
     build_reward_piece_value_keyboard,
     build_reward_confirmation_keyboard,
     build_reward_post_create_keyboard,
     build_rewards_menu_keyboard,
     build_rewards_for_edit_keyboard,
+    build_rewards_for_toggle_keyboard,
     build_reward_skip_cancel_keyboard,
     build_reward_edit_type_keyboard,
     build_reward_edit_weight_keyboard,
@@ -42,7 +45,7 @@ from src.bot.keyboards import (
 )
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async, detect_language_from_telegram
-from src.bot.navigation import push_navigation
+from src.bot.navigation import push_navigation, pop_navigation
 from src.models.reward import RewardType
 from src.config import (
     REWARD_NAME_MAX_LENGTH,
@@ -62,6 +65,7 @@ AWAITING_REWARD_NAME = 10
 AWAITING_REWARD_TYPE = 11
 AWAITING_REWARD_WEIGHT = 12
 AWAITING_REWARD_PIECES = 13
+AWAITING_REWARD_RECURRING = 14
 AWAITING_REWARD_CONFIRM = 15
 AWAITING_REWARD_POST_ACTION = 16
 
@@ -71,7 +75,11 @@ AWAITING_REWARD_EDIT_NAME = 31
 AWAITING_REWARD_EDIT_TYPE = 32
 AWAITING_REWARD_EDIT_WEIGHT = 33
 AWAITING_REWARD_EDIT_PIECES = 34
+AWAITING_REWARD_EDIT_RECURRING = 35
 AWAITING_REWARD_EDIT_CONFIRM = 36
+
+# Conversation state for reward toggle
+AWAITING_REWARD_TOGGLE_SELECTION = 40
 
 REWARD_DATA_KEY = "reward_creation_data"
 REWARD_EDIT_DATA_KEY = "reward_edit_data"
@@ -131,6 +139,10 @@ def _format_reward_summary(lang: str, data: dict) -> str:
 
     weight = data.get('weight')
     weight_display = f"{weight:.2f}" if isinstance(weight, (int, float)) else msg('TEXT_NOT_SET', lang)
+    
+    # Recurring field
+    is_recurring = data.get('is_recurring', True)  # Default to True for backward compatibility
+    recurring_display = msg('BUTTON_RECURRING_YES', lang) if is_recurring else msg('BUTTON_RECURRING_NO', lang)
 
     return msg(
         'HELP_ADD_REWARD_CONFIRM',
@@ -138,7 +150,8 @@ def _format_reward_summary(lang: str, data: dict) -> str:
         name=html.escape(data.get('name', '')),
         type_label=type_label,
         weight=weight_display,
-        pieces=data.get('pieces_required', msg('TEXT_NOT_SET', lang))
+        pieces=data.get('pieces_required', msg('TEXT_NOT_SET', lang)),
+        recurring=recurring_display
     )
 
 
@@ -274,7 +287,8 @@ async def claim_reward_command(update: Update, context: ContextTypes.DEFAULT_TYP
         from src.bot.keyboards import build_back_to_menu_keyboard
         await update.message.reply_text(
             msg('INFO_NO_REWARDS_TO_CLAIM', lang),
-            reply_markup=build_back_to_menu_keyboard(lang)
+            reply_markup=build_back_to_menu_keyboard(lang),
+            parse_mode="HTML"
         )
         logger.info(f"📤 Sent INFO_NO_REWARDS_TO_CLAIM message to {telegram_id}")
         return ConversationHandler.END
@@ -326,6 +340,14 @@ async def menu_claim_reward_callback(update: Update, context: ContextTypes.DEFAU
 
     lang = user.language or await get_message_language_async(telegram_id, update)
 
+    # Push navigation state for back button
+    push_navigation(
+        context,
+        query.message.message_id,
+        'menu_rewards_claim',
+        lang
+    )
+
     # Get achieved rewards
     achieved_rewards = await maybe_await(
         reward_service.get_actionable_rewards(user.id)
@@ -337,7 +359,8 @@ async def menu_claim_reward_callback(update: Update, context: ContextTypes.DEFAU
         from src.bot.keyboards import build_back_to_menu_keyboard
         await query.edit_message_text(
             msg('INFO_NO_REWARDS_TO_CLAIM', lang),
-            reply_markup=build_back_to_menu_keyboard(lang)
+            reply_markup=build_back_to_menu_keyboard(lang),
+            parse_mode="HTML"
         )
         logger.info(f"📤 Sent INFO_NO_REWARDS_TO_CLAIM message to {telegram_id}")
         return ConversationHandler.END
@@ -442,6 +465,12 @@ async def claim_reward_callback(
             )
             logger.info(f"✅ Reward '{reward_name}' claimed successfully by user {telegram_id}. Status: {updated_progress.get_status().value}")
 
+            # Check if reward was auto-deactivated (non-recurring)
+            updated_reward = await maybe_await(reward_repository.get_by_id(reward_id))
+            if updated_reward and not updated_reward.active and not updated_reward.is_recurring:
+                # Add auto-deactivation message
+                message += f"\n\n{msg('INFO_REWARD_NON_RECURRING_DEACTIVATED', lang)}"
+
             from src.bot.keyboards import build_back_to_menu_keyboard
             await query.edit_message_text(
                 text=message,
@@ -510,16 +539,19 @@ async def claim_back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     telegram_id = str(update.effective_user.id)
     username = update.effective_user.username or "N/A"
-    logger.info(f"🖱️ User {telegram_id} (@{username}) clicked Back during claim reward flow")
+    logger.info(f"🔙 User {telegram_id} (@{username}) clicked Back during claim reward flow")
 
-    lang = await get_message_language_async(telegram_id, update)
+    # Pop navigation stack and get previous state
+    prev_state = pop_navigation(context)
+    lang = prev_state.get('lang', 'en')
 
-    # Edit message to show cancellation and provide back to menu button
+    # Return to previous menu (should be rewards menu)
     await query.edit_message_text(
-        msg('INFO_CANCELLED', lang),
-        reply_markup=build_back_to_menu_keyboard(lang)
+        msg('REWARDS_MENU_TITLE', lang),
+        reply_markup=build_rewards_menu_keyboard(lang),
+        parse_mode="HTML"
     )
-    logger.info(f"📤 Sent claim flow cancelled message to {telegram_id}")
+    logger.info(f"↩️ Returned user {telegram_id} to Rewards menu")
     return ConversationHandler.END
 
 
@@ -598,11 +630,14 @@ async def reward_name_received(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if not name:
         logger.warning(f"⚠️ User {telegram_id} submitted empty reward name")
-        await update.message.reply_text(
+        error_msg_obj = await update.message.reply_text(
             f"{msg('ERROR_REWARD_NAME_EMPTY', lang)}\n\n{msg('HELP_ADD_REWARD_NAME_PROMPT', lang)}",
             reply_markup=build_reward_cancel_keyboard(lang),
             parse_mode="HTML"
         )
+        # Store error message ID so it can be edited when valid name is entered
+        context.user_data['active_msg_chat_id'] = error_msg_obj.chat_id
+        context.user_data['active_msg_id'] = error_msg_obj.message_id
         return AWAITING_REWARD_NAME
 
     if len(name) > REWARD_NAME_MAX_LENGTH:
@@ -611,11 +646,14 @@ async def reward_name_received(update: Update, context: ContextTypes.DEFAULT_TYP
             telegram_id,
             len(name)
         )
-        await update.message.reply_text(
+        error_msg_obj = await update.message.reply_text(
             f"{msg('ERROR_REWARD_NAME_TOO_LONG', lang)}\n\n{msg('HELP_ADD_REWARD_NAME_PROMPT', lang)}",
             reply_markup=build_reward_cancel_keyboard(lang),
             parse_mode="HTML"
         )
+        # Store error message ID so it can be edited when valid name is entered
+        context.user_data['active_msg_chat_id'] = error_msg_obj.chat_id
+        context.user_data['active_msg_id'] = error_msg_obj.message_id
         return AWAITING_REWARD_NAME
 
     # Get user to check for duplicate names per user
@@ -627,22 +665,56 @@ async def reward_name_received(update: Update, context: ContextTypes.DEFAULT_TYP
     existing = await maybe_await(reward_repository.get_by_name(user.id, name))
     if existing:
         logger.warning("⚠️ Reward name '%s' already exists for user %s", name, user.id)
-        await update.message.reply_text(
+        error_msg_obj = await update.message.reply_text(
             f"{msg('ERROR_REWARD_NAME_EXISTS', lang)}\n\n{msg('HELP_ADD_REWARD_NAME_PROMPT', lang)}",
             reply_markup=build_reward_cancel_keyboard(lang),
             parse_mode="HTML"
         )
+        # Store error message ID so it can be edited when valid name is entered
+        context.user_data['active_msg_chat_id'] = error_msg_obj.chat_id
+        context.user_data['active_msg_id'] = error_msg_obj.message_id
         return AWAITING_REWARD_NAME
 
     reward_data = _get_reward_context(context)
     reward_data['name'] = name
     logger.info("✅ Stored reward name '%s' for user %s", name, telegram_id)
 
-    await update.message.reply_text(
-        msg('HELP_ADD_REWARD_TYPE_PROMPT', lang),
-        reply_markup=build_reward_type_keyboard(lang),
-        parse_mode="HTML"
-    )
+    # Try to edit the active conversation message in-place
+    active_chat_id = context.user_data.get('active_msg_chat_id')
+    active_msg_id = context.user_data.get('active_msg_id')
+    
+    keyboard = build_reward_type_keyboard(lang)
+    
+    if active_chat_id and active_msg_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=active_chat_id,
+                message_id=active_msg_id,
+                text=msg('HELP_ADD_REWARD_TYPE_PROMPT', lang),
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            logger.info(f"📤 Edited active message to type selection keyboard for {telegram_id}")
+            # Clear stored message IDs after successful edit
+            context.user_data.pop('active_msg_chat_id', None)
+            context.user_data.pop('active_msg_id', None)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not edit active message for {telegram_id}, falling back to reply_text: {e}")
+            await update.message.reply_text(
+                msg('HELP_ADD_REWARD_TYPE_PROMPT', lang),
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            logger.info(f"📤 Sent type selection keyboard (fallback) to {telegram_id}")
+    else:
+        # Fallback if no active message stored
+        await update.message.reply_text(
+            msg('HELP_ADD_REWARD_TYPE_PROMPT', lang),
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        logger.info(f"📤 Sent type selection keyboard to {telegram_id}")
+    
     return AWAITING_REWARD_TYPE
 
 
@@ -775,14 +847,13 @@ async def reward_pieces_selected(update: Update, context: ContextTypes.DEFAULT_T
     reward_data['pieces_required'] = pieces_required
     logger.info("✅ Stored pieces_required=%s for user %s via button", pieces_required, telegram_id)
 
-    # Skip piece value step - go directly to confirmation
-    summary = _format_reward_summary(lang, reward_data)
+    # Ask about recurring
     await query.edit_message_text(
-        summary,
-        reply_markup=build_reward_confirmation_keyboard(lang),
+        msg('HELP_ADD_REWARD_RECURRING_PROMPT', lang),
+        reply_markup=build_recurring_keyboard(lang),
         parse_mode="HTML"
     )
-    return AWAITING_REWARD_CONFIRM
+    return AWAITING_REWARD_RECURRING
 
 
 async def reward_pieces_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -819,9 +890,52 @@ async def reward_pieces_received(update: Update, context: ContextTypes.DEFAULT_T
     reward_data['pieces_required'] = pieces_required
     logger.info("✅ Stored pieces_required=%s for user %s", pieces_required, telegram_id)
 
-    # Skip piece value step - go directly to confirmation
-    summary = _format_reward_summary(lang, reward_data)
+    # Ask about recurring
     await update.message.reply_text(
+        msg('HELP_ADD_REWARD_RECURRING_PROMPT', lang),
+        reply_markup=build_recurring_keyboard(lang),
+        parse_mode="HTML"
+    )
+    return AWAITING_REWARD_RECURRING
+
+
+async def reward_recurring_yes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'Yes' selection for recurring reward."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+
+    reward_data = _get_reward_context(context)
+    reward_data['is_recurring'] = True
+    logger.info("✅ User %s selected recurring=True", telegram_id)
+
+    # Show confirmation summary
+    summary = _format_reward_summary(lang, reward_data)
+    await query.edit_message_text(
+        summary,
+        reply_markup=build_reward_confirmation_keyboard(lang),
+        parse_mode="HTML"
+    )
+    return AWAITING_REWARD_CONFIRM
+
+
+async def reward_recurring_no(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'No' selection for recurring reward (one-time only)."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+
+    reward_data = _get_reward_context(context)
+    reward_data['is_recurring'] = False
+    logger.info("✅ User %s selected recurring=False (one-time)", telegram_id)
+
+    # Show confirmation summary
+    summary = _format_reward_summary(lang, reward_data)
+    await query.edit_message_text(
         summary,
         reply_markup=build_reward_confirmation_keyboard(lang),
         parse_mode="HTML"
@@ -926,6 +1040,7 @@ async def reward_confirm_save(update: Update, context: ContextTypes.DEFAULT_TYPE
     reward_type = reward_data.get('type')
     weight = reward_data.get('weight')
     pieces_required = reward_data.get('pieces_required')
+    is_recurring = reward_data.get('is_recurring', True)  # Default to True for backward compatibility
 
     if not all([name, reward_type, weight, pieces_required]):
         logger.error("❌ Reward data incomplete for user %s during save", telegram_id)
@@ -950,7 +1065,8 @@ async def reward_confirm_save(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reward_type=reward_type,
                 weight=float(weight),
                 pieces_required=int(pieces_required),
-                piece_value=None
+                piece_value=None,
+                is_recurring=is_recurring
             )
         )
     except ValueError as error:
@@ -979,12 +1095,41 @@ async def reward_confirm_save(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
     _clear_reward_context(context)
-    await query.edit_message_text(
-        msg('SUCCESS_REWARD_CREATED', lang, name=created_reward.name),
-        reply_markup=build_reward_post_create_keyboard(lang),
+    
+    # Show success message (without keyboard)
+    success_message = msg('SUCCESS_REWARD_CREATED', lang, name=created_reward.name)
+    success_msg_obj = await query.edit_message_text(success_message, parse_mode="HTML")
+    logger.info(f"📤 Sent success message to {telegram_id}")
+    
+    # Send full Rewards menu as a new message
+    await query.message.reply_text(
+        msg('REWARDS_MENU_TITLE', lang),
+        reply_markup=build_rewards_menu_keyboard(lang),
         parse_mode="HTML"
     )
-    return AWAITING_REWARD_POST_ACTION
+    logger.info(f"📤 Sent Rewards menu to {telegram_id}")
+    
+    # Delete success message with animation after user has time to read it
+    async def delete_success_message():
+        try:
+            # Wait 2.5 seconds for user to read the success message
+            await asyncio.sleep(2.5)
+            
+            # Animation: Show deleting indicator
+            await success_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+            await asyncio.sleep(0.5)
+            
+            # Delete the message
+            await success_msg_obj.delete()
+            logger.info(f"🗑️ Deleted success message for user {telegram_id}")
+        except Exception as e:
+            # If deletion fails (e.g., message too old or already deleted), just log it
+            logger.warning(f"⚠️ Could not delete success message for user {telegram_id}: {e}")
+    
+    # Run deletion in background (don't await to avoid blocking)
+    asyncio.create_task(delete_success_message())
+    
+    return ConversationHandler.END
 
 
 async def reward_confirm_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1051,7 +1196,7 @@ async def cancel_reward_flow_callback(update: Update, context: ContextTypes.DEFA
     logger.info("❌ User %s cancelled reward flow via button", telegram_id)
 
     _clear_reward_context(context)
-    await query.edit_message_text(
+    cancel_msg_obj = await query.edit_message_text(
         msg('INFO_REWARD_CANCEL', lang),
         parse_mode="HTML"
     )
@@ -1060,6 +1205,27 @@ async def cancel_reward_flow_callback(update: Update, context: ContextTypes.DEFA
         reply_markup=build_rewards_menu_keyboard(lang),
         parse_mode="HTML"
     )
+    
+    # Delete cancellation message with animation after a short delay
+    async def delete_cancel_message():
+        try:
+            # Wait 2.5 seconds
+            await asyncio.sleep(2.5)
+            
+            # Animation: Show deleting indicator
+            await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+            await asyncio.sleep(0.5)
+            
+            # Delete the message
+            await cancel_msg_obj.delete()
+            logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
+        except Exception as e:
+            # If deletion fails (e.g., message too old or already deleted), just log it
+            logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
+    
+    # Run deletion in background
+    asyncio.create_task(delete_cancel_message())
+    
     return ConversationHandler.END
 
 
@@ -1070,7 +1236,7 @@ async def cancel_add_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     logger.info("❌ User %s cancelled reward flow via command", telegram_id)
 
     _clear_reward_context(context)
-    await update.message.reply_text(
+    cancel_msg_obj = await update.message.reply_text(
         msg('INFO_REWARD_CANCEL', lang),
         parse_mode="HTML"
     )
@@ -1079,6 +1245,27 @@ async def cancel_add_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         reply_markup=build_rewards_menu_keyboard(lang),
         parse_mode="HTML"
     )
+    
+    # Delete cancellation message with animation after a short delay
+    async def delete_cancel_message():
+        try:
+            # Wait 2.5 seconds
+            await asyncio.sleep(2.5)
+            
+            # Animation: Show deleting indicator
+            await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+            await asyncio.sleep(0.5)
+            
+            # Delete the message
+            await cancel_msg_obj.delete()
+            logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
+        except Exception as e:
+            # If deletion fails (e.g., message too old or already deleted), just log it
+            logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
+    
+    # Run deletion in background
+    asyncio.create_task(delete_cancel_message())
+    
     return ConversationHandler.END
 
 
@@ -1201,6 +1388,7 @@ async def reward_edit_selected(update: Update, context: ContextTypes.DEFAULT_TYP
     data["old_type"] = reward.type
     data["old_weight"] = float(reward.weight)
     data["old_pieces_required"] = int(reward.pieces_required)
+    data["old_is_recurring"] = reward.is_recurring
 
     # Prompt for name
     keyboard = build_reward_skip_cancel_keyboard(lang, skip_callback="reward_edit_skip_name")
@@ -1419,7 +1607,7 @@ async def reward_edit_weight_received(update: Update, context: ContextTypes.DEFA
 
 
 async def reward_edit_pieces_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Skip pieces edit -> proceed to confirmation (skip piece value step)."""
+    """Skip pieces edit -> proceed to recurring selection."""
     query = update.callback_query
     await query.answer()
 
@@ -1428,12 +1616,12 @@ async def reward_edit_pieces_skip(update: Update, context: ContextTypes.DEFAULT_
     data = _get_reward_edit_context(context)
     data["new_pieces_required"] = data.get("old_pieces_required")
 
-    # Skip piece value step - go directly to confirmation
-    return await _reward_edit_show_confirm(query, context, lang)
+    # Ask about recurring
+    return await _reward_edit_show_recurring(query, context, lang)
 
 
 async def reward_edit_pieces_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle quick pieces selection (1) for editing -> proceed to confirmation."""
+    """Handle quick pieces selection (1) for editing -> proceed to recurring selection."""
     query = update.callback_query
     await query.answer()
 
@@ -1442,8 +1630,8 @@ async def reward_edit_pieces_selected(update: Update, context: ContextTypes.DEFA
     data = _get_reward_edit_context(context)
     data["new_pieces_required"] = 1
 
-    # Skip piece value step - go directly to confirmation
-    return await _reward_edit_show_confirm(query, context, lang)
+    # Ask about recurring
+    return await _reward_edit_show_recurring(query, context, lang)
 
 
 async def reward_edit_pieces_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1473,10 +1661,15 @@ async def reward_edit_pieces_received(update: Update, context: ContextTypes.DEFA
     data = _get_reward_edit_context(context)
     data["new_pieces_required"] = pieces_required
 
-    # Skip piece value step - go directly to confirmation
-    confirm_message, keyboard = _reward_edit_build_confirm(lang, data)
-    await update.message.reply_text(confirm_message, reply_markup=keyboard, parse_mode="HTML")
-    return AWAITING_REWARD_EDIT_CONFIRM
+    # Ask about recurring
+    current_recurring = data.get("old_is_recurring", True)
+    current_text = msg('BUTTON_RECURRING_YES', lang) if current_recurring else msg('BUTTON_RECURRING_NO', lang)
+    await update.message.reply_text(
+        msg('HELP_EDIT_REWARD_RECURRING_PROMPT', lang, current_value=current_text),
+        reply_markup=build_reward_skip_cancel_keyboard(lang, skip_callback="reward_edit_recurring_skip"),
+        parse_mode="HTML"
+    )
+    return AWAITING_REWARD_EDIT_RECURRING
 
 
 async def reward_edit_value_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1572,6 +1765,12 @@ def _reward_edit_build_confirm(lang: str, data: dict) -> tuple[str, object]:
     new_weight = f"{float(data.get('new_weight', data.get('old_weight', 0.0))):.2f}"
     old_pieces = str(int(data.get("old_pieces_required", 1)))
     new_pieces = str(int(data.get("new_pieces_required", data.get("old_pieces_required", 1))))
+    
+    # Recurring values
+    old_is_recurring = data.get("old_is_recurring", True)
+    new_is_recurring = data.get("new_is_recurring", old_is_recurring)
+    old_recurring = msg('BUTTON_RECURRING_YES', lang) if old_is_recurring else msg('BUTTON_RECURRING_NO', lang)
+    new_recurring = msg('BUTTON_RECURRING_YES', lang) if new_is_recurring else msg('BUTTON_RECURRING_NO', lang)
 
     message = msg(
         "HELP_EDIT_REWARD_CONFIRM",
@@ -1584,9 +1783,24 @@ def _reward_edit_build_confirm(lang: str, data: dict) -> tuple[str, object]:
         new_weight=new_weight,
         old_pieces=old_pieces,
         new_pieces=new_pieces,
+        old_recurring=old_recurring,
+        new_recurring=new_recurring,
     )
     keyboard = build_reward_edit_confirm_keyboard(lang)
     return message, keyboard
+
+
+async def _reward_edit_show_recurring(query, context: ContextTypes.DEFAULT_TYPE, lang: str) -> int:
+    """Show recurring selection prompt for edit flow."""
+    data = _get_reward_edit_context(context)
+    current_recurring = data.get("old_is_recurring", True)
+    current_text = msg('BUTTON_RECURRING_YES', lang) if current_recurring else msg('BUTTON_RECURRING_NO', lang)
+    await query.edit_message_text(
+        msg('HELP_EDIT_REWARD_RECURRING_PROMPT', lang, current_value=current_text),
+        reply_markup=build_recurring_keyboard(lang),
+        parse_mode="HTML"
+    )
+    return AWAITING_REWARD_EDIT_RECURRING
 
 
 async def _reward_edit_show_confirm(query, context: ContextTypes.DEFAULT_TYPE, lang: str) -> int:
@@ -1594,6 +1808,47 @@ async def _reward_edit_show_confirm(query, context: ContextTypes.DEFAULT_TYPE, l
     confirm_message, keyboard = _reward_edit_build_confirm(lang, data)
     await query.edit_message_text(confirm_message, reply_markup=keyboard, parse_mode="HTML")
     return AWAITING_REWARD_EDIT_CONFIRM
+
+
+async def reward_edit_recurring_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skip recurring edit -> keep current value and proceed to confirmation."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    data = _get_reward_edit_context(context)
+    data["new_is_recurring"] = data.get("old_is_recurring", True)
+
+    return await _reward_edit_show_confirm(query, context, lang)
+
+
+async def reward_edit_recurring_yes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'Yes' selection for recurring in edit flow."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    data = _get_reward_edit_context(context)
+    data["new_is_recurring"] = True
+    logger.info("✅ User %s set recurring=True in edit flow", telegram_id)
+
+    return await _reward_edit_show_confirm(query, context, lang)
+
+
+async def reward_edit_recurring_no(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'No' selection for recurring in edit flow."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    data = _get_reward_edit_context(context)
+    data["new_is_recurring"] = False
+    logger.info("✅ User %s set recurring=False in edit flow", telegram_id)
+
+    return await _reward_edit_show_confirm(query, context, lang)
 
 
 async def reward_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1639,6 +1894,7 @@ async def reward_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TY
         "type": data.get("new_type", data.get("old_type")),
         "weight": float(data.get("new_weight", data.get("old_weight"))),
         "pieces_required": int(data.get("new_pieces_required", data.get("old_pieces_required"))),
+        "is_recurring": data.get("new_is_recurring", data.get("old_is_recurring", True)),
     }
 
     try:
@@ -1691,6 +1947,143 @@ async def cancel_edit_reward(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 
+# ======================================
+# Toggle Reward Active/Inactive Handlers
+# ======================================
+
+async def menu_reward_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Entry point for toggling reward active status from menu."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang), parse_mode="HTML")
+        return ConversationHandler.END
+
+    # Get ALL rewards (both active and inactive)
+    rewards = await maybe_await(reward_repository.get_all(user.id))
+
+    if not rewards:
+        await query.edit_message_text(
+            msg('ERROR_NO_REWARDS_TO_TOGGLE', lang),
+            reply_markup=build_rewards_menu_keyboard(lang),
+            parse_mode="HTML"
+        )
+        return ConversationHandler.END
+
+    # Show rewards with status indicators
+    await query.edit_message_text(
+        msg('HELP_TOGGLE_REWARD_SELECT', lang),
+        reply_markup=build_rewards_for_toggle_keyboard(rewards, lang),
+        parse_mode="HTML"
+    )
+    return AWAITING_REWARD_TOGGLE_SELECTION
+
+
+async def reward_toggle_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle reward selection for toggling active status."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+    callback_data = query.data
+
+    # Extract reward_id from callback_data (format: "toggle_reward_{reward_id}")
+    reward_id = callback_data.replace("toggle_reward_", "")
+
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang), parse_mode="HTML")
+        return ConversationHandler.END
+
+    try:
+        # Get current reward to determine new status
+        reward = await maybe_await(reward_repository.get_by_id(reward_id))
+        if not reward:
+            await query.edit_message_text(
+                msg('ERROR_GENERAL', lang, error="Reward not found"),
+                reply_markup=build_rewards_menu_keyboard(lang),
+                parse_mode="HTML"
+            )
+            return ConversationHandler.END
+
+        # Toggle the active status
+        new_active_status = not reward.active
+        updated_reward = await maybe_await(
+            reward_service.toggle_reward_active(user.id, reward_id, new_active_status)
+        )
+
+        # Show success message (without keyboard)
+        if updated_reward.active:
+            success_message = msg('SUCCESS_REWARD_ACTIVATED', lang, name=html.escape(updated_reward.name))
+        else:
+            success_message = msg('SUCCESS_REWARD_DEACTIVATED', lang, name=html.escape(updated_reward.name))
+
+        success_msg_obj = await query.edit_message_text(success_message, parse_mode="HTML")
+        logger.info(f"📤 Sent success message to {telegram_id}")
+
+        # Send Rewards menu as a new message
+        await query.message.reply_text(
+            msg('REWARDS_MENU_TITLE', lang),
+            reply_markup=build_rewards_menu_keyboard(lang),
+            parse_mode="HTML"
+        )
+        logger.info(f"📤 Sent Rewards menu to {telegram_id}")
+
+        # Delete success message with animation after user has time to read it
+        async def delete_success_message():
+            try:
+                # Wait 2.5 seconds for user to read the success message
+                await asyncio.sleep(2.5)
+                
+                # Animation: Show deleting indicator
+                await success_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+                await asyncio.sleep(0.5)
+                
+                # Delete the message
+                await success_msg_obj.delete()
+                logger.info(f"🗑️ Deleted success message for user {telegram_id}")
+            except Exception as e:
+                # If deletion fails (e.g., message too old or already deleted), just log it
+                logger.warning(f"⚠️ Could not delete success message for user {telegram_id}: {e}")
+        
+        # Run deletion in background (don't await to avoid blocking)
+        asyncio.create_task(delete_success_message())
+
+        logger.info("✅ User %s toggled reward %s to active=%s", telegram_id, reward_id, new_active_status)
+        return ConversationHandler.END
+
+    except ValueError as e:
+        logger.warning("⚠️ Error toggling reward for user %s: %s", telegram_id, e)
+        await query.edit_message_text(
+            msg('ERROR_GENERAL', lang, error=str(e)),
+            reply_markup=build_rewards_menu_keyboard(lang),
+            parse_mode="HTML"
+        )
+        return ConversationHandler.END
+
+
+async def reward_toggle_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle back button in toggle flow."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    lang = await get_message_language_async(telegram_id, update)
+
+    await query.edit_message_text(
+        msg('MENU_REWARDS_TEXT', lang),
+        reply_markup=build_rewards_menu_keyboard(lang),
+        parse_mode="HTML"
+    )
+    return ConversationHandler.END
+
+
 # Build conversation handler for edit_reward
 # Note: AWAITING_REWARD_EDIT_VALUE state removed - piece_value is not edited via Telegram
 edit_reward_conversation = ConversationHandler(
@@ -1723,6 +2116,12 @@ edit_reward_conversation = ConversationHandler(
             CallbackQueryHandler(reward_edit_pieces_selected, pattern="^edit_reward_pieces_1$"),
             CallbackQueryHandler(reward_edit_pieces_skip, pattern="^edit_reward_pieces_skip$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, reward_edit_pieces_received),
+            CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
+        ],
+        AWAITING_REWARD_EDIT_RECURRING: [
+            CallbackQueryHandler(reward_edit_recurring_yes, pattern="^reward_recurring_yes$"),
+            CallbackQueryHandler(reward_edit_recurring_no, pattern="^reward_recurring_no$"),
+            CallbackQueryHandler(reward_edit_recurring_skip, pattern="^reward_edit_recurring_skip$"),
             CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
         ],
         AWAITING_REWARD_EDIT_CONFIRM: [
@@ -1760,6 +2159,11 @@ add_reward_conversation = ConversationHandler(
             CallbackQueryHandler(cancel_reward_flow_callback, pattern="^cancel_reward_flow$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, reward_pieces_received)
         ],
+        AWAITING_REWARD_RECURRING: [
+            CallbackQueryHandler(reward_recurring_yes, pattern="^reward_recurring_yes$"),
+            CallbackQueryHandler(reward_recurring_no, pattern="^reward_recurring_no$"),
+            CallbackQueryHandler(cancel_reward_flow_callback, pattern="^cancel_reward_flow$")
+        ],
         AWAITING_REWARD_CONFIRM: [
             CallbackQueryHandler(reward_confirm_save, pattern="^reward_confirm_save$"),
             CallbackQueryHandler(reward_confirm_edit, pattern="^reward_confirm_edit$"),
@@ -1785,8 +2189,23 @@ claim_reward_conversation = ConversationHandler(
     states={
         AWAITING_REWARD_SELECTION: [
             CallbackQueryHandler(claim_reward_callback, pattern="^claim_reward_"),
-            CallbackQueryHandler(claim_back_callback, pattern="^menu_back$")
+            CallbackQueryHandler(claim_back_callback, pattern="^claim_reward_back$")
         ]
     },
     fallbacks=[CommandHandler("cancel", cancel_claim_handler)]
+)
+
+# Build conversation handler for toggle_reward (activate/deactivate)
+toggle_reward_conversation = ConversationHandler(
+    entry_points=[
+        CallbackQueryHandler(menu_reward_toggle_callback, pattern="^menu_reward_toggle$")
+    ],
+    states={
+        AWAITING_REWARD_TOGGLE_SELECTION: [
+            CallbackQueryHandler(reward_toggle_selected, pattern="^toggle_reward_"),
+            CallbackQueryHandler(reward_toggle_back, pattern="^reward_toggle_back$")
+        ]
+    },
+    fallbacks=[],
+    per_message=False
 )

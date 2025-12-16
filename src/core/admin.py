@@ -81,8 +81,8 @@ class HabitAdmin(admin.ModelAdmin):
 class RewardAdmin(admin.ModelAdmin):
     """Admin interface for Reward model."""
 
-    list_display = ['name', 'user', 'type', 'weight', 'pieces_required', 'piece_value', 'max_daily_claims', 'active', 'created_at']
-    list_filter = ['type', 'active', 'created_at', 'user']
+    list_display = ['name', 'user', 'type', 'weight', 'pieces_required', 'piece_value', 'max_daily_claims', 'is_recurring', 'active', 'created_at']
+    list_filter = ['type', 'active', 'is_recurring', 'created_at', 'user']
     search_fields = ['name', 'user__name', 'user__telegram_id']
     readonly_fields = ['created_at', 'updated_at']
     ordering = ['user', 'name']
@@ -90,7 +90,8 @@ class RewardAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Reward Information', {
-            'fields': ('user', 'name', 'type', 'weight', 'pieces_required', 'piece_value', 'active')
+            'fields': ('user', 'name', 'type', 'weight', 'pieces_required', 'piece_value', 'is_recurring', 'active'),
+            'description': 'is_recurring: If True, reward can be claimed multiple times. If False, reward auto-deactivates after first claim.'
         }),
         ('Daily Frequency Control', {
             'fields': ('max_daily_claims',),

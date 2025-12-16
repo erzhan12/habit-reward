@@ -350,7 +350,11 @@ class RewardService:
         user_id: str,
         reward_id: str
     ) -> RewardProgress | Awaitable[RewardProgress]:
-        """Mark a reward as claimed by user and reset the counter."""
+        """Mark a reward as claimed by user and reset the counter.
+
+        For non-recurring rewards (is_recurring=False), also deactivates the reward
+        after claiming.
+        """
 
         async def _impl() -> RewardProgress:
             progress = await maybe_await(
@@ -365,6 +369,12 @@ class RewardService:
             if current_status != RewardStatus.ACHIEVED:
                 raise ValueError("Reward must be in 'Achieved' status to be claimed")
 
+            # Get reward to check is_recurring
+            reward = await maybe_await(self.reward_repo.get_by_id(reward_id))
+            if not reward:
+                raise ValueError("Reward not found")
+
+            # Update progress (reset pieces and mark claimed)
             updated_progress = await maybe_await(
                 self.progress_repo.update(
                     progress.id,
@@ -374,6 +384,17 @@ class RewardService:
                     },
                 )
             )
+
+            # Auto-deactivate non-recurring rewards
+            if not reward.is_recurring:
+                await maybe_await(
+                    self.reward_repo.update(reward_id, {"active": False})
+                )
+                logger.info(
+                    "Auto-deactivated non-recurring reward %s for user %s",
+                    reward_id,
+                    user_id,
+                )
 
             logger.info(
                 "Marked reward %s as claimed for user %s and reset pieces_earned to 0",
@@ -402,19 +423,21 @@ class RewardService:
         reward_type: RewardType | str,
         weight: float,
         pieces_required: int,
-        piece_value: float | None = None
+        piece_value: float | None = None,
+        is_recurring: bool = True
     ) -> Reward | Awaitable[Reward]:
         """Create a new reward after performing validation checks."""
 
         async def _impl() -> Reward:
             logger.info(
-                "Creating reward for user=%s name=%s type=%s weight=%s pieces_required=%s piece_value=%s",
+                "Creating reward for user=%s name=%s type=%s weight=%s pieces_required=%s piece_value=%s is_recurring=%s",
                 user_id,
                 name,
                 reward_type,
                 weight,
                 pieces_required,
                 piece_value,
+                is_recurring,
             )
 
             existing = await maybe_await(self.reward_repo.get_by_name(user_id, name))
@@ -438,6 +461,7 @@ class RewardService:
                 "type": reward_type_value,
                 "weight": weight,
                 "pieces_required": pieces_required,
+                "is_recurring": is_recurring,
             }
 
             if piece_value is not None:
@@ -477,6 +501,61 @@ class RewardService:
                 self.progress_repo.get_achieved_by_user(user_id)
             )
             return [self._coerce_progress(r) for r in results]
+
+        return run_sync_or_async(_impl())
+
+    def toggle_reward_active(
+        self,
+        user_id: str,
+        reward_id: str,
+        active: bool
+    ) -> Reward | Awaitable[Reward]:
+        """Toggle reward active status.
+
+        Args:
+            user_id: User ID (for ownership validation)
+            reward_id: Reward ID
+            active: New active status (True=activate, False=deactivate)
+
+        Returns:
+            Updated Reward instance
+
+        Raises:
+            ValueError: If reward not found or user doesn't own it
+        """
+
+        async def _impl() -> Reward:
+            # Validate reward exists
+            reward = await maybe_await(self.reward_repo.get_by_id(reward_id))
+            if not reward:
+                logger.error("Reward %s not found", reward_id)
+                raise ValueError("Reward not found")
+
+            # Validate ownership
+            user_id_int = int(user_id) if isinstance(user_id, str) else user_id
+            reward_user_id = int(reward.user_id) if isinstance(reward.user_id, str) else reward.user_id
+            if reward_user_id != user_id_int:
+                logger.error(
+                    "User %s attempted to toggle reward %s owned by user %s",
+                    user_id,
+                    reward_id,
+                    reward.user_id
+                )
+                raise ValueError("You don't have permission to modify this reward")
+
+            # Update active status
+            updated_reward = await maybe_await(
+                self.reward_repo.update(reward_id, {"active": active})
+            )
+
+            logger.info(
+                "User %s toggled reward %s active status to %s",
+                user_id,
+                reward_id,
+                active
+            )
+
+            return updated_reward
 
         return run_sync_or_async(_impl())
 

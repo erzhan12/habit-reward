@@ -153,7 +153,7 @@ class Reward(models.Model):
     type = models.CharField(
         max_length=10,
         choices=RewardType.choices,
-        default=RewardType.VIRTUAL,
+        default=RewardType.REAL,
         help_text="Reward type"
     )
     pieces_required = models.IntegerField(
@@ -172,6 +172,10 @@ class Reward(models.Model):
         null=True,
         blank=True,
         help_text="Maximum times this reward can be claimed per day (NULL or 0 = unlimited)"
+    )
+    is_recurring = models.BooleanField(
+        default=True,
+        help_text="If True, reward can be claimed multiple times. If False, reward auto-deactivates after first claim."
     )
     active = models.BooleanField(default=True, help_text="Whether reward is active")
     created_at = models.DateTimeField(auto_now_add=True)

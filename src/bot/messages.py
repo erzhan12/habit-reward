@@ -81,6 +81,7 @@ class Messages:
     BUTTON_REVERT_HABIT = "↩️ Revert Habit"
     BUTTON_ADD_REWARD = "➕ Add Reward"
     BUTTON_EDIT_REWARD_MENU = "✏️ Edit Reward"
+    BUTTON_TOGGLE_REWARD = "🔄 Activate/Deactivate Reward"
     BUTTON_LIST_REWARDS = "📄 List Rewards"
     BUTTON_MY_REWARDS = "📊 My Rewards"
     BUTTON_CLAIM_REWARD = "🎯 Claim Reward"
@@ -222,7 +223,8 @@ Your streak multiplier increases your chances of getting rewards!"""
         "<b>Name:</b> {name}\n"
         "<b>Type:</b> {type_label}\n"
         "<b>Weight:</b> {weight}\n"
-        "<b>Pieces Required:</b> {pieces}\n\n"
+        "<b>Pieces Required:</b> {pieces}\n"
+        "<b>Recurring:</b> {recurring}\n\n"
         "Create this reward?"
     )
     SUCCESS_REWARD_CREATED = "✅ Reward '<b>{name}</b>' created successfully!"
@@ -252,11 +254,31 @@ Your streak multiplier increases your chances of getting rewards!"""
         "<b>Name:</b> {old_name} → {new_name}\n"
         "<b>Type:</b> {old_type} → {new_type}\n"
         "<b>Weight:</b> {old_weight} → {new_weight}\n"
-        "<b>Pieces Required:</b> {old_pieces} → {new_pieces}\n\n"
+        "<b>Pieces Required:</b> {old_pieces} → {new_pieces}\n"
+        "<b>Recurring:</b> {old_recurring} → {new_recurring}\n\n"
         "Save changes?"
     )
     SUCCESS_REWARD_UPDATED = "✅ Reward '<b>{name}</b>' updated successfully!"
     INFO_REWARD_EDIT_CANCEL = "❌ Reward editing cancelled."
+
+    # Recurring Reward Messages
+    HELP_ADD_REWARD_RECURRING_PROMPT = "Is this reward recurring (can be claimed multiple times)?"
+    HELP_EDIT_REWARD_RECURRING_PROMPT = "Is this reward recurring? Current: <b>{current_value}</b>"
+    BUTTON_RECURRING_YES = "🔄 Yes (can claim multiple times)"
+    BUTTON_RECURRING_NO = "🔒 No (one-time only)"
+
+    # Toggle Reward Active/Inactive Messages
+    HELP_TOGGLE_REWARD_SELECT = "Select a reward to activate/deactivate:"
+    SUCCESS_REWARD_ACTIVATED = "✅ Reward '<b>{name}</b>' is now active"
+    SUCCESS_REWARD_DEACTIVATED = "❌ Reward '<b>{name}</b>' is now inactive"
+    ERROR_NO_REWARDS_TO_TOGGLE = "You don't have any rewards to manage."
+    INFO_REWARD_NON_RECURRING_DEACTIVATED = "This reward is non-recurring and has been deactivated. You can reactivate it manually from the Rewards menu if needed."
+
+    # Reward Status Labels
+    LABEL_REWARD_ACTIVE = "✅ Active"
+    LABEL_REWARD_INACTIVE = "❌ Inactive"
+    LABEL_REWARD_NON_RECURRING = "🔒 One-time"
+    LABEL_REWARD_RECURRING = "🔄 Recurring"
 
     # Settings Menu
     SETTINGS_MENU = "⚙️ <b>Settings</b>\n\nSelect an option:"
@@ -340,6 +362,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'BUTTON_REVERT_HABIT': "↩️ Отменить выполнение",
             'BUTTON_ADD_REWARD': "➕ Добавить награду",
             'BUTTON_EDIT_REWARD_MENU': "✏️ Изменить награду",
+            'BUTTON_TOGGLE_REWARD': "🔄 Активировать/Деактивировать награду",
             'BUTTON_LIST_REWARDS': "📄 Список наград",
             'BUTTON_MY_REWARDS': "📊 Мои награды",
             'BUTTON_CLAIM_REWARD': "🎯 Получить награду",
@@ -480,7 +503,8 @@ Your streak multiplier increases your chances of getting rewards!"""
                 "<b>Название:</b> {name}\n"
                 "<b>Тип:</b> {type_label}\n"
                 "<b>Вес:</b> {weight}\n"
-                "<b>Количество частей:</b> {pieces}\n\n"
+                "<b>Количество частей:</b> {pieces}\n"
+                "<b>Повторяющаяся:</b> {recurring}\n\n"
                 "Создать эту награду?"
             ),
             'SUCCESS_REWARD_CREATED': "✅ Награда '<b>{name}</b>' успешно создана!",
@@ -510,11 +534,31 @@ Your streak multiplier increases your chances of getting rewards!"""
                 "<b>Название:</b> {old_name} → {new_name}\n"
                 "<b>Тип:</b> {old_type} → {new_type}\n"
                 "<b>Вес:</b> {old_weight} → {new_weight}\n"
-                "<b>Количество частей:</b> {old_pieces} → {new_pieces}\n\n"
+                "<b>Количество частей:</b> {old_pieces} → {new_pieces}\n"
+                "<b>Повторяющаяся:</b> {old_recurring} → {new_recurring}\n\n"
                 "Сохранить изменения?"
             ),
             'SUCCESS_REWARD_UPDATED': "✅ Награда '<b>{name}</b>' успешно обновлена!",
             'INFO_REWARD_EDIT_CANCEL': "❌ Редактирование награды отменено.",
+
+            # Recurring Reward Messages
+            'HELP_ADD_REWARD_RECURRING_PROMPT': "Награда повторяющаяся (можно получить несколько раз)?",
+            'HELP_EDIT_REWARD_RECURRING_PROMPT': "Награда повторяющаяся? Текущее: <b>{current_value}</b>",
+            'BUTTON_RECURRING_YES': "🔄 Да (можно получить несколько раз)",
+            'BUTTON_RECURRING_NO': "🔒 Нет (только один раз)",
+
+            # Toggle Reward Active/Inactive Messages
+            'HELP_TOGGLE_REWARD_SELECT': "Выберите награду для активации/деактивации:",
+            'SUCCESS_REWARD_ACTIVATED': "✅ Награда '<b>{name}</b>' теперь активна",
+            'SUCCESS_REWARD_DEACTIVATED': "❌ Награда '<b>{name}</b>' теперь неактивна",
+            'ERROR_NO_REWARDS_TO_TOGGLE': "У вас нет наград для управления.",
+            'INFO_REWARD_NON_RECURRING_DEACTIVATED': "Эта награда неповторяющаяся и была деактивирована. Вы можете активировать её вручную из меню Наград при необходимости.",
+
+            # Reward Status Labels
+            'LABEL_REWARD_ACTIVE': "✅ Активна",
+            'LABEL_REWARD_INACTIVE': "❌ Неактивна",
+            'LABEL_REWARD_NON_RECURRING': "🔒 Одноразовая",
+            'LABEL_REWARD_RECURRING': "🔄 Повторяющаяся",
 
             # Settings Menu
             'SETTINGS_MENU': "⚙️ <b>Настройки</b>\n\nВыберите опцию:",
@@ -596,6 +640,7 @@ Your streak multiplier increases your chances of getting rewards!"""
             'BUTTON_REVERT_HABIT': "↩️ Әдетті қайтару",
             'BUTTON_ADD_REWARD': "➕ Марапат қосу",
             'BUTTON_EDIT_REWARD_MENU': "✏️ Марапатты өңдеу",
+            'BUTTON_TOGGLE_REWARD': "🔄 Марапатты іске қосу/өшіру",
             'BUTTON_LIST_REWARDS': "📄 Марапаттар тізімі",
             'BUTTON_MY_REWARDS': "📊 Менің марапаттарым",
             'BUTTON_CLAIM_REWARD': "🎯 Марапат алу",
@@ -737,7 +782,8 @@ Your streak multiplier increases your chances of getting rewards!"""
                 "<b>Атауы:</b> {name}\n"
                 "<b>Түрі:</b> {type_label}\n"
                 "<b>Салмағы:</b> {weight}\n"
-                "<b>Қажет бөліктер:</b> {pieces}\n\n"
+                "<b>Қажет бөліктер:</b> {pieces}\n"
+                "<b>Қайталанатын:</b> {recurring}\n\n"
                 "Бұл сыйлықты жасаймыз ба?"
             ),
             'SUCCESS_REWARD_CREATED': "✅ '<b>{name}</b>' сыйлығы сәтті құрылды!",
@@ -767,11 +813,31 @@ Your streak multiplier increases your chances of getting rewards!"""
                 "<b>Атауы:</b> {old_name} → {new_name}\n"
                 "<b>Түрі:</b> {old_type} → {new_type}\n"
                 "<b>Салмағы:</b> {old_weight} → {new_weight}\n"
-                "<b>Қажет бөліктер:</b> {old_pieces} → {new_pieces}\n\n"
+                "<b>Қажет бөліктер:</b> {old_pieces} → {new_pieces}\n"
+                "<b>Қайталанатын:</b> {old_recurring} → {new_recurring}\n\n"
                 "Өзгерістерді сақтау керек пе?"
             ),
             'SUCCESS_REWARD_UPDATED': "✅ '<b>{name}</b>' марапаты сәтті жаңартылды!",
             'INFO_REWARD_EDIT_CANCEL': "❌ Марапатты өңдеу тоқтатылды.",
+
+            # Recurring Reward Messages
+            'HELP_ADD_REWARD_RECURRING_PROMPT': "Сыйлық қайталанатын (бірнеше рет алуға бола ма)?",
+            'HELP_EDIT_REWARD_RECURRING_PROMPT': "Сыйлық қайталанатын ба? Ағымдағы: <b>{current_value}</b>",
+            'BUTTON_RECURRING_YES': "🔄 Иә (бірнеше рет алуға болады)",
+            'BUTTON_RECURRING_NO': "🔒 Жоқ (тек бір рет)",
+
+            # Toggle Reward Active/Inactive Messages
+            'HELP_TOGGLE_REWARD_SELECT': "Іске қосу/өшіру үшін сыйлықты таңдаңыз:",
+            'SUCCESS_REWARD_ACTIVATED': "✅ '<b>{name}</b>' сыйлығы енді белсенді",
+            'SUCCESS_REWARD_DEACTIVATED': "❌ '<b>{name}</b>' сыйлығы енді белсенді емес",
+            'ERROR_NO_REWARDS_TO_TOGGLE': "Басқаруға сыйлықтарыңыз жоқ.",
+            'INFO_REWARD_NON_RECURRING_DEACTIVATED': "Бұл сыйлық қайталанбайтын және өшірілді. Қажет болса, Сыйлықтар мәзірінен қолмен іске қосуға болады.",
+
+            # Reward Status Labels
+            'LABEL_REWARD_ACTIVE': "✅ Белсенді",
+            'LABEL_REWARD_INACTIVE': "❌ Белсенді емес",
+            'LABEL_REWARD_NON_RECURRING': "🔒 Бір реттік",
+            'LABEL_REWARD_RECURRING': "🔄 Қайталанатын",
 
             # Settings Menu
             'SETTINGS_MENU': "⚙️ <b>Параметрлер</b>\n\nОпцияны таңдаңыз:",

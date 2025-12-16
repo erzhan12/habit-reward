@@ -181,11 +181,11 @@ def build_claimable_rewards_keyboard(
             )
             keyboard.append([button])
 
-    # Add Back button to return to main menu
+    # Add Back button to return to rewards menu
     keyboard.append([
         InlineKeyboardButton(
             text=msg('MENU_BACK', language),
-            callback_data="menu_back"
+            callback_data="claim_reward_back"
         )
     ])
 
@@ -571,6 +571,24 @@ def build_reward_pieces_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def build_recurring_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
+    """Build inline keyboard for recurring reward selection (Yes/No)."""
+    keyboard = [
+        [InlineKeyboardButton(
+            text=msg('BUTTON_RECURRING_YES', language),
+            callback_data="reward_recurring_yes"
+        )],
+        [InlineKeyboardButton(
+            text=msg('BUTTON_RECURRING_NO', language),
+            callback_data="reward_recurring_no"
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 
 def build_reward_piece_value_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     """Build inline keyboard for optional piece value with skip/cancel buttons."""
@@ -708,6 +726,7 @@ def build_rewards_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton(text=msg('BUTTON_ADD_REWARD', language), callback_data="menu_rewards_add")],
         [InlineKeyboardButton(text=msg('BUTTON_EDIT_REWARD_MENU', language), callback_data="menu_rewards_edit")],
+        [InlineKeyboardButton(text=msg('BUTTON_TOGGLE_REWARD', language), callback_data="menu_reward_toggle")],
         [InlineKeyboardButton(text=msg('BUTTON_LIST_REWARDS', language), callback_data="menu_rewards_list")],
         [InlineKeyboardButton(text=msg('BUTTON_MY_REWARDS', language), callback_data="menu_rewards_my")],
         [InlineKeyboardButton(text=msg('BUTTON_CLAIM_REWARD', language), callback_data="menu_rewards_claim")],
@@ -735,6 +754,44 @@ def build_rewards_for_edit_keyboard(
         InlineKeyboardButton(
             text=msg('MENU_BACK', language),
             callback_data="reward_edit_back"
+        )
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_rewards_for_toggle_keyboard(
+    rewards: list[Reward],
+    language: str = "en",
+) -> InlineKeyboardMarkup:
+    """Build inline keyboard for selecting a reward to activate/deactivate.
+
+    Shows ALL rewards (both active and inactive) with status indicators.
+    Format: "{status_emoji} {name} ({recurring_indicator})"
+    """
+    keyboard: list[list[InlineKeyboardButton]] = []
+
+    for reward in rewards:
+        # Status emoji: ✅ for active, ❌ for inactive
+        status_emoji = "✅" if reward.active else "❌"
+
+        # Recurring indicator: 🔄 for recurring, 🔒 for non-recurring
+        recurring_emoji = "🔄" if reward.is_recurring else "🔒"
+
+        # Format: "✅ Reward Name (🔄)"
+        display_text = f"{status_emoji} {reward.name} ({recurring_emoji})"
+
+        keyboard.append([
+            InlineKeyboardButton(
+                text=display_text,
+                callback_data=f"toggle_reward_{reward.id}"
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(
+            text=msg('MENU_BACK', language),
+            callback_data="reward_toggle_back"
         )
     ])
 

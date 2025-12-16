@@ -56,6 +56,30 @@ This document tracks planned features, improvements, and enhancements for the Ha
   - **Related**: UX improvement - optimizes for the 90% use case (logging today)
   - **Bug Fixes**: Fixed empty habit list handling to correctly distinguish between "no habits" vs "all completed"
 
+- [ ] **Recurring vs Non-Recurring Rewards**
+  - Add distinction between recurring and non-recurring rewards
+  - **Problem**: Some rewards can be claimed multiple times (e.g., massage), while others should only be claimed once (e.g., MacBook)
+  - **Solution**: Add a "recurring" boolean field to rewards
+    - Recurring rewards: Can be claimed multiple times, remain active after claiming
+    - Non-recurring rewards: Auto-deactivate after first claim, cannot be claimed again
+    - Manual deactivation: Users can manually deactivate rewards from Rewards menu (both recurring and non-recurring)
+  - **Implementation approach**:
+    - Add `is_recurring` field to Reward model (default: True for backward compatibility)
+    - Update reward creation flow to ask if reward is recurring
+    - When claiming non-recurring reward, automatically set `active=False`
+    - Add manual deactivate/activate option in Rewards menu (similar to habit management)
+    - Update reward list to show status (e.g., "Claimed - No longer available" for non-recurring claimed rewards)
+    - Update REST API endpoints to support `is_recurring` field
+    - Admin interface should allow toggling this setting
+  - **Files**:
+    - `src/models/reward.py` - Add `is_recurring` field
+    - `src/services/reward_service.py` - Update claim logic to deactivate non-recurring rewards
+    - `src/bot/handlers/reward_handlers.py` - Update creation flow, claim handling, and add manual deactivation
+    - `src/bot/keyboards.py` - Add activate/deactivate buttons to rewards menu
+    - `src/bot/messages.py` - Add messaging for recurring/non-recurring status and deactivation
+    - `src/api/` - Update REST API serializers and endpoints for `is_recurring` field
+  - **Related**: Core reward system enhancement
+
 - [ ] **Reward Edit Interface**
   - Add Telegram bot command/interface to edit existing rewards
   - Currently rewards can only be created and deleted, but not edited

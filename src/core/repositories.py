@@ -207,6 +207,17 @@ class RewardRepository:
         )
         return rewards
 
+    async def get_all(self, user_id: int | str) -> list[Reward]:
+        """Get ALL rewards for a specific user (both active and inactive).
+
+        Used for toggle reward active/inactive flow where we need to show all rewards.
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        rewards = await sync_to_async(list)(
+            Reward.objects.filter(user_id=user_pk).order_by("name")
+        )
+        return rewards
+
     async def get_by_id(self, reward_id: int | str) -> Reward | None:
         """Get reward by primary key."""
         try:
@@ -216,11 +227,15 @@ class RewardRepository:
             return None
 
     async def get_by_name(self, user_id: int | str, name: str) -> Reward | None:
-        """Get reward by name for a specific user (active rewards only)."""
+        """Get reward by name for a specific user (all rewards, active and inactive).
+        
+        Used for duplicate name validation, which must check all rewards since
+        the DB constraint is on (user, name) for all rewards.
+        """
         try:
             user_pk = int(user_id) if isinstance(user_id, str) else user_id
             return await sync_to_async(Reward.objects.get)(
-                user_id=user_pk, name=name, active=True
+                user_id=user_pk, name=name
             )
         except Reward.DoesNotExist:
             return None
