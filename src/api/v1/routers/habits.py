@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from src.api.dependencies.auth import get_current_active_user
+from src.api.dependencies.auth import get_current_active_user, get_current_user_flexible
 from src.api.exceptions import (
     NotFoundException,
     ForbiddenException,
@@ -424,7 +424,7 @@ async def delete_habit(
 async def complete_habit(
     habit_id: int,
     request: HabitCompleteRequest,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: Annotated[User, Depends(get_current_user_flexible)],
 ) -> HabitCompletionResponse:
     """Complete a habit and receive reward.
 
@@ -523,7 +523,7 @@ async def complete_habit(
 @router.post("/batch-complete", response_model=BatchCompletionResponse)
 async def batch_complete_habits(
     request: BatchCompletionRequest,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: Annotated[User, Depends(get_current_user_flexible)],
 ) -> BatchCompletionResponse:
     """Complete multiple habits at once.
 

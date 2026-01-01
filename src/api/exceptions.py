@@ -90,6 +90,28 @@ class ValidationException(APIException):
         )
 
 
+class TooManyRequestsException(APIException):
+    """429 Too Many Requests exception."""
+
+    def __init__(self, message: str = "Too many requests", code: str = "RATE_LIMITED"):
+        super().__init__(
+            code=code,
+            message=message,
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS
+        )
+
+
+class GoneException(APIException):
+    """410 Gone exception."""
+
+    def __init__(self, message: str = "Resource no longer available", code: str = "GONE"):
+        super().__init__(
+            code=code,
+            message=message,
+            status_code=status.HTTP_410_GONE
+        )
+
+
 async def api_exception_handler(request: Request, exc: APIException) -> JSONResponse:
     """Handle custom API exceptions."""
     return JSONResponse(
@@ -118,6 +140,38 @@ async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse
     )
 
 
+async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Handle unhandled exceptions with detailed error information."""
+    import logging
+    import traceback
+    
+    logger = logging.getLogger(__name__)
+    
+    # Log the full traceback for debugging
+    logger.error(
+        "Unhandled exception: %s\n%s",
+        str(exc),
+        traceback.format_exc(),
+        exc_info=True
+    )
+    
+    # Return error response with exception details
+    # In production, you might want to hide the actual error message
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": {
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": f"Internal server error: {str(exc)}",
+                "details": {
+                    "type": type(exc).__name__,
+                    "traceback": traceback.format_exc().split('\n')[-5:] if __debug__ else None
+                }
+            }
+        }
+    )
+
+
 def setup_exception_handlers(app: FastAPI) -> None:
     """Register exception handlers with the FastAPI app."""
     app.add_exception_handler(APIException, api_exception_handler)
@@ -126,4 +180,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(NotFoundException, api_exception_handler)
     app.add_exception_handler(ConflictException, api_exception_handler)
     app.add_exception_handler(ValidationException, api_exception_handler)
+    app.add_exception_handler(TooManyRequestsException, api_exception_handler)
     app.add_exception_handler(ValueError, value_error_handler)
+    # Add generic exception handler last (it will catch any unhandled exceptions)
+    app.add_exception_handler(Exception, generic_exception_handler)

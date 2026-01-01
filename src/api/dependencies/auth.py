@@ -1,10 +1,10 @@
-"""JWT authentication dependencies."""
+"""JWT and API Key authentication dependencies."""
 
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from pydantic import BaseModel
@@ -201,3 +201,71 @@ async def get_current_active_user(
             code="USER_INACTIVE"
         )
     return current_user
+
+
+async def get_current_user_flexible(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security_scheme)] = None,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None
+) -> User:
+    """Get current user from either JWT or API key.
+
+    This dependency supports both authentication methods:
+    1. JWT Bearer token (Authorization: Bearer <token>)
+    2. API Key (X-API-Key: hrk_...)
+
+    JWT takes priority if both are provided.
+
+    Args:
+        credentials: HTTP Bearer credentials from Authorization header
+        x_api_key: API key from X-API-Key header
+
+    Returns:
+        User instance from database
+
+    Raises:
+        UnauthorizedException: If no valid auth provided
+    """
+    # Priority 1: JWT Bearer token
+    if credentials and credentials.credentials:
+        try:
+            # Get user and check is_active
+            user = await get_current_user(credentials)
+            if not user.is_active:
+                logger.warning("Inactive user attempted access via JWT: %s", user.id)
+                raise UnauthorizedException(
+                    message="User account is inactive",
+                    code="USER_INACTIVE"
+                )
+            return user
+        except UnauthorizedException:
+            # If JWT fails and API key is present, try that
+            if not x_api_key:
+                raise
+
+    # Priority 2: API Key
+    if x_api_key:
+        from src.api.services.auth_code_service import api_key_service
+
+        user = await api_key_service.verify_api_key(x_api_key)
+        if user is None:
+            logger.warning("Invalid API key provided")
+            raise UnauthorizedException(
+                message="Invalid or expired API key",
+                code="INVALID_API_KEY"
+            )
+
+        if not user.is_active:
+            logger.warning("Inactive user attempted access via API key: %s", user.id)
+            raise UnauthorizedException(
+                message="User account is inactive",
+                code="USER_INACTIVE"
+            )
+
+        return user
+
+    # No auth provided
+    logger.warning("No authentication provided (JWT or API key)")
+    raise UnauthorizedException(
+        message="Authentication required (JWT Bearer token or X-API-Key header)",
+        code="AUTH_REQUIRED"
+    )

@@ -16,13 +16,17 @@ from src.bot.handlers.reward_handlers import (
     reward_weight_received,
     reward_pieces_received,
     reward_pieces_selected,
+    reward_recurring_yes,
     reward_edit_pieces_received,
     reward_edit_pieces_selected,
+    reward_edit_recurring_skip,
     reward_edit_selected,
     AWAITING_REWARD_NAME,
     AWAITING_REWARD_TYPE,
     AWAITING_REWARD_WEIGHT,
-    AWAITING_REWARD_CONFIRM,
+    AWAITING_REWARD_RECURRING,
+    # AWAITING_REWARD_CONFIRM,
+    AWAITING_REWARD_EDIT_RECURRING,
     AWAITING_REWARD_EDIT_CONFIRM,
     menu_edit_reward_callback,
     AWAITING_REWARD_EDIT_SELECTION,
@@ -984,7 +988,7 @@ class TestAddRewardPieceValueRemoval:
         mock_telegram_update,
         language
     ):
-        """After entering pieces_required, should go directly to confirmation, not piece_value."""
+        """After entering pieces_required, should go to recurring selection (piece_value is removed)."""
         mock_lang.return_value = language
         mock_telegram_update.message.text = "5"
         context = Mock()
@@ -998,9 +1002,9 @@ class TestAddRewardPieceValueRemoval:
 
         result = await reward_pieces_received(mock_telegram_update, context)
 
-        # Should go directly to AWAITING_REWARD_CONFIRM, NOT AWAITING_REWARD_VALUE
-        assert result == AWAITING_REWARD_CONFIRM
-        # Verify confirmation message was sent
+        # Should go to recurring selection
+        assert result == AWAITING_REWARD_RECURRING
+        # Verify recurring prompt was sent
         mock_telegram_update.message.reply_text.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -1011,7 +1015,7 @@ class TestAddRewardPieceValueRemoval:
         mock_callback_update,
         language
     ):
-        """After selecting pieces=1 via button, should go directly to confirmation."""
+        """After selecting pieces=1 via button, should go to recurring selection."""
         mock_lang.return_value = language
         context = Mock()
         context.user_data = {
@@ -1024,9 +1028,8 @@ class TestAddRewardPieceValueRemoval:
 
         result = await reward_pieces_selected(mock_callback_update, context)
 
-        # Should go directly to AWAITING_REWARD_CONFIRM
-        assert result == AWAITING_REWARD_CONFIRM
-        # Verify confirmation message was sent via edit
+        assert result == AWAITING_REWARD_RECURRING
+        # Verify recurring prompt was sent via edit
         mock_callback_update.callback_query.edit_message_text.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -1049,10 +1052,21 @@ class TestAddRewardPieceValueRemoval:
             }
         }
 
+        # Pieces -> recurring prompt
         await reward_pieces_received(mock_telegram_update, context)
 
+        # Choose recurring to reach confirmation
+        mock_callback_update = Mock(spec=Update)
+        mock_callback_update.effective_user = mock_telegram_update.effective_user
+        query = Mock()
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        mock_callback_update.callback_query = query
+
+        await reward_recurring_yes(mock_callback_update, context)
+
         # Get the confirmation message that was sent
-        call_args = mock_telegram_update.message.reply_text.await_args
+        call_args = query.edit_message_text.await_args
         message_text = call_args.args[0]
 
         # Verify confirmation message does NOT mention piece value
@@ -1079,7 +1093,7 @@ class TestEditRewardPieceValueRemoval:
         mock_active_user,
         language
     ):
-        """After editing pieces_required, should go directly to confirmation."""
+        """After editing pieces_required, should go to recurring selection."""
         mock_lang.return_value = language
         mock_telegram_update.message.text = "5"
 
@@ -1099,9 +1113,8 @@ class TestEditRewardPieceValueRemoval:
 
         result = await reward_edit_pieces_received(mock_telegram_update, context)
 
-        # Should go directly to AWAITING_REWARD_EDIT_CONFIRM, NOT AWAITING_REWARD_EDIT_VALUE
-        assert result == AWAITING_REWARD_EDIT_CONFIRM
-        # Verify confirmation message was sent
+        assert result == AWAITING_REWARD_EDIT_RECURRING
+        # Verify recurring prompt was sent
         mock_telegram_update.message.reply_text.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -1112,7 +1125,7 @@ class TestEditRewardPieceValueRemoval:
         mock_callback_update,
         language
     ):
-        """After selecting pieces=1 via button in edit, should go directly to confirmation."""
+        """After selecting pieces=1 via button in edit, should go to recurring selection."""
         mock_lang.return_value = language
         context = Mock()
         context.user_data = {
@@ -1130,7 +1143,72 @@ class TestEditRewardPieceValueRemoval:
 
         result = await reward_edit_pieces_selected(mock_callback_update, context)
 
-        # Should go directly to AWAITING_REWARD_EDIT_CONFIRM
+        assert result == AWAITING_REWARD_EDIT_RECURRING
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
+    async def test_edit_recurring_keyboard_marks_current_value(
+        self,
+        mock_lang,
+        mock_telegram_update,
+        language
+    ):
+        """Recurring keyboard should show ✓ on the current value."""
+        mock_lang.return_value = language
+        mock_telegram_update.message.text = "5"
+
+        context = Mock()
+        context.user_data = {
+            'reward_edit_data': {
+                'reward_id': 'reward123',
+                'old_name': 'Coffee',
+                'old_type': 'virtual',
+                'old_weight': 10.0,
+                'old_pieces_required': 3,
+                'old_is_recurring': True,
+                'new_name': 'Coffee',
+                'new_type': 'virtual',
+                'new_weight': 10.0
+            }
+        }
+
+        result = await reward_edit_pieces_received(mock_telegram_update, context)
+        assert result == AWAITING_REWARD_EDIT_RECURRING
+
+        call_args = mock_telegram_update.message.reply_text.await_args
+        keyboard = call_args.kwargs.get("reply_markup")
+        assert keyboard is not None
+
+        first_two = [keyboard.inline_keyboard[0][0].text, keyboard.inline_keyboard[1][0].text]
+        assert any(text.startswith("✓ ") for text in first_two)
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.get_message_language_async', new_callable=AsyncMock)
+    async def test_edit_recurring_skip_goes_to_confirm(
+        self,
+        mock_lang,
+        mock_callback_update,
+        language
+    ):
+        """Skip on recurring step should go to confirmation."""
+        mock_lang.return_value = language
+        context = Mock()
+        context.user_data = {
+            'reward_edit_data': {
+                'reward_id': 'reward123',
+                'old_name': 'Coffee',
+                'old_type': 'virtual',
+                'old_weight': 10.0,
+                'old_pieces_required': 3,
+                'old_is_recurring': True,
+                'new_name': 'Coffee',
+                'new_type': 'virtual',
+                'new_weight': 10.0,
+                'new_pieces_required': 5,
+            }
+        }
+
+        result = await reward_edit_recurring_skip(mock_callback_update, context)
         assert result == AWAITING_REWARD_EDIT_CONFIRM
 
     @pytest.mark.asyncio

@@ -11,7 +11,7 @@ from decimal import Decimal
 from asgiref.sync import sync_to_async
 from django.db.models import F
 
-from src.core.models import User, Habit, HabitLog, Reward, RewardProgress
+from src.core.models import User, Habit, HabitLog, Reward, RewardProgress, AuthCode, APIKey
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -736,9 +736,349 @@ class HabitLogRepository:
         return log
 
 
+class AuthCodeRepository:
+    """Auth code repository for one-time login codes."""
+
+    async def create(
+        self,
+        user_id: int | str,
+        code: str,
+        expires_at,
+        device_info: str | None = None,
+    ) -> AuthCode:
+        """Create a new auth code.
+
+        Args:
+            user_id: User primary key
+            code: 6-digit code string
+            expires_at: Expiration datetime
+            device_info: Optional device/browser info
+
+        Returns:
+            Created AuthCode instance
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        return await sync_to_async(AuthCode.objects.create)(
+            user_id=user_pk,
+            code=code,
+            expires_at=expires_at,
+            device_info=device_info,
+        )
+
+    async def get_valid_code(
+        self, user_id: int | str, code: str
+    ) -> AuthCode | None:
+        """Get a valid (not used, not expired) code for user.
+
+        Args:
+            user_id: User primary key
+            code: 6-digit code string
+
+        Returns:
+            AuthCode instance if valid, None otherwise
+        """
+        from datetime import datetime, timezone
+
+        try:
+            user_pk = int(user_id) if isinstance(user_id, str) else user_id
+            now = datetime.now(timezone.utc)
+            return await sync_to_async(
+                AuthCode.objects.select_related("user").get
+            )(
+                user_id=user_pk,
+                code=code,
+                used=False,
+                expires_at__gt=now,
+            )
+        except AuthCode.DoesNotExist:
+            return None
+
+    async def verify_and_consume_code(
+        self, user_id: int | str, code: str
+    ) -> AuthCode | None:
+        """Verify and consume a code atomically.
+
+        Args:
+            user_id: User primary key
+            code: 6-digit code string
+
+        Returns:
+            AuthCode instance if valid and successfully consumed, None otherwise
+        """
+        from datetime import datetime, timezone
+
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        now = datetime.now(timezone.utc)
+
+        # First, try to fetch the valid code to return it
+        try:
+            auth_code = await sync_to_async(
+                AuthCode.objects.select_related("user").get
+            )(
+                user_id=user_pk,
+                code=code,
+                used=False,
+                expires_at__gt=now,
+            )
+        except AuthCode.DoesNotExist:
+            return None
+
+        # Check if code is locked
+        if auth_code.locked_until and auth_code.locked_until > now:
+            return None
+
+        # Now try to mark it as used atomically
+        # If another request beat us to it, update will return 0
+        updated_count = await sync_to_async(
+            AuthCode.objects.filter(
+                id=auth_code.id,
+                used=False,  # Ensure it's still unused
+                locked_until__isnull=True, # Ensure not locked
+            ).update
+        )(used=True)
+
+        if updated_count == 0:
+            # Race condition: code was used or locked between get and update
+            return None
+
+        return auth_code
+
+    async def register_failed_attempt(self, user_id: int | str) -> bool:
+        """Register a failed attempt for the user's latest active code.
+
+        Increments failed_attempts and locks if threshold reached.
+
+        Args:
+            user_id: User primary key
+
+        Returns:
+            True if a code was found and updated, False otherwise
+        """
+        from datetime import datetime, timezone, timedelta
+
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        now = datetime.now(timezone.utc)
+
+        # Get latest active code for user
+        # We need to find the code that is valid (not expired, not used)
+        # to increment attempts on it.
+        try:
+            auth_code = await sync_to_async(
+                AuthCode.objects.filter(
+                    user_id=user_pk,
+                    used=False,
+                    expires_at__gt=now
+                ).latest
+            )("created_at")
+        except AuthCode.DoesNotExist:
+            return False
+
+        # Increment attempts
+        auth_code.failed_attempts += 1
+        
+        # Check if should lock (5 max attempts)
+        if auth_code.failed_attempts >= 5:
+            auth_code.locked_until = now + timedelta(minutes=15)
+        
+        await sync_to_async(auth_code.save)()
+        return True
+
+    async def mark_used(self, code_id: int | str) -> AuthCode:
+        """Mark an auth code as used.
+
+        Args:
+            code_id: AuthCode primary key
+
+        Returns:
+            Updated AuthCode instance
+        """
+        pk = int(code_id) if isinstance(code_id, str) else code_id
+        await sync_to_async(AuthCode.objects.filter(pk=pk).update)(used=True)
+        return await sync_to_async(AuthCode.objects.get)(pk=pk)
+
+    async def delete_expired(self) -> int:
+        """Delete all expired auth codes.
+
+        Returns:
+            Number of deleted codes
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        deleted, _ = await sync_to_async(
+            AuthCode.objects.filter(expires_at__lt=now).delete
+        )()
+        return deleted
+
+    async def invalidate_user_codes(self, user_id: int | str) -> int:
+        """Invalidate all pending codes for a user (when new code requested).
+
+        Args:
+            user_id: User primary key
+
+        Returns:
+            Number of codes invalidated
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        count = await sync_to_async(
+            AuthCode.objects.filter(user_id=user_pk, used=False).update
+        )(used=True)
+        return count
+
+    async def count_recent_requests(
+        self, user_id: int | str, hours: int = 1
+    ) -> int:
+        """Count how many codes were requested in the last N hours.
+
+        Used for rate limiting.
+
+        Args:
+            user_id: User primary key
+            hours: Number of hours to look back
+
+        Returns:
+            Number of codes created in the time window
+        """
+        from datetime import datetime, timezone, timedelta
+
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        return await sync_to_async(
+            AuthCode.objects.filter(
+                user_id=user_pk,
+                created_at__gte=cutoff,
+            ).count
+        )()
+
+
+class APIKeyRepository:
+    """API key repository for automated integrations."""
+
+    async def create(
+        self,
+        user_id: int | str,
+        key_hash: str,
+        name: str,
+        expires_at=None,
+    ) -> APIKey:
+        """Create a new API key.
+
+        Args:
+            user_id: User primary key
+            key_hash: SHA256 hash of the key
+            name: User-friendly name for the key
+            expires_at: Optional expiration datetime
+
+        Returns:
+            Created APIKey instance
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        return await sync_to_async(APIKey.objects.create)(
+            user_id=user_pk,
+            key_hash=key_hash,
+            name=name,
+            expires_at=expires_at,
+        )
+
+    async def get_by_key_hash(self, key_hash: str) -> APIKey | None:
+        """Get API key by its hash.
+
+        Args:
+            key_hash: SHA256 hash of the key
+
+        Returns:
+            APIKey instance if found, None otherwise
+        """
+        try:
+            return await sync_to_async(
+                APIKey.objects.select_related("user").get
+            )(key_hash=key_hash, is_active=True)
+        except APIKey.DoesNotExist:
+            return None
+
+    async def list_by_user(self, user_id: int | str) -> list[APIKey]:
+        """Get all API keys for a user.
+
+        Args:
+            user_id: User primary key
+
+        Returns:
+            List of APIKey instances (active only)
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        return await sync_to_async(list)(
+            APIKey.objects.filter(user_id=user_pk, is_active=True).order_by("-created_at")
+        )
+
+    async def revoke(self, key_id: int | str) -> APIKey:
+        """Revoke an API key.
+
+        Args:
+            key_id: APIKey primary key
+
+        Returns:
+            Updated APIKey instance
+        """
+        pk = int(key_id) if isinstance(key_id, str) else key_id
+        await sync_to_async(APIKey.objects.filter(pk=pk).update)(is_active=False)
+        return await sync_to_async(APIKey.objects.get)(pk=pk)
+
+    async def update_last_used(self, key_id: int | str) -> None:
+        """Update last_used_at timestamp.
+
+        Args:
+            key_id: APIKey primary key
+        """
+        from datetime import datetime, timezone
+
+        pk = int(key_id) if isinstance(key_id, str) else key_id
+        await sync_to_async(APIKey.objects.filter(pk=pk).update)(
+            last_used_at=datetime.now(timezone.utc)
+        )
+
+    async def get_by_id(self, key_id: int | str) -> APIKey | None:
+        """Get API key by primary key.
+
+        Args:
+            key_id: APIKey primary key
+
+        Returns:
+            APIKey instance or None
+        """
+        try:
+            pk = int(key_id) if isinstance(key_id, str) else key_id
+            return await sync_to_async(
+                APIKey.objects.select_related("user").get
+            )(pk=pk)
+        except (APIKey.DoesNotExist, ValueError):
+            return None
+
+    async def get_by_user_and_name(
+        self, user_id: int | str, name: str
+    ) -> APIKey | None:
+        """Get API key by user and name.
+
+        Args:
+            user_id: User primary key
+            name: Key name
+
+        Returns:
+            APIKey instance or None
+        """
+        try:
+            user_pk = int(user_id) if isinstance(user_id, str) else user_id
+            return await sync_to_async(
+                APIKey.objects.select_related("user").get
+            )(user_id=user_pk, name=name, is_active=True)
+        except APIKey.DoesNotExist:
+            return None
+
+
 # Global repository instances (for backward compatibility with Airtable pattern)
 user_repository = UserRepository()
 habit_repository = HabitRepository()
 reward_repository = RewardRepository()
 reward_progress_repository = RewardProgressRepository()
 habit_log_repository = HabitLogRepository()
+auth_code_repository = AuthCodeRepository()
+api_key_repository = APIKeyRepository()

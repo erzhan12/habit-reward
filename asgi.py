@@ -1,23 +1,52 @@
-"""ASGI application entry point.
+"""ASGI entry point (combined Django + FastAPI).
 
-This module provides the FastAPI application for the Habit Reward REST API.
+This project uses:
+- Django (admin + Telegram webhook endpoint)
+- FastAPI (REST API + docs)
 
-The FastAPI app serves:
-- REST API endpoints at /v1/*
-- Health check at /health
-- API documentation at /docs and /redoc
-
-For Django admin access, run: python manage.py runserver
-
-Run the API with: uvicorn asgi:app --reload --port 8000
+When running under Uvicorn, serve a single ASGI app that routes:
+- FastAPI: `/v1/*`, `/health`, `/docs`, `/redoc`, `/openapi.json`
+- Django: everything else (including `/admin/*` and `/webhook/telegram`)
 """
 
+from __future__ import annotations
+
 import os
-import django
+from collections.abc import Awaitable, Callable
 
-# Setup Django before importing anything else
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'src.habit_reward_project.settings')
-django.setup()
+from django.core.asgi import get_asgi_application
 
-# Import the FastAPI application
-from src.api.main import app
+# Setup Django before importing FastAPI modules that use ORM models/repositories.
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "src.habit_reward_project.settings")
+django_asgi_app = get_asgi_application()
+
+from src.api.main import app as fastapi_app  # noqa: E402
+
+ASGIApp = Callable[[dict, Callable[[], Awaitable[dict]], Callable[[dict], Awaitable[None]]], Awaitable[None]]
+
+FASTAPI_PREFIXES = ("/v1/",)
+FASTAPI_EXACT_PATHS = {"/v1", "/health", "/docs", "/redoc", "/openapi.json"}
+
+
+class CombinedASGIApp:
+    """Route requests to FastAPI or Django based on URL path."""
+
+    def __init__(self, api_app: ASGIApp, django_app: ASGIApp) -> None:
+        self._api_app = api_app
+        self._django_app = django_app
+
+    async def __call__(self, scope, receive, send) -> None:
+        scope_type = scope.get("type")
+        if scope_type == "lifespan":
+            await self._api_app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if path in FASTAPI_EXACT_PATHS or any(path.startswith(prefix) for prefix in FASTAPI_PREFIXES):
+            await self._api_app(scope, receive, send)
+            return
+
+        await self._django_app(scope, receive, send)
+
+
+app = CombinedASGIApp(api_app=fastapi_app, django_app=django_asgi_app)

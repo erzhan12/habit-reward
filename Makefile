@@ -1,4 +1,4 @@
-.PHONY: help install sync dev-install migrate test test-cov bot bot-webhook dashboard clean lint format check
+.PHONY: help install sync dev-install migrate test test-cov api bot bot-webhook dashboard clean lint format check
 
 # Default target - show help
 help:
@@ -12,6 +12,7 @@ help:
 	@echo "  make dev-install  - Install development dependencies (pytest, ruff, etc.)"
 	@echo ""
 	@echo "Running Services:"
+	@echo "  make api          - Run the FastAPI REST API server"
 	@echo "  make bot          - Run the Telegram bot (polling mode)"
 	@echo "  make bot-webhook  - Run the Telegram bot (webhook mode)"
 	@echo "  make dashboard    - Run the Streamlit dashboard"
@@ -63,6 +64,18 @@ test-cov:
 	@echo "For detailed HTML coverage report, run:"
 	@echo "  uv run pytest --cov=src --cov-report=html tests/"
 
+# Run FastAPI REST API server
+api:
+	@echo "Starting FastAPI REST API server..."
+	@echo ""
+	@echo "API will be available at:"
+	@echo "  - http://localhost:8000/v1 (API endpoints)"
+	@echo "  - http://localhost:8000/health (Health check)"
+	@echo "  - http://localhost:8000/docs (Swagger UI)"
+	@echo "  - http://localhost:8000/redoc (ReDoc)"
+	@echo ""
+	uv run uvicorn asgi:app --host 0.0.0.0 --port 8000 --reload
+
 # Run Telegram bot (polling mode)
 bot:
 	@echo "Starting Telegram bot in polling mode..."
@@ -77,8 +90,10 @@ bot-webhook:
 	@echo "   2. For local dev, start ngrok in another terminal: ngrok http 8000"
 	@echo "   3. Add ngrok domain to ALLOWED_HOSTS in .env"
 	@echo ""
-	@echo "Starting ASGI server on http://0.0.0.0:8000..."
-	uv run uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000 --reload
+	@echo "Starting combined ASGI server on http://0.0.0.0:8000..."
+	@echo "  - FastAPI: /v1/*, /health, /docs"
+	@echo "  - Django:  /webhook/telegram, /admin/"
+	uv run uvicorn asgi:app --host 0.0.0.0 --port 8000 --reload
 
 # Run Streamlit dashboard
 dashboard:
@@ -128,4 +143,3 @@ clean:
 	find . -type f -name ".coverage" -delete 2>/dev/null || true
 	find . -type d -name "htmlcov" -exec rm -rf {} + 2>/dev/null || true
 	@echo "Clean complete!"
-

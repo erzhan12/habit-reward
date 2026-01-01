@@ -22,7 +22,7 @@ from src.bot.formatters import (
     format_claim_success_with_progress
 )
 from src.bot.keyboards import (
-    build_back_to_menu_keyboard,
+    # build_back_to_menu_keyboard,
     build_claimable_rewards_keyboard,
     build_reward_cancel_keyboard,
     build_reward_type_keyboard,
@@ -32,7 +32,7 @@ from src.bot.keyboards import (
     # Dormant keyboards kept for potential future reactivation of piece_value editing
     build_reward_piece_value_keyboard,
     build_reward_confirmation_keyboard,
-    build_reward_post_create_keyboard,
+    # build_reward_post_create_keyboard,
     build_rewards_menu_keyboard,
     build_rewards_for_edit_keyboard,
     build_rewards_for_toggle_keyboard,
@@ -42,6 +42,7 @@ from src.bot.keyboards import (
     build_reward_edit_pieces_keyboard,
     build_reward_edit_piece_value_keyboard,
     build_reward_edit_confirm_keyboard,
+    build_reward_edit_recurring_keyboard,
 )
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async, detect_language_from_telegram
@@ -848,14 +849,12 @@ async def reward_pieces_selected(update: Update, context: ContextTypes.DEFAULT_T
     reward_data['is_recurring'] = True  # Default to True
     logger.info("✅ Stored pieces_required=%s for user %s via button", pieces_required, telegram_id)
 
-    # Show confirmation summary directly
-    summary = _format_reward_summary(lang, reward_data)
     await query.edit_message_text(
-        summary,
-        reply_markup=build_reward_confirmation_keyboard(lang),
+        msg('HELP_ADD_REWARD_RECURRING_PROMPT', lang),
+        reply_markup=build_recurring_keyboard(lang),
         parse_mode="HTML"
     )
-    return AWAITING_REWARD_CONFIRM
+    return AWAITING_REWARD_RECURRING
 
 
 async def reward_pieces_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -893,14 +892,12 @@ async def reward_pieces_received(update: Update, context: ContextTypes.DEFAULT_T
     reward_data['is_recurring'] = True  # Default to True
     logger.info("✅ Stored pieces_required=%s for user %s", pieces_required, telegram_id)
 
-    # Show confirmation summary directly
-    summary = _format_reward_summary(lang, reward_data)
     await update.message.reply_text(
-        summary,
-        reply_markup=build_reward_confirmation_keyboard(lang),
+        msg('HELP_ADD_REWARD_RECURRING_PROMPT', lang),
+        reply_markup=build_recurring_keyboard(lang),
         parse_mode="HTML"
     )
-    return AWAITING_REWARD_CONFIRM
+    return AWAITING_REWARD_RECURRING
 
 
 async def reward_recurring_yes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1625,7 +1622,7 @@ async def reward_edit_pieces_skip(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def reward_edit_pieces_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle quick pieces selection (1) for editing -> proceed to confirmation."""
+    """Handle quick pieces selection (1) for editing -> proceed to recurring selection."""
     query = update.callback_query
     await query.answer()
 
@@ -1633,15 +1630,13 @@ async def reward_edit_pieces_selected(update: Update, context: ContextTypes.DEFA
     lang = await get_message_language_async(telegram_id, update)
     data = _get_reward_edit_context(context)
     data["new_pieces_required"] = 1
-    # Default new_is_recurring to old value
-    data["new_is_recurring"] = data.get("old_is_recurring", True)
 
-    # Show confirmation directly
-    return await _reward_edit_show_confirm(query, context, lang)
+    # Proceed to recurring selection
+    return await _reward_edit_show_recurring(query, context, lang)
 
 
 async def reward_edit_pieces_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle manually entered pieces required for editing -> proceed to confirmation."""
+    """Handle manually entered pieces required for editing -> proceed to recurring selection."""
     telegram_id = str(update.effective_user.id)
     lang = await get_message_language_async(telegram_id, update)
     text = (update.message.text or "").strip()
@@ -1666,13 +1661,18 @@ async def reward_edit_pieces_received(update: Update, context: ContextTypes.DEFA
 
     data = _get_reward_edit_context(context)
     data["new_pieces_required"] = pieces_required
-    # Default new_is_recurring to old value
-    data["new_is_recurring"] = data.get("old_is_recurring", True)
 
-    # Show confirmation directly
-    confirm_message, keyboard = _reward_edit_build_confirm(lang, data)
-    await update.message.reply_text(confirm_message, reply_markup=keyboard, parse_mode="HTML")
-    return AWAITING_REWARD_EDIT_CONFIRM
+    current_recurring = data.get("old_is_recurring", True)
+    current_text = msg('BUTTON_RECURRING_YES', lang) if current_recurring else msg('BUTTON_RECURRING_NO', lang)
+    await update.message.reply_text(
+        msg('HELP_EDIT_REWARD_RECURRING_PROMPT', lang, current_value=current_text),
+        reply_markup=build_reward_edit_recurring_keyboard(
+            current_is_recurring=current_recurring,
+            language=lang,
+        ),
+        parse_mode="HTML",
+    )
+    return AWAITING_REWARD_EDIT_RECURRING
 
 
 async def reward_edit_value_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1800,7 +1800,10 @@ async def _reward_edit_show_recurring(query, context: ContextTypes.DEFAULT_TYPE,
     current_text = msg('BUTTON_RECURRING_YES', lang) if current_recurring else msg('BUTTON_RECURRING_NO', lang)
     await query.edit_message_text(
         msg('HELP_EDIT_REWARD_RECURRING_PROMPT', lang, current_value=current_text),
-        reply_markup=build_recurring_keyboard(lang),
+        reply_markup=build_reward_edit_recurring_keyboard(
+            current_is_recurring=current_recurring,
+            language=lang,
+        ),
         parse_mode="HTML"
     )
     return AWAITING_REWARD_EDIT_RECURRING

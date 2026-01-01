@@ -457,3 +457,113 @@ class BotAuditLog(models.Model):
 
     def __str__(self):
         return f"{self.user.name} - {self.event_type} ({self.timestamp})"
+
+
+class AuthCode(models.Model):
+    """One-time authentication code for secure API login.
+
+    Users request a code via the API, receive it in Telegram,
+    then enter it in the web/mobile app to prove Telegram ownership.
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='auth_codes',
+        help_text="User this code belongs to"
+    )
+    code = models.CharField(
+        max_length=6,
+        help_text="6-digit numeric code"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the code was generated"
+    )
+    expires_at = models.DateTimeField(
+        help_text="When the code expires (5 minutes from creation)"
+    )
+    used = models.BooleanField(
+        default=False,
+        help_text="Whether the code has been used"
+    )
+    device_info = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Device/browser info from the requesting app"
+    )
+    failed_attempts = models.IntegerField(
+        default=0,
+        help_text="Number of failed verification attempts"
+    )
+    locked_until = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Time until which this code is locked due to too many failures"
+    )
+
+    class Meta:
+        db_table = 'auth_codes'
+        indexes = [
+            models.Index(fields=['user', 'code']),
+            models.Index(fields=['expires_at']),
+        ]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"AuthCode for {self.user.name} (expires: {self.expires_at})"
+
+
+class APIKey(models.Model):
+    """API key for automated integrations.
+
+    Users create keys via Telegram bot for use in fitness apps,
+    iOS Shortcuts, scripts, etc. Keys are shown once and stored as hashes.
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='api_keys',
+        help_text="User who owns this API key"
+    )
+    key_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="SHA256 hash of the API key (never store plaintext)"
+    )
+    name = models.CharField(
+        max_length=100,
+        help_text="User-friendly name (e.g., 'Fitness App', 'iOS Shortcut')"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the key was created"
+    )
+    last_used_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the key was last used"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether the key is active (can be revoked)"
+    )
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Optional expiration date"
+    )
+
+    class Meta:
+        db_table = 'api_keys'
+        indexes = [
+            models.Index(fields=['user', 'is_active']),
+            models.Index(fields=['key_hash']),
+        ]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"APIKey '{self.name}' for {self.user.name}"

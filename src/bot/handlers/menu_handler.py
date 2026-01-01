@@ -200,7 +200,6 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
     # Import handlers dynamically
     from src.bot.main import help_command
     from src.bot.handlers.streak_handler import streaks_command
-    from src.bot.handlers.settings_handler import settings_command
     from src.bot.handlers.habit_management_handler import (
         add_habit_command
     )
@@ -258,7 +257,6 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
         'menu_habit_done': menu_habit_done_simple_show_habits,  # Simple flow (default)
         'menu_habit_done_date': menu_habit_done_show_habits,    # Advanced flow with date selection
         'menu_streaks': streaks_command,
-        'menu_settings': settings_command,
         'menu_help': help_command,
         'menu_habits_add': add_habit_command,
         'menu_habits_revert': habit_revert_command,
@@ -989,7 +987,7 @@ def get_menu_handlers():
         CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_habits$"),
         CallbackQueryHandler(open_rewards_menu_callback, pattern="^menu_rewards$"),
         CallbackQueryHandler(close_menu_callback, pattern="^menu_close$"),
-        CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_habit_done_date|menu_habits_remove|menu_streaks|menu_settings|menu_help|menu_habits_add|menu_habits_revert|menu_rewards_list|menu_rewards_my|menu_rewards_claim)$"),
+        CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_habit_done_date|menu_habits_remove|menu_streaks|menu_help|menu_habits_add|menu_habits_revert|menu_rewards_list|menu_rewards_my|menu_rewards_claim)$"),
         CallbackQueryHandler(open_start_menu_callback, pattern="^menu_back_start$"),
         CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_back_habits$"),
         CallbackQueryHandler(generic_back_callback, pattern="^menu_back$"),

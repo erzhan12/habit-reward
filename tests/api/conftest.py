@@ -6,8 +6,8 @@ from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
 
 from src.api.main import create_app
-from src.api.dependencies.auth import get_current_active_user
-from src.core.models import User, Habit, Reward, HabitLog, RewardProgress
+from src.api.dependencies.auth import get_current_active_user, get_current_user_flexible
+from src.core.models import User, Habit, Reward, HabitLog, RewardProgress, AuthCode, APIKey
 
 
 @pytest.fixture
@@ -131,11 +131,49 @@ def mock_habit_log(mock_user, mock_habit, mock_reward):
 
 
 @pytest.fixture
+def mock_auth_code(mock_user):
+    """Create a mock auth code for testing."""
+    from datetime import datetime, timezone, timedelta
+
+    code = MagicMock(spec=AuthCode)
+    code.id = 1
+    code.user_id = mock_user.id
+    code.user = mock_user
+    code.code = "123456"
+    code.created_at = datetime.now(timezone.utc)
+    code.expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+    code.used = False
+    code.device_info = "Test Device"
+    code.failed_attempts = 0
+    code.locked_until = None
+    return code
+
+
+@pytest.fixture
+def mock_api_key(mock_user):
+    """Create a mock API key for testing."""
+    from datetime import datetime, timezone
+
+    key = MagicMock(spec=APIKey)
+    key.id = 1
+    key.user_id = mock_user.id
+    key.user = mock_user
+    key.key_hash = "hashed_key_value"
+    key.name = "Test App"
+    key.created_at = datetime.now(timezone.utc)
+    key.last_used_at = None
+    key.is_active = True
+    key.expires_at = None
+    return key
+
+
+@pytest.fixture
 def client(mock_user):
     """Create a test client with authentication override."""
     app = create_app()
-    # Override the authentication dependency
+    # Override both authentication dependencies
     app.dependency_overrides[get_current_active_user] = lambda: mock_user
+    app.dependency_overrides[get_current_user_flexible] = lambda: mock_user
 
     with TestClient(app) as test_client:
         yield test_client

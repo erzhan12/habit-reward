@@ -37,6 +37,13 @@ class Messages:
     INFO_NO_REWARDS_TO_CLAIM = "You have no rewards ready to claim yet. Keep logging habits to earn rewards!"
     INFO_ALL_HABITS_COMPLETED = "🎉 All active habits are already completed for today. Check back tomorrow!"
 
+    # Auth Code (external API login) Messages
+    AUTH_CODE_LOGIN_CODE = "🔐 <b>Login Code:</b> <code>{code}</code>"
+    AUTH_CODE_DEVICE = "📱 Device: {device}"
+    AUTH_CODE_EXPIRES = "⏱ Expires in 5 minutes"
+    AUTH_CODE_WARNING_1 = "⚠️ If you didn't request this code, ignore this message."
+    AUTH_CODE_WARNING_2 = "Someone may be trying to access your account."
+
     # Usage/Help Messages
     HELP_CLAIM_REWARD_USAGE = "Usage: /claim_reward <reward_name>\nExample: /claim_reward Coffee at favorite cafe"
     HELP_HABIT_SELECTION = "Which habit did you complete? 🎯\n\nSelect from the list below:"
@@ -283,10 +290,40 @@ Your streak multiplier increases your chances of getting rewards!"""
     # Settings Menu
     SETTINGS_MENU = "⚙️ <b>Settings</b>\n\nSelect an option:"
     SETTINGS_SELECT_LANGUAGE = "🌐 Select Language"
+    SETTINGS_API_KEYS = "🔑 API Keys"
     SETTINGS_BACK = "← Back to Settings"
 
     # Language Selection
     LANGUAGE_SELECTION_MENU = "🌐 <b>Select Language</b>\n\nChoose your preferred language:"
+
+    # API Key Management
+    API_KEY_MENU = "🔑 <b>API Keys</b>\n\nManage your API keys for external integrations (fitness apps, automations, etc.):"
+    API_KEY_CREATE = "➕ Create New Key"
+    API_KEY_LIST = "📋 List Keys"
+    API_KEY_REVOKE = "❌ Revoke Key"
+    API_KEY_ENTER_NAME = "📝 <b>Enter a name for your API key</b>\n\nExample: Fitness App, iOS Shortcut"
+    API_KEY_CREATED = """✅ <b>API Key Created!</b>
+
+<b>Name:</b> {name}
+<b>Key:</b> <code>{key}</code>
+
+⚠️ <b>IMPORTANT:</b> Copy this key now! You won't be able to see it again.
+
+Use this key in your app with the header:
+<code>X-API-Key: {key}</code>"""
+    API_KEY_NAME_EXISTS = "❌ An API key with name '{name}' already exists. Please choose a different name."
+    API_KEY_NAME_TOO_LONG = "❌ Key name is too long. Maximum 100 characters."
+    API_KEY_NAME_EMPTY = "❌ Key name cannot be empty. Please enter a name."
+    API_KEY_LIST_HEADER = "🔑 <b>Your API Keys:</b>\n"
+    API_KEY_LIST_EMPTY = "📭 You don't have any API keys yet.\n\nCreate one to connect your apps!"
+    API_KEY_CREATED_AT = "Created"
+    API_KEY_LAST_USED = "Last used"
+    API_KEY_NEVER_USED = "Never"
+    API_KEY_SELECT_TO_REVOKE = "🔑 <b>Select a key to revoke:</b>"
+    API_KEY_REVOKED = "✅ API key '<b>{name}</b>' has been revoked."
+    API_KEY_REVOKE_FAILED = "❌ Failed to revoke API key. Please try again."
+    BACK_TO_SETTINGS = "← Back to Settings"
+    BACK = "← Back"
 
     # Translations dictionary for Phase 1
     _TRANSLATIONS = {
@@ -563,10 +600,40 @@ Your streak multiplier increases your chances of getting rewards!"""
             # Settings Menu
             'SETTINGS_MENU': "⚙️ <b>Настройки</b>\n\nВыберите опцию:",
             'SETTINGS_SELECT_LANGUAGE': "🌐 Выбрать язык",
+            'SETTINGS_API_KEYS': "🔑 API-ключи",
             'SETTINGS_BACK': "← Назад в настройки",
 
             # Language Selection
             'LANGUAGE_SELECTION_MENU': "🌐 <b>Выбрать язык</b>\n\nВыберите предпочитаемый язык:",
+
+            # API Key Management
+            'API_KEY_MENU': "🔑 <b>API-ключи</b>\n\nУправляйте ключами для внешних интеграций (фитнес-приложения, автоматизации и т.д.):",
+            'API_KEY_CREATE': "➕ Создать ключ",
+            'API_KEY_LIST': "📋 Список ключей",
+            'API_KEY_REVOKE': "❌ Отозвать ключ",
+            'API_KEY_ENTER_NAME': "📝 <b>Введите название API-ключа</b>\n\nПример: Фитнес-приложение, iOS Shortcut",
+            'API_KEY_CREATED': """✅ <b>API-ключ создан!</b>
+
+<b>Название:</b> {name}
+<b>Ключ:</b> <code>{key}</code>
+
+⚠️ <b>ВАЖНО:</b> Скопируйте ключ сейчас! Вы не сможете увидеть его снова.
+
+Используйте этот ключ в вашем приложении с заголовком:
+<code>X-API-Key: {key}</code>""",
+            'API_KEY_NAME_EXISTS': "❌ API-ключ с названием '{name}' уже существует. Выберите другое название.",
+            'API_KEY_NAME_TOO_LONG': "❌ Название ключа слишком длинное. Максимум 100 символов.",
+            'API_KEY_NAME_EMPTY': "❌ Название ключа не может быть пустым. Введите название.",
+            'API_KEY_LIST_HEADER': "🔑 <b>Ваши API-ключи:</b>\n",
+            'API_KEY_LIST_EMPTY': "📭 У вас пока нет API-ключей.\n\nСоздайте один для подключения ваших приложений!",
+            'API_KEY_CREATED_AT': "Создан",
+            'API_KEY_LAST_USED': "Последнее использование",
+            'API_KEY_NEVER_USED': "Никогда",
+            'API_KEY_SELECT_TO_REVOKE': "🔑 <b>Выберите ключ для отзыва:</b>",
+            'API_KEY_REVOKED': "✅ API-ключ '<b>{name}</b>' отозван.",
+            'API_KEY_REVOKE_FAILED': "❌ Не удалось отозвать API-ключ. Попробуйте снова.",
+            'BACK_TO_SETTINGS': "← Назад в настройки",
+            'BACK': "← Назад",
         },
         'kk': {
             # Error Messages - User Validation
@@ -842,10 +909,40 @@ Your streak multiplier increases your chances of getting rewards!"""
             # Settings Menu
             'SETTINGS_MENU': "⚙️ <b>Параметрлер</b>\n\nОпцияны таңдаңыз:",
             'SETTINGS_SELECT_LANGUAGE': "🌐 Тілді таңдау",
+            'SETTINGS_API_KEYS': "🔑 API кілттері",
             'SETTINGS_BACK': "← Параметрлерге оралу",
 
             # Language Selection
             'LANGUAGE_SELECTION_MENU': "🌐 <b>Тілді таңдау</b>\n\nҚалаған тіліңізді таңдаңыз:",
+
+            # API Key Management
+            'API_KEY_MENU': "🔑 <b>API кілттері</b>\n\nСыртқы интеграциялар үшін кілттерді басқарыңыз (фитнес қосымшалары, автоматтандыру және т.б.):",
+            'API_KEY_CREATE': "➕ Жаңа кілт жасау",
+            'API_KEY_LIST': "📋 Кілттер тізімі",
+            'API_KEY_REVOKE': "❌ Кілтті қайтарып алу",
+            'API_KEY_ENTER_NAME': "📝 <b>API кілтінің атауын енгізіңіз</b>\n\nМысалы: Фитнес қосымшасы, iOS Shortcut",
+            'API_KEY_CREATED': """✅ <b>API кілті жасалды!</b>
+
+<b>Атауы:</b> {name}
+<b>Кілт:</b> <code>{key}</code>
+
+⚠️ <b>МАҢЫЗДЫ:</b> Кілтті қазір көшіріңіз! Сіз оны қайта көре алмайсыз.
+
+Бұл кілтті қосымшаңызда келесі тақырыппен пайдаланыңыз:
+<code>X-API-Key: {key}</code>""",
+            'API_KEY_NAME_EXISTS': "❌ '{name}' атауымен API кілті бар. Басқа атау таңдаңыз.",
+            'API_KEY_NAME_TOO_LONG': "❌ Кілт атауы тым ұзын. Максимум 100 таңба.",
+            'API_KEY_NAME_EMPTY': "❌ Кілт атауы бос болмауы керек. Атауды енгізіңіз.",
+            'API_KEY_LIST_HEADER': "🔑 <b>Сіздің API кілттеріңіз:</b>\n",
+            'API_KEY_LIST_EMPTY': "📭 Сізде API кілттері жоқ.\n\nҚосымшаларыңызды қосу үшін біреуін жасаңыз!",
+            'API_KEY_CREATED_AT': "Жасалған",
+            'API_KEY_LAST_USED': "Соңғы қолданылған",
+            'API_KEY_NEVER_USED': "Ешқашан",
+            'API_KEY_SELECT_TO_REVOKE': "🔑 <b>Қайтарып алу үшін кілтті таңдаңыз:</b>",
+            'API_KEY_REVOKED': "✅ '<b>{name}</b>' API кілті қайтарып алынды.",
+            'API_KEY_REVOKE_FAILED': "❌ API кілтін қайтарып алу сәтсіз аяқталды. Қайталап көріңіз.",
+            'BACK_TO_SETTINGS': "← Параметрлерге оралу",
+            'BACK': "← Артқа",
         }
     }
 

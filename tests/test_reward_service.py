@@ -231,6 +231,49 @@ class TestCumulativeProgress:
         assert updated.claimed is True
         assert updated.pieces_earned == 0  # Verify pieces reset
 
+    def test_mark_non_recurring_reward_claimed_deactivates_reward(
+        self, reward_service, mock_progress_repo, mock_reward_repo
+    ):
+        """Test claiming non-recurring rewards deactivates them."""
+        achieved_progress = RewardProgress(
+            id="prog1",
+            user_id="user123",
+            reward_id="r1",
+            pieces_earned=10,
+            status=RewardStatus.ACHIEVED,
+            pieces_required=10,
+            claimed=False,
+        )
+        mock_progress_repo.get_by_user_and_reward.return_value = achieved_progress
+
+        def mock_update(progress_id, updates):
+            return RewardProgress(
+                id=progress_id,
+                user_id="user123",
+                reward_id="r1",
+                pieces_earned=0,
+                status=RewardStatus.CLAIMED,
+                pieces_required=10,
+                claimed=True,
+            )
+
+        mock_progress_repo.update.side_effect = mock_update
+
+        mock_reward_repo.get_by_id.return_value = Reward(
+            id="r1",
+            name="Non-recurring Reward",
+            type=RewardType.VIRTUAL,
+            weight=10.0,
+            pieces_required=10,
+            is_recurring=False,
+        )
+
+        with patch.object(reward_service, 'progress_repo', mock_progress_repo), \
+             patch.object(reward_service, 'reward_repo', mock_reward_repo):
+            reward_service.mark_reward_claimed("user123", "r1")
+
+        mock_reward_repo.update.assert_called_once_with("r1", {"active": False})
+
 
 class TestCreateReward:
     """Test reward creation helper."""

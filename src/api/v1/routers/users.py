@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from src.api.dependencies.auth import get_current_active_user
+from src.api.dependencies.auth import get_current_user_flexible
 from src.core.models import User
 from src.core.repositories import user_repository
 from src.utils.async_compat import maybe_await
@@ -42,7 +42,7 @@ class UserSettingsResponse(BaseModel):
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(
-    current_user: Annotated[User, Depends(get_current_active_user)]
+    current_user: Annotated[User, Depends(get_current_user_flexible)]
 ) -> UserResponse:
     """Get current authenticated user's profile.
 
@@ -63,7 +63,7 @@ async def get_current_user_info(
 @router.patch("/me", response_model=UserResponse)
 async def update_current_user(
     updates: UserUpdateRequest,
-    current_user: Annotated[User, Depends(get_current_active_user)]
+    current_user: Annotated[User, Depends(get_current_user_flexible)]
 ) -> UserResponse:
     """Update current authenticated user's profile.
 
@@ -103,7 +103,7 @@ async def update_current_user(
 
 @router.get("/me/settings", response_model=UserSettingsResponse)
 async def get_user_settings(
-    current_user: Annotated[User, Depends(get_current_active_user)]
+    current_user: Annotated[User, Depends(get_current_user_flexible)]
 ) -> UserSettingsResponse:
     """Get current user's settings.
 

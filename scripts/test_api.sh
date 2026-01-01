@@ -327,11 +327,13 @@ check_api_server() {
         echo -e "  ${GREEN}OK${NC}: API endpoints available at ${BASE_URL}"
     else
         echo -e "${RED}ERROR: FastAPI server is not running at http://localhost:8000${NC}"
-        echo -e "${YELLOW}Please start the FastAPI server with:${NC}"
-        echo -e "${YELLOW}  uvicorn asgi:app --host 0.0.0.0 --port 8000 --reload${NC}"
+        echo -e "${YELLOW}Please start the FastAPI server with one of:${NC}"
+        echo -e "${YELLOW}  make api${NC}"
+        echo -e "${YELLOW}  (or) uvicorn asgi:app --host 0.0.0.0 --port 8000 --reload${NC}"
         echo ""
         echo -e "${YELLOW}Note: This is different from the Django ASGI app used for webhooks:${NC}"
-        echo -e "${YELLOW}  uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000 --reload${NC}"
+        echo -e "${YELLOW}  make bot-webhook${NC}"
+        echo -e "${YELLOW}  (or) uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000 --reload${NC}"
         exit 1
     fi
 }

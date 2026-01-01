@@ -208,6 +208,10 @@ def build_settings_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
             callback_data="settings_language"
         )],
         [InlineKeyboardButton(
+            text=msg('SETTINGS_API_KEYS', language),
+            callback_data="settings_api_keys"
+        )],
+        [InlineKeyboardButton(
             text=msg('MENU_BACK', language),
             callback_data="menu_back"
         )]
@@ -586,6 +590,40 @@ def build_recurring_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
             text=msg('MENU_CANCEL', language),
             callback_data="cancel_reward_flow"
         )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_reward_edit_recurring_keyboard(
+    *,
+    current_is_recurring: bool | None = None,
+    language: str = 'en',
+) -> InlineKeyboardMarkup:
+    """Build inline keyboard for recurring selection during reward edit (with Skip/Cancel)."""
+    yes_text = msg('BUTTON_RECURRING_YES', language)
+    no_text = msg('BUTTON_RECURRING_NO', language)
+    if current_is_recurring is True:
+        yes_text = f"✓ {yes_text}"
+    elif current_is_recurring is False:
+        no_text = f"✓ {no_text}"
+
+    keyboard = [
+        [InlineKeyboardButton(
+            text=yes_text,
+            callback_data="reward_recurring_yes"
+        )],
+        [InlineKeyboardButton(
+            text=no_text,
+            callback_data="reward_recurring_no"
+        )],
+        [InlineKeyboardButton(
+            text=msg('BUTTON_SKIP', language),
+            callback_data="reward_edit_recurring_skip"
+        )],
+        [InlineKeyboardButton(
+            text=msg('MENU_CANCEL', language),
+            callback_data="cancel_reward_flow"
+        )],
     ]
     return InlineKeyboardMarkup(keyboard)
 
