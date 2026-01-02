@@ -507,7 +507,7 @@ def build_reward_cancel_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
 
 
 def build_reward_type_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
-    """Build inline keyboard for selecting reward type."""
+    """Build inline keyboard for selecting reward type (virtual or real only)."""
     keyboard = [
         [
             InlineKeyboardButton(
@@ -519,10 +519,6 @@ def build_reward_type_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
                 callback_data="reward_type_real"
             )
         ],
-        [InlineKeyboardButton(
-            text=msg('BUTTON_REWARD_TYPE_NONE', language),
-            callback_data="reward_type_none"
-        )],
         [InlineKeyboardButton(
             text=msg('MENU_CANCEL', language),
             callback_data="cancel_reward_flow"
@@ -858,7 +854,7 @@ def build_reward_edit_type_keyboard(
     current_type: str | None = None,
     language: str = "en",
 ) -> InlineKeyboardMarkup:
-    """Build type selection keyboard for reward edit flow (with Skip/Cancel)."""
+    """Build type selection keyboard for reward edit flow (virtual or real only, with Skip/Cancel)."""
     def _label(type_key: str, base_key: str) -> str:
         text = msg(base_key, language)
         return f"✓ {text}" if current_type == type_key else text
@@ -874,10 +870,6 @@ def build_reward_edit_type_keyboard(
                 callback_data="edit_reward_type_real"
             )
         ],
-        [InlineKeyboardButton(
-            text=_label("none", "BUTTON_REWARD_TYPE_NONE"),
-            callback_data="edit_reward_type_none"
-        )],
         [InlineKeyboardButton(
             text=msg('BUTTON_SKIP', language),
             callback_data="edit_reward_type_skip"

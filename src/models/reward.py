@@ -8,7 +8,6 @@ class RewardType(str, Enum):
     """Types of rewards available in the system."""
     VIRTUAL = "virtual"
     REAL = "real"
-    NONE = "none"
 
 
 class Reward(BaseModel):

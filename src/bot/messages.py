@@ -218,7 +218,6 @@ Your streak multiplier increases your chances of getting rewards!"""
     HELP_ADD_REWARD_TYPE_PROMPT = "Select a reward type:"
     BUTTON_REWARD_TYPE_VIRTUAL = "🖥 Virtual"
     BUTTON_REWARD_TYPE_REAL = "🎁 Real"
-    BUTTON_REWARD_TYPE_NONE = "🚫 None"
     HELP_ADD_REWARD_WEIGHT_PROMPT = "Enter the weight for this reward (higher is more likely) or pick a quick option below:"
     ERROR_REWARD_WEIGHT_INVALID = "❌ Invalid weight. Enter a number between {min} and {max}."
     HELP_ADD_REWARD_PIECES_PROMPT = "Enter how many pieces are required to claim this reward:"
@@ -528,7 +527,6 @@ Use this key in your app with the header:
             'HELP_ADD_REWARD_TYPE_PROMPT': "Выберите тип награды:",
             'BUTTON_REWARD_TYPE_VIRTUAL': "🖥 Виртуальная",
             'BUTTON_REWARD_TYPE_REAL': "🎁 Реальная",
-            'BUTTON_REWARD_TYPE_NONE': "🚫 Без награды",
             'HELP_ADD_REWARD_WEIGHT_PROMPT': "Введите вес награды (чем выше, тем больше шанс) или выберите вариант ниже:",
             'ERROR_REWARD_WEIGHT_INVALID': "❌ Неверный вес. Введите число от {min} до {max}.",
             'HELP_ADD_REWARD_PIECES_PROMPT': "Введите сколько частей нужно для получения награды:",
@@ -837,7 +835,6 @@ Use this key in your app with the header:
             'HELP_ADD_REWARD_TYPE_PROMPT': "Сыйлық түрін таңдаңыз:",
             'BUTTON_REWARD_TYPE_VIRTUAL': "🖥 Виртуалды",
             'BUTTON_REWARD_TYPE_REAL': "🎁 Нақты",
-            'BUTTON_REWARD_TYPE_NONE': "🚫 Сыйлық жоқ",
             'HELP_ADD_REWARD_WEIGHT_PROMPT': "Сыйлық салмағын енгізіңіз (үлкен салмақ — жоғары мүмкіндік) немесе төменнен таңдаңыз:",
             'ERROR_REWARD_WEIGHT_INVALID': "❌ Дұрыс емес салмақ. {min} мен {max} аралығындағы сан енгізіңіз.",
             'HELP_ADD_REWARD_PIECES_PROMPT': "Сыйлық алу үшін қанша бөлік керек екенін енгізіңіз:",

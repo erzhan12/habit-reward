@@ -56,10 +56,14 @@ class RewardService:
         total_weight: float,
         user_id: str | None = None,
         exclude_reward_ids: list[str] | None = None
-    ) -> Reward | Awaitable[Reward]:
-        """Perform weighted random reward selection."""
+    ) -> Reward | None | Awaitable[Reward | None]:
+        """Perform weighted random reward selection with implicit 50% 'no reward' probability.
 
-        async def _impl() -> Reward:
+        Returns:
+            Reward | None: Selected reward, or None for "no reward" outcome
+        """
+
+        async def _impl() -> Reward | None:
             logger.info(
                 "Selecting reward with total_weight=%s, user_id=%s",
                 total_weight,
@@ -74,23 +78,13 @@ class RewardService:
             # user_id is required now since rewards are user-specific
             if not user_id:
                 logger.error("user_id is required for select_reward")
-                return Reward(
-                    name="No reward",
-                    weight=1.0,
-                    type=RewardType.NONE,
-                    pieces_required=1,
-                )
+                return None
 
             rewards = await maybe_await(self.reward_repo.get_all_active(user_id))
 
             if not rewards:
-                logger.warning("No active rewards found for user %s, returning default 'none' reward", user_id)
-                return Reward(
-                    name="No reward",
-                    weight=1.0,
-                    type=RewardType.NONE,
-                    pieces_required=1,
-                )
+                logger.warning("No active rewards found for user %s, returning None (no reward)", user_id)
+                return None
 
             logger.debug("Found %s active rewards", len(rewards))
 
@@ -104,13 +98,8 @@ class RewardService:
                 )
 
             if not rewards:
-                logger.warning("All rewards excluded, returning 'none' reward")
-                return Reward(
-                    name="No reward",
-                    weight=1.0,
-                    type=RewardType.NONE,
-                    pieces_required=1,
-                )
+                logger.warning("All rewards excluded, returning None (no reward)")
+                return None
 
             # Apply user-specific filters if user_id is provided
             if user_id:
@@ -126,8 +115,28 @@ class RewardService:
                 eligible_rewards = []
                 excluded_completed = []
                 excluded_daily_limit = []
+                excluded_legacy_none = []
 
                 for reward in rewards:
+                    # Filter 0: Exclude legacy 'none' type rewards (transition safety)
+                    if reward.type == "none":
+                        excluded_legacy_none.append(reward.name)
+                        logger.debug(
+                            "Excluding %s - legacy 'none' type reward",
+                            reward.name,
+                        )
+                        if getattr(reward, "active", False) and hasattr(self.reward_repo, "update"):
+                            try:
+                                await maybe_await(
+                                    self.reward_repo.update(reward.id, {"active": False})
+                                )
+                            except Exception:
+                                logger.warning(
+                                    "Failed to deactivate legacy 'none' reward %s",
+                                    getattr(reward, "id", None),
+                                )
+                        continue
+
                     progress = progress_by_reward_id.get(reward.id)
 
                     # Filter 1: Check if reward is already completed
@@ -161,6 +170,13 @@ class RewardService:
                     # Reward passed all filters
                     eligible_rewards.append(reward)
 
+                if excluded_legacy_none:
+                    logger.info(
+                        "Excluded %s legacy 'none' type rewards: %s",
+                        len(excluded_legacy_none),
+                        ", ".join(excluded_legacy_none),
+                    )
+
                 if excluded_completed:
                     logger.info(
                         "Excluded %s completed rewards: %s",
@@ -179,29 +195,38 @@ class RewardService:
 
                 if not rewards:
                     logger.warning(
-                        "No eligible rewards remain after filtering (completed: %s, daily limit: %s)",
+                        "No eligible rewards remain after filtering (legacy none: %s, completed: %s, daily limit: %s)",
+                        len(excluded_legacy_none),
                         len(excluded_completed),
                         len(excluded_daily_limit),
                     )
-                    return Reward(
-                        name="No reward",
-                        weight=1.0,
-                        type=RewardType.NONE,
-                        pieces_required=1,
-                    )
+                    return None
 
-            adjusted_weights = [reward.weight * total_weight for reward in rewards]
-            selected_reward = random.choices(
-                rewards,
-                weights=adjusted_weights,
-                k=1,
-            )[0]
-            logger.info(
-                "Selected reward: %s (type: %s)",
-                selected_reward.name,
-                selected_reward.type,
-            )
-            return selected_reward
+            # Calculate reward weights
+            reward_weights = [reward.weight * total_weight for reward in rewards]
+
+            # Calculate implicit "no reward" weight for 50% probability
+            # no_reward_weight = 1.0 * sum(reward_weights) ensures:
+            # P(no_reward) = sum(weights) / (sum(weights) + sum(weights)) = 0.5
+            # This 50% split doesn't depend on streak multiplier (both sides scale equally)
+            no_reward_weight = 1.0 * sum(reward_weights)
+
+            # Perform weighted selection including implicit "no reward" option
+            population = rewards + [None]
+            weights = reward_weights + [no_reward_weight]
+
+            selected = random.choices(population, weights=weights, k=1)[0]
+
+            if selected is None:
+                logger.info("Selected: None (no reward)")
+            else:
+                logger.info(
+                    "Selected reward: %s (type: %s)",
+                    selected.name,
+                    selected.type,
+                )
+
+            return selected
 
         return run_sync_or_async(_impl())
 

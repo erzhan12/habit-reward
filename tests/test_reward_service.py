@@ -64,28 +64,46 @@ class TestRewardSelection:
     """Test reward selection logic."""
 
     def test_select_reward_from_multiple(self, reward_service, mock_reward_repo):
-        """Test weighted random selection."""
+        """Test weighted random selection with implicit 50% no reward probability."""
         mock_rewards = [
             Reward(id="r1", name="Reward 1", weight=10, type=RewardType.VIRTUAL),
             Reward(id="r2", name="Reward 2", weight=20, type=RewardType.REAL),
-            Reward(id="r3", name="No Reward", weight=50, type=RewardType.NONE)
         ]
         mock_reward_repo.get_all_active.return_value = mock_rewards
 
         with patch.object(reward_service, 'reward_repo', mock_reward_repo):
             selected = reward_service.select_reward(user_id=1, total_weight=10.0)
 
-        assert selected in mock_rewards
+        # Selected reward should be either one of the rewards or None
+        assert selected is None or selected in mock_rewards
+
+    def test_select_reward_includes_no_reward_weight(self, reward_service):
+        """Ensure implicit no-reward weight equals sum of other weights."""
+        rewards = [
+            Reward(id="r1", name="Reward 1", weight=2, type=RewardType.VIRTUAL),
+            Reward(id="r2", name="Reward 2", weight=3, type=RewardType.REAL),
+        ]
+        reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
+        reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
+
+        with patch("src.services.reward_service.random.choices") as mock_choices:
+            mock_choices.return_value = [rewards[0]]
+            selected = reward_service.select_reward(user_id="1", total_weight=5.0)
+
+        assert selected == rewards[0]
+        population = mock_choices.call_args.args[0]
+        weights = mock_choices.call_args.kwargs["weights"]
+        assert population[-1] is None
+        assert weights[-1] == pytest.approx(sum(weights[:-1]))
 
     def test_select_reward_empty_list(self, reward_service, mock_reward_repo):
-        """Test reward selection when no rewards exist."""
+        """Test reward selection when no rewards exist returns None."""
         mock_reward_repo.get_all_active.return_value = []
 
         with patch.object(reward_service, 'reward_repo', mock_reward_repo):
             selected = reward_service.select_reward(total_weight=10.0)
 
-        assert selected.type == RewardType.NONE
-        assert selected.name == "No reward"
+        assert selected is None
 
 
 class TestCumulativeProgress:
@@ -407,9 +425,8 @@ class TestDailyLimitEnforcement:
                 user_id="user123"
             )
 
-        # Should return "No reward" since the only reward is at its daily limit
-        assert selected.type == RewardType.NONE
-        assert selected.name == "No reward"
+        # Should return None since the only reward is at its daily limit
+        assert selected is None
 
     @pytest.mark.asyncio
     async def test_select_reward_allows_unlimited(self, reward_service):
@@ -437,7 +454,10 @@ class TestDailyLimitEnforcement:
 
         with patch.object(reward_service, 'reward_repo', mock_reward_repo), \
              patch.object(reward_service, 'progress_repo', mock_progress_repo), \
-             patch.object(reward_service, 'habit_log_repo', mock_habit_log_repo):
+             patch.object(reward_service, 'habit_log_repo', mock_habit_log_repo), \
+             patch("src.services.reward_service.random.choices") as mock_choices:
+            # Mock random selection to return the reward (not None)
+            mock_choices.return_value = [mock_reward]
             selected = await reward_service.select_reward(
                 total_weight=10.0,
                 user_id="user123"
@@ -482,9 +502,8 @@ class TestDailyLimitEnforcement:
                 user_id="user123"
             )
 
-        # Should return "No reward" since the only reward is completed
-        assert selected.type == RewardType.NONE
-        assert selected.name == "No reward"
+        # Should return None since the only reward is completed
+        assert selected is None
 
     @pytest.mark.asyncio
     async def test_claim_reset_scenario_prevents_bypass(self, reward_service):
@@ -533,10 +552,9 @@ class TestDailyLimitEnforcement:
                 user_id="user123"
             )
 
-        # Should return "No reward" - daily limit prevents earning again
+        # Should return None - daily limit prevents earning again
         # This is the fix for the blocking bug!
-        assert selected.type == RewardType.NONE
-        assert selected.name == "No reward"
+        assert selected is None
 
     @pytest.mark.asyncio
     async def test_select_reward_multiple_limits(self, reward_service):
@@ -564,7 +582,10 @@ class TestDailyLimitEnforcement:
 
         with patch.object(reward_service, 'reward_repo', mock_reward_repo), \
              patch.object(reward_service, 'progress_repo', mock_progress_repo), \
-             patch.object(reward_service, 'habit_log_repo', mock_habit_log_repo):
+             patch.object(reward_service, 'habit_log_repo', mock_habit_log_repo), \
+             patch("src.services.reward_service.random.choices") as mock_choices:
+            # Mock random selection to return the reward (not None)
+            mock_choices.return_value = [mock_reward]
             selected = await reward_service.select_reward(
                 total_weight=10.0,
                 user_id="user123"

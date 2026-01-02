@@ -183,15 +183,8 @@ class TestHabitCompletion:
         mock_reward_service.get_todays_awarded_rewards.return_value = []
         mock_log_repo.get_log_for_habit_on_date.return_value = None
 
-        # Create none reward
-        none_reward = Reward(
-            id="reward_none",
-            name="No reward",
-            weight=10,
-            type=RewardType.NONE,
-            pieces_required=1
-        )
-        mock_reward_service.select_reward.return_value = none_reward
+        # Return None for no reward
+        mock_reward_service.select_reward.return_value = None
 
         # Execute
         with patch.object(habit_service, 'user_repo', mock_user_repo), \
