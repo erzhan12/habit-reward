@@ -13,7 +13,7 @@ from src.core.repositories import (
     habit_log_repository,
     reward_progress_repository
 )
-from src.core.models import Reward, Habit, HabitLog, RewardProgress
+from src.core.models import Habit, HabitLog, RewardProgress
 from src.services.streak_service import streak_service
 from src.services.reward_service import reward_service
 from src.services.audit_log_service import audit_log_service
@@ -21,9 +21,6 @@ from src.models.habit_completion_result import HabitCompletionResult
 from src.models.habit_revert_result import HabitRevertResult
 from src.models.reward_progress import RewardProgress as RewardProgressModel
 from src.utils.async_compat import run_sync_or_async, maybe_await
-
-# Import RewardType from Django models
-RewardType = Reward.RewardType
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -259,7 +256,7 @@ class HabitService:
                 )
             )
 
-            got_reward = selected_reward.type != RewardType.NONE
+            got_reward = selected_reward is not None
 
             # Wrap reward progress update and habit log creation in atomic transaction
             # This ensures both operations succeed or both are rolled back,

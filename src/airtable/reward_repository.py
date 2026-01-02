@@ -64,7 +64,10 @@ class RewardRepository(BaseRepository):
     def _record_to_reward(self, record: dict[str, Any]) -> Reward:
         """Convert Airtable record to Reward model."""
         fields = self._record_to_dict(record)
-        fields["type"] = RewardType(fields.get("type", "none"))
+        raw_type = fields.get("type")
+        if raw_type not in (RewardType.VIRTUAL.value, RewardType.REAL.value):
+            raw_type = RewardType.REAL.value
+        fields["type"] = RewardType(raw_type)
         return Reward(**fields)
 
 

@@ -29,8 +29,7 @@ def format_habit_completion_message(result: HabitCompletionResult, language: str
     message_parts.append(f"{fire_emoji} " + msg('FORMAT_STREAK', language, streak_count=result.streak_count))
 
     # Reward result - all rewards now show progress
-    # Check if user received a meaningful reward (not "none" type)
-    # got_reward=True means they won a real/virtual/cumulative reward
+    # got_reward=True means they won a reward (reward is not None)
     if result.got_reward and result.reward:
         message_parts.append("\n" + msg('FORMAT_REWARD', language, reward_name=result.reward.name))
         if result.cumulative_progress:
@@ -135,7 +134,6 @@ def format_rewards_list_message(rewards: list[Reward], language: str = 'en') -> 
         type_emoji = {
             RewardType.VIRTUAL: "💎",
             RewardType.REAL: "🎁",
-            RewardType.NONE: "➖"
         }.get(reward.type, "❓")
 
         reward_info = f"{type_emoji} <b>{reward.name}</b>"
@@ -175,8 +173,8 @@ def format_habit_logs_message(logs: list[HabitLog], habits: dict[str, str], lang
         habit_name = habits.get(log.habit_id, "Unknown habit")
         date_str = log.last_completed_date.strftime("%b %d")
         # Visual indicator for reward status in habit history
-        # 🎁 = got_reward=True (meaningful reward received)
-        # ❌ = got_reward=False (no reward or "none" type reward)
+        # 🎁 = got_reward=True (reward received)
+        # ❌ = got_reward=False (no reward)
         reward_emoji = "🎁" if log.got_reward else "❌"
         streak_emoji = "🔥" * min(log.streak_count, 3)
 

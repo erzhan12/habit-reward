@@ -79,7 +79,7 @@ class RewardCreateRequest(BaseModel):
     """Reward creation request."""
 
     name: str = Field(..., min_length=1, max_length=255)
-    type: str = Field(default="virtual", pattern="^(virtual|real|none)$")
+    type: str = Field(default="virtual", pattern="^(virtual|real)$")
     weight: float = Field(default=1.0, gt=0, le=100)
     pieces_required: int = Field(default=1, ge=1)
     piece_value: float | None = Field(default=None, ge=0)
@@ -91,7 +91,7 @@ class RewardUpdateRequest(BaseModel):
     """Reward update request."""
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    type: str | None = Field(default=None, pattern="^(virtual|real|none)$")
+    type: str | None = Field(default=None, pattern="^(virtual|real)$")
     weight: float | None = Field(default=None, gt=0, le=100)
     pieces_required: int | None = Field(default=None, ge=1)
     piece_value: float | None = None

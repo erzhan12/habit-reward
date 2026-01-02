@@ -189,7 +189,10 @@ class RewardRepository(BaseRepository):
         # Default pieces_required to 1 if not present
         if "pieces_required" not in fields or fields["pieces_required"] is None:
             fields["pieces_required"] = 1
-        fields["type"] = RewardType(fields.get("type", "none"))
+        raw_type = fields.get("type")
+        if raw_type not in (RewardType.VIRTUAL.value, RewardType.REAL.value):
+            raw_type = RewardType.REAL.value
+        fields["type"] = RewardType(raw_type)
         return Reward(**fields)
 
 

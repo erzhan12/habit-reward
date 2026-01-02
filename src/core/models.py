@@ -134,7 +134,6 @@ class Reward(models.Model):
         """Types of rewards available in the system."""
         VIRTUAL = 'virtual', 'Virtual'
         REAL = 'real', 'Real'
-        NONE = 'none', 'None'
 
     user = models.ForeignKey(
         User,

@@ -107,10 +107,10 @@ def _clear_reward_edit_context(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def _reward_type_label(lang: str, reward_type: str | None) -> str:
+    """Get localized label for reward type (virtual or real only)."""
     type_mapping = {
         RewardType.VIRTUAL.value: msg('BUTTON_REWARD_TYPE_VIRTUAL', lang),
         RewardType.REAL.value: msg('BUTTON_REWARD_TYPE_REAL', lang),
-        RewardType.NONE.value: msg('BUTTON_REWARD_TYPE_NONE', lang),
     }
     if not reward_type:
         return msg('TEXT_NOT_SET', lang)
@@ -127,11 +127,10 @@ def _format_piece_value_display(lang: str, value) -> str:
 
 
 def _format_reward_summary(lang: str, data: dict) -> str:
-    """Render confirmation summary for reward creation."""
+    """Render confirmation summary for reward creation (virtual or real types only)."""
     type_mapping = {
         RewardType.VIRTUAL.value: msg('BUTTON_REWARD_TYPE_VIRTUAL', lang),
         RewardType.REAL.value: msg('BUTTON_REWARD_TYPE_REAL', lang),
-        RewardType.NONE.value: msg('BUTTON_REWARD_TYPE_NONE', lang)
     }
 
     reward_type_value = data.get('type')
@@ -731,7 +730,6 @@ async def reward_type_selected(update: Update, context: ContextTypes.DEFAULT_TYP
     type_mapping = {
         'virtual': RewardType.VIRTUAL,
         'real': RewardType.REAL,
-        'none': RewardType.NONE
     }
     reward_type = type_mapping.get(callback_data)
 
@@ -1500,7 +1498,7 @@ async def reward_edit_type_selected(update: Update, context: ContextTypes.DEFAUL
     lang = await get_message_language_async(telegram_id, update)
     callback_data = query.data.replace("edit_reward_type_", "")
 
-    if callback_data not in ("virtual", "real", "none"):
+    if callback_data not in ("virtual", "real"):
         await query.answer("Unknown reward type", show_alert=True)
         return AWAITING_REWARD_EDIT_TYPE
 
@@ -2108,7 +2106,7 @@ edit_reward_conversation = ConversationHandler(
             CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
         ],
         AWAITING_REWARD_EDIT_TYPE: [
-            CallbackQueryHandler(reward_edit_type_selected, pattern="^edit_reward_type_(virtual|real|none)$"),
+            CallbackQueryHandler(reward_edit_type_selected, pattern="^edit_reward_type_(virtual|real)$"),
             CallbackQueryHandler(reward_edit_type_skip, pattern="^edit_reward_type_skip$"),
             CallbackQueryHandler(cancel_reward_edit_flow_callback, pattern="^cancel_reward_flow$"),
         ],
@@ -2152,7 +2150,7 @@ add_reward_conversation = ConversationHandler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, reward_name_received)
         ],
         AWAITING_REWARD_TYPE: [
-            CallbackQueryHandler(reward_type_selected, pattern="^reward_type_(virtual|real|none)$"),
+            CallbackQueryHandler(reward_type_selected, pattern="^reward_type_(virtual|real)$"),
             CallbackQueryHandler(cancel_reward_flow_callback, pattern="^cancel_reward_flow$")
         ],
         AWAITING_REWARD_WEIGHT: [

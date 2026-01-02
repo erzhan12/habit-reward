@@ -173,6 +173,14 @@ class TestCreateReward:
 
         assert response.status_code == 201
 
+    def test_create_reward_rejects_none_type(self, client):
+        """Test creating reward rejects legacy 'none' type."""
+        response = client.post(
+            "/v1/rewards", json={"name": "Coffee", "type": "none", "weight": 10.0}
+        )
+
+        assert response.status_code == 422
+
 
 class TestUpdateReward:
     """Test PATCH /v1/rewards/{reward_id} endpoint."""
@@ -228,6 +236,14 @@ class TestUpdateReward:
         assert response.status_code == 200
         data = response.json()
         assert data["type"] == "real"
+
+    def test_update_reward_rejects_none_type(self, client, mock_reward):
+        """Test updating reward rejects legacy 'none' type."""
+        response = client.patch(
+            f"/v1/rewards/{mock_reward.id}", json={"type": "none"}
+        )
+
+        assert response.status_code == 422
 
     @patch("src.api.v1.routers.rewards.reward_repository")
     def test_update_reward_pieces_required_success(self, mock_repo, client, mock_reward):

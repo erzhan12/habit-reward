@@ -203,7 +203,9 @@ class RewardRepository:
         """Get all active rewards for a specific user."""
         user_pk = int(user_id) if isinstance(user_id, str) else user_id
         rewards = await sync_to_async(list)(
-            Reward.objects.filter(user_id=user_pk, active=True).order_by("name")
+            Reward.objects.filter(user_id=user_pk, active=True)
+            .exclude(type="none")
+            .order_by("name")
         )
         return rewards
 
@@ -214,7 +216,9 @@ class RewardRepository:
         """
         user_pk = int(user_id) if isinstance(user_id, str) else user_id
         rewards = await sync_to_async(list)(
-            Reward.objects.filter(user_id=user_pk).order_by("name")
+            Reward.objects.filter(user_id=user_pk)
+            .exclude(type="none")
+            .order_by("name")
         )
         return rewards
 
