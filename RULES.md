@@ -863,6 +863,30 @@ events = await maybe_await(
 
 **Why**: Trace data corruption, reconstruct user interactions, debug issues with state snapshots.
 
+## Django Admin Configuration
+
+### Displaying ID Fields in Details View
+
+To show the primary key (ID) field in Django admin details view:
+1. Add `'id'` to `readonly_fields` (primary keys are read-only)
+2. Add `'id'` to the appropriate fieldset (typically first field in the first fieldset)
+
+**Example** (`src/core/admin.py`):
+```python
+@admin.register(Habit)
+class HabitAdmin(admin.ModelAdmin):
+    readonly_fields = ['id', 'created_at', 'updated_at']
+    
+    fieldsets = (
+        ('Habit Information', {
+            'fields': ('id', 'user', 'name', 'weight', 'category', 'active')
+        }),
+        # ...
+    )
+```
+
+**Why**: ID fields are useful for debugging, API references, and cross-referencing records.
+
 ## Django Admin Custom Actions
 
 **CRITICAL**: Django admin runs in WSGI (synchronous) context. Never use `asyncio.run()` or async service layer methods in admin actions.
