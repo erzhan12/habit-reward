@@ -62,13 +62,13 @@ class HabitAdmin(admin.ModelAdmin):
     list_display = ['name', 'user', 'weight', 'category', 'active', 'created_at']
     list_filter = ['active', 'category', 'created_at', 'user']
     search_fields = ['name', 'category', 'user__name', 'user__telegram_id']
-    readonly_fields = ['created_at', 'updated_at']
+    readonly_fields = ['id', 'created_at', 'updated_at']
     ordering = ['user', 'name']
     autocomplete_fields = ['user']
 
     fieldsets = (
         ('Habit Information', {
-            'fields': ('user', 'name', 'weight', 'category', 'active')
+            'fields': ('id', 'user', 'name', 'weight', 'category', 'active')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
