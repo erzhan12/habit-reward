@@ -6,15 +6,15 @@ import pandas as pd
 import plotly.express as px
 
 from src.services.streak_service import streak_service
-from src.airtable.repositories import habit_repository
+from src.core.repositories import habit_repository
 
 
-def render_streak_chart(user_id: str):
+def render_streak_chart(user_id: int):
     """
     Render bar chart showing current streaks for each habit.
 
     Args:
-        user_id: Airtable record ID of the user
+        user_id: Django user ID (integer)
     """
     st.subheader("🔥 Current Streaks by Habit")
 
@@ -27,7 +27,7 @@ def render_streak_chart(user_id: str):
     # Prepare data
     data = []
     for habit_id, streak_count in streaks_dict.items():
-        habit = habit_repository.get_by_id(habit_id)
+        habit = asyncio.run(habit_repository.get_by_id(habit_id))
         if habit:
             data.append({
                 "Habit": habit.name,

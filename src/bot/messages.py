@@ -30,7 +30,7 @@ class Messages:
     INFO_NO_REWARD_PROGRESS = "No reward progress yet. Keep completing habits!"
     INFO_NO_REWARD = "❌ No reward this time - keep going!"
     INFO_REWARD_ACTIONABLE = "⏳ <b>Reward achieved!</b> You can claim it now!"
-    INFO_FEATURE_COMING_SOON = "🎁 <b>Add New Reward</b>\n\nThis feature will guide you through creating a new reward.\nFor now, please add rewards directly in Airtable.\n\nComing soon: conversational reward creation!"
+    INFO_FEATURE_COMING_SOON = "🎁 <b>Add New Reward</b>\n\nThis feature will guide you through creating a new reward.\nFor now, please add rewards via the /add_reward command or Django admin.\n\nComing soon: conversational reward creation!"
     INFO_CANCELLED = "Habit logging cancelled."
     INFO_CANCELLED_REVERT = "Revert cancelled."
     INFO_MULTIPLE_HABITS = "I also detected: {other_habits}. Use /habit_done to log those separately."
@@ -355,7 +355,7 @@ Use this key in your app with the header:
             'INFO_NO_REWARD_PROGRESS': "Прогресс по наградам отсутствует. Продолжайте выполнять привычки!",
             'INFO_NO_REWARD': "❌ В этот раз награды нет - продолжайте!",
             'INFO_REWARD_ACTIONABLE': "⏳ <b>Награда достигнута!</b> Вы можете забрать её сейчас!",
-            'INFO_FEATURE_COMING_SOON': "🎁 <b>Добавить новую награду</b>\n\nЭта функция проведёт вас через создание новой награды.\nПока что добавляйте награды в Airtable.\n\nСкоро: создание наград через бота!",
+            'INFO_FEATURE_COMING_SOON': "🎁 <b>Добавить новую награду</b>\n\nЭта функция проведёт вас через создание новой награды.\nПока что добавляйте награды через команду /add_reward или Django admin.\n\nСкоро: создание наград через бота!",
             'INFO_CANCELLED': "Регистрация привычки отменена.",
             'INFO_CANCELLED_REVERT': "Отмена операции отмены привычки.",
             'INFO_MULTIPLE_HABITS': "Также обнаружены: {other_habits}. Используйте /habit_done для их регистрации.",
@@ -670,7 +670,7 @@ Use this key in your app with the header:
             'INFO_NO_REWARD_PROGRESS': "Сыйлық бойынша прогресс жоқ. Әдеттерді орындауды жалғастырыңыз!",
             'INFO_NO_REWARD': "❌ Бұл жолы сыйлық жоқ - жалғастырыңыз!",
             'INFO_REWARD_ACTIONABLE': "⏳ <b>Сыйлық қол жеткізілді!</b> Оны қазір алуға болады!",
-            'INFO_FEATURE_COMING_SOON': "🎁 <b>Жаңа сыйлық қосу</b>\n\nБұл функция жаңа сыйлық жасауға жетелейді.\nҚазірше Airtable арқылы сыйлықтар қосыңыз.\n\nЖақында: бот арқылы сыйлықтар жасау!",
+            'INFO_FEATURE_COMING_SOON': "🎁 <b>Жаңа сыйлық қосу</b>\n\nБұл функция жаңа сыйлық жасауға жетелейді.\nҚазірше /add_reward командасы арқылы немесе Django admin арқылы сыйлықтар қосыңыз.\n\nЖақында: бот арқылы сыйлықтар жасау!",
             'INFO_CANCELLED': "Әдетті тіркеу болдырылмады.",
             'INFO_CANCELLED_REVERT': "Қайтару тоқтатылды.",
             'INFO_MULTIPLE_HABITS': "Сондай-ақ табылды: {other_habits}. Оларды тіркеу үшін /habit_done пайдаланыңыз.",

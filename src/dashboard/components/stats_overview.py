@@ -1,21 +1,22 @@
 """Statistics overview component for dashboard."""
 
+import asyncio
 import streamlit as st
 
-from src.airtable.repositories import reward_progress_repository, reward_repository
+from src.core.repositories import reward_progress_repository, reward_repository
 from src.models.reward_progress import RewardStatus
 
 
-def render_stats_overview(user_id: str):
+def render_stats_overview(user_id: int):
     """
     Render summary statistics cards.
 
     Args:
-        user_id: Airtable record ID of the user
+        user_id: Django user ID (integer)
     """
     st.subheader("📊 Reward Value Overview")
 
-    progress_list = reward_progress_repository.get_all_by_user(user_id)
+    progress_list = asyncio.run(reward_progress_repository.get_all_by_user(user_id))
 
     if not progress_list:
         st.info("No reward data yet")
@@ -27,7 +28,7 @@ def render_stats_overview(user_id: str):
     pending_value = 0.0
 
     for progress in progress_list:
-        reward = reward_repository.get_by_id(progress.reward_id)
+        reward = asyncio.run(reward_repository.get_by_id(progress.reward_id))
 
         if not reward or not reward.piece_value:
             continue
