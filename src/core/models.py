@@ -43,6 +43,11 @@ class User(AbstractUser):
         ],
         help_text="User's preferred language (ISO 639-1 code)"
     )
+    no_reward_probability = models.FloatField(
+        default=50.0,
+        validators=[MinValueValidator(0.01), MaxValueValidator(99.99)],
+        help_text="Probability of getting no reward during habit completion (0.01-99.99%)"
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     # Django's is_active field (from AbstractUser) replaces custom 'active' field

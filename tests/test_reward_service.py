@@ -2,6 +2,7 @@
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
+from django.test import override_settings
 
 from src.services.reward_service import RewardService
 from src.models.reward import Reward, RewardType
@@ -78,7 +79,7 @@ class TestRewardSelection:
         assert selected is None or selected in mock_rewards
 
     def test_select_reward_includes_no_reward_weight(self, reward_service):
-        """Ensure implicit no-reward weight equals sum of other weights."""
+        """Ensure no-reward weight equals sum of other weights when configured for 50%."""
         rewards = [
             Reward(id="r1", name="Reward 1", weight=2, type=RewardType.VIRTUAL),
             Reward(id="r2", name="Reward 2", weight=3, type=RewardType.REAL),
@@ -86,7 +87,10 @@ class TestRewardSelection:
         reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
         reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
 
-        with patch("src.services.reward_service.random.choices") as mock_choices:
+        with (
+            override_settings(NO_REWARD_PROBABILITY_PERCENT=50.0),
+            patch("src.services.reward_service.random.choices") as mock_choices,
+        ):
             mock_choices.return_value = [rewards[0]]
             selected = reward_service.select_reward(user_id="1", total_weight=5.0)
 
@@ -95,6 +99,66 @@ class TestRewardSelection:
         weights = mock_choices.call_args.kwargs["weights"]
         assert population[-1] is None
         assert weights[-1] == pytest.approx(sum(weights[:-1]))
+
+    def test_select_reward_no_reward_weight_respects_probability(self, reward_service):
+        """Ensure no-reward weight produces the configured probability."""
+        rewards = [
+            Reward(id="r1", name="Reward 1", weight=2, type=RewardType.VIRTUAL),
+            Reward(id="r2", name="Reward 2", weight=3, type=RewardType.REAL),
+        ]
+        reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
+        reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
+
+        with (
+            override_settings(NO_REWARD_PROBABILITY_PERCENT=25.0),
+            patch("src.services.reward_service.random.choices") as mock_choices,
+        ):
+            mock_choices.return_value = [rewards[0]]
+            selected = reward_service.select_reward(user_id="1", total_weight=5.0)
+
+        assert selected == rewards[0]
+        weights = mock_choices.call_args.kwargs["weights"]
+        sum_reward_weights = sum(weights[:-1])
+        expected_no_reward_weight = sum_reward_weights * (25.0 / 75.0)
+        assert weights[-1] == pytest.approx(expected_no_reward_weight)
+
+    def test_select_reward_no_reward_probability_zero_excludes_none(self, reward_service):
+        """Ensure 0% no-reward excludes None from selection population."""
+        rewards = [
+            Reward(id="r1", name="Reward 1", weight=2, type=RewardType.VIRTUAL),
+            Reward(id="r2", name="Reward 2", weight=3, type=RewardType.REAL),
+        ]
+        reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
+        reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
+
+        with (
+            override_settings(NO_REWARD_PROBABILITY_PERCENT=0.0),
+            patch("src.services.reward_service.random.choices") as mock_choices,
+        ):
+            mock_choices.return_value = [rewards[0]]
+            selected = reward_service.select_reward(user_id="1", total_weight=5.0)
+
+        assert selected == rewards[0]
+        population = mock_choices.call_args.args[0]
+        assert None not in population
+
+    def test_select_reward_no_reward_probability_hundred_always_none(self, reward_service):
+        """Ensure 100% no-reward returns None and does not call random.choices."""
+        rewards = [
+            Reward(id="r1", name="Reward 1", weight=2, type=RewardType.VIRTUAL),
+            Reward(id="r2", name="Reward 2", weight=3, type=RewardType.REAL),
+        ]
+        reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
+        reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
+
+        with (
+            override_settings(NO_REWARD_PROBABILITY_PERCENT=100.0),
+            patch("src.services.reward_service.random.choices") as mock_choices,
+        ):
+            selected = reward_service.select_reward(user_id="1", total_weight=5.0)
+
+        assert selected is None
+        mock_choices.assert_not_called()
 
     def test_select_reward_empty_list(self, reward_service, mock_reward_repo):
         """Test reward selection when no rewards exist returns None."""

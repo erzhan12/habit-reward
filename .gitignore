@@ -87,3 +87,6 @@ tmp/
 temp/
 *.tmp
 /secrets.txt
+
+# Test Data Setup Scripts (local testing only)
+scripts/setup_test_data_0028.py

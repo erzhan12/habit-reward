@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Awaitable
 from types import SimpleNamespace, MethodType
 
-from src.core.repositories import reward_repository, reward_progress_repository, habit_log_repository
+from src.core.repositories import reward_repository, reward_progress_repository, habit_log_repository, user_repository
 from src.core.models import Reward, RewardProgress
 from src.models.reward_progress import RewardProgress as RewardProgressModel
 from django.conf import settings
@@ -57,7 +57,7 @@ class RewardService:
         user_id: str | None = None,
         exclude_reward_ids: list[str] | None = None
     ) -> Reward | None | Awaitable[Reward | None]:
-        """Perform weighted random reward selection with implicit 50% 'no reward' probability.
+        """Perform weighted random reward selection with configurable 'no reward' probability.
 
         Returns:
             Reward | None: Selected reward, or None for "no reward" outcome
@@ -205,23 +205,92 @@ class RewardService:
             # Calculate reward weights
             reward_weights = [reward.weight * total_weight for reward in rewards]
 
-            # Calculate implicit "no reward" weight for 50% probability
-            # no_reward_weight = 1.0 * sum(reward_weights) ensures:
-            # P(no_reward) = sum(weights) / (sum(weights) + sum(weights)) = 0.5
-            # This 50% split doesn't depend on streak multiplier (both sides scale equally)
-            no_reward_weight = 1.0 * sum(reward_weights)
+            sum_reward_weights = sum(reward_weights)
+            logger.info(
+                "🎲 Reward weights: %s (sum=%.2f)",
+                [(r.name, r.weight * total_weight) for r in rewards],
+                sum_reward_weights,
+            )
 
-            # Perform weighted selection including implicit "no reward" option
-            population = rewards + [None]
-            weights = reward_weights + [no_reward_weight]
+            if sum_reward_weights <= 0:
+                logger.warning(
+                    "Total reward selection weight is %s, returning None (no reward)",
+                    sum_reward_weights,
+                )
+                return None
+
+            # Configure "no reward" as an implicit option with desired probability.
+            #
+            # We model selection as: pick from (rewards + [None]) using weights.
+            # If S = sum(reward_weights), and N = no_reward_weight, then:
+            #   P(no_reward) = N / (S + N)
+            # Solving for N gives:
+            #   N = S * p / (100 - p)
+            # where p is the user's no_reward_probability setting.
+
+            # Fetch user to get their personal no_reward_probability setting
+            user = await maybe_await(user_repository.get_by_id(user_id))
+            if user and hasattr(user, 'no_reward_probability'):
+                no_reward_probability_percent = float(user.no_reward_probability)
+                logger.info(
+                    "🎲 no_reward_probability from user DB: %.1f%%",
+                    no_reward_probability_percent,
+                )
+            else:
+                # Fallback to global setting if user not found or field missing
+                no_reward_probability_percent = float(
+                    getattr(settings, "NO_REWARD_PROBABILITY_PERCENT", 50.0)
+                )
+                logger.info(
+                    "🎲 NO_REWARD_PROBABILITY_PERCENT from settings (fallback): %.1f%%",
+                    no_reward_probability_percent,
+                )
+
+            if no_reward_probability_percent <= 0:
+                population = rewards
+                weights = reward_weights
+                logger.info("🎲 p<=0: No 'None' in population (always reward)")
+            elif no_reward_probability_percent >= 100:
+                logger.info(
+                    "🎲 p>=100: NO_REWARD_PROBABILITY_PERCENT=%s -> always no reward",
+                    no_reward_probability_percent,
+                )
+                return None
+            else:
+                no_reward_weight = sum_reward_weights * (
+                    no_reward_probability_percent / (100.0 - no_reward_probability_percent)
+                )
+                population = rewards + [None]
+                weights = reward_weights + [no_reward_weight]
+                logger.info(
+                    "🎲 Formula: N = S * p / (100 - p) = %.2f * %.1f / %.1f = %.2f",
+                    sum_reward_weights,
+                    no_reward_probability_percent,
+                    100.0 - no_reward_probability_percent,
+                    no_reward_weight,
+                )
+                total_weight_sum = sum(weights)
+                actual_no_reward_prob = (no_reward_weight / total_weight_sum) * 100
+                logger.info(
+                    "🎲 Final weights: rewards=%.2f, no_reward=%.2f, total=%.2f",
+                    sum_reward_weights,
+                    no_reward_weight,
+                    total_weight_sum,
+                )
+                logger.info(
+                    "🎲 Actual P(no_reward) = %.2f / %.2f = %.1f%%",
+                    no_reward_weight,
+                    total_weight_sum,
+                    actual_no_reward_prob,
+                )
 
             selected = random.choices(population, weights=weights, k=1)[0]
 
             if selected is None:
-                logger.info("Selected: None (no reward)")
+                logger.info("🎲 Selected: None (no reward)")
             else:
                 logger.info(
-                    "Selected reward: %s (type: %s)",
+                    "🎲 Selected reward: %s (type: %s)",
                     selected.name,
                     selected.type,
                 )
