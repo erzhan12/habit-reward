@@ -290,7 +290,15 @@ Your streak multiplier increases your chances of getting rewards!"""
     SETTINGS_MENU = "⚙️ <b>Settings</b>\n\nSelect an option:"
     SETTINGS_SELECT_LANGUAGE = "🌐 Select Language"
     SETTINGS_API_KEYS = "🔑 API Keys"
+    SETTINGS_NO_REWARD_PROB = "🎲 No Reward Probability"
     SETTINGS_BACK = "← Back to Settings"
+
+    # No Reward Probability Settings
+    NO_REWARD_PROB_MENU = "🎲 <b>No Reward Probability</b>\n\nCurrent: <b>{current}%</b>\n\nChoose a preset or enter a custom value (0.01-99.99):"
+    NO_REWARD_PROB_CUSTOM = "✏️ Custom"
+    NO_REWARD_PROB_ENTER_CUSTOM = "📝 <b>Enter custom probability</b>\n\nEnter a value between 0.01 and 99.99:"
+    NO_REWARD_PROB_UPDATED = "✅ No reward probability updated to <b>{value}%</b>"
+    NO_REWARD_PROB_INVALID = "❌ Invalid value. Please enter a number between 0.01 and 99.99."
 
     # Language Selection
     LANGUAGE_SELECTION_MENU = "🌐 <b>Select Language</b>\n\nChoose your preferred language:"
@@ -599,7 +607,15 @@ Use this key in your app with the header:
             'SETTINGS_MENU': "⚙️ <b>Настройки</b>\n\nВыберите опцию:",
             'SETTINGS_SELECT_LANGUAGE': "🌐 Выбрать язык",
             'SETTINGS_API_KEYS': "🔑 API-ключи",
+            'SETTINGS_NO_REWARD_PROB': "🎲 Вероятность без награды",
             'SETTINGS_BACK': "← Назад в настройки",
+
+            # No Reward Probability Settings
+            'NO_REWARD_PROB_MENU': "🎲 <b>Вероятность без награды</b>\n\nТекущее значение: <b>{current}%</b>\n\nВыберите пресет или введите своё значение (0.01-99.99):",
+            'NO_REWARD_PROB_CUSTOM': "✏️ Своё значение",
+            'NO_REWARD_PROB_ENTER_CUSTOM': "📝 <b>Введите вероятность</b>\n\nВведите значение от 0.01 до 99.99:",
+            'NO_REWARD_PROB_UPDATED': "✅ Вероятность без награды обновлена: <b>{value}%</b>",
+            'NO_REWARD_PROB_INVALID': "❌ Неверное значение. Введите число от 0.01 до 99.99.",
 
             # Language Selection
             'LANGUAGE_SELECTION_MENU': "🌐 <b>Выбрать язык</b>\n\nВыберите предпочитаемый язык:",
@@ -907,7 +923,15 @@ Use this key in your app with the header:
             'SETTINGS_MENU': "⚙️ <b>Параметрлер</b>\n\nОпцияны таңдаңыз:",
             'SETTINGS_SELECT_LANGUAGE': "🌐 Тілді таңдау",
             'SETTINGS_API_KEYS': "🔑 API кілттері",
+            'SETTINGS_NO_REWARD_PROB': "🎲 Сыйлықсыз ықтималдық",
             'SETTINGS_BACK': "← Параметрлерге оралу",
+
+            # No Reward Probability Settings
+            'NO_REWARD_PROB_MENU': "🎲 <b>Сыйлықсыз ықтималдық</b>\n\nАғымдағы мән: <b>{current}%</b>\n\nПресетті таңдаңыз немесе өз мәніңізді енгізіңіз (0.01-99.99):",
+            'NO_REWARD_PROB_CUSTOM': "✏️ Өз мәні",
+            'NO_REWARD_PROB_ENTER_CUSTOM': "📝 <b>Ықтималдықты енгізіңіз</b>\n\n0.01-ден 99.99-ға дейін мән енгізіңіз:",
+            'NO_REWARD_PROB_UPDATED': "✅ Сыйлықсыз ықтималдық жаңартылды: <b>{value}%</b>",
+            'NO_REWARD_PROB_INVALID': "❌ Қате мән. 0.01-ден 99.99-ға дейін сан енгізіңіз.",
 
             # Language Selection
             'LANGUAGE_SELECTION_MENU': "🌐 <b>Тілді таңдау</b>\n\nҚалаған тіліңізді таңдаңыз:",
