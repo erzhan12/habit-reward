@@ -1,4 +1,12 @@
 """Main Streamlit dashboard application."""
+# ruff: noqa: E402
+
+import os
+import django
+
+# Configure Django before any imports that use Django models
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'src.habit_reward_project.settings')
+django.setup()
 
 import asyncio
 import streamlit as st

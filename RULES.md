@@ -22,6 +22,38 @@ if not user.is_active:
 
 **Why**: Prevents crashes when non-registered users try to use the bot.
 
+## Django Initialization for Entry Points
+
+**CRITICAL**: Any entry point (script, Streamlit app, bot main) that imports from `src.core.repositories` or `src.core.models` MUST configure Django before those imports.
+
+Django models require `DJANGO_SETTINGS_MODULE` to be set and `django.setup()` to be called before any Django modules are imported. Without this, you'll get `django.core.exceptions.ImproperlyConfigured`.
+
+**Required Pattern**:
+```python
+"""Entry point script."""
+# ruff: noqa: E402
+
+import os
+import django
+
+# Configure Django before any imports that use Django models
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'src.habit_reward_project.settings')
+django.setup()
+
+# Now safe to import Django-dependent modules
+from src.core.repositories import user_repository
+from src.config import settings
+```
+
+**Files that require this**:
+- `src/dashboard/app.py` - Streamlit dashboard entry point
+- `src/bot/main.py` - Telegram bot polling mode entry point
+- Any standalone script that uses repositories
+
+**Note**: The `# ruff: noqa: E402` comment is required because we're importing Django setup code before other imports, which violates PEP 8's import ordering rule. This is intentional and necessary.
+
+**Why**: The `src.core.repositories` module imports Django models (`from src.core.models import ...`), and Django models cannot be imported until Django is configured. This initialization must happen at the very top of the entry point file, before any other imports that might transitively import Django models.
+
 ## Message Management & Multi-lingual Support
 
 **CRITICAL**: All user-facing strings MUST use message constants from `src/bot/messages.py`. Never use hardcoded strings.
