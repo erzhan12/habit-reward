@@ -1,6 +1,7 @@
 """Statistics overview component for dashboard."""
 
 import asyncio
+from decimal import Decimal
 import streamlit as st
 
 from src.core.repositories import reward_progress_repository, reward_repository
@@ -23,9 +24,10 @@ def render_stats_overview(user_id: int):
         return
 
     # Calculate totals
-    total_value_earned = 0.0
-    total_value_claimed = 0.0
-    pending_value = 0.0
+    # Use Decimal to match Django's DecimalField type for piece_value
+    total_value_earned = Decimal(0)
+    total_value_claimed = Decimal(0)
+    pending_value = Decimal(0)
 
     for progress in progress_list:
         reward = asyncio.run(reward_repository.get_by_id(progress.reward_id))
