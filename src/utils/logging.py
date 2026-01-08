@@ -22,7 +22,6 @@ def setup_logging() -> None:
     )
     
     # Set specific loggers to appropriate levels
-    logging.getLogger("pyairtable").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     

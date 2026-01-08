@@ -1,30 +1,31 @@
 """Reward progress cards component for Streamlit dashboard."""
 
+import asyncio
 import streamlit as st
 
-from src.airtable.repositories import reward_repository, reward_progress_repository
-from src.models.reward_progress import RewardStatus
+from src.core.repositories import reward_repository, reward_progress_repository
+from src.core.models import RewardProgress
 
 
-def render_reward_progress(user_id: str):
+def render_reward_progress(user_id: int):
     """
     Render reward progress cards with progress bars.
 
     Args:
-        user_id: Airtable record ID of the user
+        user_id: Django user ID (integer)
     """
     st.subheader("🎁 Cumulative Reward Progress")
 
-    progress_list = reward_progress_repository.get_all_by_user(user_id)
+    progress_list = asyncio.run(reward_progress_repository.get_all_by_user(user_id))
 
     if not progress_list:
         st.info("No reward progress yet. Complete habits to earn reward pieces!")
         return
 
     # Group by status
-    pending = [p for p in progress_list if p.get_status() == RewardStatus.PENDING]
-    achieved = [p for p in progress_list if p.get_status() == RewardStatus.ACHIEVED]
-    completed = [p for p in progress_list if p.get_status() == RewardStatus.COMPLETED]
+    pending = [p for p in progress_list if p.get_status() == RewardProgress.RewardStatus.PENDING]
+    achieved = [p for p in progress_list if p.get_status() == RewardProgress.RewardStatus.ACHIEVED]
+    completed = [p for p in progress_list if p.get_status() == RewardProgress.RewardStatus.CLAIMED]
 
     # Create tabs
     tab1, tab2, tab3 = st.tabs([
@@ -62,7 +63,7 @@ def render_progress_card(progress):
     Args:
         progress: RewardProgress object
     """
-    reward = reward_repository.get_by_id(progress.reward_id)
+    reward = asyncio.run(reward_repository.get_by_id(progress.reward_id))
 
     if not reward:
         return
@@ -87,7 +88,7 @@ def render_progress_card(progress):
             target_value = (progress.get_pieces_required() or 0) * reward.piece_value
             st.caption(f"Value: ${total_value:.2f} / ${target_value:.2f}")
 
-        if progress.get_status() == RewardStatus.ACHIEVED:
+        if progress.get_status() == RewardProgress.RewardStatus.ACHIEVED:
             st.success("⏳ Ready to claim!")
 
         st.divider()

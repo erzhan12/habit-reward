@@ -1,28 +1,29 @@
 """Actionable rewards component with claim buttons."""
 
+import asyncio
 import streamlit as st
 
-from src.airtable.repositories import reward_repository, reward_progress_repository
+from src.core.repositories import reward_repository, reward_progress_repository
 from src.services.reward_service import reward_service
 
 
-def render_actionable_rewards(user_id: str):
+def render_actionable_rewards(user_id: int):
     """
     Render achieved rewards with action buttons.
 
     Args:
-        user_id: Airtable record ID of the user
+        user_id: Django user ID (integer)
     """
     st.subheader("⏳ Rewards Ready to Claim")
 
-    achieved_progress = reward_progress_repository.get_achieved_by_user(user_id)
+    achieved_progress = asyncio.run(reward_progress_repository.get_achieved_by_user(user_id))
 
     if not achieved_progress:
         st.info("No rewards ready to claim yet. Keep completing habits!")
         return
 
     for progress in achieved_progress:
-        reward = reward_repository.get_by_id(progress.reward_id)
+        reward = asyncio.run(reward_repository.get_by_id(progress.reward_id))
 
         if not reward:
             continue

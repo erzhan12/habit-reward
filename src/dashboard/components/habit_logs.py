@@ -1,22 +1,23 @@
 """Habit logs table component for Streamlit dashboard."""
 
+import asyncio
 import streamlit as st
 import pandas as pd
 
-from src.airtable.repositories import habit_log_repository, habit_repository
+from src.core.repositories import habit_log_repository, habit_repository
 
 
-def render_habit_logs(user_id: str, limit: int = 50):
+def render_habit_logs(user_id: int, limit: int = 50):
     """
     Render habit logs table showing recent completions.
 
     Args:
-        user_id: Airtable record ID of the user
+        user_id: Django user ID (integer)
         limit: Maximum number of logs to display
     """
     st.subheader("📋 Recent Habit Completions")
 
-    logs = habit_log_repository.get_logs_by_user(user_id, limit=limit)
+    logs = asyncio.run(habit_log_repository.get_logs_by_user(user_id, limit=limit))
 
     if not logs:
         st.info("No habit logs yet. Start completing habits!")
@@ -25,7 +26,7 @@ def render_habit_logs(user_id: str, limit: int = 50):
     # Prepare data for table
     data = []
     for log in logs:
-        habit = habit_repository.get_by_id(log.habit_id)
+        habit = asyncio.run(habit_repository.get_by_id(log.habit_id))
         habit_name = habit.name if habit else "Unknown"
 
         data.append({

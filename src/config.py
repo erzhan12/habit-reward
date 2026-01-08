@@ -7,10 +7,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    # Airtable Configuration
-    airtable_api_key: str = "test_key"
-    airtable_base_id: str = "test_base"
-
     # Telegram Bot Configuration
     telegram_bot_token: str = "test_token"
 

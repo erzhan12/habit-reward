@@ -10,7 +10,7 @@ A gamified habit-reward system that tracks habits with per-habit streaks, uses v
 - **Telegram Bot Interface**: Easy-to-use bot for logging habits and managing rewards
 - **OpenAI NLP Integration**: Natural language processing for habit classification
 - **Streamlit Dashboard**: Visual analytics and progress tracking
-- **Airtable Backend**: Cloud-based data storage with easy access and export
+- **Django Backend**: PostgreSQL/SQLite database with Django ORM
 
 ## Architecture
 
@@ -18,13 +18,14 @@ A gamified habit-reward system that tracks habits with per-habit streaks, uses v
 habit_reward/
 ├── src/
 │   ├── models/          # Pydantic data models
-│   ├── airtable/        # Airtable client and repositories
-│   ├── services/        # Business logic layer
-│   ├── bot/             # Telegram bot handlers
-│   └── dashboard/       # Streamlit dashboard components
-├── tests/               # Unit tests
-├── pyproject.toml       # Project configuration and dependencies (uv)
-└── .env                 # Environment configuration
+│   ├── core/             # Django models and repositories
+│   ├── services/         # Business logic layer
+│   ├── bot/              # Telegram bot handlers
+│   ├── dashboard/        # Streamlit dashboard components
+│   └── api/              # REST API endpoints
+├── tests/                # Unit tests
+├── pyproject.toml        # Project configuration and dependencies (uv)
+└── .env                  # Environment configuration
 ```
 
 ## Installation
@@ -33,9 +34,8 @@ habit_reward/
 
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/) - Fast Python package installer
-- Airtable account and API key
 - Telegram Bot Token (from @BotFather)
-- OpenAI API Key
+- OpenAI API Key (optional, for NLP features)
 
 ### Setup Steps
 
@@ -63,48 +63,14 @@ habit_reward/
    # Edit .env with your credentials
    ```
 
-5. **Set up Airtable**
-
-   Create the following tables in your Airtable base:
-
-   **Users Table**
-   - `telegram_id` (Single line text, unique)
-   - `name` (Single line text)
-   - `weight` (Number, default: 1.0)
-   - `active` (Checkbox)
-
-   **Habits Table**
-   - `name` (Single line text)
-   - `weight` (Number, default: 1.0)
-   - `category` (Single line text)
-   - `active` (Checkbox)
-
-   **Rewards Table**
-   - `name` (Single line text)
-   - `weight` (Number, default: 1.0)
-   - `type` (Single select: virtual/real/none/cumulative)
-   - `is_cumulative` (Checkbox)
-   - `pieces_required` (Number)
-   - `piece_value` (Number)
-
-   **Reward Progress Table**
-   - `user_id` (Link to Users)
-   - `reward_id` (Link to Rewards)
-   - `pieces_earned` (Number)
-   - `status` (Single select: 🕒 Pending/⏳ Achieved/✅ Completed)
-   - `actionable_now` (Checkbox)
-   - `pieces_required` (Number)
-
-   **Habit Log Table**
-   - `user_id` (Link to Users)
-   - `habit_id` (Link to Habits)
-   - `timestamp` (Date with time)
-   - `reward_id` (Link to Rewards)
-   - `got_reward` (Checkbox)
-   - `streak_count` (Number)
-   - `habit_weight` (Number)
-   - `total_weight_applied` (Number)
-   - `last_completed_date` (Date)
+5. **Set up database**
+   ```bash
+   # Run Django migrations
+   uv run python manage.py migrate
+   
+   # Create a superuser for Django admin (optional)
+   uv run python manage.py createsuperuser
+   ```
 
 ## Usage
 
@@ -187,7 +153,7 @@ uv run pytest --cov=src tests/
 ### Project Structure
 
 - **Models** (`src/models/`): Pydantic models for data validation
-- **Repositories** (`src/airtable/`): Data access layer using repository pattern
+- **Repositories** (`src/core/repositories.py`): Data access layer using repository pattern with Django ORM
 - **Services** (`src/services/`): Business logic layer
   - `streak_service.py`: Streak calculation
   - `reward_service.py`: Reward selection and cumulative progress
@@ -259,7 +225,7 @@ OUTPUT: reward_progress
 
 ## Ethical Considerations
 
-1. **Data Privacy**: Only telegram_id stored, full user control via Airtable
+1. **Data Privacy**: Only telegram_id stored, full user control via Django admin
 2. **Transparent Logic**: All calculations logged and visible
 3. **Motivation vs Addiction**: "None" rewards always included, streak multiplier capped
 4. **Extensibility**: Repository pattern enables easy database migration
@@ -299,6 +265,6 @@ For issues, questions, or suggestions:
 ## Acknowledgments
 
 - Built with [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)
-- Data storage via [Airtable](https://airtable.com)
+- Data storage via Django ORM with PostgreSQL/SQLite
 - NLP powered by [OpenAI](https://openai.com)
 - Dashboard created with [Streamlit](https://streamlit.io)

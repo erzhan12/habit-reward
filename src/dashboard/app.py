@@ -1,9 +1,18 @@
 """Main Streamlit dashboard application."""
+# ruff: noqa: E402
 
+import os
+import django
+
+# Configure Django before any imports that use Django models
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'src.habit_reward_project.settings')
+django.setup()
+
+import asyncio
 import streamlit as st
 
 from src.config import settings
-from src.airtable.repositories import user_repository
+from src.core.repositories import user_repository
 from src.dashboard.components.habit_logs import render_habit_logs
 from src.dashboard.components.reward_progress import render_reward_progress
 from src.dashboard.components.actionable_rewards import render_actionable_rewards
@@ -30,7 +39,7 @@ with st.sidebar:
     # In production, this could be a dropdown of all users
     if settings.default_user_telegram_id:
         telegram_id = settings.default_user_telegram_id
-        user = user_repository.get_by_telegram_id(telegram_id)
+        user = asyncio.run(user_repository.get_by_telegram_id(telegram_id))
 
         if user:
             st.success(f"Logged in as: {user.name}")
@@ -43,7 +52,7 @@ with st.sidebar:
         telegram_id = st.text_input("Enter your Telegram ID:")
 
         if telegram_id:
-            user = user_repository.get_by_telegram_id(telegram_id)
+            user = asyncio.run(user_repository.get_by_telegram_id(telegram_id))
             if user:
                 st.success(f"Found: {user.name}")
                 user_id = user.id
@@ -63,7 +72,7 @@ with st.sidebar:
 
     # Info
     st.caption("Habit Reward System v1.0")
-    st.caption("Built with Streamlit & Airtable")
+    st.caption("Built with Streamlit & Django")
 
 
 # Main content

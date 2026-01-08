@@ -153,10 +153,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CUSTOM SETTINGS FOR HABIT REWARD BOT
 # =============================================================================
 
-# Airtable Configuration (kept for fallback)
-AIRTABLE_API_KEY = env('AIRTABLE_API_KEY', default='test_key')
-AIRTABLE_BASE_ID = env('AIRTABLE_BASE_ID', default='test_base')
-
 # Telegram Bot Configuration
 TELEGRAM_BOT_TOKEN = env('TELEGRAM_BOT_TOKEN', default='test_token')
 
