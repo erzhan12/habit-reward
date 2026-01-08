@@ -277,6 +277,8 @@ progress = RewardProgress(user_id=user_id, reward_id=reward_id)  # Avoid this!
 'created_at' → 'date_joined'     # DateTimeField from AbstractUser
 ```
 
+**Note**: The system has fully migrated from Airtable to Django ORM. All Airtable code has been removed. The `src/airtable/` directory no longer exists, and all repositories use Django models (`src/core/repositories.py`). The field mappings above are for historical reference only.
+
 ### Computed Values Pattern
 
 **Use regular methods instead of `@property` for computed values.** This provides better async compatibility.

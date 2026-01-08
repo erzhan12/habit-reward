@@ -168,8 +168,6 @@ All configuration is managed via environment variables in `.env`:
 
 ```env
 # Required
-AIRTABLE_API_KEY=your_key_here
-AIRTABLE_BASE_ID=your_base_id_here
 TELEGRAM_BOT_TOKEN=your_token_here
 LLM_PROVIDER=openai
 LLM_MODEL=gpt-3.5-turbo
