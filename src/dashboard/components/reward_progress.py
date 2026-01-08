@@ -4,7 +4,7 @@ import asyncio
 import streamlit as st
 
 from src.core.repositories import reward_repository, reward_progress_repository
-from src.models.reward_progress import RewardStatus
+from src.core.models import RewardProgress
 
 
 def render_reward_progress(user_id: int):
@@ -23,9 +23,9 @@ def render_reward_progress(user_id: int):
         return
 
     # Group by status
-    pending = [p for p in progress_list if p.get_status() == RewardStatus.PENDING]
-    achieved = [p for p in progress_list if p.get_status() == RewardStatus.ACHIEVED]
-    completed = [p for p in progress_list if p.get_status() == RewardStatus.COMPLETED]
+    pending = [p for p in progress_list if p.get_status() == RewardProgress.RewardStatus.PENDING]
+    achieved = [p for p in progress_list if p.get_status() == RewardProgress.RewardStatus.ACHIEVED]
+    completed = [p for p in progress_list if p.get_status() == RewardProgress.RewardStatus.CLAIMED]
 
     # Create tabs
     tab1, tab2, tab3 = st.tabs([
@@ -88,7 +88,7 @@ def render_progress_card(progress):
             target_value = (progress.get_pieces_required() or 0) * reward.piece_value
             st.caption(f"Value: ${total_value:.2f} / ${target_value:.2f}")
 
-        if progress.get_status() == RewardStatus.ACHIEVED:
+        if progress.get_status() == RewardProgress.RewardStatus.ACHIEVED:
             st.success("⏳ Ready to claim!")
 
         st.divider()

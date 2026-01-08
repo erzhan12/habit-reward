@@ -5,7 +5,7 @@ from decimal import Decimal
 import streamlit as st
 
 from src.core.repositories import reward_progress_repository, reward_repository
-from src.models.reward_progress import RewardStatus
+from src.core.models import RewardProgress
 
 
 def render_stats_overview(user_id: int):
@@ -37,9 +37,9 @@ def render_stats_overview(user_id: int):
 
         earned_value = progress.pieces_earned * reward.piece_value
 
-        if progress.get_status() == RewardStatus.COMPLETED:
+        if progress.get_status() == RewardProgress.RewardStatus.CLAIMED:
             total_value_claimed += earned_value
-        elif progress.get_status() == RewardStatus.ACHIEVED:
+        elif progress.get_status() == RewardProgress.RewardStatus.ACHIEVED:
             pending_value += earned_value
         else:
             # Pending status
