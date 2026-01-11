@@ -2,7 +2,7 @@
 
 > **Note:** All deployment files are located in the `/deployment` directory:
 > - Docker configs: `/deployment/docker/`
-> - Nginx configs: `/deployment/nginx/`
+> - Caddy configs: `/deployment/caddy/`
 > - Scripts: `/deployment/scripts/`
 > - See `/deployment/README.md` for details
 
@@ -27,10 +27,10 @@
 This guide provides step-by-step instructions to deploy the Habit Reward Telegram Bot to a production environment using:
 
 - **Docker Compose** for container orchestration
-- **PostgreSQL** database in a separate container
-- **Nginx** as reverse proxy with SSL/TLS
+- **SQLite** database persisted on disk
+- **Caddy** as reverse proxy with automatic HTTPS
 - **GitHub Actions** for CI/CD automation
-- **Let's Encrypt** for free SSL certificates
+- **Let's Encrypt** (via Caddy) for free SSL certificates
 
 **Deployment Flow:**
 ```
@@ -86,11 +86,11 @@ Push to Registry → SSH to VPS → Pull & Deploy → Verify
 │  ┌──────────────────────────────────────────────────┐  │
 │  │               Docker Network                     │  │
 │  │                                                  │  │
-│  │  ┌─────────┐  ┌──────────┐  ┌──────────────┐   │  │
-│  │  │  Nginx  │  │   Web    │  │  PostgreSQL  │   │  │
-│  │  │ (Proxy) │←→│ (Django  │←→│   Database   │   │  │
-│  │  │         │  │   + Bot) │  │              │   │  │
-│  │  └────┬────┘  └──────────┘  └──────────────┘   │  │
+│  │  ┌─────────┐  ┌──────────┐                     │  │
+│  │  │  Caddy  │  │   Web    │                     │  │
+│  │  │ (Proxy) │←→│ (Django  │                     │  │
+│  │  │         │  │   + Bot) │                     │  │
+│  │  └────┬────┘  └──────────┘                     │  │
 │  │       │                                          │  │
 │  └───────┼──────────────────────────────────────────┘  │
 │          │                                             │
@@ -104,10 +104,9 @@ Push to Registry → SSH to VPS → Pull & Deploy → Verify
 
 ### Data Persistence
 
-- **PostgreSQL Data**: Docker volume `postgres_data`
-- **Bot Persistence**: Docker volume `bot_data` (conversation state)
-- **Static Files**: Docker volume `static_files`
-- **SSL Certificates**: Docker volume `certbot_data`
+- **SQLite Data**: bind mount `deployment/docker/data/db.sqlite3` → `/app/data/db.sqlite3`
+- **Static Files**: bind mount `deployment/docker/staticfiles` → `/app/staticfiles`
+- **Caddy Certificates/State**: docker volumes `caddy_data` / `caddy_config`
 
 ---
 
@@ -230,10 +229,10 @@ Go to your GitHub repository: **Settings → Secrets and variables → Actions �
 Add the following secrets:
 
 #### Database Secrets
+Production uses SQLite (no separate DB container). The deploy workflow sets:
+
 ```
-POSTGRES_DB=habit_reward
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=<generate-strong-password>
+DATABASE_URL=sqlite:////app/data/db.sqlite3
 ```
 
 #### Django Secrets
@@ -294,54 +293,16 @@ The `GITHUB_TOKEN` is automatically provided by GitHub Actions.
 
 ---
 
-## SSL Certificate Setup
+## SSL Certificate (Automatic)
 
-### Option 1: Initial Setup with Self-Signed Certificate (Testing)
+HTTPS is handled by Caddy. Certificates are provisioned and renewed automatically after the containers start.
 
-If you want to test the deployment before getting a real SSL certificate:
-
-```bash
-# On your VPS
-cd /home/deploy/habit_reward_bot
-mkdir -p nginx/ssl
-
-# Generate self-signed certificate
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout nginx/ssl/privkey.pem \
-  -out nginx/ssl/fullchain.pem \
-  -subj "/C=US/ST=State/L=City/O=Organization/CN=yourdomain.com"
-```
-
-Then update `nginx/conf.d/habit_reward.conf` to point to these files.
-
-### Option 2: Let's Encrypt (Production)
-
-After initial deployment, get a real SSL certificate:
+To debug HTTPS issues:
 
 ```bash
-# On your VPS, run certbot in the certbot container
 cd /home/deploy/habit_reward_bot
-
-# Stop nginx temporarily
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml stop nginx
-
-# Run certbot to obtain certificate
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot certonly \
-  --standalone \
-  --email admin@yourdomain.com \
-  --agree-tos \
-  --no-eff-email \
-  -d yourdomain.com \
-  -d www.yourdomain.com
-
-# Update nginx config to use the certificate
-# Edit nginx/conf.d/habit_reward.conf and replace 'example.com' with 'yourdomain.com'
-
-# Start nginx
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml start nginx
+docker-compose --env-file .env -f docker/docker-compose.yml logs -f caddy
 ```
-
-**Note:** The nginx config file has a placeholder `example.com` - you must replace it with your actual domain before running certbot.
 
 ---
 
@@ -368,7 +329,7 @@ Once everything is set up, deployment is automatic:
    - Check container status:
      ```bash
      cd /home/deploy/habit_reward_bot
-     docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+     docker-compose --env-file .env -f docker/docker-compose.yml ps
      ```
 
 ### Method 2: Manual Deployment
@@ -396,19 +357,17 @@ If you need to deploy manually:
    nano .env  # Edit with your actual values
    ```
 
-4. **Update nginx config:**
+4. **(Optional) Update Caddyfile:**
    ```bash
-   nano nginx/conf.d/habit_reward.conf
-   # Replace 'example.com' with your actual domain
+   nano caddy/Caddyfile
    ```
 
-5. **Build and start containers:**
+5. **Start containers:**
    ```bash
-   # For production
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+   docker-compose --env-file .env -f docker/docker-compose.yml up -d
 
    # View logs
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f
+   docker-compose --env-file .env -f docker/docker-compose.yml logs -f
    ```
 
 ---
@@ -418,34 +377,31 @@ If you need to deploy manually:
 ### Step 1: Verify Containers Are Running
 
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+docker-compose --env-file .env -f docker/docker-compose.yml ps
 ```
 
 Expected output:
 ```
 NAME                    STATUS    PORTS
 habit_reward_web        Up        8000/tcp
-habit_reward_db         Up        5432/tcp
-habit_reward_nginx      Up        0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp
-habit_reward_certbot    Up
+habit_reward_caddy      Up        0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp
 ```
 
 ### Step 2: Check Application Logs
 
 ```bash
 # All containers
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs
+docker-compose --env-file .env -f docker/docker-compose.yml logs
 
 # Specific container
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs web
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs db
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs nginx
+docker-compose --env-file .env -f docker/docker-compose.yml logs web
+docker-compose --env-file .env -f docker/docker-compose.yml logs caddy
 ```
 
 ### Step 3: Verify Database Migrations
 
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python manage.py showmigrations
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python manage.py showmigrations
 ```
 
 All migrations should show `[X]` indicating they've been applied.
@@ -465,7 +421,7 @@ All migrations should show `[X]` indicating they've been applied.
 ### Step 6: Verify Webhook
 
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python -c "
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python -c "
 import asyncio
 from telegram import Bot
 
@@ -487,45 +443,32 @@ asyncio.run(check_webhook())
 
 **View Logs:**
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f --tail=100
+docker-compose --env-file .env -f docker/docker-compose.yml logs -f --tail=100
 ```
 
 **Check Container Health:**
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+docker-compose --env-file .env -f docker/docker-compose.yml ps
 docker stats
 ```
 
-**Database Size:**
+**Database Size (SQLite file):**
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec db psql -U postgres -d habit_reward -c "SELECT pg_size_pretty(pg_database_size('habit_reward'));"
+ls -lh docker/data/db.sqlite3
 ```
 
-### Backup Database
+### Backup Database (SQLite)
 
-**Create Backup:**
+**Create Backup (on VPS):**
 ```bash
-# Create backup
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec db pg_dump -U postgres habit_reward > backup_$(date +%Y%m%d_%H%M%S).sql
-
-# Compress backup
-gzip backup_*.sql
-
-# Copy to safe location
-scp backup_*.sql.gz user@backup-server:/backups/
+cp docker/data/db.sqlite3 docker/data/db.sqlite3.backup_$(date +%Y%m%d_%H%M%S)
 ```
 
-**Restore from Backup:**
+**Restore from Backup (on VPS):**
 ```bash
-# Stop web container
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml stop web
-
-# Restore database
-gunzip backup_20240101_120000.sql.gz
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db psql -U postgres habit_reward < backup_20240101_120000.sql
-
-# Start web container
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml start web
+docker-compose --env-file .env -f docker/docker-compose.yml stop web
+cp docker/data/db.sqlite3.backup_YYYYMMDD_HHMMSS docker/data/db.sqlite3
+docker-compose --env-file .env -f docker/docker-compose.yml start web
 ```
 
 ### Update Application
@@ -537,18 +480,13 @@ Just push to main branch - GitHub Actions handles everything.
 ```bash
 cd /home/deploy/habit_reward_bot
 git pull origin main
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml pull
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker-compose --env-file .env -f docker/docker-compose.yml pull web
+docker-compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
 ### Renew SSL Certificates
 
-Certificates auto-renew via the certbot container. To manually renew:
-
-```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec certbot certbot renew
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml restart nginx
-```
+Certificates are managed by Caddy automatically. If HTTPS looks broken, check the Caddy logs and DNS.
 
 ---
 
@@ -559,58 +497,49 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml restart nginx
 **Solution:**
 ```bash
 # Check logs
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs
+docker-compose --env-file .env -f docker/docker-compose.yml logs
 
 # Check .env file
 cat .env
 
 # Verify syntax
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml config
+docker-compose --env-file .env -f docker/docker-compose.yml config
 ```
 
-### Issue: Database Connection Failed
+### Issue: Database / Persistence Failed
 
 **Solution:**
 ```bash
-# Check database container
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs db
-
-# Verify database is running
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec db psql -U postgres -c "SELECT version();"
-
 # Check DATABASE_URL in .env
 grep DATABASE_URL .env
+
+# Check SQLite file exists and is writable by the container
+ls -la docker/data/db.sqlite3
 ```
 
-### Issue: Nginx 502 Bad Gateway
+### Issue: Reverse Proxy 502 Bad Gateway
 
 **Solution:**
 ```bash
 # Check if web container is running
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps web
+docker-compose --env-file .env -f docker/docker-compose.yml ps web
 
 # Check web logs
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs web
+docker-compose --env-file .env -f docker/docker-compose.yml logs web
 
-# Check nginx logs
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs nginx
+# Check reverse proxy logs
+docker-compose --env-file .env -f docker/docker-compose.yml logs caddy
 
 # Restart web container
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml restart web
+docker-compose --env-file .env -f docker/docker-compose.yml restart web
 ```
 
 ### Issue: SSL Certificate Error
 
 **Solution:**
 ```bash
-# Check certificate files
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec nginx ls -la /etc/letsencrypt/live/yourdomain.com/
-
-# Verify nginx config
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec nginx nginx -t
-
-# Obtain new certificate
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot certonly --standalone -d yourdomain.com
+# Check Caddy logs and DNS
+docker-compose --env-file .env -f docker/docker-compose.yml logs caddy
 ```
 
 ### Issue: Telegram Webhook Not Working
@@ -618,7 +547,7 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot
 **Solution:**
 ```bash
 # Check webhook URL
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python -c "
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python -c "
 import asyncio
 from telegram import Bot
 async def check():
@@ -629,7 +558,7 @@ asyncio.run(check())
 "
 
 # Manually set webhook
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python -c "
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python -c "
 import asyncio
 from telegram import Bot
 async def set_webhook():
@@ -657,7 +586,7 @@ docker image prune -a -f
 docker volume prune -f
 
 # Remove old logs
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs --no-log-prefix | tail -n 1000 > recent.log
+docker-compose --env-file .env -f docker/docker-compose.yml logs --no-log-prefix | tail -n 1000 > recent.log
 # Then manually clean log files
 ```
 
@@ -672,27 +601,27 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs --no-log-pr
 docker images
 
 # Stop containers
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml down
+docker-compose --env-file .env -f docker/docker-compose.yml down
 
-# Edit docker-compose.prod.yml to use previous image tag
-nano docker-compose.prod.yml
-# Change IMAGE_TAG to previous version
+# Pin a previous image tag in .env
+nano .env
+# Change IMAGE_TAG=... to a previous version/tag
 
 # Start containers
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker-compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
 ### Rollback Database Migration
 
 ```bash
 # List migrations
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python manage.py showmigrations
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python manage.py showmigrations
 
 # Rollback to specific migration
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python manage.py migrate core 0001_initial
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python manage.py migrate core 0001_initial
 
 # Restart web container
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml restart web
+docker-compose --env-file .env -f docker/docker-compose.yml restart web
 ```
 
 ---

@@ -480,27 +480,13 @@
    - **COPY the generated key** (50+ characters)
    - Save in your text file
 
-2. **Generate database password:**
-   ```bash
-   # Strong random password:
-   openssl rand -base64 32
-
-   # OR online:
-   # https://passwordsgenerator.net/
-   # Generate 32-character password
-   ```
-   - **COPY the password**
-   - Save in your text file
-
-3. **Prepare all secrets in a text file:**
+2. **Prepare all secrets in a text file:**
 
    Create a file called `secrets.txt` on your local machine with:
 
    ```
-   # Database
-   POSTGRES_DB=habit_reward
-   POSTGRES_USER=postgres
-   POSTGRES_PASSWORD=<your-generated-password>
+   # Database (production uses SQLite)
+   # The deploy workflow sets: DATABASE_URL=sqlite:////app/data/db.sqlite3
 
    # Django
    DJANGO_SECRET_KEY=<your-generated-secret-key>
@@ -540,15 +526,12 @@
 3. **Add each secret:**
    - Click "New repository secret" (green button)
    - For each line in your `secrets.txt`:
-     1. Name: Enter the variable name (e.g., `POSTGRES_DB`)
+     1. Name: Enter the variable name (e.g., `DJANGO_SECRET_KEY`)
      2. Secret: Enter the value
      3. Click "Add secret"
    - Repeat for ALL secrets (15-18 total)
 
    **Secret names to add:**
-   - `POSTGRES_DB`
-   - `POSTGRES_USER`
-   - `POSTGRES_PASSWORD`
    - `DJANGO_SECRET_KEY`
    - `ALLOWED_HOSTS`
    - `CSRF_TRUSTED_ORIGINS`
@@ -592,26 +575,18 @@
 
 ### Step 7.1: Prepare for Deployment
 
-1. **Update nginx configuration with your domain:**
+1. **(Optional) Review Caddy configuration for your domain:**
 
    **On your local machine:**
    ```bash
    cd /path/to/your/project
-   nano deployment/nginx/conf.d/habit_reward.conf
-
-   # Find all instances of "example.com" and replace with your domain
-   # Use Ctrl+W to search, Ctrl+\ to replace
-   # Replace: example.com
-   # With: yourdomain.com
-
-   # Save: Ctrl+O, then ENTER
-   # Exit: Ctrl+X
+   nano deployment/caddy/Caddyfile
    ```
 
 2. **Commit the changes:**
    ```bash
-   git add deployment/nginx/conf.d/habit_reward.conf
-   git commit -m "feat: configure nginx for yourdomain.com"
+   git add deployment/caddy/Caddyfile
+   git commit -m "feat: configure Caddy for yourdomain.com"
    ```
 
 ### Step 7.2: Deploy via GitHub Actions
@@ -638,7 +613,7 @@
    - Common issues:
      - Missing secrets → Go back to Phase 6.2
      - SSH connection failed → Check SSH_PRIVATE_KEY format
-     - Nginx config error → Check domain name in config
+    - Caddy config error → Check domain name in Caddyfile
      - **"scripts/deploy.sh: No such file or directory"** → The workflow has been updated to use `tar` for reliable file copying. If you still see this error, check the "Copy deployment files to server" step logs to verify files were copied correctly.
 
 5. **Wait for green checkmark:**
@@ -673,25 +648,13 @@
 4. **Start deployment:**
    ```bash
    cd deployment
-   chmod +x scripts/deploy.sh
-
-   # Note: First deployment without GitHub Actions requires pulling images manually
-   cd docker
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml pull postgres:16-alpine
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml pull certbot/certbot:latest
-
-   # Build application image
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml build web
-
-   # Start services
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+   chmod +x scripts/deploy-caddy.sh
+   ./scripts/deploy-caddy.sh
    ```
 
 ---
 
-## Phase 8: SSL Certificate Setup (10 minutes)
-
-### Step 8.1: Obtain SSL Certificate
+## Phase 8: SSL Certificate (Automatic)
 
 1. **SSH to your VPS:**
    ```bash
@@ -707,37 +670,13 @@
    # Press Ctrl+C to stop
    ```
 
-3. **Stop nginx temporarily:**
-   ```bash
-   cd docker
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml stop nginx
-   ```
+3. **HTTPS is provisioned by Caddy automatically.**
 
-4. **Obtain certificate:**
-   ```bash
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm \
-     --entrypoint certbot \
-     -p 80:80 \
-     certbot certonly \
-     --standalone \
-     --email your-email@example.com \
-     --agree-tos \
-     --no-eff-email \
-     -d yourdomain.com
-
-   # Replace:
-   # - your-email@example.com with your actual email
-   # - yourdomain.com with your actual domain
-   ```
-   - **Note:** The `--entrypoint certbot` flag is required to override the default entrypoint that runs renewals
-   - **Note:** The `-p 80:80` flag is required to expose port 80 so Let's Encrypt can validate your domain
-   - This takes 30-60 seconds
-   - You should see "Successfully received certificate"
-
-5. **Start nginx:**
-   ```bash
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml start nginx
-   ```
+   If HTTPS isn't working:
+   - Verify DNS A records point to the VPS
+   - Verify ports 80/443 are open
+   - Check Caddy logs:
+     `cd /home/deploy/habit_reward_bot && docker-compose --env-file .env -f docker/docker-compose.yml logs -f caddy`
 
 6. **Verify HTTPS is working:**
    ```bash
@@ -748,7 +687,7 @@
    # May show login page or 404 (this is normal)
    ```
 
-The certificate is stored in the Docker volume and nginx will use it automatically. The certbot container is configured to auto-renew certificates (see the entrypoint in docker-compose.yml), so renewal should happen automatically.
+Caddy stores certificates and state in Docker-managed volumes and renews automatically.
 
 Proceed to Phase 9: Verification & Testing to verify everything is working.
 
@@ -761,28 +700,25 @@ Proceed to Phase 9: Verification & Testing to verify everything is working.
 1. **SSH to VPS and check containers:**
    ```bash
    ssh -i ~/.ssh/do_habit_bot deploy@YOUR_IP
-   cd /home/deploy/habit_reward_bot/docker
-   docker-compose --env-file ../.env  -f docker-compose.yml -f docker-compose.prod.yml ps
+   cd /home/deploy/habit_reward_bot
+   docker-compose --env-file .env -f docker/docker-compose.yml ps
    ```
    - All containers should show "Up" status
    - If any show "Exit" or "Restarting", check logs:
      ```bash
-     docker-compose --env-file ../.env -f docker-compose.yml -f docker-compose.prod.yml logs <service-name>
+     docker-compose --env-file .env -f docker/docker-compose.yml logs <service-name>
      ```
 
 2. **Check web container logs:**
    ```bash
-   docker-compose --env-file ../.env -f docker-compose.yml -f docker-compose.prod.yml logs web
+   docker-compose --env-file .env -f docker/docker-compose.yml logs web
    ```
    - Should see "Uvicorn running" or similar
    - No red ERROR messages
 
-3. **Check database:**
-   ```bash
-   docker-compose --env-file ../.env -f docker-compose.yml -f docker-compose.prod.yml exec db psql -U postgres -d habit_reward -c "SELECT COUNT(*) FROM users;"
-   ```
-   - Should return a count (even if 0)
-   - No connection errors
+3. **Check database persistence (SQLite):**
+   - Database file path: `/home/deploy/habit_reward_bot/docker/data/db.sqlite3`
+   - Verify it exists: `ls -lh /home/deploy/habit_reward_bot/docker/data/db.sqlite3`
 
 ### Step 9.2: Access Django Admin
 
@@ -806,8 +742,8 @@ Proceed to Phase 9: Verification & Testing to verify everything is working.
 1. **Check webhook status:**
    ```bash
    # On VPS:
-   cd /home/deploy/habit_reward_bot/docker
-   docker-compose --env-file ../.env -f docker-compose.yml -f docker-compose.prod.yml exec web python -c "
+   cd /home/deploy/habit_reward_bot
+   docker-compose --env-file .env -f docker/docker-compose.yml exec web python -c "
    import asyncio
    from telegram import Bot
 
@@ -857,16 +793,12 @@ Proceed to Phase 9: Verification & Testing to verify everything is working.
    DATE=$(date +%Y%m%d_%H%M%S)
 
    mkdir -p $BACKUP_DIR
-   cd /home/deploy/habit_reward_bot/docker
+   cd /home/deploy/habit_reward_bot
 
-   docker-compose --env-file ../.env  -f docker-compose.yml -f docker-compose.prod.yml exec -T db \
-     pg_dump -U postgres habit_reward > $BACKUP_DIR/backup_$DATE.sql
+   cp docker/data/db.sqlite3 $BACKUP_DIR/db.sqlite3.backup_$DATE
 
    # Keep only last 7 days
-   find $BACKUP_DIR -name "backup_*.sql" -mtime +7 -delete
-
-   # Compress old backups
-   find $BACKUP_DIR -name "backup_*.sql" -mtime +1 -exec gzip {} \;
+   find $BACKUP_DIR -name "db.sqlite3.backup_*" -mtime +7 -delete
    ```
    - Save: Ctrl+O, ENTER
    - Exit: Ctrl+X
@@ -928,11 +860,11 @@ ssh -i ~/.ssh/do_habit_bot deploy@YOUR_IP
 df -h
 
 # Check container health
-cd /home/deploy/habit_reward_bot/docker
-docker-compose --env-file ../.env -f docker-compose.yml -f docker-compose.prod.yml ps
+cd /home/deploy/habit_reward_bot
+docker-compose --env-file .env -f docker/docker-compose.yml ps
 
 # Check logs for errors
-docker-compose --env-file ../.env  -f docker-compose.yml -f docker-compose.prod.yml logs --tail=100
+docker-compose --env-file .env -f docker/docker-compose.yml logs --tail=100
 ```
 
 ### Monthly Tasks (10 minutes)
@@ -985,16 +917,17 @@ nslookup yourdomain.com
 ```bash
 # Ensure domain points to VPS
 # Ensure ports 80 and 443 are open
-# Stop nginx before running certbot
-# Check certbot logs:
-docker-compose logs certbot
+# Check Caddy logs:
+cd /home/deploy/habit_reward_bot
+docker-compose --env-file .env -f docker/docker-compose.yml logs caddy
 ```
 
 ### Issue: Bot not responding
 **Solution:**
 ```bash
 # Check webhook:
-docker-compose --env-file ../.env  -f docker-compose.yml -f docker-compose.prod.yml exec web python -c "
+cd /home/deploy/habit_reward_bot
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python -c "
 import asyncio
 from telegram import Bot
 async def check():
@@ -1004,24 +937,18 @@ asyncio.run(check())
 "
 
 # Check web logs:
-docker-compose logs web
+docker-compose --env-file .env -f docker/docker-compose.yml logs web
 
 # Restart web container:
-docker-compose restart web
+docker-compose --env-file .env -f docker/docker-compose.yml restart web
 ```
 
 ### Issue: Database connection error
 **Solution:**
 ```bash
-# Check database is running:
-docker-compose ps db
-
-# Check database logs:
-docker-compose logs db
-
-# Restart database:
-docker-compose restart db
-docker-compose restart web
+cd /home/deploy/habit_reward_bot
+grep DATABASE_URL .env
+ls -la docker/data/db.sqlite3
 ```
 
 ### Issue: Out of memory
@@ -1034,13 +961,13 @@ free -h
 # Or optimize containers (reduce resource limits)
 ```
 
-### Issue: "scripts/deploy.sh: No such file or directory" in GitHub Actions
+### Issue: "scripts/deploy*.sh: No such file or directory" in GitHub Actions
 **Solution:**
 This error occurs when deployment files aren't copied correctly to the server. The workflow has been updated to use `tar` for reliable copying.
 
 1. **Check the "Copy deployment files to server" step logs:**
    - Look for the verification output showing directory contents
-   - Verify that `scripts/`, `docker/`, and `nginx/` directories are listed
+   - Verify that `scripts/`, `docker/`, and `caddy/` directories are listed
 
 2. **If files are still missing, manually verify on server:**
    ```bash

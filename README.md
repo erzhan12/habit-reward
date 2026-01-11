@@ -10,7 +10,7 @@ A gamified habit-reward system that tracks habits with per-habit streaks, uses v
 - **Telegram Bot Interface**: Easy-to-use bot for logging habits and managing rewards
 - **OpenAI NLP Integration**: Natural language processing for habit classification
 - **Streamlit Dashboard**: Visual analytics and progress tracking
-- **Django Backend**: PostgreSQL/SQLite database with Django ORM
+- **Django Backend**: SQLite (production default) via Django ORM (PostgreSQL optional)
 
 ## Architecture
 
@@ -263,6 +263,6 @@ For issues, questions, or suggestions:
 ## Acknowledgments
 
 - Built with [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)
-- Data storage via Django ORM with PostgreSQL/SQLite
+- Data storage via Django ORM (SQLite by default; PostgreSQL optional)
 - NLP powered by [OpenAI](https://openai.com)
 - Dashboard created with [Streamlit](https://streamlit.io)

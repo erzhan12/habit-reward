@@ -80,10 +80,8 @@ Use this checklist to ensure you complete all deployment steps correctly.
 ### Secrets Configuration
 All secrets added to: **Settings → Secrets and variables → Actions**
 
-#### Database Secrets
-- [ ] `POSTGRES_DB`
-- [ ] `POSTGRES_USER`
-- [ ] `POSTGRES_PASSWORD` (strong, random)
+#### Database
+**Note:** Production uses SQLite via `DATABASE_URL=sqlite:////app/data/db.sqlite3` (set in the deploy workflow / `.env` on the server).
 
 #### Django Secrets
 - [ ] `DJANGO_SECRET_KEY` (generated, 50+ chars)
@@ -118,16 +116,12 @@ All secrets added to: **Settings → Secrets and variables → Actions**
 ### Files Verified
 - [ ] `Dockerfile` exists and is valid
 - [ ] `docker-compose.yml` exists
-- [ ] `docker-compose.prod.yml` exists
 - [ ] `.dockerignore` exists
 - [ ] `entrypoint.sh` exists and is executable
-- [ ] `deploy.sh` exists and is executable
+- [ ] `deploy-caddy.sh` exists and is executable (manual fallback)
 - [ ] `.env.example` exists and is complete
-- [ ] `.github/workflows/deploy.yml` exists
-- [ ] `nginx/Dockerfile` exists
-- [ ] `nginx/nginx.conf` exists
-- [ ] `nginx/conf.d/habit_reward.conf` exists
-- [ ] Domain replaced in nginx config (not 'example.com')
+- [ ] `.github/workflows/deploy-caddy.yml` exists
+- [ ] `deployment/caddy/Caddyfile` exists (reverse proxy config)
 
 ---
 
@@ -147,27 +141,8 @@ All secrets added to: **Settings → Secrets and variables → Actions**
 - [ ] Repository cloned to VPS
 - [ ] `.env` file created from `.env.example`
 - [ ] All environment variables filled in `.env`
-- [ ] Nginx config updated with actual domain
 - [ ] Docker images built
 - [ ] Containers started
-
----
-
-## SSL Certificate Checklist
-
-### Let's Encrypt Setup
-- [ ] Nginx container stopped temporarily
-- [ ] Certbot container run successfully
-- [ ] Certificate obtained for domain
-- [ ] Certificate files exist in `/etc/letsencrypt/live/yourdomain.com/`
-- [ ] Nginx config points to correct certificate paths
-- [ ] Nginx container restarted
-- [ ] HTTPS working (test: `curl -I https://yourdomain.com`)
-
-### Certificate Auto-Renewal
-- [ ] Certbot container running in background
-- [ ] Auto-renewal configured (via docker-compose)
-- [ ] Renewal tested: `docker-compose exec certbot certbot renew --dry-run`
 
 ---
 
@@ -177,9 +152,7 @@ All secrets added to: **Settings → Secrets and variables → Actions**
 - [ ] All containers running: `docker-compose ps`
 - [ ] No containers in "Exit" or "Restarting" state
 - [ ] Web container healthy
-- [ ] Database container healthy
-- [ ] Nginx container healthy
-- [ ] Certbot container healthy
+- [ ] Caddy container healthy
 
 ### Application Health
 - [ ] Django admin accessible: `https://yourdomain.com/admin/`
@@ -223,8 +196,7 @@ All secrets added to: **Settings → Secrets and variables → Actions**
 
 ### Logs
 - [ ] No critical errors in web logs
-- [ ] No errors in database logs
-- [ ] No errors in nginx logs
+- [ ] No errors in caddy logs
 - [ ] Application logging working
 
 ---
@@ -238,7 +210,7 @@ All secrets added to: **Settings → Secrets and variables → Actions**
 - [ ] Uptime monitoring configured (e.g., Uptime Robot)
 
 ### Backup Configuration
-- [ ] Database backup script created
+- [ ] SQLite backup process documented (copy `./docker/data/db.sqlite3`)
 - [ ] Backup schedule configured (daily recommended)
 - [ ] Backup storage location configured
 - [ ] Backup restoration tested

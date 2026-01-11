@@ -656,7 +656,7 @@ From plan section 3.2 (lines 909-935):
 4. Add database connection pooling
 
 ### Long Term (Beyond MVP)
-1. Consider moving to PostgreSQL for production
+1. Consider migrating to PostgreSQL if scaling requires it (current production uses SQLite)
 2. Add Celery for background tasks (if needed)
 3. Implement proper logging/monitoring (Sentry, etc.)
 4. Add API endpoints (Django REST Framework)

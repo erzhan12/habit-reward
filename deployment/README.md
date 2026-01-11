@@ -9,18 +9,15 @@ deployment/
 ├── docker/                      # Docker configuration
 │   ├── Dockerfile               # Main application container definition
 │   ├── .dockerignore            # Build exclusions
-│   ├── docker-compose.yml       # Development & base configuration
-│   └── docker-compose.prod.yml  # Production overrides
+│   ├── docker-compose.yml       # Production (web + caddy)
+│   └── .env.production          # Example production environment file
 │
-├── nginx/                       # Reverse proxy configuration
-│   ├── Dockerfile               # Nginx container definition
-│   ├── nginx.conf               # Main nginx configuration
-│   └── conf.d/
-│       └── habit_reward.conf    # Site-specific configuration
+├── caddy/                       # Reverse proxy (recommended)
+│   └── Caddyfile                # Automatic HTTPS + proxy rules
 │
 ├── scripts/                     # Deployment scripts
 │   ├── entrypoint.sh            # Container startup script
-│   ├── deploy.sh                # Server deployment automation
+│   ├── deploy-caddy.sh          # Manual deployment helper
 │   └── local-test.sh            # Local testing helper
 │
 └── README.md                    # This file
@@ -48,7 +45,7 @@ git push origin main  # Deployment happens automatically
 **Manual (on VPS):**
 ```bash
 cd /home/deploy/habit_reward_bot
-./scripts/deploy.sh
+./scripts/deploy-caddy.sh
 ```
 
 ## Files Overview
@@ -63,53 +60,33 @@ cd /home/deploy/habit_reward_bot
 - Installs dependencies using `uv`
 
 #### `docker/docker-compose.yml`
-- Defines 4 services:
-  - `db` - PostgreSQL 16 database
+- Defines 2 services:
   - `web` - Django application + Telegram bot
-  - `nginx` - Reverse proxy with SSL
-  - `certbot` - SSL certificate management
-- Configured volumes for data persistence
-- Health checks for all services
+  - `caddy` - Reverse proxy + automatic HTTPS
+- Uses SQLite in production via `DATABASE_URL=sqlite:////app/data/db.sqlite3`
+- Persists data via bind mounts:
+  - `./data:/app/data` (SQLite DB)
+  - `./staticfiles:/app/staticfiles` (static assets)
 - Network isolation
 
-#### `docker/docker-compose.prod.yml`
-- Production-specific overrides
-- Uses pre-built images from GitHub Container Registry
-- Resource limits (CPU/memory)
-- Security hardening
-- Database optimization
-
-### Nginx Configuration
-
-#### `nginx/nginx.conf`
-- Performance optimizations (gzip, caching)
-- Security headers
-- Worker process configuration
-
-#### `nginx/conf.d/habit_reward.conf`
-- HTTP to HTTPS redirect
-- SSL/TLS configuration
-- Static file serving
-- Webhook endpoint proxying
-- Admin panel proxying
+#### `caddy/Caddyfile`
+- HTTPS termination + proxy to `web`
+- Serves static files from `/app/staticfiles`
+- Manages certificates automatically
 
 ### Scripts
 
 #### `scripts/entrypoint.sh`
 Container startup script that:
-- Waits for PostgreSQL to be ready
 - Runs database migrations
 - Collects static files
 - Creates Django superuser (if configured)
 - Sets Telegram webhook
 
-#### `scripts/deploy.sh`
-Server-side deployment script that:
-- Pulls latest Docker images
-- Performs zero-downtime deployment
-- Validates deployment
-- Checks webhook status
-- Provides deployment status
+#### `scripts/deploy-caddy.sh`
+Manual deployment script (fallback if GitHub Actions deployment fails) that:
+- Pulls the latest app image
+- Restarts the Compose stack
 
 #### `scripts/local-test.sh`
 Local testing helper that:
@@ -126,9 +103,6 @@ cd deployment/docker
 
 # Start services (development)
 docker-compose up -d
-
-# Start services (production)
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 # View logs
 docker-compose logs -f
@@ -169,17 +143,11 @@ docker-compose exec web python manage.py collectstatic --noinput
 ```bash
 cd deployment/docker
 
-# Database shell
-docker-compose exec db psql -U postgres habit_reward
+# Backup database (SQLite)
+cp ./data/db.sqlite3 ./data/db.sqlite3.backup_$(date +%Y%m%d_%H%M%S)
 
-# Backup database
-docker-compose exec db pg_dump -U postgres habit_reward > backup.sql
-
-# Restore database
-docker-compose exec -T db psql -U postgres habit_reward < backup.sql
-
-# Check database size
-docker-compose exec db psql -U postgres -d habit_reward -c "SELECT pg_size_pretty(pg_database_size('habit_reward'));"
+# Restore database (SQLite)
+cp ./data/db.sqlite3.backup_YYYYMMDD_HHMMSS ./data/db.sqlite3
 ```
 
 ## Environment Variables
@@ -195,8 +163,8 @@ All environment variables should be defined in a `.env` file. The location depen
 3. Use `--env-file` flag to specify the `.env` file path
 
 **Required variables:**
-- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
 - `SECRET_KEY` (generate with: `python3 -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`)
+- `DATABASE_URL` (production default: `sqlite:////app/data/db.sqlite3`)
 - `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_URL`
 
@@ -221,18 +189,17 @@ cd /path/to/habit_reward
 
 | Service | Port | Exposed | Description |
 |---------|------|---------|-------------|
-| Nginx | 80 | Yes | HTTP (redirects to HTTPS) |
-| Nginx | 443 | Yes | HTTPS |
+| Caddy | 80 | Yes | HTTP (redirects to HTTPS) |
+| Caddy | 443 | Yes | HTTPS |
 | Web | 8000 | No | Django app (internal) |
-| PostgreSQL | 5432 | No | Database (internal) |
 
 ## Volumes
 
-- `postgres_data` - PostgreSQL database persistence
-- `bot_data` - Telegram bot conversation state
-- `static_files` - Django static files
-- `certbot_data` - SSL certificates
-- `certbot_www` - Let's Encrypt challenge files
+- `./data` - SQLite database persistence (`db.sqlite3`)
+- `./staticfiles` - Django static files
+- `caddy_data` - Caddy-managed data (certificates)
+- `caddy_config` - Caddy config state
+- `caddy_logs` - Reverse proxy logs
 
 ## Documentation
 

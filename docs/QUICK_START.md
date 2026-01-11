@@ -8,7 +8,7 @@ This is a condensed version of the full deployment guide. For detailed instructi
 - [ ] Domain name pointed to VPS IP
 - [ ] Telegram bot token from @BotFather
 - [ ] GitHub repository with code
-- [ ] Email for SSL certificates
+- [ ] Email (for Let's Encrypt via Caddy, optional)
 
 ## 1. VPS Setup (5 minutes)
 
@@ -56,11 +56,6 @@ Go to: **Settings → Secrets and variables → Actions → New repository secre
 **Required Secrets:**
 
 ```bash
-# Database
-POSTGRES_DB=habit_reward
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=<strong-random-password>
-
 # Django (generate with: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())")
 DJANGO_SECRET_KEY=<generated-secret-key>
 ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
@@ -122,42 +117,23 @@ git clone https://github.com/YOUR_USERNAME/habit_reward.git .
 cp .env.example .env
 nano .env  # Fill in your values
 
-# Update nginx config with your domain
-nano nginx/conf.d/habit_reward.conf
-# Replace 'example.com' with 'yourdomain.com'
-
 # Start containers
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker-compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
-## 4. SSL Certificate Setup (5 minutes)
+## 4. SSL Certificate (Automatic)
 
-```bash
-# On VPS
-cd /home/deploy/habit_reward_bot
-
-# Stop nginx
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml stop nginx
-
-# Obtain certificate
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot certonly \
-  --standalone \
-  --email admin@yourdomain.com \
-  --agree-tos \
-  -d yourdomain.com
-
-# Start nginx
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml start nginx
-```
+- Caddy provisions and renews certificates automatically after containers start.
+- If HTTPS isn't working, check `docker-compose --env-file .env -f docker/docker-compose.yml logs -f caddy`.
 
 ## 5. Verification (2 minutes)
 
 ```bash
 # Check containers are running
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+docker-compose --env-file .env -f docker/docker-compose.yml ps
 
 # Check logs
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f --tail=50
+docker-compose --env-file .env -f docker/docker-compose.yml logs -f --tail=50
 
 # Test bot in Telegram
 # Send /start to your bot
@@ -170,37 +146,37 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f --tail=5
 
 ### View Logs
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f
+docker-compose --env-file .env -f docker/docker-compose.yml logs -f
 ```
 
 ### Restart Services
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml restart
+docker-compose --env-file .env -f docker/docker-compose.yml restart
 ```
 
 ### Stop Services
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml down
+docker-compose --env-file .env -f docker/docker-compose.yml down
 ```
 
 ### Start Services
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker-compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
 ### Backup Database
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec db pg_dump -U postgres habit_reward > backup.sql
+cp docker/data/db.sqlite3 docker/data/db.sqlite3.backup_$(date +%Y%m%d_%H%M%S)
 ```
 
 ### Access Django Shell
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python manage.py shell
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python manage.py shell
 ```
 
 ### Run Migrations
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python manage.py migrate
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python manage.py migrate
 ```
 
 ## Troubleshooting
@@ -208,7 +184,7 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python 
 ### Bot Not Responding
 ```bash
 # Check webhook
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python -c "
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python -c "
 import asyncio
 from telegram import Bot
 async def check():
@@ -219,22 +195,19 @@ asyncio.run(check())
 "
 
 # Reset webhook
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml restart web
+docker-compose --env-file .env -f docker/docker-compose.yml restart web
 ```
 
 ### 502 Bad Gateway
 ```bash
 # Check web container
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs web
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml restart web
+docker-compose --env-file .env -f docker/docker-compose.yml logs web
+docker-compose --env-file .env -f docker/docker-compose.yml restart web
 ```
 
-### Database Connection Error
-```bash
-# Check database
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs db
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml restart db
-```
+### Database / Persistence
+- Production uses SQLite persisted at `docker/data/db.sqlite3`.
+- If you suspect DB corruption, restore from the latest `db.sqlite3.backup_*` file.
 
 ## Next Steps
 

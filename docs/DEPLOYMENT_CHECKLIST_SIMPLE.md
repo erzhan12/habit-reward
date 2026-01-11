@@ -56,16 +56,13 @@ Print this page and check off each step as you complete it!
 
 ### Generate Secrets
 - [X] Generate Django secret: `python3 -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`
-- [X] Generate DB password: `openssl rand -base64 32`
 - [X] Generate admin password (strong password)
 
 ### Add to GitHub
 Go to Settings → Secrets and variables → Actions → New repository secret
 
-- [X] `POSTGRES_DB` = `habit_reward`
-- [X] `POSTGRES_USER` = `postgres`
-- [X] `POSTGRES_PASSWORD` = (generated password)
 - [X] `DJANGO_SECRET_KEY` = (generated secret key)
+- [X] `DATABASE_URL` = `sqlite:////app/data/db.sqlite3` (stored in server `.env`)
 - [X] `ALLOWED_HOSTS` = `yourdomain.com,www.yourdomain.com`
 - [X] `CSRF_TRUSTED_ORIGINS` = `https://yourdomain.com,https://www.yourdomain.com`
 - [X] `TELEGRAM_BOT_TOKEN` = (from BotFather)
@@ -80,19 +77,13 @@ Go to Settings → Secrets and variables → Actions → New repository secret
 - [X] Enable GitHub Actions: Settings → Actions → Allow all
 
 ## ☐ Phase 7: Deploy (20 min)
-- [X] Update nginx config: Replace `example.com` with your domain
 - [X] Commit: `git add . && git commit -m "feat: configure domain"`
 - [X] Push: `git push origin main`
 - [X] Watch GitHub Actions (should take ~10-15 min)
 - [ ] All checks green ✅
 
-## ☐ Phase 8: SSL Certificate (10 min)
-- [X] SSH to VPS: `ssh -i ~/.ssh/do_habit_bot deploy@YOUR_IP`
-- [X] Navigate: `cd /home/deploy/habit_reward_bot/docker`
-- [X] Verify DNS: `ping yourdomain.com`
-- [X] Stop nginx: `docker-compose -f docker-compose.yml -f docker-compose.prod.yml stop nginx`
-- [X] Get certificate: (see full guide for certbot command)
-- [X] Start nginx: `docker-compose -f docker-compose.yml -f docker-compose.prod.yml start nginx`
+## ☐ Phase 8: SSL Certificate (Automatic with Caddy)
+- [X] Caddy provisions and renews certificates automatically after containers start
 - [X] Test HTTPS: Open `https://yourdomain.com` (should show lock icon)
 
 ## ☐ Phase 9: Verify (10 min)
@@ -105,8 +96,7 @@ Go to Settings → Secrets and variables → Actions → New repository secret
 - [ ] Bot responds!
 
 ## ☐ Phase 10: Backups (10 min)
-- [ ] Create backup script (see full guide)
-- [ ] Make executable: `chmod +x ~/backup_db.sh`
+- [ ] Back up SQLite DB file: `/home/deploy/habit_reward_bot/docker/data/db.sqlite3`
 - [ ] Schedule cron: `crontab -e`
 - [ ] Add daily backup at 2 AM
 - [ ] Set up uptime monitoring (uptimerobot.com)
@@ -124,7 +114,7 @@ Fill this out as you go:
 | Telegram Bot Token | _________________ |
 | Django Admin Username | _________________ |
 | Django Admin Password | _________________ |
-| Database Password | _________________ |
+| SQLite DB file path | `/home/deploy/habit_reward_bot/docker/data/db.sqlite3` |
 
 **Keep this information secure!** 🔒
 
@@ -140,17 +130,17 @@ ssh -i ~/.ssh/do_habit_bot deploy@YOUR_IP
 **Check containers:**
 ```bash
 cd /home/deploy/habit_reward_bot/docker
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+docker-compose ps
 ```
 
 **View logs:**
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f
+docker-compose logs -f
 ```
 
 **Restart bot:**
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml restart web
+docker-compose restart web
 ```
 
 **Backup database:**

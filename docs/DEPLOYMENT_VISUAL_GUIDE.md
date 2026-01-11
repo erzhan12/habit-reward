@@ -25,7 +25,7 @@
 │  ├── Code                                                            │
 │  ├── /deployment folder                                              │
 │  │   ├── docker/                                                     │
-│  │   ├── nginx/                                                      │
+│  │   ├── caddy/                                                      │
 │  │   └── scripts/                                                    │
 │  └── Secrets (15-18 environment variables)                           │
 │                                                                      │
@@ -55,9 +55,9 @@
 │  │              DOCKER COMPOSE ENVIRONMENT                    │    │
 │  │                                                            │    │
 │  │  ┌──────────────────────────────────────────────────┐     │    │
-│  │  │           Nginx Container                        │     │    │
+│  │  │           Caddy Container                        │     │    │
 │  │  │  • Reverse Proxy                                 │     │    │
-│  │  │  • SSL/TLS (Let's Encrypt)                       │     │    │
+│  │  │  • Automatic HTTPS (Let's Encrypt)               │     │    │
 │  │  │  • Port 80 → 443 redirect                        │     │    │
 │  │  │  • Serves static files                           │     │    │
 │  │  └────┬─────────────────────────────────────────────┘     │    │
@@ -76,25 +76,16 @@
 │  │       │ Connects to                                       │    │
 │  │       ▼                                                    │    │
 │  │  ┌──────────────────────────────────────────────────┐     │    │
-│  │  │     PostgreSQL Container                         │     │    │
-│  │  │  • PostgreSQL 16                                 │     │    │
-│  │  │  • Database: habit_reward                        │     │    │
+│  │  │        SQLite Database (File)                    │     │    │
+│  │  │  • DATABASE_URL=sqlite:////app/data/db.sqlite3   │     │    │
 │  │  │  • Tables: users, habits, rewards, logs          │     │    │
-│  │  │  • Persistent volume (data survives restarts)    │     │    │
-│  │  └──────────────────────────────────────────────────┘     │    │
-│  │                                                            │    │
-│  │  ┌──────────────────────────────────────────────────┐     │    │
-│  │  │         Certbot Container                        │     │    │
-│  │  │  • Manages SSL certificates                      │     │    │
-│  │  │  • Auto-renewal every 12 hours                   │     │    │
-│  │  │  • Let's Encrypt (free SSL)                      │     │    │
+│  │  │  • Persisted via bind mount: ./data              │     │    │
 │  │  └──────────────────────────────────────────────────┘     │    │
 │  │                                                            │    │
 │  │  Persistent Volumes:                                       │    │
-│  │  • postgres_data (database files)                          │    │
-│  │  • bot_data (conversation state)                           │    │
-│  │  • static_files (CSS, JS, images)                          │    │
-│  │  • certbot_data (SSL certificates)                         │    │
+│  │  • ./data (SQLite database file)                           │    │
+│  │  • ./staticfiles (CSS, JS, images)                         │    │
+│  │  • caddy_data / caddy_config (certificates, state)         │    │
 │  └────────────────────────────────────────────────────────────┘    │
 │                                                                      │
 │  Firewall (UFW):                                                     │
@@ -155,11 +146,11 @@ HTTPS → yourdomain.com:443
   │
   │ SSL/TLS Handshake
   ▼
-Nginx Container
+Caddy Container
   │
   │ 1. Verifies SSL certificate
   │ 2. Decrypts HTTPS
-  │ 3. Checks nginx.conf rules
+  │ 3. Checks Caddyfile rules
   │ 4. Proxies to backend
   ▼
 Web Container (port 8000)
@@ -185,7 +176,7 @@ Business Logic
   │ 4. Build welcome message
   │ 5. Build keyboard buttons
   ▼
-Database (PostgreSQL)
+Database (SQLite)
   │
   │ Query/Insert operations
   │ Returns user data
@@ -256,12 +247,12 @@ Time: 0 min ──────────────────────�
 │  └─ Enable Actions
 │
 ├─ Phase 7: Deploy (20 min)
-│  ├─ Update nginx config
+│  ├─ (Optional) Update Caddyfile
 │  ├─ Push to GitHub
 │  └─ ⏰ Wait for GitHub Actions (~10-15 min)
 │
-├─ Phase 8: SSL Certificate (10 min)
-│  └─ Run certbot, configure HTTPS
+├─ Phase 8: SSL Certificate (Automatic)
+│  └─ Caddy provisions HTTPS automatically
 │
 ├─ Phase 9: Verification (10 min)
 │  ├─ Test Django admin
@@ -453,10 +444,8 @@ Layer 8: Regular Updates
 3. Server reboots
 4. Docker starts automatically
 5. Containers restart in order:
-   a. Database first
-   b. Web waits for database
-   c. Nginx waits for web
-   d. Certbot starts
+   a. Web starts
+   b. Caddy starts and proxies to web
 6. Health checks verify all services
 7. Bot is back online ✅
 ```
@@ -464,11 +453,8 @@ Layer 8: Regular Updates
 ### When SSL certificate expires:
 
 ```
-1. Certbot checks certificates (every 12h)
-2. If <30 days until expiry:
-   a. Requests renewal from Let's Encrypt
-   b. Receives new certificate
-   c. Reloads nginx
+1. Caddy monitors certificate validity
+2. Before expiry it renews automatically via Let's Encrypt
 3. ✅ Automatic renewal, no downtime
 ```
 
@@ -505,30 +491,26 @@ On Your VPS:
 /home/deploy/habit_reward_bot/
 ├── docker/
 │   ├── docker-compose.yml
-│   └── docker-compose.prod.yml
-├── nginx/
-│   └── conf.d/habit_reward.conf
+│   ├── data/
+│   │   └── db.sqlite3
+│   └── staticfiles/
+├── caddy/
+│   └── Caddyfile
 ├── scripts/
-│   └── deploy.sh
+│   └── deploy-caddy.sh
 ├── .env (YOUR SECRETS - NEVER COMMIT!)
 └── (GitHub Actions copies deployment/ here)
 
 Docker Volumes (data):
 /var/lib/docker/volumes/
-├── habit_reward_postgres_data/
-├── habit_reward_bot_data/
-├── habit_reward_static_files/
-└── habit_reward_certbot_data/
-
-SSL Certificates:
-/var/lib/docker/volumes/certbot_data/_data/live/yourdomain.com/
-├── fullchain.pem
-└── privkey.pem
+├── habit_reward_caddy_data/
+├── habit_reward_caddy_config/
+└── habit_reward_caddy_logs/
 
 Backups:
 /home/deploy/backups/
-├── backup_20250108_020000.sql.gz
-├── backup_20250107_020000.sql.gz
+├── db.sqlite3.backup_20250108_020000
+├── db.sqlite3.backup_20250107_020000
 └── ...
 ```
 

@@ -3,13 +3,15 @@
 **Target Domain:** habitreward.org
 **Target IP:** 206.189.40.240
 **Date:** 2025-11-16
-**Status:** Planning Phase
+**Status:** Implemented (production now uses Caddy + SQLite)
 
 ---
 
 ## Executive Summary
 
-This plan replaces the current complex 3-container deployment (PostgreSQL + Django/Bot + nginx + manual certbot) with a simplified 2-container architecture using Caddy for automatic SSL management and SQLite for data persistence.
+This document describes the migration from the legacy 3-container deployment (PostgreSQL + Django/Bot + nginx + manual certbot) to the simplified 2-container architecture using Caddy for automatic SSL management and SQLite for data persistence.
+
+**Note:** Some sections below intentionally reference legacy `nginx`/`certbot`/PostgreSQL commands and `docker-compose.prod.yml` as historical context.
 
 ### Key Benefits
 

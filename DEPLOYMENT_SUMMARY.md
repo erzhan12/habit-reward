@@ -2,13 +2,12 @@
 
 ## Overview
 
-A complete Docker-based deployment infrastructure has been created for the Habit Reward Bot with the following architecture:
+A complete Docker-based deployment infrastructure is provided for the Habit Reward Bot with the following production architecture:
 
 - **Docker Compose** for container orchestration
-- **PostgreSQL** database in a separate container
-- **Nginx** reverse proxy with SSL support
+- **SQLite** database (persisted on disk in a mounted volume)
+- **Caddy** reverse proxy with automatic HTTPS (Let's Encrypt)
 - **GitHub Actions** for CI/CD automation
-- **Let's Encrypt** for SSL certificates
 
 ## Files Created
 
@@ -27,53 +26,28 @@ A complete Docker-based deployment infrastructure has been created for the Habit
 
 3. **`entrypoint.sh`**
    - Container startup script
-   - Waits for PostgreSQL to be ready
+   - Runs Django migrations
    - Runs database migrations automatically
    - Collects static files
    - Creates Django superuser (if configured)
    - Sets Telegram webhook
 
 4. **`docker-compose.yml`**
-   - Development and base configuration
-   - Defines 4 services:
-     - `db` - PostgreSQL 16 database
+   - Production configuration (Caddy-based)
+   - Defines 2 services:
      - `web` - Django + Telegram bot application
-     - `nginx` - Reverse proxy
-     - `certbot` - SSL certificate management
-   - Configured volumes for data persistence
-   - Health checks for all services
-   - Network isolation
+     - `caddy` - Reverse proxy + automatic HTTPS
+   - Persists the SQLite database at `/app/data/db.sqlite3` via bind mount
+   - Persists static files via bind mount
 
-5. **`docker-compose.prod.yml`**
-   - Production-specific overrides
-   - Uses pre-built images from registry
-   - Resource limits configured
-   - Security hardening
-   - Database optimization settings
-
-### Nginx Configuration
-
-6. **`nginx/Dockerfile`**
-   - Alpine-based nginx image
-   - Custom configuration support
-
-7. **`nginx/nginx.conf`**
-   - Main nginx configuration
-   - Optimized for performance
-   - Gzip compression enabled
-   - Security headers configured
-
-8. **`nginx/conf.d/habit_reward.conf`**
-   - Site-specific configuration
-   - HTTP to HTTPS redirect
-   - SSL/TLS configuration
-   - Static file serving
-   - Webhook endpoint proxying
-   - Health check endpoint
+5. **`caddy/Caddyfile`**
+   - Caddy reverse proxy configuration
+   - Automatic certificate provisioning and HTTPS redirect
+   - Static files served from `/app/staticfiles`
 
 ### GitHub Actions
 
-9. **`.github/workflows/deploy.yml`**
+6. **`.github/workflows/deploy-caddy.yml`**
    - Automated CI/CD pipeline
    - 4 jobs:
      - **Test**: Run linter and tests
@@ -85,15 +59,11 @@ A complete Docker-based deployment infrastructure has been created for the Habit
 
 ### Deployment Scripts
 
-10. **`deploy.sh`**
-    - Server-side deployment script
-    - Executed via SSH from GitHub Actions
-    - Pulls latest images
-    - Performs zero-downtime deployment
-    - Validates deployment
-    - Checks webhook status
+7. **`deploy-caddy.sh`**
+   - Manual fallback deployment script for the Caddy-based setup
+   - Pulls latest image and restarts Compose
 
-11. **`local-test.sh`**
+8. **`local-test.sh`**
     - Local testing helper script
     - Validates configuration
     - Builds and starts containers
@@ -162,24 +132,17 @@ A complete Docker-based deployment infrastructure has been created for the Habit
 │  ┌───────────────────────────────────────────────────────────┐ │
 │  │                    Docker Compose                         │ │
 │  │                                                           │ │
-│  │  ┌────────────┐   ┌──────────────┐   ┌───────────────┐  │ │
-│  │  │   Nginx    │   │     Web      │   │  PostgreSQL   │  │ │
-│  │  │  (Proxy)   │◄─►│   (Django    │◄─►│   Database    │  │ │
-│  │  │            │   │    + Bot)    │   │               │  │ │
-│  │  │  Port 80   │   │   Port 8000  │   │  Port 5432    │  │ │
-│  │  │  Port 443  │   │              │   │               │  │ │
-│  │  └─────┬──────┘   └──────────────┘   └───────────────┘  │ │
-│  │        │                                                 │ │
-│  │  ┌─────▼──────┐                                          │ │
-│  │  │  Certbot   │                                          │ │
-│  │  │ (SSL Cert) │                                          │ │
-│  │  └────────────┘                                          │ │
+│  │  ┌────────────┐   ┌──────────────┐                      │ │
+│  │  │   Caddy    │   │     Web      │                      │ │
+│  │  │  (Proxy)   │◄─►│   (Django    │                      │ │
+│  │  │            │   │    + Bot)    │                      │ │
+│  │  │  80/443    │   │   8000       │                      │ │
+│  │  └─────┬──────┘   └──────────────┘                      │ │
 │  │                                                           │ │
 │  │  Volumes:                                                │ │
-│  │  • postgres_data (Database persistence)                  │ │
-│  │  • bot_data (Conversation state)                         │ │
-│  │  • static_files (Django static files)                    │ │
-│  │  • certbot_data (SSL certificates)                       │ │
+│  │  • ./data (SQLite database persistence)                  │ │
+│  │  • ./staticfiles (Django static files)                   │ │
+│  │  • caddy_data / caddy_config (Caddy state + certs)       │ │
 │  └───────────────────────────────────────────────────────────┘ │
 │                                                                 │
 └────────────────────┬────────────────────────────────────────────┘
@@ -228,9 +191,9 @@ Pull latest code (git pull)
     ↓
 Update .env file (if needed)
     ↓
-Run: docker-compose -f docker-compose.yml -f docker-compose.prod.yml pull
+Run: docker-compose --env-file .env -f docker/docker-compose.yml pull web
     ↓
-Run: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+Run: docker-compose --env-file .env -f docker/docker-compose.yml up -d
     ↓
 Verify: docker-compose ps
     ↓
@@ -255,8 +218,7 @@ Deployment complete! ✅
 - ✅ Container health checks
 - ✅ Automatic restart policies
 - ✅ Zero-downtime deployments
-- ✅ Database connection pooling
-- ✅ Nginx as reverse proxy
+- ✅ Caddy as reverse proxy
 - ✅ Resource limits configured
 
 ### Developer Experience
@@ -280,10 +242,8 @@ Deployment complete! ✅
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `POSTGRES_DB` | Database name | `habit_reward` |
-| `POSTGRES_USER` | Database user | `postgres` |
-| `POSTGRES_PASSWORD` | Database password | `strong_password` |
 | `SECRET_KEY` | Django secret key | 50+ char random string |
+| `DATABASE_URL` | DB connection URL | `sqlite:////app/data/db.sqlite3` |
 | `ALLOWED_HOSTS` | Allowed domains | `yourdomain.com` |
 | `CSRF_TRUSTED_ORIGINS` | HTTPS origins | `https://yourdomain.com` |
 | `TELEGRAM_BOT_TOKEN` | Bot token | From @BotFather |
@@ -305,9 +265,7 @@ Deployment complete! ✅
 The following secrets must be added to GitHub repository:
 
 ### Database
-- `POSTGRES_DB`
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
+- *(none)* (production uses SQLite via `DATABASE_URL=sqlite:////app/data/db.sqlite3` in server `.env`)
 
 ### Django
 - `DJANGO_SECRET_KEY`
@@ -354,12 +312,12 @@ The following secrets must be added to GitHub repository:
 
 4. **Configure Domain**
    - Point DNS to VPS IP
-   - Update nginx config with domain name
-   - Obtain SSL certificate
+   - (Optional) Update Caddyfile
+   - HTTPS is automatic (Caddy)
 
 5. **Deploy**
    - Push to main branch (automated)
-   - OR run `deploy.sh` manually
+   - OR run `scripts/deploy-caddy.sh` manually
    - Monitor deployment logs
    - Verify functionality
 
@@ -380,10 +338,10 @@ Before deploying to production, test locally:
 
 ```bash
 # Make script executable
-chmod +x local-test.sh
+chmod +x deployment/scripts/local-test.sh
 
 # Run local test
-./local-test.sh
+./deployment/scripts/local-test.sh
 
 # Access admin panel
 open http://localhost:8000/admin/
@@ -405,49 +363,46 @@ git push origin main
 # Deploy (manual)
 ssh deploy@server
 cd /home/deploy/habit_reward_bot
-./deploy.sh
+./scripts/deploy-caddy.sh
 ```
 
 ### Container Management
 ```bash
 # View status
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+docker-compose --env-file .env -f docker/docker-compose.yml ps
 
 # View logs
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f
+docker-compose --env-file .env -f docker/docker-compose.yml logs -f
 
 # Restart services
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml restart
+docker-compose --env-file .env -f docker/docker-compose.yml restart
 
 # Stop services
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml down
+docker-compose --env-file .env -f docker/docker-compose.yml down
 
 # Start services
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker-compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
 ### Database
 ```bash
-# Backup
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec db pg_dump -U postgres habit_reward > backup.sql
+# Backup (SQLite file)
+cp docker/data/db.sqlite3 docker/data/db.sqlite3.backup_$(date +%Y%m%d_%H%M%S)
 
-# Restore
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db psql -U postgres habit_reward < backup.sql
-
-# Shell access
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec db psql -U postgres habit_reward
+# Restore (SQLite file)
+cp docker/data/db.sqlite3.backup_YYYYMMDD_HHMMSS docker/data/db.sqlite3
 ```
 
 ### Django
 ```bash
 # Migrations
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python manage.py migrate
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python manage.py migrate
 
 # Shell
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python manage.py shell
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python manage.py shell
 
 # Create superuser
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec web python manage.py createsuperuser
+docker-compose --env-file .env -f docker/docker-compose.yml exec web python manage.py createsuperuser
 ```
 
 ## Support & Resources

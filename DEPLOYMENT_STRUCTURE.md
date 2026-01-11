@@ -10,25 +10,22 @@ habit_reward/
 │   ├── docker/                          # Docker configuration
 │   │   ├── Dockerfile                   # Application container
 │   │   ├── .dockerignore                # Build exclusions
-│   │   ├── docker-compose.yml           # Base configuration
-│   │   └── docker-compose.prod.yml      # Production overrides
+│   │   ├── docker-compose.yml           # Caddy + app (production)
+│   │   └── .env.production              # Example production env file
 │   │
-│   ├── nginx/                           # Reverse proxy
-│   │   ├── Dockerfile                   # Nginx container
-│   │   ├── nginx.conf                   # Main config
-│   │   └── conf.d/
-│   │       └── habit_reward.conf        # Site config
+│   ├── caddy/                           # Reverse proxy (recommended)
+│   │   └── Caddyfile                    # Automatic HTTPS + proxy rules
 │   │
 │   ├── scripts/                         # Deployment scripts
 │   │   ├── entrypoint.sh                # Container startup
-│   │   ├── deploy.sh                    # Server deployment
+│   │   ├── deploy-caddy.sh              # Manual server deployment
 │   │   └── local-test.sh                # Local testing
 │   │
 │   └── README.md                        # Deployment docs
 │
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml                   # CI/CD (updated paths)
+│       └── deploy-caddy.yml             # CI/CD (Caddy + SQLite)
 │
 ├── docs/
 │   ├── DEPLOYMENT.md                    # Complete guide
@@ -50,14 +47,13 @@ habit_reward/
    - `Dockerfile` → `/deployment/docker/Dockerfile`
    - `.dockerignore` → `/deployment/docker/.dockerignore`
    - `docker-compose.yml` → `/deployment/docker/docker-compose.yml`
-   - `docker-compose.prod.yml` → `/deployment/docker/docker-compose.prod.yml`
 
-2. **Nginx files** → `/deployment/nginx/`
-   - `nginx/*` → `/deployment/nginx/*`
+2. **Caddy files** → `/deployment/caddy/`
+   - `Caddyfile` → `/deployment/caddy/Caddyfile`
 
 3. **Scripts** → `/deployment/scripts/`
    - `entrypoint.sh` → `/deployment/scripts/entrypoint.sh`
-   - `deploy.sh` → `/deployment/scripts/deploy.sh`
+   - `deploy-caddy.sh` → `/deployment/scripts/deploy-caddy.sh`
    - `local-test.sh` → `/deployment/scripts/local-test.sh`
 
 ### Files Updated
@@ -68,17 +64,17 @@ habit_reward/
 2. **`/deployment/docker/docker-compose.yml`**
    - Updated build context: `../../` (project root)
    - Updated Dockerfile path: `deployment/docker/Dockerfile`
-   - Updated nginx context: `../nginx`
-   - Updated nginx volume paths: `../nginx/`
+   - Uses Caddy for HTTPS
+   - Persists SQLite DB at `/app/data/db.sqlite3`
 
-3. **`/.github/workflows/deploy.yml`**
+3. **`/.github/workflows/deploy-caddy.yml`**
    - Updated Dockerfile path: `./deployment/docker/Dockerfile`
-   - Updated SCP command: `scp -r deployment/*`
-   - Updated deploy script: `./scripts/deploy.sh`
+   - Copies `deployment/` to the server
+   - Deploys via `docker/docker-compose.yml`
    - Updated docker-compose paths in verification
 
-4. **`/deployment/scripts/deploy.sh`**
-   - Updated all docker-compose commands: `-f docker/docker-compose.yml -f docker/docker-compose.prod.yml`
+4. **`/deployment/scripts/deploy-caddy.sh`**
+   - Pulls the `web` image and restarts `web` + `caddy`
 
 5. **`/deployment/scripts/local-test.sh`**
    - Added `cd "$(dirname "$0")/../docker"` to change to docker directory
@@ -119,17 +115,17 @@ docker-compose down
 /home/deploy/habit_reward_bot/
 ├── docker/
 │   ├── docker-compose.yml
-│   └── docker-compose.prod.yml
-├── nginx/
-│   ├── nginx.conf
-│   └── conf.d/habit_reward.conf
+│   ├── data/                # SQLite database lives here
+│   └── staticfiles/         # Collected static assets
+├── caddy/
+│   └── Caddyfile
 ├── scripts/
-│   └── deploy.sh
+│   └── deploy-caddy.sh
 └── .env
 
 # Run deployment
 cd /home/deploy/habit_reward_bot
-./scripts/deploy.sh
+./scripts/deploy-caddy.sh
 ```
 
 **GitHub Actions:**
@@ -147,9 +143,6 @@ cd deployment/docker
 # Start services
 docker-compose up -d
 
-# Production
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
 # View logs
 docker-compose logs -f
 
@@ -159,9 +152,6 @@ docker-compose down
 # Django management
 docker-compose exec web python manage.py migrate
 docker-compose exec web python manage.py createsuperuser
-
-# Database
-docker-compose exec db psql -U postgres habit_reward
 ```
 
 ## Benefits of New Structure
@@ -195,32 +185,7 @@ docker-compose exec db psql -U postgres habit_reward
 
 ### For Existing Deployments
 
-If you have already deployed with the old structure:
-
-1. **Pull latest changes:**
-   ```bash
-   git pull origin main
-   ```
-
-2. **On VPS, reorganize files:**
-   ```bash
-   cd /home/deploy/habit_reward_bot
-
-   # Create new structure
-   mkdir -p docker nginx scripts
-
-   # Move files
-   mv docker-compose.yml docker/
-   mv docker-compose.prod.yml docker/
-   mv Dockerfile docker/
-   mv .dockerignore docker/
-   mv nginx/* nginx/  # if nginx dir exists
-   mv deploy.sh scripts/
-   mv entrypoint.sh scripts/
-
-   # Update docker-compose commands in deploy.sh
-   # (or re-copy from repository)
-   ```
+If you have an existing deployment, re-copy the `deployment/` directory and re-run `./scripts/deploy-caddy.sh`.
 
 3. **Or simpler - re-copy everything:**
    ```bash

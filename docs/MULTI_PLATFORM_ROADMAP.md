@@ -8,7 +8,7 @@ This document outlines the plan to expand the Habit Reward System from the curre
 
 ### Strengths for Multi-Platform
 1. ✅ **Clean separation of concerns** - Models, Services, Repositories are decoupled
-2. ✅ **Repository pattern** - Easy to swap Airtable for PostgreSQL/MySQL
+2. ✅ **Repository pattern** - Easy to swap Airtable for a relational DB (SQLite now; PostgreSQL/MySQL later)
 3. ✅ **Service layer** - Business logic isolated from UI/API
 4. ✅ **Pydantic models** - Perfect for API serialization
 5. ✅ **Logging infrastructure** - Production-ready debugging
@@ -28,7 +28,7 @@ This document outlines the plan to expand the Habit Reward System from the curre
 
 ### 1.1 Database Migration
 
-#### From Airtable to PostgreSQL
+#### From Airtable to Django Database
 - **Keep existing Pydantic models** as API request/response schemas
 - **Create Django models** mirroring current structure:
   - `User` model with authentication fields
@@ -36,7 +36,7 @@ This document outlines the plan to expand the Habit Reward System from the curre
   - `Reward` model
   - `RewardProgress` model
   - `HabitLog` model
-- **Data migration script** from Airtable to PostgreSQL
+- **Data migration script** from Airtable to Django database (SQLite now; PostgreSQL later)
 - **Add user authentication**:
   - Django AllAuth for social login
   - JWT tokens for API access
@@ -634,7 +634,12 @@ habit-reward/
 
 ### 2. Database Strategy
 
-#### Primary Database: PostgreSQL
+#### Current Production Database: SQLite
+- Simple single-instance deployment
+- File-based backups (copy `db.sqlite3`)
+- Can migrate to PostgreSQL later if needed
+
+#### Scalable Database Option: PostgreSQL
 - ACID compliance
 - JSON field support
 - Full-text search
@@ -691,7 +696,8 @@ def get_tokens_for_user(user):
 - **Auto-scaling**: Based on load
 
 #### Database
-- **PostgreSQL**: AWS RDS / Supabase
+- **SQLite (current)**: local persistent volume / file
+- **PostgreSQL (optional)**: AWS RDS / Supabase
 - **Redis**: AWS ElastiCache / Upstash
 - **Backups**: Daily automated
 
@@ -718,7 +724,7 @@ def get_tokens_for_user(user):
 
 **Week 1-2: Django Setup**
 - Create Django project
-- Set up PostgreSQL
+- Start with SQLite for early iterations
 - Create models matching current structure
 - Write data migration scripts from Airtable
 

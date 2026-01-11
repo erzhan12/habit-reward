@@ -622,10 +622,10 @@ Once testing is complete:
 3. Share errors for debugging help
 
 **Ready for production:**
-1. Switch to PostgreSQL database
-2. Set up HTTPS domain
+1. Confirm `DATABASE_URL` and persistence (SQLite is current production default)
+2. Set up HTTPS domain (Caddy handles certificates)
 3. Configure webhook mode
-4. Deploy with Uvicorn/Gunicorn
+4. Deploy the Docker Compose stack
 
 ---
 

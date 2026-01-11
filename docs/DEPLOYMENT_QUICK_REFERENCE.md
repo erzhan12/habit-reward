@@ -4,30 +4,25 @@
 
 ```
 habit_reward/
-├── Dockerfile                      # Main application container
-├── docker-compose.yml              # Development & base config
-├── docker-compose.prod.yml         # Production overrides
-├── .dockerignore                   # Docker build exclusions
-├── entrypoint.sh                   # Container startup script
-├── deploy.sh                       # Server deployment script
-├── local-test.sh                   # Local testing helper
-├── .env.example                    # Environment variables template
+├── deployment/
+│   ├── docker/
+│   │   ├── Dockerfile
+│   │   ├── docker-compose.yml      # Production (web + caddy)
+│   │   └── .env.production         # Example production env file
+│   ├── caddy/
+│   │   └── Caddyfile               # Reverse proxy + automatic HTTPS
+│   └── scripts/
+│       ├── entrypoint.sh
+│       ├── deploy-caddy.sh
+│       └── local-test.sh
 │
-├── .github/
-│   └── workflows/
-│       └── deploy.yml              # CI/CD automation
-│
-├── nginx/
-│   ├── Dockerfile                  # Nginx container
-│   ├── nginx.conf                  # Main nginx config
-│   └── conf.d/
-│       └── habit_reward.conf       # Site-specific config
-│
+├── .github/workflows/deploy-caddy.yml
+├── .env.example
 └── docs/
-    ├── DEPLOYMENT.md               # Complete deployment guide (800+ lines)
-    ├── QUICK_START.md              # Quick setup guide (200+ lines)
-    ├── DEPLOYMENT_CHECKLIST.md     # Detailed checklist (400+ lines)
-    └── DEPLOYMENT_SUMMARY.md       # Architecture & summary
+    ├── DEPLOYMENT.md
+    ├── DEPLOYMENT_STEP_BY_STEP.md
+    ├── DEPLOYMENT_CHECKLIST_SIMPLE.md
+    └── DEPLOYMENT_VISUAL_GUIDE.md
 ```
 
 ## Quick Commands
@@ -35,9 +30,10 @@ habit_reward/
 ### Local Development
 ```bash
 # Test locally
-./local-test.sh
+./deployment/scripts/local-test.sh
 
 # Or manually
+cd deployment/docker
 docker-compose up -d
 docker-compose logs -f
 docker-compose down
@@ -50,13 +46,13 @@ git push origin main
 
 # Manual (on VPS)
 cd /home/deploy/habit_reward_bot
-./deploy.sh
+./scripts/deploy-caddy.sh
 ```
 
 ### Container Management
 ```bash
-# Shorthand for production commands
-alias dc='docker-compose -f docker-compose.yml -f docker-compose.prod.yml'
+# Run from the deployment directory on the VPS
+alias dc='docker-compose --env-file .env -f docker/docker-compose.yml'
 
 # View status
 dc ps
@@ -76,17 +72,13 @@ dc up -d
 
 ### Database Operations
 ```bash
-# Backup
-dc exec db pg_dump -U postgres habit_reward > backup.sql
+# SQLite database is a file persisted at: docker/data/db.sqlite3
 
-# Restore
-dc exec -T db psql -U postgres habit_reward < backup.sql
+# Backup (on VPS)
+cp docker/data/db.sqlite3 docker/data/db.sqlite3.backup_$(date +%Y%m%d_%H%M%S)
 
-# Shell
-dc exec db psql -U postgres habit_reward
-
-# Check size
-dc exec db psql -U postgres -d habit_reward -c "SELECT pg_size_pretty(pg_database_size('habit_reward'));"
+# Restore (on VPS)
+cp docker/data/db.sqlite3.backup_YYYYMMDD_HHMMSS docker/data/db.sqlite3
 ```
 
 ### Django Management
@@ -143,16 +135,9 @@ asyncio.run(delete())
 
 ### SSL Certificate
 ```bash
-# Obtain certificate
-dc stop nginx
-dc run --rm certbot certonly --standalone -d yourdomain.com
-dc start nginx
-
-# Renew certificate
-dc exec certbot certbot renew
-
-# Test renewal
-dc exec certbot certbot renew --dry-run
+# Automatic: Caddy provisions and renews certificates.
+# To debug HTTPS issues:
+dc logs -f caddy
 ```
 
 ### Monitoring
@@ -174,10 +159,8 @@ docker system prune -f
 
 ### Required
 ```bash
-POSTGRES_DB=habit_reward
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=<strong-password>
 SECRET_KEY=<django-secret-key>
+DATABASE_URL=sqlite:////app/data/db.sqlite3
 ALLOWED_HOSTS=yourdomain.com
 CSRF_TRUSTED_ORIGINS=https://yourdomain.com
 TELEGRAM_BOT_TOKEN=<bot-token>
@@ -203,9 +186,6 @@ Add these to: **Settings → Secrets and variables → Actions**
 
 | Secret Name | Example Value |
 |-------------|---------------|
-| `POSTGRES_DB` | `habit_reward` |
-| `POSTGRES_USER` | `postgres` |
-| `POSTGRES_PASSWORD` | `strong_password_here` |
 | `DJANGO_SECRET_KEY` | `django-secret-key-50-chars` |
 | `ALLOWED_HOSTS` | `yourdomain.com,www.yourdomain.com` |
 | `CSRF_TRUSTED_ORIGINS` | `https://yourdomain.com` |
@@ -226,10 +206,9 @@ Add these to: **Settings → Secrets and variables → Actions**
 
 | Service | Port | Exposed | Description |
 |---------|------|---------|-------------|
-| Nginx | 80 | Yes | HTTP (redirects to HTTPS) |
-| Nginx | 443 | Yes | HTTPS |
+| Caddy | 80 | Yes | HTTP (redirects to HTTPS) |
+| Caddy | 443 | Yes | HTTPS |
 | Web | 8000 | No | Django app (internal) |
-| PostgreSQL | 5432 | No | Database (internal) |
 
 ## Troubleshooting Quick Fixes
 
@@ -242,16 +221,15 @@ dc config  # Validate configuration
 
 ### 502 Bad Gateway
 ```bash
-dc logs nginx
+dc logs caddy
 dc logs web
 dc restart web
 ```
 
 ### Database connection error
 ```bash
-dc logs db
-dc restart db
-# Wait 10 seconds
+grep DATABASE_URL .env
+ls -la docker/data/db.sqlite3
 dc restart web
 ```
 
@@ -260,8 +238,8 @@ dc restart web
 # Check HTTPS is working
 curl -I https://yourdomain.com/webhook/telegram
 
-# Check nginx logs
-dc logs nginx
+# Check reverse proxy logs
+dc logs caddy
 
 # Restart web
 dc restart web
@@ -281,12 +259,12 @@ docker volume prune -f  # CAREFUL: removes unused volumes
 # 1. Stop current containers
 dc down
 
-# 2. Change image tag in docker-compose.prod.yml
-nano docker-compose.prod.yml
-# Change IMAGE_TAG=latest to IMAGE_TAG=previous-version
+# 2. Change image tag in .env
+nano .env
+# Change IMAGE_TAG=latest to IMAGE_TAG=<previous-version-or-sha-tag>
 
 # 3. Pull and start
-dc pull
+dc pull web
 dc up -d
 
 # 4. Verify

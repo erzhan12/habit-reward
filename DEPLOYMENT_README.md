@@ -157,17 +157,14 @@ deployment/
 │   ├── Dockerfile
 │   ├── .dockerignore
 │   ├── docker-compose.yml
-│   └── docker-compose.prod.yml
+│   └── .env.production
 │
-├── nginx/                   # Reverse proxy
-│   ├── Dockerfile
-│   ├── nginx.conf
-│   └── conf.d/
-│       └── habit_reward.conf
+├── caddy/                   # Reverse proxy (recommended)
+│   └── Caddyfile
 │
 ├── scripts/                 # Deployment scripts
 │   ├── entrypoint.sh
-│   ├── deploy.sh
+│   ├── deploy-caddy.sh
 │   └── local-test.sh
 │
 └── README.md               # Deployment folder guide
@@ -189,9 +186,8 @@ Already have:
 
 1. **Local setup:**
    ```bash
-   # Update nginx config with your domain
-   nano deployment/nginx/conf.d/habit_reward.conf
-   # Replace 'example.com' with 'yourdomain.com'
+   # Review Caddyfile domain and proxy config (if needed)
+   nano deployment/caddy/Caddyfile
    ```
 
 2. **Add GitHub Secrets** (15 secrets - see [`.env.example`](.env.example))
@@ -203,14 +199,8 @@ Already have:
    git push origin main
    ```
 
-4. **Get SSL certificate** (on VPS):
-   ```bash
-   ssh deploy@YOUR_IP
-   cd /home/deploy/habit_reward_bot/docker
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml stop nginx
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot certonly --standalone -d yourdomain.com
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml start nginx
-   ```
+4. **SSL certificate**
+   - Automatic: Caddy provisions and renews certificates automatically after the containers start.
 
 5. **Test:**
    - Open: `https://yourdomain.com/admin/`
@@ -288,8 +278,8 @@ Done! 🎉
 2. **Check logs:**
    ```bash
    ssh deploy@YOUR_IP
-   cd /home/deploy/habit_reward_bot/docker
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f
+   cd /home/deploy/habit_reward_bot
+   docker-compose --env-file .env -f docker/docker-compose.yml logs -f
    ```
 3. **Review GitHub Actions** logs (if using automated deployment)
 4. **Search documentation** - use Ctrl+F in the guides
