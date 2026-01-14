@@ -1472,5 +1472,248 @@ class TestCategoryRemovalFromTelegram:
                     assert button.text in expected_names, f"Button text '{button.text}' not in expected names"
 
 
+class TestClaimRewardHandlerRouting:
+    """Test Feature 0029: Handler pattern matching order for claim_reward flow.
+
+    Verifies that the fix for "Reward progress not found" error works correctly.
+    The bug occurred when claim_reward_ pattern matched before claim_reward_back pattern.
+    Fix: Reordered handlers so exact match (claim_reward_back$) comes first.
+
+    CRITICAL: test_claim_reward_conversation_handler_order() validates the actual
+    ConversationHandler configuration. If handlers are accidentally reordered,
+    that test will fail even if the functional tests pass.
+    """
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.build_rewards_menu_keyboard')
+    @patch('src.bot.handlers.reward_handlers.pop_navigation')
+    async def test_claim_back_callback_pattern_matching(
+        self, mock_pop_nav, mock_build_keyboard, mock_callback_update, language
+    ):
+        """
+        Test that callback_data "claim_reward_back" routes to claim_back_callback.
+
+        Given: User is in the claim reward flow
+        When: User clicks Back button (callback_data = "claim_reward_back")
+        Then: claim_back_callback is invoked (NOT claim_reward_callback)
+        And: User is returned to rewards menu
+        And: No "Reward progress not found" error occurs
+        """
+        from src.bot.handlers.reward_handlers import claim_back_callback
+        from telegram import InlineKeyboardMarkup
+
+        # Setup callback data
+        mock_callback_update.callback_query.data = "claim_reward_back"
+
+        # Mock navigation state
+        mock_pop_nav.return_value = {'lang': language}
+
+        # Mock keyboard builder
+        mock_keyboard = Mock(spec=InlineKeyboardMarkup)
+        mock_build_keyboard.return_value = mock_keyboard
+
+        # Mock context
+        context = Mock()
+        context.user_data = {}
+
+        # Execute
+        result = await claim_back_callback(mock_callback_update, context)
+
+        # Assert: Conversation ended (returned to menu)
+        assert result == ConversationHandler.END
+
+        # Assert: Navigation was popped
+        mock_pop_nav.assert_called_once()
+
+        # Assert: Rewards menu was shown
+        mock_callback_update.callback_query.edit_message_text.assert_called_once()
+        call_args = mock_callback_update.callback_query.edit_message_text.call_args
+
+        # Verify message contains rewards menu title
+        assert 'REWARDS_MENU_TITLE' in str(call_args) or call_args.kwargs.get('reply_markup') == mock_keyboard
+
+        # Assert: No error message shown (would contain "not found")
+        message_text = call_args.args[0] if call_args.args else call_args.kwargs.get('text', '')
+        assert 'not found' not in message_text.lower()
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.audit_log_service')
+    @patch('src.bot.handlers.reward_handlers.reward_service')
+    @patch('src.bot.handlers.reward_handlers.reward_repository')
+    @patch('src.bot.handlers.reward_handlers.user_repository')
+    async def test_claim_reward_callback_still_works(
+        self, mock_user_repo, mock_reward_repo, mock_reward_service,
+        mock_audit_service, mock_callback_update, mock_active_user, language
+    ):
+        """
+        Test that callback_data "claim_reward_123" routes to claim_reward_callback.
+
+        Given: User is in the claim reward flow
+        When: User clicks on a reward (callback_data = "claim_reward_123")
+        Then: claim_reward_callback is invoked
+        And: reward_id is correctly extracted as "123"
+        And: Normal reward claiming flow proceeds
+        """
+        from src.bot.handlers.reward_handlers import claim_reward_callback
+
+        # Setup callback data with numeric reward ID
+        mock_callback_update.callback_query.data = "claim_reward_123"
+
+        # Mock user
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Mock reward
+        mock_reward = Mock()
+        mock_reward.id = "123"
+        mock_reward.name = "Coffee Break"
+        mock_reward.user_id = mock_active_user.id
+        mock_reward.active = True
+        mock_reward.is_recurring = True
+        mock_reward_repo.get_by_id.return_value = mock_reward
+
+        # Mock reward progress
+        mock_progress = Mock()
+        mock_progress.pieces_earned = 0
+        mock_progress.get_pieces_required = Mock(return_value=5)
+        mock_progress.get_status = Mock(return_value=Mock(value="✅ Claimed"))
+        mock_progress.claimed = True
+        mock_reward_service.mark_reward_claimed.return_value = mock_progress
+        mock_reward_service.get_user_reward_progress.return_value = []
+
+        # Mock audit log service
+        mock_audit_service.log_reward_claim = AsyncMock()
+
+        # Mock context
+        context = Mock()
+        context.user_data = {}
+
+        # Execute
+        result = await claim_reward_callback(mock_callback_update, context)
+
+        # Assert: Reward repository was queried with correct ID
+        # This is the key assertion - verifies reward_id was extracted correctly
+        mock_reward_repo.get_by_id.assert_any_call("123")
+
+        # Assert: No "Reward progress not found" error
+        # (If handler matched incorrectly, it would try to find reward with id "back")
+        call_args = mock_callback_update.callback_query.edit_message_text.call_args
+        if call_args:
+            message_text = call_args.args[0] if call_args.args else call_args.kwargs.get('text', '')
+            assert 'not found' not in message_text.lower()
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.reward_handlers.audit_log_service')
+    @patch('src.bot.handlers.reward_handlers.reward_service')
+    @patch('src.bot.handlers.reward_handlers.reward_repository')
+    @patch('src.bot.handlers.reward_handlers.user_repository')
+    async def test_claim_reward_callback_with_uuid(
+        self, mock_user_repo, mock_reward_repo, mock_reward_service,
+        mock_audit_service, mock_callback_update, mock_active_user, language
+    ):
+        """
+        Test that callback_data "claim_reward_abc-def-123" handles UUID-like IDs.
+
+        Given: User is in the claim reward flow
+        When: User clicks on a reward with UUID-like ID (callback_data = "claim_reward_abc-def-123")
+        Then: claim_reward_callback is invoked
+        And: reward_id is correctly extracted as "abc-def-123"
+        And: UUID-like reward IDs work correctly
+        """
+        from src.bot.handlers.reward_handlers import claim_reward_callback
+
+        # Setup callback data with UUID-like reward ID
+        uuid_like_id = "abc-def-123"
+        mock_callback_update.callback_query.data = f"claim_reward_{uuid_like_id}"
+
+        # Mock user
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Mock reward with UUID-like ID
+        mock_reward = Mock()
+        mock_reward.id = uuid_like_id
+        mock_reward.name = "Premium Reward"
+        mock_reward.user_id = mock_active_user.id
+        mock_reward.active = True
+        mock_reward.is_recurring = True
+        mock_reward_repo.get_by_id.return_value = mock_reward
+
+        # Mock reward progress
+        mock_progress = Mock()
+        mock_progress.pieces_earned = 0
+        mock_progress.get_pieces_required = Mock(return_value=10)
+        mock_progress.get_status = Mock(return_value=Mock(value="✅ Claimed"))
+        mock_progress.claimed = True
+        mock_reward_service.mark_reward_claimed.return_value = mock_progress
+        mock_reward_service.get_user_reward_progress.return_value = []
+
+        # Mock audit log service
+        mock_audit_service.log_reward_claim = AsyncMock()
+
+        # Mock context
+        context = Mock()
+        context.user_data = {}
+
+        # Execute
+        result = await claim_reward_callback(mock_callback_update, context)
+
+        # Assert: Reward repository was queried with correct UUID-like ID
+        # This is the key assertion - verifies reward_id was extracted correctly
+        mock_reward_repo.get_by_id.assert_any_call(uuid_like_id)
+
+        # Assert: Handler extracted the ID correctly (everything after "claim_reward_")
+        # If this fails, the string.replace() logic is broken
+        first_call_arg = mock_reward_repo.get_by_id.call_args_list[0][0][0]
+        assert first_call_arg == uuid_like_id
+
+    def test_claim_reward_conversation_handler_order(self):
+        """
+        Test that ConversationHandler routes patterns in the correct order.
+
+        CRITICAL: This test catches regressions if handlers are accidentally reordered.
+        If this test fails, it means someone changed the handler order in
+        claim_reward_conversation and broke the pattern matching fix.
+
+        Given: claim_reward_conversation is configured
+        When: We inspect the AWAITING_REWARD_SELECTION state handlers
+        Then: First handler must match "^claim_reward_back$" (exact match)
+        And: Second handler must match "^claim_reward_" (prefix match)
+        And: First handler must route to claim_back_callback
+        And: Second handler must route to claim_reward_callback
+        """
+        from telegram.ext import CallbackQueryHandler
+        from src.bot.handlers.reward_handlers import (
+            claim_reward_conversation,
+            claim_back_callback,
+            claim_reward_callback,
+            AWAITING_REWARD_SELECTION
+        )
+
+        # Get handlers for the AWAITING_REWARD_SELECTION state
+        handlers = claim_reward_conversation.states[AWAITING_REWARD_SELECTION]
+
+        # Assert: Exactly 2 handlers
+        assert len(handlers) == 2, f"Expected 2 handlers, got {len(handlers)}"
+
+        # Assert: Both are CallbackQueryHandler instances
+        assert isinstance(handlers[0], CallbackQueryHandler), \
+            f"First handler is {type(handlers[0])}, expected CallbackQueryHandler"
+        assert isinstance(handlers[1], CallbackQueryHandler), \
+            f"Second handler is {type(handlers[1])}, expected CallbackQueryHandler"
+
+        # Assert: First handler (exact match for "back") comes FIRST
+        first_handler = handlers[0]
+        assert first_handler.pattern.pattern == "^claim_reward_back$", \
+            f"First handler pattern is '{first_handler.pattern.pattern}', expected '^claim_reward_back$'"
+        assert first_handler.callback == claim_back_callback, \
+            f"First handler callback is {first_handler.callback.__name__}, expected claim_back_callback"
+
+        # Assert: Second handler (prefix match) comes SECOND
+        second_handler = handlers[1]
+        assert second_handler.pattern.pattern == "^claim_reward_", \
+            f"Second handler pattern is '{second_handler.pattern.pattern}', expected '^claim_reward_'"
+        assert second_handler.callback == claim_reward_callback, \
+            f"Second handler callback is {second_handler.callback.__name__}, expected claim_reward_callback"
+
+
 # Note: set_reward_status_command has been deprecated and removed in Feature 0005
 # Status is now automatically computed by Airtable based on pieces_earned and claimed fields

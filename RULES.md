@@ -141,6 +141,74 @@ date_display = str(target_date)  # "2025-12-09"
 - `src/bot/handlers/habit_done_handler.py` - Habit completion handlers
 - `src/bot/handlers/backdate_handler.py` - Backdate flow handlers
 
+## ConversationHandler Pattern Matching
+
+**CRITICAL**: When using `CallbackQueryHandler` with pattern matching in `ConversationHandler`, handler order matters. python-telegram-bot evaluates patterns in list order, and **first match wins**.
+
+### The Problem: Prefix Pattern Conflicts
+
+If you have callback patterns that share prefixes, the more generic pattern can incorrectly match before the specific pattern is evaluated.
+
+**Example Bug** (Feature 0029):
+```python
+# ❌ Bad - Generic pattern matches "claim_reward_back" before specific pattern
+states={
+    AWAITING_REWARD_SELECTION: [
+        CallbackQueryHandler(claim_reward_callback, pattern="^claim_reward_"),  # Matches EVERYTHING starting with "claim_reward_"
+        CallbackQueryHandler(claim_back_callback, pattern="^claim_reward_back$")  # Never reached!
+    ]
+}
+```
+
+**What happens**:
+1. User clicks Back button → callback_data = `"claim_reward_back"`
+2. First handler pattern `^claim_reward_` matches (it's a prefix of "claim_reward_back")
+3. `claim_reward_callback()` is invoked instead of `claim_back_callback()`
+4. Handler extracts reward_id: `"claim_reward_back".replace("claim_reward_", "") = "back"`
+5. Tries to find reward with ID "back" → Error: "Reward progress not found"
+
+### The Solution: Specific Patterns First
+
+**Always order handlers from most specific to least specific**:
+
+```python
+# ✅ Good - Specific pattern evaluated first
+states={
+    AWAITING_REWARD_SELECTION: [
+        CallbackQueryHandler(claim_back_callback, pattern="^claim_reward_back$"),  # Exact match - FIRST
+        CallbackQueryHandler(claim_reward_callback, pattern="^claim_reward_"),    # Prefix match - SECOND
+    ]
+}
+```
+
+**Pattern Ordering Rules**:
+1. **Exact matches** (`^exact_string$`) come first
+2. **Specific prefixes** (`^specific_prefix_with_more_`) come before generic prefixes
+3. **Generic prefixes** (`^generic_`) come last
+4. Use `$` anchor for exact matches to prevent prefix matching
+
+### Testing Pattern Matching
+
+**Always write tests** to verify callback routing, especially when patterns share prefixes:
+
+```python
+@pytest.mark.asyncio
+async def test_back_button_routes_correctly(mock_callback_update):
+    """Verify 'claim_reward_back' routes to back handler, not reward handler."""
+    mock_callback_update.callback_query.data = "claim_reward_back"
+
+    result = await claim_back_callback(mock_callback_update, context)
+
+    # Assert: Returns to menu (not trying to claim reward with id "back")
+    assert result == ConversationHandler.END
+    # Assert: No "not found" error shown
+    assert 'not found' not in message_text.lower()
+```
+
+**Why this matters**: Pattern matching bugs are subtle and easy to miss in manual testing. Without tests, reordering handlers during refactoring can reintroduce the bug.
+
+**Related**: Feature 0029 - Fix "Reward progress not found" error on Back button
+
 ## Logging Pattern
 
 **CRITICAL**: All Telegram bot command handlers MUST include comprehensive info-level logging to track user messages and bot reactions.
