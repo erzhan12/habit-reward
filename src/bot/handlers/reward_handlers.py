@@ -2192,8 +2192,8 @@ claim_reward_conversation = ConversationHandler(
     ],
     states={
         AWAITING_REWARD_SELECTION: [
+            CallbackQueryHandler(claim_back_callback, pattern="^claim_reward_back$"),
             CallbackQueryHandler(claim_reward_callback, pattern="^claim_reward_"),
-            CallbackQueryHandler(claim_back_callback, pattern="^claim_reward_back$")
         ]
     },
     fallbacks=[CommandHandler("cancel", cancel_claim_handler)]

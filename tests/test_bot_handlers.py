@@ -1478,6 +1478,10 @@ class TestClaimRewardHandlerRouting:
     Verifies that the fix for "Reward progress not found" error works correctly.
     The bug occurred when claim_reward_ pattern matched before claim_reward_back pattern.
     Fix: Reordered handlers so exact match (claim_reward_back$) comes first.
+
+    CRITICAL: test_claim_reward_conversation_handler_order() validates the actual
+    ConversationHandler configuration. If handlers are accidentally reordered,
+    that test will fail even if the functional tests pass.
     """
 
     @pytest.mark.asyncio
@@ -1529,7 +1533,7 @@ class TestClaimRewardHandlerRouting:
         assert 'REWARDS_MENU_TITLE' in str(call_args) or call_args.kwargs.get('reply_markup') == mock_keyboard
 
         # Assert: No error message shown (would contain "not found")
-        message_text = call_args.args[0] if call_args.args else ''
+        message_text = call_args.args[0] if call_args.args else call_args.kwargs.get('text', '')
         assert 'not found' not in message_text.lower()
 
     @pytest.mark.asyncio
@@ -1594,7 +1598,7 @@ class TestClaimRewardHandlerRouting:
         # (If handler matched incorrectly, it would try to find reward with id "back")
         call_args = mock_callback_update.callback_query.edit_message_text.call_args
         if call_args:
-            message_text = call_args.args[0] if call_args.args else ''
+            message_text = call_args.args[0] if call_args.args else call_args.kwargs.get('text', '')
             assert 'not found' not in message_text.lower()
 
     @pytest.mark.asyncio
@@ -1660,6 +1664,55 @@ class TestClaimRewardHandlerRouting:
         # If this fails, the string.replace() logic is broken
         first_call_arg = mock_reward_repo.get_by_id.call_args_list[0][0][0]
         assert first_call_arg == uuid_like_id
+
+    def test_claim_reward_conversation_handler_order(self):
+        """
+        Test that ConversationHandler routes patterns in the correct order.
+
+        CRITICAL: This test catches regressions if handlers are accidentally reordered.
+        If this test fails, it means someone changed the handler order in
+        claim_reward_conversation and broke the pattern matching fix.
+
+        Given: claim_reward_conversation is configured
+        When: We inspect the AWAITING_REWARD_SELECTION state handlers
+        Then: First handler must match "^claim_reward_back$" (exact match)
+        And: Second handler must match "^claim_reward_" (prefix match)
+        And: First handler must route to claim_back_callback
+        And: Second handler must route to claim_reward_callback
+        """
+        from telegram.ext import CallbackQueryHandler
+        from src.bot.handlers.reward_handlers import (
+            claim_reward_conversation,
+            claim_back_callback,
+            claim_reward_callback,
+            AWAITING_REWARD_SELECTION
+        )
+
+        # Get handlers for the AWAITING_REWARD_SELECTION state
+        handlers = claim_reward_conversation.states[AWAITING_REWARD_SELECTION]
+
+        # Assert: Exactly 2 handlers
+        assert len(handlers) == 2, f"Expected 2 handlers, got {len(handlers)}"
+
+        # Assert: Both are CallbackQueryHandler instances
+        assert isinstance(handlers[0], CallbackQueryHandler), \
+            f"First handler is {type(handlers[0])}, expected CallbackQueryHandler"
+        assert isinstance(handlers[1], CallbackQueryHandler), \
+            f"Second handler is {type(handlers[1])}, expected CallbackQueryHandler"
+
+        # Assert: First handler (exact match for "back") comes FIRST
+        first_handler = handlers[0]
+        assert first_handler.pattern.pattern == "^claim_reward_back$", \
+            f"First handler pattern is '{first_handler.pattern.pattern}', expected '^claim_reward_back$'"
+        assert first_handler.callback == claim_back_callback, \
+            f"First handler callback is {first_handler.callback.__name__}, expected claim_back_callback"
+
+        # Assert: Second handler (prefix match) comes SECOND
+        second_handler = handlers[1]
+        assert second_handler.pattern.pattern == "^claim_reward_", \
+            f"Second handler pattern is '{second_handler.pattern.pattern}', expected '^claim_reward_'"
+        assert second_handler.callback == claim_reward_callback, \
+            f"Second handler callback is {second_handler.callback.__name__}, expected claim_reward_callback"
 
 
 # Note: set_reward_status_command has been deprecated and removed in Feature 0005
