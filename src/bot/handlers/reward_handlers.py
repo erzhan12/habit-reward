@@ -63,7 +63,6 @@ logger = logging.getLogger(__name__)
 AWAITING_REWARD_SELECTION = 1
 
 AWAITING_REWARD_NAME = 10
-AWAITING_REWARD_TYPE = 11
 AWAITING_REWARD_WEIGHT = 12
 AWAITING_REWARD_PIECES = 13
 AWAITING_REWARD_RECURRING = 14
@@ -711,38 +710,6 @@ async def reward_name_received(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         logger.info(f"📤 Sent weight selection keyboard to {telegram_id}")
 
-    return AWAITING_REWARD_WEIGHT
-
-
-async def reward_type_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle reward type selection via inline keyboard."""
-    query = update.callback_query
-    await query.answer()
-
-    telegram_id = str(update.effective_user.id)
-    lang = await get_message_language_async(telegram_id, update)
-    callback_data = query.data.replace('reward_type_', '')
-
-    type_mapping = {
-        'virtual': RewardType.VIRTUAL,
-        'real': RewardType.REAL,
-    }
-    reward_type = type_mapping.get(callback_data)
-
-    if reward_type is None:
-        logger.error("❌ Unknown reward type callback '%s' from user %s", callback_data, telegram_id)
-        await query.answer("Unknown reward type", show_alert=True)
-        return AWAITING_REWARD_TYPE
-
-    reward_data = _get_reward_context(context)
-    reward_data['type'] = reward_type
-    logger.info("✅ Stored reward type '%s' for user %s", reward_type, telegram_id)
-
-    await query.edit_message_text(
-        msg('HELP_ADD_REWARD_WEIGHT_PROMPT', lang),
-        reply_markup=build_reward_weight_keyboard(lang),
-        parse_mode="HTML"
-    )
     return AWAITING_REWARD_WEIGHT
 
 
@@ -2145,8 +2112,7 @@ add_reward_conversation = ConversationHandler(
             CallbackQueryHandler(cancel_reward_flow_callback, pattern="^cancel_reward_flow$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, reward_name_received)
         ],
-        # Note: AWAITING_REWARD_TYPE state removed - type defaults to REAL (Feature 0030)
-        # The reward_type_selected handler is kept for edit_reward flow
+        # Type selection skipped - defaults to REAL (Feature 0030)
         AWAITING_REWARD_WEIGHT: [
             CallbackQueryHandler(reward_weight_selected, pattern="^reward_weight_(\\d+)$"),
             CallbackQueryHandler(cancel_reward_flow_callback, pattern="^cancel_reward_flow$"),
