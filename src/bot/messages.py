@@ -215,9 +215,6 @@ Your streak multiplier increases your chances of getting rewards!"""
     ERROR_REWARD_NAME_EMPTY = "❌ Reward name cannot be empty."
     ERROR_REWARD_NAME_TOO_LONG = "❌ Reward name is too long (max 255 characters)."
     ERROR_REWARD_NAME_EXISTS = "❌ A reward with this name already exists. Please choose a different name."
-    HELP_ADD_REWARD_TYPE_PROMPT = "Select a reward type:"
-    BUTTON_REWARD_TYPE_VIRTUAL = "🖥 Virtual"
-    BUTTON_REWARD_TYPE_REAL = "🎁 Real"
     HELP_ADD_REWARD_WEIGHT_PROMPT = "Enter the weight for this reward (higher is more likely) or pick a quick option below:"
     ERROR_REWARD_WEIGHT_INVALID = "❌ Invalid weight. Enter a number between {min} and {max}."
     HELP_ADD_REWARD_PIECES_PROMPT = "Enter how many pieces are required to claim this reward:"
@@ -247,7 +244,6 @@ Your streak multiplier increases your chances of getting rewards!"""
     HELP_EDIT_REWARD_SELECT = "Select a reward to edit:"
     ERROR_NO_REWARDS_TO_EDIT = "❌ You don't have any rewards to edit."
     HELP_EDIT_REWARD_NAME_PROMPT = "Current name: <b>{current_name}</b>\n\nEnter new name:"
-    HELP_EDIT_REWARD_TYPE_PROMPT = "Current type: <b>{current_type}</b>\n\nSelect new type:"
     HELP_EDIT_REWARD_WEIGHT_PROMPT = "Current weight: <b>{current_weight}</b>\n\nSelect a new weight (or type one):"
     HELP_EDIT_REWARD_PIECES_PROMPT = "Current pieces required: <b>{current_pieces}</b>\n\nEnter new pieces required:"
     HELP_EDIT_REWARD_PIECE_VALUE_PROMPT = (
@@ -257,7 +253,6 @@ Your streak multiplier increases your chances of getting rewards!"""
     HELP_EDIT_REWARD_CONFIRM = (
         "Review changes:\n"
         "<b>Name:</b> {old_name} → {new_name}\n"
-        "<b>Type:</b> {old_type} → {new_type}\n"
         "<b>Weight:</b> {old_weight} → {new_weight}\n"
         "<b>Pieces Required:</b> {old_pieces} → {new_pieces}\n"
         "<b>Recurring:</b> {old_recurring} → {new_recurring}\n\n"
@@ -531,9 +526,6 @@ Use this key in your app with the header:
             'ERROR_REWARD_NAME_EMPTY': "❌ Название награды не может быть пустым.",
             'ERROR_REWARD_NAME_TOO_LONG': "❌ Название награды слишком длинное (максимум 255 символов).",
             'ERROR_REWARD_NAME_EXISTS': "❌ Награда с таким названием уже существует. Пожалуйста, выберите другое название.",
-            'HELP_ADD_REWARD_TYPE_PROMPT': "Выберите тип награды:",
-            'BUTTON_REWARD_TYPE_VIRTUAL': "🖥 Виртуальная",
-            'BUTTON_REWARD_TYPE_REAL': "🎁 Реальная",
             'HELP_ADD_REWARD_WEIGHT_PROMPT': "Введите вес награды (чем выше, тем больше шанс) или выберите вариант ниже:",
             'ERROR_REWARD_WEIGHT_INVALID': "❌ Неверный вес. Введите число от {min} до {max}.",
             'HELP_ADD_REWARD_PIECES_PROMPT': "Введите сколько частей нужно для получения награды:",
@@ -563,7 +555,6 @@ Use this key in your app with the header:
             'HELP_EDIT_REWARD_SELECT': "Выберите награду для редактирования:",
             'ERROR_NO_REWARDS_TO_EDIT': "❌ У вас нет наград для редактирования.",
             'HELP_EDIT_REWARD_NAME_PROMPT': "Текущее название: <b>{current_name}</b>\n\nВведите новое название:",
-            'HELP_EDIT_REWARD_TYPE_PROMPT': "Текущий тип: <b>{current_type}</b>\n\nВыберите новый тип:",
             'HELP_EDIT_REWARD_WEIGHT_PROMPT': "Текущий вес: <b>{current_weight}</b>\n\nВыберите новый вес (или введите вручную):",
             'HELP_EDIT_REWARD_PIECES_PROMPT': "Текущее количество частей: <b>{current_pieces}</b>\n\nВведите новое количество частей:",
             'HELP_EDIT_REWARD_PIECE_VALUE_PROMPT': (
@@ -573,7 +564,6 @@ Use this key in your app with the header:
             'HELP_EDIT_REWARD_CONFIRM': (
                 "Проверьте изменения:\n"
                 "<b>Название:</b> {old_name} → {new_name}\n"
-                "<b>Тип:</b> {old_type} → {new_type}\n"
                 "<b>Вес:</b> {old_weight} → {new_weight}\n"
                 "<b>Количество частей:</b> {old_pieces} → {new_pieces}\n"
                 "<b>Повторяющаяся:</b> {old_recurring} → {new_recurring}\n\n"
@@ -846,9 +836,6 @@ Use this key in your app with the header:
             'ERROR_REWARD_NAME_EMPTY': "❌ Сыйлық атауы бос болмауы тиіс.",
             'ERROR_REWARD_NAME_TOO_LONG': "❌ Сыйлық атауы тым ұзын (ең көбі 255 таңба).",
             'ERROR_REWARD_NAME_EXISTS': "❌ Бұл атаумен сыйлық бар. Басқа атауды таңдаңыз.",
-            'HELP_ADD_REWARD_TYPE_PROMPT': "Сыйлық түрін таңдаңыз:",
-            'BUTTON_REWARD_TYPE_VIRTUAL': "🖥 Виртуалды",
-            'BUTTON_REWARD_TYPE_REAL': "🎁 Нақты",
             'HELP_ADD_REWARD_WEIGHT_PROMPT': "Сыйлық салмағын енгізіңіз (үлкен салмақ — жоғары мүмкіндік) немесе төменнен таңдаңыз:",
             'ERROR_REWARD_WEIGHT_INVALID': "❌ Дұрыс емес салмақ. {min} мен {max} аралығындағы сан енгізіңіз.",
             'HELP_ADD_REWARD_PIECES_PROMPT': "Сыйлық алу үшін қанша бөлік керек екенін енгізіңіз:",
@@ -878,7 +865,6 @@ Use this key in your app with the header:
             'HELP_EDIT_REWARD_SELECT': "Өңдеу үшін марапатты таңдаңыз:",
             'ERROR_NO_REWARDS_TO_EDIT': "❌ Өңдеуге марапаттарыңыз жоқ.",
             'HELP_EDIT_REWARD_NAME_PROMPT': "Ағымдағы атауы: <b>{current_name}</b>\n\nЖаңа атауын енгізіңіз:",
-            'HELP_EDIT_REWARD_TYPE_PROMPT': "Ағымдағы түрі: <b>{current_type}</b>\n\nЖаңа түрін таңдаңыз:",
             'HELP_EDIT_REWARD_WEIGHT_PROMPT': "Ағымдағы салмағы: <b>{current_weight}</b>\n\nЖаңа салмақты таңдаңыз (немесе енгізіңіз):",
             'HELP_EDIT_REWARD_PIECES_PROMPT': "Ағымдағы қажет бөліктер: <b>{current_pieces}</b>\n\nЖаңа қажет бөліктер санын енгізіңіз:",
             'HELP_EDIT_REWARD_PIECE_VALUE_PROMPT': (
@@ -888,7 +874,6 @@ Use this key in your app with the header:
             'HELP_EDIT_REWARD_CONFIRM': (
                 "Өзгерістерді тексеріңіз:\n"
                 "<b>Атауы:</b> {old_name} → {new_name}\n"
-                "<b>Түрі:</b> {old_type} → {new_type}\n"
                 "<b>Салмағы:</b> {old_weight} → {new_weight}\n"
                 "<b>Қажет бөліктер:</b> {old_pieces} → {new_pieces}\n"
                 "<b>Қайталанатын:</b> {old_recurring} → {new_recurring}\n\n"

@@ -30,7 +30,6 @@ from src.bot.handlers.reward_handlers import (
     menu_edit_reward_callback,
     AWAITING_REWARD_EDIT_SELECTION,
 )
-from src.models.reward import RewardType
 from src.bot.handlers.menu_handler import (
     open_habits_menu_callback,
     bridge_command_callback,
@@ -876,14 +875,11 @@ class TestAddRewardConversationSteps:
 
         result = await reward_name_received(mock_telegram_update, context)
 
-        # Feature 0030: Type selection is skipped, defaults to REAL
+        # Type selection has been removed from the flow
         assert result == AWAITING_REWARD_WEIGHT
         mock_lang.assert_awaited_once()
         stored_name = context.user_data['reward_creation_data']['name']
         assert stored_name == "Morning Coffee"
-        # Verify type is defaulted to REAL
-        stored_type = context.user_data['reward_creation_data']['type']
-        assert stored_type == RewardType.REAL
         mock_telegram_update.message.reply_text.assert_awaited_once()
 
     @pytest.mark.asyncio

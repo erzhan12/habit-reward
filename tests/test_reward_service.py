@@ -5,7 +5,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from django.test import override_settings
 
 from src.services.reward_service import RewardService
-from src.models.reward import Reward, RewardType
+from src.models.reward import Reward
 from src.models.reward_progress import RewardProgress, RewardStatus
 
 
@@ -67,8 +67,8 @@ class TestRewardSelection:
     def test_select_reward_from_multiple(self, reward_service, mock_reward_repo):
         """Test weighted random selection with implicit 50% no reward probability."""
         mock_rewards = [
-            Reward(id="r1", name="Reward 1", weight=10, type=RewardType.VIRTUAL),
-            Reward(id="r2", name="Reward 2", weight=20, type=RewardType.REAL),
+            Reward(id="r1", name="Reward 1", weight=10),
+            Reward(id="r2", name="Reward 2", weight=20),
         ]
         mock_reward_repo.get_all_active.return_value = mock_rewards
 
@@ -81,8 +81,8 @@ class TestRewardSelection:
     def test_select_reward_includes_no_reward_weight(self, reward_service):
         """Ensure no-reward weight equals sum of other weights when configured for 50%."""
         rewards = [
-            Reward(id="r1", name="Reward 1", weight=2, type=RewardType.VIRTUAL),
-            Reward(id="r2", name="Reward 2", weight=3, type=RewardType.REAL),
+            Reward(id="r1", name="Reward 1", weight=2),
+            Reward(id="r2", name="Reward 2", weight=3),
         ]
         reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
         reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
@@ -103,8 +103,8 @@ class TestRewardSelection:
     def test_select_reward_no_reward_weight_respects_probability(self, reward_service):
         """Ensure no-reward weight produces the configured probability."""
         rewards = [
-            Reward(id="r1", name="Reward 1", weight=2, type=RewardType.VIRTUAL),
-            Reward(id="r2", name="Reward 2", weight=3, type=RewardType.REAL),
+            Reward(id="r1", name="Reward 1", weight=2),
+            Reward(id="r2", name="Reward 2", weight=3),
         ]
         reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
         reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
@@ -125,8 +125,8 @@ class TestRewardSelection:
     def test_select_reward_no_reward_probability_zero_excludes_none(self, reward_service):
         """Ensure 0% no-reward excludes None from selection population."""
         rewards = [
-            Reward(id="r1", name="Reward 1", weight=2, type=RewardType.VIRTUAL),
-            Reward(id="r2", name="Reward 2", weight=3, type=RewardType.REAL),
+            Reward(id="r1", name="Reward 1", weight=2),
+            Reward(id="r2", name="Reward 2", weight=3),
         ]
         reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
         reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
@@ -145,8 +145,8 @@ class TestRewardSelection:
     def test_select_reward_no_reward_probability_hundred_always_none(self, reward_service):
         """Ensure 100% no-reward returns None and does not call random.choices."""
         rewards = [
-            Reward(id="r1", name="Reward 1", weight=2, type=RewardType.VIRTUAL),
-            Reward(id="r2", name="Reward 2", weight=3, type=RewardType.REAL),
+            Reward(id="r1", name="Reward 1", weight=2),
+            Reward(id="r2", name="Reward 2", weight=3),
         ]
         reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
         reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
@@ -179,8 +179,7 @@ class TestCumulativeProgress:
             id="r1",
             name="Multi-piece Reward",
             weight=10,
-            type=RewardType.REAL,
-            pieces_required=10,
+                        pieces_required=10,
             piece_value=1.0
         )
         mock_reward_repo.get_by_id.return_value = mock_reward
@@ -222,8 +221,7 @@ class TestCumulativeProgress:
             id="r1",
             name="Multi-piece Reward",
             weight=10,
-            type=RewardType.REAL,
-            pieces_required=10,
+                        pieces_required=10,
             piece_value=1.0
         )
         mock_reward_repo.get_by_id.return_value = mock_reward
@@ -292,8 +290,7 @@ class TestCumulativeProgress:
         mock_reward = Reward(
             id="r1",
             name="Test Reward",
-            type=RewardType.VIRTUAL,
-            weight=10.0,
+                        weight=10.0,
             pieces_required=10,
             is_recurring=True
         )
@@ -344,8 +341,7 @@ class TestCumulativeProgress:
         mock_reward_repo.get_by_id.return_value = Reward(
             id="r1",
             name="Non-recurring Reward",
-            type=RewardType.VIRTUAL,
-            weight=10.0,
+                        weight=10.0,
             pieces_required=10,
             is_recurring=False,
         )
@@ -372,7 +368,6 @@ class TestCreateReward:
             result = await reward_service.create_reward(
                 user_id=1,
                 name="Morning Coffee",
-                reward_type=RewardType.VIRTUAL,
                 weight=5.0,
                 pieces_required=3,
                 piece_value=1.5
@@ -382,7 +377,6 @@ class TestCreateReward:
         mock_repo.get_by_name.assert_awaited_once_with(1, "Morning Coffee")
         await_call = mock_repo.create.await_args
         payload = await_call.args[0]
-        assert payload["type"] == RewardType.VIRTUAL.value
         assert payload["piece_value"] == 1.5
 
     @pytest.mark.asyncio
@@ -398,7 +392,6 @@ class TestCreateReward:
                 await reward_service.create_reward(
                     user_id=1,
                     name="Morning Coffee",
-                    reward_type=RewardType.VIRTUAL,
                     weight=5.0,
                     pieces_required=3,
                     piece_value=None
@@ -465,8 +458,7 @@ class TestDailyLimitEnforcement:
             id="r1",
             name="Limited Reward",
             weight=10.0,
-            type=RewardType.REAL,
-            pieces_required=5,
+                        pieces_required=5,
             max_daily_claims=1
         )
 
@@ -500,8 +492,7 @@ class TestDailyLimitEnforcement:
             id="r1",
             name="Unlimited Reward",
             weight=10.0,
-            type=RewardType.REAL,
-            pieces_required=5,
+                        pieces_required=5,
             max_daily_claims=None
         )
 
@@ -534,11 +525,10 @@ class TestDailyLimitEnforcement:
     async def test_select_reward_excludes_completed(self, reward_service):
         """Test that completed rewards are excluded from selection."""
         # Setup: reward that is completed
-        mock_reward = Mock(spec=['id', 'name', 'weight', 'type', 'pieces_required', 'max_daily_claims'])
+        mock_reward = Mock(spec=['id', 'name', 'weight', 'pieces_required', 'max_daily_claims'])
         mock_reward.id = "r1"
         mock_reward.name = "Completed Reward"
         mock_reward.weight = 10.0
-        mock_reward.type = RewardType.REAL
         mock_reward.pieces_required = 5
         mock_reward.max_daily_claims = None
 
@@ -584,8 +574,7 @@ class TestDailyLimitEnforcement:
             id="r1",
             name="Once Daily",
             weight=10.0,
-            type=RewardType.REAL,
-            pieces_required=1,
+                        pieces_required=1,
             max_daily_claims=1
         )
 
@@ -628,8 +617,7 @@ class TestDailyLimitEnforcement:
             id="r1",
             name="Twice Daily",
             weight=10.0,
-            type=RewardType.REAL,
-            pieces_required=10,
+                        pieces_required=10,
             max_daily_claims=2
         )
 

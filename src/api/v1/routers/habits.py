@@ -61,7 +61,6 @@ class RewardResponse(BaseModel):
 
     id: int
     name: str
-    type: str
     pieces_required: int
 
     class Config:
@@ -481,9 +480,6 @@ async def complete_habit(
         reward_response = RewardResponse(
             id=result.reward.id,
             name=result.reward.name,
-            type=result.reward.type.value
-            if hasattr(result.reward.type, "value")
-            else str(result.reward.type),
             pieces_required=result.reward.pieces_required,
         )
 
@@ -577,9 +573,6 @@ async def batch_complete_habits(
                 reward_response = RewardResponse(
                     id=result.reward.id,
                     name=result.reward.name,
-                    type=result.reward.type.value
-                    if hasattr(result.reward.type, "value")
-                    else str(result.reward.type),
                     pieces_required=result.reward.pieces_required,
                 )
 

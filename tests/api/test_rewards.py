@@ -25,21 +25,6 @@ class TestListRewards:
 
     @patch("src.api.v1.routers.rewards.reward_progress_repository")
     @patch("src.api.v1.routers.rewards.reward_repository")
-    def test_list_rewards_by_type(
-        self, mock_reward_repo, mock_progress_repo, client, mock_reward
-    ):
-        """Test filtering rewards by type."""
-        mock_reward_repo.get_all_active = AsyncMock(return_value=[mock_reward])
-        mock_progress_repo.get_all_by_user = AsyncMock(return_value=[])
-
-        response = client.get("/v1/rewards?type=virtual")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["rewards"]) >= 0
-
-    @patch("src.api.v1.routers.rewards.reward_progress_repository")
-    @patch("src.api.v1.routers.rewards.reward_repository")
     def test_list_rewards_with_progress(
         self,
         mock_reward_repo,
@@ -123,7 +108,6 @@ class TestCreateReward:
             "/v1/rewards",
             json={
                 "name": "Coffee",
-                "type": "virtual",
                 "weight": 10.0,
                 "pieces_required": 10,
             },
@@ -132,7 +116,6 @@ class TestCreateReward:
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == mock_reward.name
-        assert data["type"] == mock_reward.type
 
     @patch("src.api.v1.routers.rewards.reward_repository")
     def test_create_reward_duplicate(self, mock_repo, client, mock_reward):
@@ -140,7 +123,7 @@ class TestCreateReward:
         mock_repo.get_by_name = AsyncMock(return_value=mock_reward)
 
         response = client.post(
-            "/v1/rewards", json={"name": "Coffee", "type": "virtual", "weight": 10.0}
+            "/v1/rewards", json={"name": "Coffee", "weight": 10.0}
         )
 
         assert response.status_code == 409
@@ -163,7 +146,6 @@ class TestCreateReward:
             "/v1/rewards",
             json={
                 "name": "Coffee",
-                "type": "real",
                 "weight": 10.0,
                 "pieces_required": 5,
                 "piece_value": 1.5,
@@ -172,14 +154,6 @@ class TestCreateReward:
         )
 
         assert response.status_code == 201
-
-    def test_create_reward_rejects_none_type(self, client):
-        """Test creating reward rejects legacy 'none' type."""
-        response = client.post(
-            "/v1/rewards", json={"name": "Coffee", "type": "none", "weight": 10.0}
-        )
-
-        assert response.status_code == 422
 
 
 class TestUpdateReward:
@@ -220,30 +194,6 @@ class TestUpdateReward:
         assert response.status_code == 200
         data = response.json()
         assert data["piece_value"] is None
-
-    @patch("src.api.v1.routers.rewards.reward_repository")
-    def test_update_reward_type_success(self, mock_repo, client, mock_reward):
-        """Test updating reward type."""
-        updated_reward = mock_reward
-        updated_reward.type = "real"
-        mock_repo.get_by_id = AsyncMock(side_effect=[mock_reward, updated_reward])
-        mock_repo.get_by_name = AsyncMock(return_value=None)
-
-        response = client.patch(
-            f"/v1/rewards/{mock_reward.id}", json={"type": "real"}
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["type"] == "real"
-
-    def test_update_reward_rejects_none_type(self, client, mock_reward):
-        """Test updating reward rejects legacy 'none' type."""
-        response = client.patch(
-            f"/v1/rewards/{mock_reward.id}", json={"type": "none"}
-        )
-
-        assert response.status_code == 422
 
     @patch("src.api.v1.routers.rewards.reward_repository")
     def test_update_reward_pieces_required_success(self, mock_repo, client, mock_reward):

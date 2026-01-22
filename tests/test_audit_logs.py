@@ -91,14 +91,12 @@ def test_rewards(test_user):
             'weight': 90,
             'pieces_required': 3,
             'max_daily_claims': 2,
-            'type': 'virtual',
         },
         {
             'name': 'Movie Night',
             'weight': 50,
             'pieces_required': 1,
             'max_daily_claims': 1,
-            'type': 'real',
         },
     ]
 
@@ -109,7 +107,6 @@ def test_rewards(test_user):
             weight=data['weight'],
             pieces_required=data['pieces_required'],
             max_daily_claims=data['max_daily_claims'],
-            type=data['type'],
             active=True
         )
         rewards.append(reward)
@@ -401,7 +398,6 @@ async def test_tc005_error_logging_duplicate_reward(test_user, test_rewards):
         await reward_service.create_reward(
             user_id=test_user.id,
             name=existing_reward.name,  # Duplicate!
-            reward_type='virtual',
             weight=50.0,
             pieces_required=2,
             piece_value=None

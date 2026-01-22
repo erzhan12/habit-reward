@@ -9,7 +9,7 @@ from src.services.streak_service import StreakService
 from src.core.repositories import HabitLogRepository
 from src.models.user import User
 from src.models.habit import Habit
-from src.models.reward import Reward, RewardType
+from src.models.reward import Reward
 from src.models.habit_log import HabitLog
 
 
@@ -70,7 +70,6 @@ def mock_reward():
         user_id=123,
         name="Coffee",
         weight=10,
-        type=RewardType.REAL,
         pieces_required=1
     )
 

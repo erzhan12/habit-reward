@@ -2,7 +2,6 @@
 
 import random
 import logging
-from enum import Enum
 from typing import Awaitable
 from types import SimpleNamespace, MethodType
 
@@ -13,7 +12,6 @@ from django.conf import settings
 from src.utils.async_compat import run_sync_or_async, maybe_await
 
 # Import enums from Django models
-RewardType = Reward.RewardType
 RewardStatus = RewardProgress.RewardStatus
 
 # Configure logging
@@ -115,28 +113,8 @@ class RewardService:
                 eligible_rewards = []
                 excluded_completed = []
                 excluded_daily_limit = []
-                excluded_legacy_none = []
 
                 for reward in rewards:
-                    # Filter 0: Exclude legacy 'none' type rewards (transition safety)
-                    if reward.type == "none":
-                        excluded_legacy_none.append(reward.name)
-                        logger.debug(
-                            "Excluding %s - legacy 'none' type reward",
-                            reward.name,
-                        )
-                        if getattr(reward, "active", False) and hasattr(self.reward_repo, "update"):
-                            try:
-                                await maybe_await(
-                                    self.reward_repo.update(reward.id, {"active": False})
-                                )
-                            except Exception:
-                                logger.warning(
-                                    "Failed to deactivate legacy 'none' reward %s",
-                                    getattr(reward, "id", None),
-                                )
-                        continue
-
                     progress = progress_by_reward_id.get(reward.id)
 
                     # Filter 1: Check if reward is already completed
@@ -170,13 +148,6 @@ class RewardService:
                     # Reward passed all filters
                     eligible_rewards.append(reward)
 
-                if excluded_legacy_none:
-                    logger.info(
-                        "Excluded %s legacy 'none' type rewards: %s",
-                        len(excluded_legacy_none),
-                        ", ".join(excluded_legacy_none),
-                    )
-
                 if excluded_completed:
                     logger.info(
                         "Excluded %s completed rewards: %s",
@@ -195,8 +166,7 @@ class RewardService:
 
                 if not rewards:
                     logger.warning(
-                        "No eligible rewards remain after filtering (legacy none: %s, completed: %s, daily limit: %s)",
-                        len(excluded_legacy_none),
+                        "No eligible rewards remain after filtering (completed: %s, daily limit: %s)",
                         len(excluded_completed),
                         len(excluded_daily_limit),
                     )
@@ -289,11 +259,7 @@ class RewardService:
             if selected is None:
                 logger.info("🎲 Selected: None (no reward)")
             else:
-                logger.info(
-                    "🎲 Selected reward: %s (type: %s)",
-                    selected.name,
-                    selected.type,
-                )
+                logger.info("🎲 Selected reward: %s", selected.name)
 
             return selected
 
@@ -514,7 +480,6 @@ class RewardService:
         *,
         user_id: int | str,
         name: str,
-        reward_type: RewardType | str,
         weight: float,
         pieces_required: int,
         piece_value: float | None = None,
@@ -524,10 +489,9 @@ class RewardService:
 
         async def _impl() -> Reward:
             logger.info(
-                "Creating reward for user=%s name=%s type=%s weight=%s pieces_required=%s piece_value=%s is_recurring=%s",
+                "Creating reward for user=%s name=%s weight=%s pieces_required=%s piece_value=%s is_recurring=%s",
                 user_id,
                 name,
-                reward_type,
                 weight,
                 pieces_required,
                 piece_value,
@@ -543,16 +507,9 @@ class RewardService:
                 )
                 raise ValueError("Reward name already exists")
 
-            reward_type_value = (
-                reward_type.value
-                if isinstance(reward_type, Enum)
-                else reward_type
-            )
-
             data: dict[str, object] = {
                 "user_id": user_id,
                 "name": name,
-                "type": reward_type_value,
                 "weight": weight,
                 "pieces_required": pieces_required,
                 "is_recurring": is_recurring,

@@ -38,7 +38,6 @@ class TestRevertSelectedLogsAction(TestCase):
         self.reward = Reward.objects.create(
             user=self.user,
             name='Test Reward',
-            type=Reward.RewardType.VIRTUAL,
             weight=50.0,
             pieces_required=5,
             piece_value=1.0,
