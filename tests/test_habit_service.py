@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 from src.services.habit_service import HabitService
 from src.models.user import User
 from src.models.habit import Habit
-from src.models.reward import Reward, RewardType
+from src.models.reward import Reward
 from src.models.habit_completion_result import HabitCompletionResult
 
 
@@ -47,7 +47,6 @@ def mock_reward():
         id=1,
         name="Coffee",
         weight=10,
-        type=RewardType.REAL,
         pieces_required=1
     )
 

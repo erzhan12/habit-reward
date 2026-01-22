@@ -31,7 +31,6 @@ class RewardResponse(BaseModel):
     id: int
     name: str
     weight: float
-    type: str
     pieces_required: int
     piece_value: float | None
     max_daily_claims: int | None
@@ -79,7 +78,6 @@ class RewardCreateRequest(BaseModel):
     """Reward creation request."""
 
     name: str = Field(..., min_length=1, max_length=255)
-    type: str = Field(default="virtual", pattern="^(virtual|real)$")
     weight: float = Field(default=1.0, gt=0, le=100)
     pieces_required: int = Field(default=1, ge=1)
     piece_value: float | None = Field(default=None, ge=0)
@@ -91,7 +89,6 @@ class RewardUpdateRequest(BaseModel):
     """Reward update request."""
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    type: str | None = Field(default=None, pattern="^(virtual|real)$")
     weight: float | None = Field(default=None, gt=0, le=100)
     pieces_required: int | None = Field(default=None, ge=1)
     piece_value: float | None = None
@@ -153,7 +150,6 @@ def _build_progress_response(
 @router.get("", response_model=RewardListResponse)
 async def list_rewards(
     current_user: Annotated[User, Depends(get_current_active_user)],
-    type: str | None = Query(default=None, description="Filter by reward type"),
     status: str | None = Query(
         default=None, description="Filter by progress status (pending|achieved|claimed)"
     ),
@@ -162,22 +158,17 @@ async def list_rewards(
 
     Args:
         current_user: Currently authenticated user
-        type: Optional reward type filter
         status: Optional progress status filter
 
     Returns:
         RewardListResponse with list of rewards and their progress
     """
     logger.info(
-        "List rewards for user %s (type=%s, status=%s)", current_user.id, type, status
+        "List rewards for user %s (status=%s)", current_user.id, status
     )
 
     # Get all active rewards
     rewards = await maybe_await(reward_repository.get_all_active(current_user.id))
-
-    # Filter by type if specified
-    if type:
-        rewards = [r for r in rewards if r.type == type]
 
     # Get all progress for user
     progress_list = await maybe_await(
@@ -210,7 +201,6 @@ async def list_rewards(
                     id=reward.id,
                     name=reward.name,
                     weight=reward.weight,
-                    type=reward.type,
                     pieces_required=reward.pieces_required,
                     piece_value=float(reward.piece_value)
                     if reward.piece_value
@@ -241,9 +231,10 @@ async def get_all_progress(
         reward_progress_repository.get_all_by_user(current_user.id)
     )
 
+    # Build response using progress.reward (already loaded via select_related)
     result = []
     for progress in progress_list:
-        reward = await maybe_await(reward_repository.get_by_id(progress.reward_id))
+        reward = progress.reward  # No additional query - already loaded
         if reward:
             result.append(
                 RewardWithProgressResponse(
@@ -251,7 +242,6 @@ async def get_all_progress(
                         id=reward.id,
                         name=reward.name,
                         weight=reward.weight,
-                        type=reward.type,
                         pieces_required=reward.pieces_required,
                         piece_value=float(reward.piece_value)
                         if reward.piece_value
@@ -309,7 +299,6 @@ async def get_reward(
             id=reward.id,
             name=reward.name,
             weight=reward.weight,
-            type=reward.type,
             pieces_required=reward.pieces_required,
             piece_value=float(reward.piece_value) if reward.piece_value else None,
             max_daily_claims=reward.max_daily_claims,
@@ -354,7 +343,6 @@ async def create_reward(
         reward_service.create_reward(
             user_id=current_user.id,
             name=request.name,
-            reward_type=request.type,
             weight=request.weight,
             pieces_required=request.pieces_required,
             piece_value=request.piece_value,
@@ -380,7 +368,6 @@ async def create_reward(
         id=reward.id,
         name=reward.name,
         weight=reward.weight,
-        type=reward.type,
         pieces_required=reward.pieces_required,
         piece_value=float(reward.piece_value) if reward.piece_value else None,
         max_daily_claims=reward.max_daily_claims,
@@ -438,8 +425,6 @@ async def update_reward(
     update_dict = {}
     if request.name is not None:
         update_dict["name"] = request.name
-    if request.type is not None:
-        update_dict["type"] = request.type
     if request.weight is not None:
         update_dict["weight"] = request.weight
     if request.pieces_required is not None:
@@ -465,7 +450,6 @@ async def update_reward(
         id=reward.id,
         name=reward.name,
         weight=reward.weight,
-        type=reward.type,
         pieces_required=reward.pieces_required,
         piece_value=float(reward.piece_value) if reward.piece_value else None,
         max_daily_claims=reward.max_daily_claims,
@@ -577,7 +561,6 @@ async def claim_reward(
             id=reward.id,
             name=reward.name,
             weight=reward.weight,
-            type=reward.type,
             pieces_required=reward.pieces_required,
             piece_value=float(reward.piece_value) if reward.piece_value else None,
             max_daily_claims=reward.max_daily_claims,
@@ -641,7 +624,6 @@ async def toggle_reward_active(
         id=reward.id,
         name=reward.name,
         weight=reward.weight,
-        type=reward.type,
         pieces_required=reward.pieces_required,
         piece_value=float(reward.piece_value) if reward.piece_value else None,
         max_daily_claims=reward.max_daily_claims,

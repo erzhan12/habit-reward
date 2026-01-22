@@ -2,7 +2,7 @@
 
 from src.models.habit_completion_result import HabitCompletionResult
 from src.models.reward_progress import RewardProgress, RewardStatus
-from src.models.reward import Reward, RewardType
+from src.models.reward import Reward
 from src.models.habit_log import HabitLog
 from src.config import settings
 from src.bot.messages import msg
@@ -131,12 +131,7 @@ def format_rewards_list_message(rewards: list[Reward], language: str = 'en') -> 
     message_parts = [msg('HEADER_REWARDS_LIST', language)]
 
     for reward in rewards:
-        type_emoji = {
-            RewardType.VIRTUAL: "💎",
-            RewardType.REAL: "🎁",
-        }.get(reward.type, "❓")
-
-        reward_info = f"{type_emoji} <b>{reward.name}</b>"
+        reward_info = f"🎁 <b>{reward.name}</b>"
 
         # Build details list (pieces and weight)
         details = []

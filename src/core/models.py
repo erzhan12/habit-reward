@@ -135,11 +135,6 @@ class Habit(models.Model):
 class Reward(models.Model):
     """Reward definition."""
 
-    class RewardType(models.TextChoices):
-        """Types of rewards available in the system."""
-        VIRTUAL = 'virtual', 'Virtual'
-        REAL = 'real', 'Real'
-
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -153,12 +148,6 @@ class Reward(models.Model):
     weight = models.FloatField(
         default=1.0,
         help_text="Reward weight for selection probability"
-    )
-    type = models.CharField(
-        max_length=10,
-        choices=RewardType.choices,
-        default=RewardType.REAL,
-        help_text="Reward type"
     )
     pieces_required = models.IntegerField(
         default=1,
@@ -189,7 +178,6 @@ class Reward(models.Model):
         db_table = 'rewards'
         unique_together = [('user', 'name')]
         indexes = [
-            models.Index(fields=['user', 'type']),
             models.Index(fields=['user', 'active']),
         ]
         ordering = ['name']

@@ -22,7 +22,6 @@ from src.bot.handlers.reward_handlers import (
     reward_edit_recurring_skip,
     reward_edit_selected,
     AWAITING_REWARD_NAME,
-    AWAITING_REWARD_TYPE,
     AWAITING_REWARD_WEIGHT,
     AWAITING_REWARD_RECURRING,
     # AWAITING_REWARD_CONFIRM,
@@ -865,7 +864,7 @@ class TestAddRewardConversationSteps:
         mock_active_user,
         language
     ):
-        """Valid reward name should transition to type selection."""
+        """Valid reward name should transition to weight selection (skipping type)."""
         mock_lang.return_value = language
         mock_user_repo.get_by_telegram_id.return_value = mock_active_user
         mock_reward_repo.get_by_name = AsyncMock(return_value=None)
@@ -876,10 +875,11 @@ class TestAddRewardConversationSteps:
 
         result = await reward_name_received(mock_telegram_update, context)
 
-        assert result == AWAITING_REWARD_TYPE
+        # Type selection has been removed from the flow
+        assert result == AWAITING_REWARD_WEIGHT
         mock_lang.assert_awaited_once()
-        stored = context.user_data['reward_creation_data']['name']
-        assert stored == "Morning Coffee"
+        stored_name = context.user_data['reward_creation_data']['name']
+        assert stored_name == "Morning Coffee"
         mock_telegram_update.message.reply_text.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -1232,7 +1232,6 @@ class TestEditRewardPieceValueRemoval:
         mock_reward = Mock()
         mock_reward.id = 'reward123'
         mock_reward.name = 'Coffee'
-        mock_reward.type = 'virtual'
         mock_reward.weight = 10.0
         mock_reward.pieces_required = 3
         mock_reward.piece_value = 5.0  # This should NOT be stored in context

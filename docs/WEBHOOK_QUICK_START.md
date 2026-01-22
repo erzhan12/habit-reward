@@ -9,8 +9,8 @@ A condensed guide for developers already familiar with webhooks and ngrok.
 ./scripts/start_webhook_dev.sh
 
 # Manual setup
-# Terminal 1: ngrok http 8000
-# Terminal 2: uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000 --reload
+# Terminal 1: make ngrok (or ngrok http 8000)
+# Terminal 2: make api (or uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000 --reload)
 # Terminal 3: uv run python scripts/set_webhook.py
 ```
 
@@ -47,6 +47,11 @@ This interactive script will:
 ### 1. Start ngrok
 
 ```bash
+make ngrok
+```
+
+Or directly:
+```bash
 ngrok http 8000
 ```
 
@@ -61,6 +66,11 @@ ALLOWED_HOSTS=localhost,127.0.0.1,abc123.ngrok-free.app
 
 ### 3. Start Django Server
 
+```bash
+make api
+```
+
+Or directly:
 ```bash
 uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000 --reload
 ```

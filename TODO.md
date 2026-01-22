@@ -56,7 +56,25 @@ This document tracks planned features, improvements, and enhancements for the Ha
   - **Related**: UX improvement - optimizes for the 90% use case (logging today)
   - **Bug Fixes**: Fixed empty habit list handling to correctly distinguish between "no habits" vs "all completed"
 
-- [ ] **Recurring vs Non-Recurring Rewards**
+- [ ] **Guaranteed Reward on Last Daily Habit**
+  - When user completes their last remaining habit for the day, they should receive a 100% guaranteed reward with no "No reward" option
+  - **Problem**: Currently even the final habit completion shows a chance to get "No reward", which feels unrewarding for completing all daily habits
+  - **Solution**: Detect when a habit is the last one for the day and guarantee a reward
+    - Check if this is the final incomplete habit for today before marking it done
+    - If yes, calculate reward with 100% success rate (skip the random "No reward" chance)
+    - If no, use normal reward calculation logic
+  - **Implementation approach**:
+    - Modify reward calculation logic to accept a `guaranteed` flag
+    - Update habit completion handler to check if this is the last habit for today
+    - Pass `guaranteed=True` to reward calculation when it's the final habit
+    - Update reward message/presentation accordingly
+  - **Files**:
+    - `src/bot/handlers/reward_handlers.py` - Add check for last habit and guaranteed flag
+    - `src/services/reward_service.py` - Update reward calculation to support guaranteed rewards
+    - `src/bot/messages.py` - Update reward presentation messages
+  - **Related**: User motivation and reward system enhancement
+
+- [x] **Recurring vs Non-Recurring Rewards**
   - Add distinction between recurring and non-recurring rewards
   - **Problem**: Some rewards can be claimed multiple times (e.g., massage), while others should only be claimed once (e.g., MacBook)
   - **Solution**: Add a "recurring" boolean field to rewards
@@ -80,7 +98,7 @@ This document tracks planned features, improvements, and enhancements for the Ha
     - `src/api/` - Update REST API serializers and endpoints for `is_recurring` field
   - **Related**: Core reward system enhancement
 
-- [ ] **Reward Edit Interface**
+- [x] **Reward Edit Interface**
   - Add Telegram bot command/interface to edit existing rewards
   - Currently rewards can only be created and deleted, but not edited
   - Should allow editing:
@@ -97,21 +115,6 @@ This document tracks planned features, improvements, and enhancements for the Ha
     - Show confirmation before saving changes
   - **Files**: `src/bot/handlers/reward_handler.py` or new `src/bot/handlers/reward_management_handler.py`, `src/bot/messages.py`
   - **Related**: Completes CRUD operations for rewards in bot interface
-
-- [ ] **Undo Button for Recent Completions**
-  - Add inline "Undo" button that appears after completing a habit (within 5 minutes)
-  - Quick way to revert accidental completions without using `/revert_habit` command
-  - **File**: `src/bot/handlers/habit_done_handler.py`
-
-- [ ] **Habit Completion Confirmation**
-  - Add confirmation step for habit completion to prevent accidental logging
-  - Optional setting users can enable/disable
-  - **File**: `src/bot/handlers/habit_done_handler.py`, `src/bot/messages.py`
-
-- [ ] **Bulk Habit Completion**
-  - Allow users to mark multiple habits as done at once
-  - Useful for users with many daily habits
-  - **File**: `src/bot/handlers/habit_done_handler.py`
 
 ### Medium Priority
 
@@ -135,6 +138,23 @@ This document tracks planned features, improvements, and enhancements for the Ha
   - Add more languages beyond current set
   - Community-contributed translations
   - **File**: `src/bot/messages.py`, `src/bot/language.py`
+
+### Low Priority
+
+- [ ] **Undo Button for Recent Completions**
+  - Add inline "Undo" button that appears after completing a habit (within 5 minutes)
+  - Quick way to revert accidental completions without using `/revert_habit` command
+  - **File**: `src/bot/handlers/habit_done_handler.py`
+
+- [ ] **Habit Completion Confirmation**
+  - Add confirmation step for habit completion to prevent accidental logging
+  - Optional setting users can enable/disable
+  - **File**: `src/bot/handlers/habit_done_handler.py`, `src/bot/messages.py`
+
+- [ ] **Bulk Habit Completion**
+  - Allow users to mark multiple habits as done at once
+  - Useful for users with many daily habits
+  - **File**: `src/bot/handlers/habit_done_handler.py`
 
 ## 📊 Analytics & Reporting
 
@@ -215,7 +235,7 @@ This document tracks planned features, improvements, and enhancements for the Ha
 
 ### API Development
 
-- [ ] **REST API Endpoints**
+- [x] **REST API Endpoints**
   - Full REST API for all operations
   - API documentation (OpenAPI/Swagger)
   - **File**: New `src/api/` directory

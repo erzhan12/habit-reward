@@ -204,7 +204,6 @@ class RewardRepository:
         user_pk = int(user_id) if isinstance(user_id, str) else user_id
         rewards = await sync_to_async(list)(
             Reward.objects.filter(user_id=user_pk, active=True)
-            .exclude(type="none")
             .order_by("name")
         )
         return rewards
@@ -217,7 +216,6 @@ class RewardRepository:
         user_pk = int(user_id) if isinstance(user_id, str) else user_id
         rewards = await sync_to_async(list)(
             Reward.objects.filter(user_id=user_pk)
-            .exclude(type="none")
             .order_by("name")
         )
         return rewards
@@ -259,6 +257,8 @@ class RewardRepository:
                 reward["user_id"] = int(reward["user_id"])
             return await sync_to_async(Reward.objects.create)(**reward)
         else:
+            if reward.user_id is None:
+                raise ValueError("user_id is required when creating reward from object")
             user_id = (
                 int(reward.user_id)
                 if isinstance(reward.user_id, str)
@@ -268,13 +268,11 @@ class RewardRepository:
                 "user_id": user_id,
                 "name": reward.name,
                 "weight": reward.weight,
-                "type": reward.type
-                if isinstance(reward.type, str)
-                else reward.type.value,
                 "pieces_required": reward.pieces_required,
+                "is_recurring": getattr(reward, "is_recurring", True),
+                "piece_value": getattr(reward, "piece_value", None),
+                "max_daily_claims": getattr(reward, "max_daily_claims", None),
             }
-            if reward.piece_value is not None:
-                data["piece_value"] = reward.piece_value
             return await sync_to_async(Reward.objects.create)(**data)
 
     async def update(self, reward_id: int | str, updates: dict[str, Any]) -> Reward:
@@ -282,7 +280,7 @@ class RewardRepository:
 
         Args:
             reward_id: Django primary key
-            updates: Dict with fields to update (name, weight, type, pieces_required, piece_value, max_daily_claims, active)
+            updates: Dict with fields to update (name, weight, pieces_required, piece_value, max_daily_claims, active)
 
         Returns:
             Updated Reward instance

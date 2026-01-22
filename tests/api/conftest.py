@@ -74,7 +74,6 @@ def mock_reward(mock_user):
     reward.user_id = mock_user.id
     reward.name = "Coffee"
     reward.weight = 10.0
-    reward.type = "virtual"
     reward.pieces_required = 10
     reward.piece_value = None
     reward.max_daily_claims = None

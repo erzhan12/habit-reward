@@ -1,4 +1,4 @@
-.PHONY: help install sync dev-install migrate test test-cov api bot bot-webhook dashboard clean lint format check
+.PHONY: help install sync dev-install migrate test test-cov api bot bot-webhook dashboard ngrok clean lint format check
 
 # Default target - show help
 help:
@@ -16,6 +16,7 @@ help:
 	@echo "  make bot          - Run the Telegram bot (polling mode)"
 	@echo "  make bot-webhook  - Run the Telegram bot (webhook mode)"
 	@echo "  make dashboard    - Run the Streamlit dashboard"
+	@echo "  make ngrok        - Start ngrok tunnel on port 8000"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test         - Run all tests"
@@ -87,7 +88,7 @@ bot-webhook:
 	@echo ""
 	@echo "⚠️  Prerequisites:"
 	@echo "   1. Set TELEGRAM_WEBHOOK_URL in .env (e.g., https://your-ngrok-url.ngrok-free.app/webhook/telegram)"
-	@echo "   2. For local dev, start ngrok in another terminal: ngrok http 8000"
+	@echo "   2. For local dev, start ngrok in another terminal: make ngrok (or ngrok http 8000)"
 	@echo "   3. Add ngrok domain to ALLOWED_HOSTS in .env"
 	@echo ""
 	@echo "Starting combined ASGI server on http://0.0.0.0:8000..."
@@ -99,6 +100,16 @@ bot-webhook:
 dashboard:
 	@echo "Starting Streamlit dashboard..."
 	uv run streamlit run src/dashboard/app.py
+
+# Start ngrok tunnel on port 8000
+ngrok:
+	@echo "Starting ngrok tunnel on port 8000..."
+	@echo ""
+	@echo "⚠️  Make sure your local server is running on port 8000"
+	@echo "   (e.g., run 'make api' or 'make bot-webhook' in another terminal)"
+	@echo ""
+	@command -v ngrok >/dev/null 2>&1 || { echo "❌ ngrok is not installed. Install from https://ngrok.com/download"; exit 1; }
+	ngrok http 8000
 
 # Lint code
 lint:
