@@ -1232,7 +1232,6 @@ class TestEditRewardPieceValueRemoval:
         mock_reward = Mock()
         mock_reward.id = 'reward123'
         mock_reward.name = 'Coffee'
-        mock_reward.type = 'virtual'
         mock_reward.weight = 10.0
         mock_reward.pieces_required = 3
         mock_reward.piece_value = 5.0  # This should NOT be stored in context
