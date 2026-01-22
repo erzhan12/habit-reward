@@ -203,11 +203,11 @@ async def my_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.info(f"📤 Sent INFO_NO_REWARD_PROGRESS message to {telegram_id}")
         return
 
-    # Format each progress entry
+    # Format each progress entry (reward already loaded via select_related)
     message_parts = [msg('HEADER_REWARD_PROGRESS', lang)]
 
     for progress in progress_list:
-        reward = await maybe_await(reward_repository.get_by_id(progress.reward_id))
+        reward = progress.reward  # No additional query - already loaded
         if reward:
             progress_msg = format_reward_progress_message(progress, reward, lang)
             message_parts.append(progress_msg + "\n")
@@ -485,14 +485,14 @@ async def _get_rewards_dict(progress_list: list) -> dict:
     Get rewards dictionary from progress list.
 
     Args:
-        progress_list: List of RewardProgress objects
+        progress_list: List of RewardProgress objects (with reward pre-loaded via select_related)
 
     Returns:
         Dictionary mapping reward_id to Reward object
     """
     rewards_dict = {}
     for progress in progress_list:
-        reward = await maybe_await(reward_repository.get_by_id(progress.reward_id))
+        reward = progress.reward  # No additional query - already loaded via select_related
         if reward:
             rewards_dict[progress.reward_id] = reward
     return rewards_dict
