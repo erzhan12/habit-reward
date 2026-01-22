@@ -22,7 +22,6 @@ from src.bot.handlers.reward_handlers import (
     reward_edit_recurring_skip,
     reward_edit_selected,
     AWAITING_REWARD_NAME,
-    AWAITING_REWARD_TYPE,
     AWAITING_REWARD_WEIGHT,
     AWAITING_REWARD_RECURRING,
     # AWAITING_REWARD_CONFIRM,
@@ -31,6 +30,7 @@ from src.bot.handlers.reward_handlers import (
     menu_edit_reward_callback,
     AWAITING_REWARD_EDIT_SELECTION,
 )
+from src.models.reward import RewardType
 from src.bot.handlers.menu_handler import (
     open_habits_menu_callback,
     bridge_command_callback,
@@ -865,7 +865,7 @@ class TestAddRewardConversationSteps:
         mock_active_user,
         language
     ):
-        """Valid reward name should transition to type selection."""
+        """Valid reward name should transition to weight selection (skipping type)."""
         mock_lang.return_value = language
         mock_user_repo.get_by_telegram_id.return_value = mock_active_user
         mock_reward_repo.get_by_name = AsyncMock(return_value=None)
@@ -876,10 +876,14 @@ class TestAddRewardConversationSteps:
 
         result = await reward_name_received(mock_telegram_update, context)
 
-        assert result == AWAITING_REWARD_TYPE
+        # Feature 0030: Type selection is skipped, defaults to REAL
+        assert result == AWAITING_REWARD_WEIGHT
         mock_lang.assert_awaited_once()
-        stored = context.user_data['reward_creation_data']['name']
-        assert stored == "Morning Coffee"
+        stored_name = context.user_data['reward_creation_data']['name']
+        assert stored_name == "Morning Coffee"
+        # Verify type is defaulted to REAL
+        stored_type = context.user_data['reward_creation_data']['type']
+        assert stored_type == RewardType.REAL
         mock_telegram_update.message.reply_text.assert_awaited_once()
 
     @pytest.mark.asyncio

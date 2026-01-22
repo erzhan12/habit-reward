@@ -227,7 +227,6 @@ Your streak multiplier increases your chances of getting rewards!"""
     HELP_ADD_REWARD_CONFIRM = (
         "Review your new reward:\n"
         "<b>Name:</b> {name}\n"
-        "<b>Type:</b> {type_label}\n"
         "<b>Weight:</b> {weight}\n"
         "<b>Pieces Required:</b> {pieces}\n"
         "<b>Recurring:</b> {recurring}\n\n"
@@ -544,7 +543,6 @@ Use this key in your app with the header:
             'HELP_ADD_REWARD_CONFIRM': (
                 "Проверьте новую награду:\n"
                 "<b>Название:</b> {name}\n"
-                "<b>Тип:</b> {type_label}\n"
                 "<b>Вес:</b> {weight}\n"
                 "<b>Количество частей:</b> {pieces}\n"
                 "<b>Повторяющаяся:</b> {recurring}\n\n"
@@ -860,7 +858,6 @@ Use this key in your app with the header:
             'HELP_ADD_REWARD_CONFIRM': (
                 "Жаңа сыйлықты тексеріңіз:\n"
                 "<b>Атауы:</b> {name}\n"
-                "<b>Түрі:</b> {type_label}\n"
                 "<b>Салмағы:</b> {weight}\n"
                 "<b>Қажет бөліктер:</b> {pieces}\n"
                 "<b>Қайталанатын:</b> {recurring}\n\n"

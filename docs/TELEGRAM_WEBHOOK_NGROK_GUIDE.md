@@ -114,6 +114,11 @@ ngrok config add-authtoken YOUR_AUTH_TOKEN_HERE
 Open a **new terminal window** and run:
 
 ```bash
+make ngrok
+```
+
+Or directly:
+```bash
 ngrok http 8000
 ```
 
@@ -203,6 +208,11 @@ uv run python manage.py migrate
 
 Open a **new terminal window** (keeping ngrok running) and run:
 
+```bash
+make api
+```
+
+Or directly:
 ```bash
 uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000 --reload
 ```
@@ -564,14 +574,13 @@ For production, instead of ngrok use:
 
 ```bash
 # Terminal 1: Start ngrok
-ngrok http 8000
+make ngrok
 
 # Terminal 2: Start Django server
-uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000 --reload
+make api
 
 # Terminal 3: Set webhook
-curl -F "url=https://YOUR_NGROK_URL/webhook/telegram" \
-     https://api.telegram.org/bot<TOKEN>/setWebhook
+uv run python scripts/set_webhook.py
 ```
 
 ### Start Polling Mode

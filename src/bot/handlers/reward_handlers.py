@@ -25,7 +25,7 @@ from src.bot.keyboards import (
     # build_back_to_menu_keyboard,
     build_claimable_rewards_keyboard,
     build_reward_cancel_keyboard,
-    build_reward_type_keyboard,
+    # build_reward_type_keyboard - kept for edit flow but unused in add flow (Feature 0030)
     build_reward_weight_keyboard,
     build_reward_pieces_keyboard,
     build_recurring_keyboard,
@@ -127,19 +127,13 @@ def _format_piece_value_display(lang: str, value) -> str:
 
 
 def _format_reward_summary(lang: str, data: dict) -> str:
-    """Render confirmation summary for reward creation (virtual or real types only)."""
-    type_mapping = {
-        RewardType.VIRTUAL.value: msg('BUTTON_REWARD_TYPE_VIRTUAL', lang),
-        RewardType.REAL.value: msg('BUTTON_REWARD_TYPE_REAL', lang),
-    }
+    """Render confirmation summary for reward creation.
 
-    reward_type_value = data.get('type')
-    type_key = reward_type_value.value if isinstance(reward_type_value, RewardType) else reward_type_value
-    type_label = type_mapping.get(type_key, type_key or msg('TEXT_NOT_SET', lang))
-
+    Note: Type is no longer shown in add flow (Feature 0030) - defaults to REAL.
+    """
     weight = data.get('weight')
     weight_display = f"{weight:.2f}" if isinstance(weight, (int, float)) else msg('TEXT_NOT_SET', lang)
-    
+
     # Recurring field
     is_recurring = data.get('is_recurring', True)  # Default to True for backward compatibility
     recurring_display = msg('BUTTON_RECURRING_YES', lang) if is_recurring else msg('BUTTON_RECURRING_NO', lang)
@@ -148,7 +142,6 @@ def _format_reward_summary(lang: str, data: dict) -> str:
         'HELP_ADD_REWARD_CONFIRM',
         lang,
         name=html.escape(data.get('name', '')),
-        type_label=type_label,
         weight=weight_display,
         pieces=data.get('pieces_required', msg('TEXT_NOT_SET', lang)),
         recurring=recurring_display
@@ -677,45 +670,48 @@ async def reward_name_received(update: Update, context: ContextTypes.DEFAULT_TYP
 
     reward_data = _get_reward_context(context)
     reward_data['name'] = name
-    logger.info("✅ Stored reward name '%s' for user %s", name, telegram_id)
+    # Default reward type to REAL (skip type selection step per Feature 0030)
+    reward_data['type'] = RewardType.REAL
+    logger.info("✅ Stored reward name '%s' with type REAL for user %s", name, telegram_id)
 
     # Try to edit the active conversation message in-place
     active_chat_id = context.user_data.get('active_msg_chat_id')
     active_msg_id = context.user_data.get('active_msg_id')
-    
-    keyboard = build_reward_type_keyboard(lang)
-    
+
+    # Skip type selection, go directly to weight prompt
+    keyboard = build_reward_weight_keyboard(lang)
+
     if active_chat_id and active_msg_id:
         try:
             await context.bot.edit_message_text(
                 chat_id=active_chat_id,
                 message_id=active_msg_id,
-                text=msg('HELP_ADD_REWARD_TYPE_PROMPT', lang),
+                text=msg('HELP_ADD_REWARD_WEIGHT_PROMPT', lang),
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
-            logger.info(f"📤 Edited active message to type selection keyboard for {telegram_id}")
+            logger.info(f"📤 Edited active message to weight selection keyboard for {telegram_id}")
             # Clear stored message IDs after successful edit
             context.user_data.pop('active_msg_chat_id', None)
             context.user_data.pop('active_msg_id', None)
         except Exception as e:
             logger.warning(f"⚠️ Could not edit active message for {telegram_id}, falling back to reply_text: {e}")
             await update.message.reply_text(
-                msg('HELP_ADD_REWARD_TYPE_PROMPT', lang),
+                msg('HELP_ADD_REWARD_WEIGHT_PROMPT', lang),
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
-            logger.info(f"📤 Sent type selection keyboard (fallback) to {telegram_id}")
+            logger.info(f"📤 Sent weight selection keyboard (fallback) to {telegram_id}")
     else:
         # Fallback if no active message stored
         await update.message.reply_text(
-            msg('HELP_ADD_REWARD_TYPE_PROMPT', lang),
+            msg('HELP_ADD_REWARD_WEIGHT_PROMPT', lang),
             reply_markup=keyboard,
             parse_mode="HTML"
         )
-        logger.info(f"📤 Sent type selection keyboard to {telegram_id}")
-    
-    return AWAITING_REWARD_TYPE
+        logger.info(f"📤 Sent weight selection keyboard to {telegram_id}")
+
+    return AWAITING_REWARD_WEIGHT
 
 
 async def reward_type_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -2149,10 +2145,8 @@ add_reward_conversation = ConversationHandler(
             CallbackQueryHandler(cancel_reward_flow_callback, pattern="^cancel_reward_flow$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, reward_name_received)
         ],
-        AWAITING_REWARD_TYPE: [
-            CallbackQueryHandler(reward_type_selected, pattern="^reward_type_(virtual|real)$"),
-            CallbackQueryHandler(cancel_reward_flow_callback, pattern="^cancel_reward_flow$")
-        ],
+        # Note: AWAITING_REWARD_TYPE state removed - type defaults to REAL (Feature 0030)
+        # The reward_type_selected handler is kept for edit_reward flow
         AWAITING_REWARD_WEIGHT: [
             CallbackQueryHandler(reward_weight_selected, pattern="^reward_weight_(\\d+)$"),
             CallbackQueryHandler(cancel_reward_flow_callback, pattern="^cancel_reward_flow$"),

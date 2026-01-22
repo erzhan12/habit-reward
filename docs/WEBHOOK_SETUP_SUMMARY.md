@@ -90,10 +90,10 @@ uv run python scripts/test_webhook.py https://your-ngrok-url  # Test specific UR
 
 ```bash
 # Terminal 1: Start ngrok
-ngrok http 8000
+make ngrok
 
 # Terminal 2: Start Django server
-uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000 --reload
+make api
 
 # Terminal 3: Set webhook
 uv run python scripts/set_webhook.py
@@ -208,7 +208,7 @@ uv run python src/bot/main.py
 | Bot not responding | Check all 3 components: ngrok, server, webhook |
 | ngrok URL changed | Re-run `./scripts/start_webhook_dev.sh` |
 | Pending updates stuck | `uv run python scripts/set_webhook.py --drop-pending` |
-| Connection refused | Start server: `uvicorn src.habit_reward_project.asgi:application --port 8000` |
+| Connection refused | Start server: `make api` (or `uvicorn src.habit_reward_project.asgi:application --port 8000`) |
 | 403 Forbidden | Verify `@csrf_exempt` in webhook_handler.py:71 |
 
 ---
@@ -319,7 +319,8 @@ When ready to deploy:
 
 5. **Deploy with uvicorn**
    ```bash
-   uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000
+   make api
+   # Or: uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000
    ```
 
 6. **Set production webhook**
