@@ -101,7 +101,7 @@ async def settings_menu_entry_callback(update: Update, context: ContextTypes.DEF
         await query.edit_message_text(msg('ERROR_USER_INACTIVE', lang))
         return ConversationHandler.END
 
-    push_navigation(context, query.message.message_id, 'menu_settings', lang)
+    push_navigation(context, query.message.message_id, 'menu_settings', lang, telegram_id=telegram_id)
 
     await query.edit_message_text(
         msg('SETTINGS_MENU', lang),

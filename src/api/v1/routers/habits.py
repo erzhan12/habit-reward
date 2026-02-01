@@ -505,6 +505,54 @@ async def complete_habit(
         result.got_reward,
     )
 
+    # Send Telegram notification (same message as bot /habit_done)
+    # Try to edit the last bot message (e.g. Main Menu) in-place, fall back to new message
+    try:
+        from telegram import Bot
+        from src.config import settings
+        from src.bot.formatters import format_habit_completion_message
+        from src.bot.keyboards import build_back_to_menu_keyboard
+        from src.core.models import User as DjangoUser
+        from asgiref.sync import sync_to_async
+
+        lang = getattr(current_user, "language", "en") or "en"
+        message = format_habit_completion_message(result, lang)
+        keyboard = build_back_to_menu_keyboard(lang)
+        bot = Bot(token=settings.telegram_bot_token)
+
+        # Look up the last bot message ID from database
+        django_user = await sync_to_async(
+            DjangoUser.objects.filter(telegram_id=current_user.telegram_id)
+            .values_list("last_bot_message_id", flat=True)
+            .first
+        )()
+
+        edited = False
+        if django_user:
+            try:
+                await bot.edit_message_text(
+                    chat_id=current_user.telegram_id,
+                    message_id=django_user,
+                    text=message,
+                    reply_markup=keyboard,
+                    parse_mode="HTML",
+                )
+                edited = True
+                logger.info("Edited bot message %s for habit %s (user %s)", django_user, habit_id, current_user.id)
+            except Exception as edit_err:
+                logger.info("Could not edit message %s, falling back to new message: %s", django_user, edit_err)
+
+        if not edited:
+            await bot.send_message(
+                chat_id=current_user.telegram_id,
+                text=message,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+            logger.info("Sent new Telegram notification for habit %s to user %s", habit_id, current_user.id)
+    except Exception as e:
+        logger.warning("Failed to send Telegram notification for habit %s to user %s: %s", habit_id, current_user.id, e)
+
     return HabitCompletionResponse(
         habit_confirmed=result.habit_confirmed,
         habit_name=result.habit_name,

@@ -898,6 +898,20 @@ class AuthCodeRepository:
         await sync_to_async(AuthCode.objects.filter(pk=pk).update)(used=True)
         return await sync_to_async(AuthCode.objects.get)(pk=pk)
 
+    async def update_telegram_message_id(
+        self, code_id: int | str, telegram_message_id: int
+    ) -> None:
+        """Save the Telegram message ID on an auth code record.
+
+        Args:
+            code_id: AuthCode primary key
+            telegram_message_id: Telegram message ID from bot.send_message()
+        """
+        pk = int(code_id) if isinstance(code_id, str) else code_id
+        await sync_to_async(
+            AuthCode.objects.filter(pk=pk).update
+        )(telegram_message_id=telegram_message_id)
+
     async def delete_expired(self) -> int:
         """Delete all expired auth codes.
 

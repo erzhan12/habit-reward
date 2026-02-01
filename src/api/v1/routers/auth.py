@@ -1,5 +1,6 @@
 """Authentication endpoints."""
 
+import asyncio
 import logging
 from typing import Annotated
 
@@ -232,11 +233,21 @@ async def request_auth_code(request: RequestCodeRequest) -> RequestCodeResponse:
     auth_code, user = result
 
     # Send code via Telegram bot
-    # This is done asynchronously - the bot will receive the code and send it
     # Wrap in try-catch to ensure endpoint doesn't fail if Telegram send fails
     try:
-        await _send_auth_code_to_telegram(user, auth_code.code, request.device_info)
+        message_id = await _send_auth_code_to_telegram(user, auth_code.code, request.device_info)
         logger.info("Auth code sent to user %s", user.id)
+
+        # Save message_id and schedule auto-deletion on expiry
+        if message_id:
+            from src.core.repositories import auth_code_repository
+
+            await maybe_await(
+                auth_code_repository.update_telegram_message_id(auth_code.id, message_id)
+            )
+            asyncio.create_task(
+                _delete_auth_code_message_delayed(user.telegram_id, message_id, delay=5 * 60)
+            )
     except Exception as e:
         # Log error but don't fail the request - code was created successfully
         logger.error("Failed to send auth code via Telegram (endpoint level): %s", str(e))
@@ -264,16 +275,24 @@ async def verify_auth_code(request: VerifyCodeRequest) -> TokenResponse:
     """
     logger.info("Auth code verification for telegram_id: %s", request.telegram_id)
 
-    user = await auth_code_service.verify_code(
+    result = await auth_code_service.verify_code(
         telegram_id=request.telegram_id,
         code=request.code,
     )
 
-    if user is None:
+    if result is None:
         logger.warning("Invalid auth code for telegram_id: %s", request.telegram_id)
         raise UnauthorizedException(
             message="Invalid or expired code",
             code="INVALID_CODE"
+        )
+
+    user, auth_code = result
+
+    # Delete the auth code Telegram message now that it's verified
+    if auth_code.telegram_message_id:
+        asyncio.create_task(
+            _delete_telegram_message(request.telegram_id, auth_code.telegram_message_id)
         )
 
     # Generate tokens
@@ -294,13 +313,16 @@ async def verify_auth_code(request: VerifyCodeRequest) -> TokenResponse:
     )
 
 
-async def _send_auth_code_to_telegram(user: User, code: str, device_info: str | None) -> None:
+async def _send_auth_code_to_telegram(user: User, code: str, device_info: str | None) -> int | None:
     """Send auth code to user via Telegram bot.
 
     Args:
         user: User to send code to
         code: 6-digit auth code
         device_info: Optional device/browser info
+
+    Returns:
+        Telegram message_id if sent successfully, None otherwise
     """
     try:
         from telegram import Bot
@@ -330,15 +352,47 @@ async def _send_auth_code_to_telegram(user: User, code: str, device_info: str | 
 
         message = "\n".join(message_lines)
 
-        await bot.send_message(
+        sent_msg = await bot.send_message(
             chat_id=user.telegram_id,
             text=message,
             parse_mode="HTML"
         )
 
-        logger.info("Auth code sent via Telegram to user %s", user.id)
+        logger.info("Auth code sent via Telegram to user %s (message_id=%s)", user.id, sent_msg.message_id)
+        return sent_msg.message_id
 
     except Exception as e:
         # Log error but don't fail the request
         # The code was created, user can request again if needed
         logger.error("Failed to send auth code via Telegram: %s", str(e))
+        return None
+
+
+async def _delete_telegram_message(telegram_id: str, message_id: int) -> None:
+    """Delete a Telegram message (best effort).
+
+    Args:
+        telegram_id: Chat ID to delete message from
+        message_id: Telegram message ID to delete
+    """
+    try:
+        from telegram import Bot
+        from src.config import settings
+
+        bot = Bot(token=settings.telegram_bot_token)
+        await bot.delete_message(chat_id=telegram_id, message_id=message_id)
+        logger.info("Deleted Telegram message %s for chat %s", message_id, telegram_id)
+    except Exception as e:
+        logger.warning("Failed to delete Telegram message %s: %s", message_id, e)
+
+
+async def _delete_auth_code_message_delayed(telegram_id: str, message_id: int, delay: int) -> None:
+    """Delete auth code Telegram message after a delay (fire-and-forget).
+
+    Args:
+        telegram_id: Chat ID to delete message from
+        message_id: Telegram message ID to delete
+        delay: Seconds to wait before deleting
+    """
+    await asyncio.sleep(delay)
+    await _delete_telegram_message(telegram_id, message_id)

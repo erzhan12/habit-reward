@@ -102,15 +102,15 @@ class AuthCodeService:
         self,
         telegram_id: str,
         code: str,
-    ) -> User | None:
-        """Verify an auth code and return the user.
+    ) -> tuple[User, AuthCode] | None:
+        """Verify an auth code and return the user and auth code.
 
         Args:
             telegram_id: User's Telegram ID
             code: 6-digit code to verify
 
         Returns:
-            User if code is valid, None otherwise
+            Tuple of (User, AuthCode) if code is valid, None otherwise
         """
         # Get user
         user = await maybe_await(self.user_repo.get_by_telegram_id(telegram_id))
@@ -129,7 +129,7 @@ class AuthCodeService:
         if not auth_code:
             # Register failed attempt on the latest active code
             await maybe_await(self.auth_code_repo.register_failed_attempt(user.id))
-            
+
             logger.warning(
                 "Invalid or expired code for user %s: %s",
                 user.id,
@@ -138,7 +138,7 @@ class AuthCodeService:
             return None
 
         logger.info("Auth code verified successfully for user %s", user.id)
-        return user
+        return user, auth_code
 
     async def cleanup_expired_codes(self) -> int:
         """Delete expired auth codes.

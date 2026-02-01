@@ -48,6 +48,11 @@ class User(AbstractUser):
         validators=[MinValueValidator(0.01), MaxValueValidator(99.99)],
         help_text="Probability of getting no reward during habit completion (0.01-99.99%)"
     )
+    last_bot_message_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="ID of the last bot message (for editing from REST API)"
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     # Django's is_active field (from AbstractUser) replaces custom 'active' field
@@ -484,6 +489,11 @@ class AuthCode(models.Model):
         null=True,
         blank=True,
         help_text="Device/browser info from the requesting app"
+    )
+    telegram_message_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Telegram message ID of the code message (for deletion)"
     )
     failed_attempts = models.IntegerField(
         default=0,

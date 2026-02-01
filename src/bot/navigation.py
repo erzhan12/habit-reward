@@ -15,6 +15,7 @@ def push_navigation(
     message_id: int,
     menu_type: str,
     lang: str,
+    telegram_id: str | None = None,
 ) -> None:
     """
     Push a new navigation state onto the stack.
@@ -24,6 +25,7 @@ def push_navigation(
         message_id: ID of the current menu message
         menu_type: Type of menu ('start', 'habits', 'rewards')
         lang: User's language preference
+        telegram_id: If provided, persist message_id to DB for REST API access
     """
     if context is None:
         logger.debug("Navigation context missing; push_navigation skipped")
@@ -38,6 +40,34 @@ def push_navigation(
         'lang': lang
     })
     context.user_data['last_language'] = lang
+
+    # Persist to DB so the REST API can edit this message
+    if telegram_id:
+        try:
+            import threading
+            from functools import partial
+
+            def _save_message_id(tid, mid):
+                try:
+                    import django
+                    django.setup()
+                    from src.core.models import User as DjangoUser
+                    from django.db import close_old_connections
+                    close_old_connections()
+                    DjangoUser.objects.filter(telegram_id=tid).update(
+                        last_bot_message_id=mid
+                    )
+                    logger.info("Persisted last_bot_message_id=%s for user %s", mid, tid)
+                except Exception as inner_e:
+                    logger.warning("Failed to persist last_bot_message_id in thread: %s", inner_e)
+
+            thread = threading.Thread(
+                target=partial(_save_message_id, telegram_id, message_id),
+                daemon=True,
+            )
+            thread.start()
+        except Exception as e:
+            logger.warning("Failed to persist last_bot_message_id: %s", e)
 
     logger.info(f"🔝 Pushed navigation: {menu_type} (message_id: {message_id}, lang: {lang})")
 

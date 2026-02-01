@@ -89,7 +89,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE | Non
     )
 
     # Push initial navigation state
-    push_navigation(context, sent_message.message_id, 'start', lang)
+    push_navigation(context, sent_message.message_id, 'start', lang, telegram_id=telegram_id)
     logger.info(f"📤 Sent START_MENU to {telegram_id}")
 
 

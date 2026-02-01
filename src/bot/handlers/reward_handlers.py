@@ -322,7 +322,8 @@ async def menu_claim_reward_callback(update: Update, context: ContextTypes.DEFAU
         context,
         query.message.message_id,
         'menu_rewards_claim',
-        lang
+        lang,
+        telegram_id=telegram_id,
     )
 
     # Get achieved rewards
@@ -594,7 +595,7 @@ async def menu_add_reward_callback(update: Update, context: ContextTypes.DEFAULT
         parse_mode="HTML"
     )
 
-    push_navigation(context, edited_message.message_id, 'rewards_add', lang)
+    push_navigation(context, edited_message.message_id, 'rewards_add', lang, telegram_id=telegram_id)
     logger.info(f"📤 Prompted user {telegram_id} for reward name via menu")
     return AWAITING_REWARD_NAME
 

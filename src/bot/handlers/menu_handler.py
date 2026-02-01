@@ -42,7 +42,7 @@ async def open_start_menu_callback(update: Update, context: ContextTypes.DEFAULT
     )
 
     # Push navigation state
-    push_navigation(context, edited_message.message_id, 'start', lang)
+    push_navigation(context, edited_message.message_id, 'start', lang, telegram_id=telegram_id)
     logger.info(f"📋 Opened start menu for user {telegram_id}")
 
     return 0
@@ -62,7 +62,7 @@ async def open_habits_menu_callback(update: Update, context: ContextTypes.DEFAUL
     )
 
     # Push navigation state
-    push_navigation(context, edited_message.message_id, 'habits', lang)
+    push_navigation(context, edited_message.message_id, 'habits', lang, telegram_id=telegram_id)
     logger.info(f"📋 Opened habits menu for user {telegram_id}")
 
     return 0
@@ -82,7 +82,7 @@ async def open_rewards_menu_callback(update: Update, context: ContextTypes.DEFAU
     )
 
     # Push navigation state
-    push_navigation(context, edited_message.message_id, 'rewards', lang)
+    push_navigation(context, edited_message.message_id, 'rewards', lang, telegram_id=telegram_id)
     logger.info(f"📋 Opened rewards menu for user {telegram_id}")
 
     return 0
@@ -279,7 +279,8 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
             context,
             query.message.message_id,
             data,
-            lang
+            lang,
+            telegram_id=telegram_id,
         )
 
         try:
