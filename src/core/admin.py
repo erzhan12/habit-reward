@@ -4,7 +4,7 @@ import logging
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db import transaction
-from src.core.models import User, Habit, Reward, RewardProgress, HabitLog, BotAuditLog
+from src.core.models import User, Habit, Reward, RewardProgress, HabitLog, BotAuditLog, APIKey
 
 logger = logging.getLogger(__name__)
 
@@ -358,3 +358,24 @@ class BotAuditLogAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         """Allow deletion for cleanup purposes."""
         return request.user.is_superuser
+
+
+@admin.register(APIKey)
+class APIKeyAdmin(admin.ModelAdmin):
+    """Admin interface for APIKey model."""
+
+    list_display = ['name', 'user', 'is_active', 'created_at', 'last_used_at', 'expires_at']
+    list_filter = ['is_active', 'created_at', 'expires_at']
+    search_fields = ['name', 'user__name', 'user__telegram_id']
+    readonly_fields = ['id', 'key_hash', 'created_at', 'last_used_at']
+    ordering = ['-created_at']
+    autocomplete_fields = ['user']
+
+    fieldsets = (
+        ('Key Information', {
+            'fields': ('id', 'user', 'name', 'key_hash')
+        }),
+        ('Status & Dates', {
+            'fields': ('is_active', 'expires_at', 'created_at', 'last_used_at')
+        }),
+    )
