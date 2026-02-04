@@ -37,7 +37,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY --chown=botuser:botuser src/ ./src/
-COPY --chown=botuser:botuser manage.py ./
+COPY --chown=botuser:botuser manage.py asgi.py ./
 
 # Copy entrypoint script
 COPY --chown=botuser:botuser deployment/scripts/entrypoint.sh /app/entrypoint.sh
@@ -60,5 +60,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Entrypoint handles migrations and superuser creation
 ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Default command: Start Uvicorn server
-CMD ["uvicorn", "src.habit_reward_project.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Default command: Start Uvicorn server (combined Django + FastAPI)
+CMD ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
