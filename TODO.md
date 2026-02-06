@@ -37,25 +37,6 @@ This document tracks planned features, improvements, and enhancements for the Ha
 
 ### High Priority
 
-- [x] **Reorganize Habit Completion Flow - Split into Two Commands** ✅ COMPLETED (Feature 0021)
-  - **Goal**: Make the default habit completion flow simpler and faster for the common use case (logging for today)
-  - **Problem**: Current `/habit_done` shows all habits and date options (Today/Yesterday/Select Date), which is overkill when users mostly just want to mark habits done for today
-  - **Solution**: Split into two separate flows:
-    1. **`/habit_done`** (Simple, default flow - top menu button)
-       - Shows ONLY habits not yet logged TODAY
-       - Clicking a habit immediately marks it as done for TODAY
-       - No date selection needed - optimized for speed
-       - This should be the PRIMARY/TOP button in menus
-    2. **`/habit_done_date`** (Advanced flow with date selection - Habits submenu)
-       - Shows ALL habits (including already logged today)
-       - Offers date options: Today / Yesterday / Select Date
-       - Placed in Habits submenu below "Revert Habit" button
-  - **Implementation Details**: See `docs/features/0021_PLAN.md`
-  - **Manual Tests**: See `docs/features/0021_MANUAL_TESTS.md`
-  - **Files Modified**: `src/bot/handlers/menu_handler.py`, `src/bot/keyboards.py`, `src/bot/messages.py`
-  - **Related**: UX improvement - optimizes for the 90% use case (logging today)
-  - **Bug Fixes**: Fixed empty habit list handling to correctly distinguish between "no habits" vs "all completed"
-
 - [ ] **Guaranteed Reward on Last Daily Habit**
   - When user completes their last remaining habit for the day, they should receive a 100% guaranteed reward with no "No reward" option
   - **Problem**: Currently even the final habit completion shows a chance to get "No reward", which feels unrewarding for completing all daily habits
@@ -74,49 +55,26 @@ This document tracks planned features, improvements, and enhancements for the Ha
     - `src/bot/messages.py` - Update reward presentation messages
   - **Related**: User motivation and reward system enhancement
 
-- [x] **Recurring vs Non-Recurring Rewards**
-  - Add distinction between recurring and non-recurring rewards
-  - **Problem**: Some rewards can be claimed multiple times (e.g., massage), while others should only be claimed once (e.g., MacBook)
-  - **Solution**: Add a "recurring" boolean field to rewards
-    - Recurring rewards: Can be claimed multiple times, remain active after claiming
-    - Non-recurring rewards: Auto-deactivate after first claim, cannot be claimed again
-    - Manual deactivation: Users can manually deactivate rewards from Rewards menu (both recurring and non-recurring)
-  - **Implementation approach**:
-    - Add `is_recurring` field to Reward model (default: True for backward compatibility)
-    - Update reward creation flow to ask if reward is recurring
-    - When claiming non-recurring reward, automatically set `active=False`
-    - Add manual deactivate/activate option in Rewards menu (similar to habit management)
-    - Update reward list to show status (e.g., "Claimed - No longer available" for non-recurring claimed rewards)
-    - Update REST API endpoints to support `is_recurring` field
-    - Admin interface should allow toggling this setting
+- [ ] **Add Confirmation Message for "Yesterday" Habit Completion**
+  - When a user marks a habit as done for "yesterday", there is no confirmation message — it logs immediately
+  - The "for date" option already shows a confirmation message before logging
+  - **Problem**: Inconsistent UX — "for date" has confirmation but "yesterday" does not, which can lead to accidental logging
+  - **Solution**: Add the same confirmation message used by "for date" to the "yesterday" option
+    - Show confirmation only for past dates (not for today)
+    - Use the same message format and flow as the existing "for date" confirmation
+    - After user confirms, proceed with the same reward calculation and success flow as "for date"
   - **Files**:
-    - `src/models/reward.py` - Add `is_recurring` field
-    - `src/services/reward_service.py` - Update claim logic to deactivate non-recurring rewards
-    - `src/bot/handlers/reward_handlers.py` - Update creation flow, claim handling, and add manual deactivation
-    - `src/bot/keyboards.py` - Add activate/deactivate buttons to rewards menu
-    - `src/bot/messages.py` - Add messaging for recurring/non-recurring status and deactivation
-    - `src/api/` - Update REST API serializers and endpoints for `is_recurring` field
-  - **Related**: Core reward system enhancement
-
-- [x] **Reward Edit Interface**
-  - Add Telegram bot command/interface to edit existing rewards
-  - Currently rewards can only be created and deleted, but not edited
-  - Should allow editing:
-    - Reward name/title
-    - Reward description
-    - Reward type (small/medium/large)
-    - Target points required
-    - Active/inactive status
-  - **Suggested command**: `/edit_reward` or add "Edit" button in reward list view
-  - **Implementation approach**:
-    - Add edit buttons to reward list inline keyboard
-    - Create conversation flow for editing each field
-    - Allow partial edits (only change specific fields)
-    - Show confirmation before saving changes
-  - **Files**: `src/bot/handlers/reward_handler.py` or new `src/bot/handlers/reward_management_handler.py`, `src/bot/messages.py`
-  - **Related**: Completes CRUD operations for rewards in bot interface
+    - `src/bot/handlers/habit_done_handler.py` - Add confirmation step for "yesterday" option
+    - `src/bot/messages.py` - Reuse existing "for date" confirmation message
 
 ### Medium Priority
+
+- [ ] **Auto-delete Habit Name Message on Creation, Reward Name on creation and API Key name on creation**
+  - When a user creates a new habit, the message that shows the habit name/title should be auto-deleted or replaced
+  - When a user creates a new reward, the message that shows the reward name/title should be auto-deleted or replaced
+  - When a user creates a new API key, the message that shows the API key name/title should be auto-deleted or replaced
+  - **Reason**: Keep the chat clean and avoid lingering habit name messages
+  - **File**: `src/bot/handlers/habit_management_handler.py`
 
 - [ ] **Habit Reminders**
   - Scheduled reminders for pending habits
@@ -197,6 +155,11 @@ This document tracks planned features, improvements, and enhancements for the Ha
   - Reduce database load
   - **File**: New `src/utils/cache.py`
 
+- [ ] **Self-delete API Key Messages**
+  - After generating an API key via the bot, the message containing the key should auto-delete after 10 minutes
+  - **Reason**: Security; prevent API keys from lingering in chat history
+
+
 ## 🧪 Testing & Quality
 
 - [ ] **Integration Tests**
@@ -234,11 +197,6 @@ This document tracks planned features, improvements, and enhancements for the Ha
   - **File**: New dashboard pages
 
 ### API Development
-
-- [x] **REST API Endpoints**
-  - Full REST API for all operations
-  - API documentation (OpenAPI/Swagger)
-  - **File**: New `src/api/` directory
 
 - [ ] **API Authentication**
   - JWT token-based authentication
@@ -314,4 +272,3 @@ This document tracks planned features, improvements, and enhancements for the Ha
 - Add new items as needed
 - Reference related feature plans in `docs/features/` when implementing
 - Consider impact on existing functionality when adding new features
-

@@ -351,6 +351,7 @@ async def handle_yesterday_selection(
 
     # Get habit info from context
     habit_name = context.user_data.get('habit_name')
+    habit_id = context.user_data.get('habit_id')
     if not habit_name:
         logger.error(f"❌ Missing habit_name in context for user {telegram_id}")
         await query.edit_message_text(
@@ -362,57 +363,22 @@ async def handle_yesterday_selection(
     # Calculate yesterday's date
     yesterday = date.today() - timedelta(days=1)
 
-    # Process habit completion for yesterday
-    try:
-        logger.info(f"⚙️ Processing habit completion for yesterday ({yesterday}): user {telegram_id}, habit '{habit_name}'")
-        result = await maybe_await(
-            habit_service.process_habit_completion(
-                user_telegram_id=telegram_id,
-                habit_name=habit_name,
-                target_date=yesterday
-            )
-        )
+    # Store in context for confirmation handler
+    context.user_data['backdate_date'] = yesterday
 
-        # Format date for display
-        date_display = yesterday.strftime("%d %b %Y")  # Format: 09 Dec 2025
+    # Format date for display
+    date_display = yesterday.strftime("%d %b %Y")  # Format: 09 Dec 2025
 
-        # Format and send response
-        message = format_habit_completion_message(result, lang)
-        # Add date information
-        message = msg('SUCCESS_BACKDATE_COMPLETED', lang, habit_name=habit_name, date=date_display) + "\n\n" + message
+    # Show confirmation message (same as "for date" flow)
+    keyboard = build_backdate_confirmation_keyboard(habit_id, yesterday, lang)
+    await query.edit_message_text(
+        msg('HELP_BACKDATE_CONFIRM', lang, habit_name=habit_name, date=date_display),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    logger.info(f"📤 Sent yesterday confirmation prompt to {telegram_id} for '{habit_name}' on {yesterday}")
 
-        logger.info(f"✅ Habit '{habit_name}' completed for yesterday ({yesterday}). Streak: {result.streak_count}")
-        await query.edit_message_text(
-            text=message,
-            reply_markup=build_back_to_menu_keyboard(lang),
-            parse_mode="HTML"
-        )
-        logger.info(f"📤 Sent habit completion success message to {telegram_id}")
-
-    except ValueError as e:
-        error_msg = str(e)
-        logger.error(f"❌ Error processing habit completion for user {telegram_id}: {error_msg}")
-
-        # Map error messages to user-friendly messages
-        if "already completed" in error_msg.lower():
-            user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, date=yesterday.strftime("%d %b %Y"))
-        elif "before habit was created" in error_msg.lower():
-            user_message = msg('ERROR_BACKDATE_BEFORE_CREATED', lang, date=error_msg.split()[-1])
-        else:
-            user_message = msg('ERROR_GENERAL', lang, error=error_msg)
-
-        await query.edit_message_text(
-            user_message,
-            reply_markup=build_back_to_menu_keyboard(lang),
-            parse_mode="HTML"
-        )
-        logger.info(f"📤 Sent error message to {telegram_id}")
-
-    # Clean up context
-    context.user_data.pop('habit_id', None)
-    context.user_data.pop('habit_name', None)
-
-    return ConversationHandler.END
+    return CONFIRMING_BACKDATE
 
 
 async def handle_select_date(
@@ -628,7 +594,12 @@ async def handle_backdate_confirmation(
 
         # Map error messages to user-friendly messages
         if "already completed" in error_msg.lower():
-            user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, date=target_date.strftime("%d %b %Y"))
+            user_message = msg(
+                'ERROR_BACKDATE_DUPLICATE',
+                lang,
+                habit_name=habit_name,
+                date=target_date.strftime("%d %b %Y")
+            )
         elif "future date" in error_msg.lower():
             user_message = msg('ERROR_BACKDATE_FUTURE', lang)
         elif "more than" in error_msg.lower() and "days" in error_msg.lower():
@@ -657,12 +628,19 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Cancel the conversation."""
     telegram_id = str(update.effective_user.id)
     username = update.effective_user.username or "N/A"
-    logger.info(f"📨 Received /cancel command from user {telegram_id} (@{username})")
+    logger.info(f"📨 Received cancel from user {telegram_id} (@{username})")
     lang = await get_message_language_async(telegram_id, update)
-    await update.message.reply_text(
-        msg('INFO_CANCELLED', lang),
-        reply_markup=build_back_to_menu_keyboard(lang)
-    )
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            msg('INFO_CANCELLED', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+    else:
+        await update.message.reply_text(
+            msg('INFO_CANCELLED', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
     logger.info(f"📤 Sent conversation cancelled message to {telegram_id}")
 
     # Clean up context
