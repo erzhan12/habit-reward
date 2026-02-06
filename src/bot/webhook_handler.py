@@ -110,6 +110,11 @@ async def _ensure_initialized():
         # Initialize the entire application (not just the bot)
         # In python-telegram-bot v20+, Application.initialize() is required for webhook mode
         await application.initialize()
+        if application.job_queue:
+            await application.job_queue.start()
+            logger.info("✅ Job queue started")
+        else:
+            logger.warning("⚠️ JobQueue unavailable; scheduled jobs will not run")
         _initialized = True
         logger.info("✅ Telegram Application initialized")
 
