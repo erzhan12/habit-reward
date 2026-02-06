@@ -1,6 +1,8 @@
 """Handler for /settings command and language selection."""
 
+import html
 import logging
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
@@ -19,10 +21,21 @@ from src.bot.navigation import update_navigation_language
 from src.bot.navigation import push_navigation
 from src.utils.async_compat import maybe_await
 from src.api.services.auth_code_service import api_key_service
-import html
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+API_KEY_MESSAGE_DELETE_SECONDS = 300  # 5 minutes
+
+
+async def _delete_api_key_message(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Scheduled job callback to delete the API key message after timeout."""
+    chat_id = context.job.data["chat_id"]
+    message_id = context.job.data["message_id"]
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except Exception:
+        logger.warning(f"Could not delete API key message {message_id} in chat {chat_id}")
 
 # Conversation states
 AWAITING_SETTINGS_SELECTION = 1
@@ -341,10 +354,21 @@ async def api_key_name_entered(update: Update, context: ContextTypes.DEFAULT_TYP
             key=raw_key,
         )
 
-        await update.message.reply_text(
+        key_message = await update.message.reply_text(
             message,
             parse_mode="HTML"
         )
+
+        # Schedule auto-deletion of the key message after 5 minutes
+        job_queue = getattr(context, "job_queue", None)
+        if job_queue:
+            job_queue.run_once(
+                _delete_api_key_message,
+                when=API_KEY_MESSAGE_DELETE_SECONDS,
+                data={"chat_id": key_message.chat_id, "message_id": key_message.message_id},
+            )
+        else:
+            logger.warning("JobQueue unavailable; API key message will not auto-delete.")
 
         # Return to API keys menu
         await update.message.reply_text(
