@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.bot.timezone_utils import get_user_today, get_user_timezone
+from src.bot.timezone_utils import get_user_today, get_user_timezone, validate_timezone
 
 
 class TestGetUserToday:
@@ -134,3 +134,22 @@ class TestGetUserTimezone:
             result = await get_user_timezone('12345')
 
         assert result == 'UTC'
+
+
+class TestValidateTimezone:
+    """Tests for validate_timezone()."""
+
+    def test_valid_timezone(self):
+        assert validate_timezone('Asia/Almaty') is True
+
+    def test_valid_utc(self):
+        assert validate_timezone('UTC') is True
+
+    def test_invalid_timezone(self):
+        assert validate_timezone('Invalid/Timezone') is False
+
+    def test_empty_string(self):
+        assert validate_timezone('') is False
+
+    def test_none_like_string(self):
+        assert validate_timezone('None') is False

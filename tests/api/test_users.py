@@ -86,6 +86,26 @@ class TestUpdateCurrentUser:
         assert data["id"] == mock_user.id
         assert data["name"] == mock_user.name
 
+    @patch("src.api.v1.routers.users.user_repository")
+    def test_update_user_timezone(self, mock_repo, client, mock_user):
+        """Test updating user timezone."""
+        updated_user = mock_user
+        updated_user.timezone = "Asia/Almaty"
+        mock_repo.update = AsyncMock(return_value=updated_user)
+
+        response = client.patch("/v1/users/me", json={"timezone": "Asia/Almaty"})
+
+        assert response.status_code == 200
+        mock_repo.update.assert_called_once_with(
+            mock_user.id, {"timezone": "Asia/Almaty"}
+        )
+
+    def test_update_user_invalid_timezone(self, client):
+        """Test updating user with invalid timezone."""
+        response = client.patch("/v1/users/me", json={"timezone": "Invalid/TZ"})
+
+        assert response.status_code == 422
+
     def test_update_user_invalid_language(self, client):
         """Test updating user with invalid language."""
         response = client.patch("/v1/users/me", json={"language": "invalid"})
@@ -109,7 +129,17 @@ class TestGetUserSettings:
         assert response.status_code == 200
         data = response.json()
         assert data["language"] == mock_user.language
-        assert "timezone" in data
+        assert data["timezone"] == "UTC"
+
+    def test_get_user_settings_null_timezone_defaults_to_utc(self, client, mock_user):
+        """Test that NULL timezone in DB returns UTC in settings."""
+        mock_user.timezone = None
+
+        response = client.get("/v1/users/me/settings")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["timezone"] == "UTC"
 
     def test_get_user_settings_requires_auth(self, client_no_auth):
         """Test that endpoint requires authentication."""
