@@ -18,6 +18,7 @@ def mock_user():
     user.telegram_id = "123456789"
     user.name = "Test User"
     user.language = "en"
+    user.timezone = "UTC"
     user.is_active = True
     user.username = "tg_123456789"
     return user

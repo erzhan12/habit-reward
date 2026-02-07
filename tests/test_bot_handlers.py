@@ -429,10 +429,13 @@ class TestSimpleHabitDoneFlow:
         assert result == 0
 
     @pytest.mark.asyncio
+    @patch('src.bot.handlers.menu_handler.get_user_today')
+    @patch('src.bot.handlers.menu_handler.get_user_timezone', new_callable=AsyncMock)
     @patch('src.bot.handlers.menu_handler.habit_service')
     @patch('src.bot.handlers.menu_handler.user_repository')
     async def test_all_habits_completed_shows_success(
-        self, mock_user_repo, mock_habit_service, mock_callback_update,
+        self, mock_user_repo, mock_habit_service, mock_get_tz, mock_get_today,
+        mock_callback_update,
         mock_active_user, mock_active_habits, language
     ):
         """
@@ -445,10 +448,16 @@ class TestSimpleHabitDoneFlow:
         Then: Bot shows INFO_ALL_HABITS_COMPLETED message
         And: Shows 'Back to Menu' button
         """
+        from datetime import date
         from src.bot.handlers.menu_handler import menu_habit_done_simple_show_habits
 
         # Mock: user exists and is active
         mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Mock timezone helpers
+        mock_get_tz.return_value = 'UTC'
+        today = date.today()
+        mock_get_today.return_value = today
 
         # Mock: user HAS habits configured
         mock_habit_service.get_all_active_habits.return_value = mock_active_habits
@@ -461,7 +470,7 @@ class TestSimpleHabitDoneFlow:
 
         # Assert: Both service methods were called
         mock_habit_service.get_all_active_habits.assert_called_once_with(mock_active_user.id)
-        mock_habit_service.get_active_habits_pending_for_today.assert_called_once_with(mock_active_user.id)
+        mock_habit_service.get_active_habits_pending_for_today.assert_called_once_with(mock_active_user.id, target_date=today)
 
         # Assert: INFO_ALL_HABITS_COMPLETED message shown
         call_args = mock_callback_update.callback_query.edit_message_text.call_args
@@ -474,10 +483,13 @@ class TestSimpleHabitDoneFlow:
         assert result == 0
 
     @pytest.mark.asyncio
+    @patch('src.bot.handlers.menu_handler.get_user_today')
+    @patch('src.bot.handlers.menu_handler.get_user_timezone', new_callable=AsyncMock)
     @patch('src.bot.handlers.menu_handler.habit_service')
     @patch('src.bot.handlers.menu_handler.user_repository')
     async def test_pending_habits_shows_simple_keyboard(
-        self, mock_user_repo, mock_habit_service, mock_callback_update,
+        self, mock_user_repo, mock_habit_service, mock_get_tz, mock_get_today,
+        mock_callback_update,
         mock_active_user, mock_active_habits, language
     ):
         """
@@ -491,10 +503,16 @@ class TestSimpleHabitDoneFlow:
         And: Message is HELP_SIMPLE_HABIT_SELECTION
         And: Only pending habits are shown
         """
+        from datetime import date
         from src.bot.handlers.menu_handler import menu_habit_done_simple_show_habits
 
         # Mock: user exists and is active
         mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+
+        # Mock timezone helpers
+        mock_get_tz.return_value = 'UTC'
+        today = date.today()
+        mock_get_today.return_value = today
 
         # Mock: user HAS habits configured
         mock_habit_service.get_all_active_habits.return_value = mock_active_habits
@@ -508,7 +526,7 @@ class TestSimpleHabitDoneFlow:
 
         # Assert: Both service methods were called
         mock_habit_service.get_all_active_habits.assert_called_once_with(mock_active_user.id)
-        mock_habit_service.get_active_habits_pending_for_today.assert_called_once_with(mock_active_user.id)
+        mock_habit_service.get_active_habits_pending_for_today.assert_called_once_with(mock_active_user.id, target_date=today)
 
         # Assert: HELP_SIMPLE_HABIT_SELECTION message shown
         call_args = mock_callback_update.callback_query.edit_message_text.call_args

@@ -53,7 +53,8 @@ class RewardService:
         self,
         total_weight: float,
         user_id: str | None = None,
-        exclude_reward_ids: list[str] | None = None
+        exclude_reward_ids: list[str] | None = None,
+        target_date: 'date | None' = None,
     ) -> Reward | None | Awaitable[Reward | None]:
         """Perform weighted random reward selection with configurable 'no reward' probability.
 
@@ -131,7 +132,7 @@ class RewardService:
                     # Filter 2: Check daily limit
                     if reward.max_daily_claims is not None and reward.max_daily_claims > 0:
                         today_count = await maybe_await(
-                            self.get_todays_pieces_by_reward(user_id, reward.id)
+                            self.get_todays_pieces_by_reward(user_id, reward.id, target_date=target_date)
                         )
                         if today_count >= reward.max_daily_claims:
                             excluded_daily_limit.append(
@@ -265,14 +266,14 @@ class RewardService:
 
         return run_sync_or_async(_impl())
 
-    def get_todays_awarded_rewards(self, user_id: str) -> list[str] | Awaitable[list[str]]:
+    def get_todays_awarded_rewards(self, user_id: str, target_date: 'date | None' = None) -> list[str] | Awaitable[list[str]]:
         """Get list of reward IDs that were already awarded today."""
 
         async def _impl() -> list[str]:
             logger.info("Fetching today's awarded rewards for user=%s", user_id)
 
             todays_logs = await maybe_await(
-                self.habit_log_repo.get_todays_logs_by_user(user_id)
+                self.habit_log_repo.get_todays_logs_by_user(user_id, target_date=target_date)
             )
 
             awarded_reward_ids = [
@@ -294,7 +295,8 @@ class RewardService:
     def get_todays_pieces_by_reward(
         self,
         user_id: str,
-        reward_id: str
+        reward_id: str,
+        target_date: 'date | None' = None,
     ) -> int | Awaitable[int]:
         """
         Count how many pieces of a specific reward were awarded today.
@@ -320,7 +322,7 @@ class RewardService:
 
             # Get today's logs for this user
             todays_logs = await maybe_await(
-                self.habit_log_repo.get_todays_logs_by_user(user_id)
+                self.habit_log_repo.get_todays_logs_by_user(user_id, target_date=target_date)
             )
 
             # Count logs where this specific reward was awarded

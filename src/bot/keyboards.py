@@ -208,6 +208,10 @@ def build_settings_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
             callback_data="settings_language"
         )],
         [InlineKeyboardButton(
+            text=msg('SETTINGS_TIMEZONE', language),
+            callback_data="settings_timezone"
+        )],
+        [InlineKeyboardButton(
             text=msg('SETTINGS_API_KEYS', language),
             callback_data="settings_api_keys"
         )],
@@ -252,6 +256,51 @@ def build_no_reward_probability_keyboard(current_value: float, language: str = '
             callback_data="settings_back"
         )],
     ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_timezone_selection_keyboard(current_timezone: str = 'UTC', language: str = 'en') -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for timezone selection.
+
+    Shows common timezones relevant to users.
+
+    Args:
+        current_timezone: Current timezone IANA name (highlighted with checkmark)
+        language: Language code for translating back button text
+
+    Returns:
+        InlineKeyboardMarkup with timezone options
+    """
+    timezones = [
+        ("UTC", "UTC (GMT+0)"),
+        ("Europe/London", "London (GMT+0/+1)"),
+        ("Europe/Moscow", "Moscow (GMT+3)"),
+        ("Asia/Tashkent", "Tashkent (GMT+5)"),
+        ("Asia/Almaty", "Almaty (GMT+5)"),
+        ("Asia/Bishkek", "Bishkek (GMT+6)"),
+        ("Asia/Shanghai", "Shanghai (GMT+8)"),
+        ("America/New_York", "New York (GMT-5/-4)"),
+    ]
+
+    keyboard = []
+    for tz_id, tz_label in timezones:
+        text = f"✓ {tz_label}" if current_timezone == tz_id else tz_label
+        keyboard.append([InlineKeyboardButton(
+            text=text,
+            callback_data=f"tz_{tz_id}"
+        )])
+
+    keyboard.append([InlineKeyboardButton(
+        text=msg('TIMEZONE_CUSTOM', language),
+        callback_data="tz_custom"
+    )])
+
+    keyboard.append([InlineKeyboardButton(
+        text=msg('SETTINGS_BACK', language),
+        callback_data="settings_back"
+    )])
+
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -1165,7 +1214,8 @@ def build_completion_date_options_keyboard(
 def build_date_picker_keyboard(
     habit_id: int | str,
     completed_dates: list,  # list[date]
-    language: str = 'en'
+    language: str = 'en',
+    user_today: 'date | None' = None,
 ) -> InlineKeyboardMarkup:
     """Build 8-day date picker showing which dates are already completed.
 
@@ -1173,6 +1223,7 @@ def build_date_picker_keyboard(
         habit_id: Habit primary key
         completed_dates: List of dates that already have completions
         language: Language code for translating Back button
+        user_today: Today's date in user's timezone (defaults to UTC date.today())
 
     Returns:
         InlineKeyboardMarkup with 8-day calendar (today + 7 days back) and back button
@@ -1180,7 +1231,7 @@ def build_date_picker_keyboard(
     from datetime import date, timedelta
 
     keyboard = []
-    today = date.today()
+    today = user_today if user_today is not None else date.today()
 
     # Build 8 days (today and 7 days back)
     dates = [today - timedelta(days=i) for i in range(8)]

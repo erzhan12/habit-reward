@@ -13,6 +13,7 @@ from src.core.repositories import (
     habit_log_repository,
     reward_progress_repository
 )
+from src.bot.timezone_utils import get_user_today
 from src.core.models import Habit, HabitLog, RewardProgress
 from src.services.streak_service import streak_service
 from src.services.reward_service import reward_service
@@ -113,7 +114,8 @@ class HabitService:
         self,
         user_telegram_id: str,
         habit_name: str,
-        target_date: date | None = None
+        target_date: date | None = None,
+        user_timezone: str = 'UTC',
     ) -> HabitCompletionResult | Awaitable[HabitCompletionResult]:
         """
         Main orchestration for habit completion.
@@ -174,10 +176,10 @@ class HabitService:
 
             # Default target_date to today if not specified
             if target_date is None:
-                target_date = date.today()
+                target_date = get_user_today(user_timezone)
 
             # Validate target_date for backdating
-            today = date.today()
+            today = get_user_today(user_timezone)
             max_backdate_days = 7
             earliest_allowed = today - timedelta(days=max_backdate_days)
 
@@ -231,7 +233,7 @@ class HabitService:
             if target_date == today:
                 # Use normal streak calculation for today
                 streak_count = await maybe_await(
-                    self.streak_service.calculate_streak(user.id, habit.id)
+                    self.streak_service.calculate_streak(user.id, habit.id, user_timezone=user_timezone)
                 )
             else:
                 # Use backdate-aware streak calculation
@@ -253,6 +255,7 @@ class HabitService:
                     total_weight=total_weight,
                     user_id=user.id,
                     exclude_reward_ids=[],  # No manual exclusion needed
+                    target_date=today,
                 )
             )
 
@@ -293,7 +296,8 @@ class HabitService:
                 )
                 await maybe_await(
                     self.recalculate_streaks_after_backdate(
-                        user.id, habit.id, target_date
+                        user.id, habit.id, target_date,
+                        user_timezone=user_timezone,
                     )
                 )
 
@@ -339,7 +343,8 @@ class HabitService:
         self,
         user_id: int | str,
         habit_id: int | str,
-        backdate_date: date
+        backdate_date: date,
+        user_timezone: str = 'UTC',
     ) -> None | Awaitable[None]:
         """Recalculate streak counts for all logs on or after a backdated entry.
 
@@ -367,7 +372,7 @@ class HabitService:
                 return
 
             # Get all logs from backdate_date onwards, sorted by completion date
-            today = date.today()
+            today = get_user_today(user_timezone)
             logs = await maybe_await(
                 self.habit_log_repo.get_logs_for_habit_in_daterange(
                     user_id, habit_id, backdate_date, today
@@ -752,7 +757,8 @@ class HabitService:
         reward_id: str | None,
         streak_count: int,
         habit_weight: float,
-        total_weight: float
+        total_weight: float,
+        user_timezone: str = 'UTC',
     ) -> HabitLog | Awaitable[HabitLog]:
         """Log a habit completion entry."""
 
@@ -766,7 +772,7 @@ class HabitService:
                 streak_count=streak_count,
                 habit_weight=habit_weight,
                 total_weight_applied=total_weight,
-                last_completed_date=date.today(),
+                last_completed_date=get_user_today(user_timezone),
             )
             return await maybe_await(self.habit_log_repo.create(habit_log))
 

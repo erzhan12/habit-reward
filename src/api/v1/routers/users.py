@@ -114,5 +114,5 @@ async def get_user_settings(
 
     return UserSettingsResponse(
         language=current_user.language,
-        timezone="UTC"  # Placeholder until timezone is added to model
+        timezone=current_user.timezone or "UTC",
     )

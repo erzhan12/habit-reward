@@ -43,6 +43,11 @@ class User(AbstractUser):
         ],
         help_text="User's preferred language (ISO 639-1 code)"
     )
+    timezone = models.CharField(
+        max_length=50,
+        default='UTC',
+        help_text="User's IANA timezone (e.g. Asia/Almaty, Europe/Moscow)"
+    )
     no_reward_probability = models.FloatField(
         default=50.0,
         validators=[MinValueValidator(0.01), MaxValueValidator(99.99)],

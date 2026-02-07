@@ -287,6 +287,14 @@ Your streak multiplier increases your chances of getting rewards!"""
     SETTINGS_NO_REWARD_PROB = "🎲 No Reward Probability"
     SETTINGS_BACK = "← Back to Settings"
 
+    # Timezone Settings
+    SETTINGS_TIMEZONE = "🕐 Timezone"
+    TIMEZONE_MENU = "🕐 <b>Timezone</b>\n\nCurrent: <b>{current}</b>\n\nSelect your timezone:"
+    TIMEZONE_UPDATED = "✅ Timezone updated to <b>{timezone}</b>"
+    TIMEZONE_CUSTOM = "✏️ Type custom"
+    TIMEZONE_ENTER_CUSTOM = "📝 <b>Enter timezone</b>\n\nType an IANA timezone name, for example:\n<code>Asia/Almaty</code>\n<code>Europe/Berlin</code>\n<code>US/Pacific</code>"
+    TIMEZONE_INVALID = "❌ Invalid timezone. Please enter a valid IANA timezone name (e.g. <code>Asia/Almaty</code>)."
+
     # No Reward Probability Settings
     NO_REWARD_PROB_MENU = "🎲 <b>No Reward Probability</b>\n\nCurrent: <b>{current}%</b>\n\nChoose a preset or enter a custom value (0.01-99.99):"
     NO_REWARD_PROB_CUSTOM = "✏️ Custom"
@@ -599,6 +607,14 @@ Use this key in your app with the header:
             'SETTINGS_NO_REWARD_PROB': "🎲 Вероятность без награды",
             'SETTINGS_BACK': "← Назад в настройки",
 
+            # Timezone Settings
+            'SETTINGS_TIMEZONE': "🕐 Часовой пояс",
+            'TIMEZONE_MENU': "🕐 <b>Часовой пояс</b>\n\nТекущий: <b>{current}</b>\n\nВыберите ваш часовой пояс:",
+            'TIMEZONE_UPDATED': "✅ Часовой пояс обновлён: <b>{timezone}</b>",
+            'TIMEZONE_CUSTOM': "✏️ Ввести вручную",
+            'TIMEZONE_ENTER_CUSTOM': "📝 <b>Введите часовой пояс</b>\n\nВведите название часового пояса IANA, например:\n<code>Asia/Almaty</code>\n<code>Europe/Berlin</code>\n<code>US/Pacific</code>",
+            'TIMEZONE_INVALID': "❌ Неверный часовой пояс. Введите корректное название IANA (например, <code>Asia/Almaty</code>).",
+
             # No Reward Probability Settings
             'NO_REWARD_PROB_MENU': "🎲 <b>Вероятность без награды</b>\n\nТекущее значение: <b>{current}%</b>\n\nВыберите пресет или введите своё значение (0.01-99.99):",
             'NO_REWARD_PROB_CUSTOM': "✏️ Своё значение",
@@ -909,6 +925,14 @@ Use this key in your app with the header:
             'SETTINGS_API_KEYS': "🔑 API кілттері",
             'SETTINGS_NO_REWARD_PROB': "🎲 Сыйлықсыз ықтималдық",
             'SETTINGS_BACK': "← Параметрлерге оралу",
+
+            # Timezone Settings
+            'SETTINGS_TIMEZONE': "🕐 Уақыт белдеуі",
+            'TIMEZONE_MENU': "🕐 <b>Уақыт белдеуі</b>\n\nАғымдағы: <b>{current}</b>\n\nУақыт белдеуіңізді таңдаңыз:",
+            'TIMEZONE_UPDATED': "✅ Уақыт белдеуі жаңартылды: <b>{timezone}</b>",
+            'TIMEZONE_CUSTOM': "✏️ Қолмен енгізу",
+            'TIMEZONE_ENTER_CUSTOM': "📝 <b>Уақыт белдеуін енгізіңіз</b>\n\nIANA уақыт белдеуі атауын жазыңыз, мысалы:\n<code>Asia/Almaty</code>\n<code>Europe/Berlin</code>\n<code>US/Pacific</code>",
+            'TIMEZONE_INVALID': "❌ Қате уақыт белдеуі. Дұрыс IANA атауын енгізіңіз (мысалы, <code>Asia/Almaty</code>).",
 
             # No Reward Probability Settings
             'NO_REWARD_PROB_MENU': "🎲 <b>Сыйлықсыз ықтималдық</b>\n\nАғымдағы мән: <b>{current}%</b>\n\nПресетті таңдаңыз немесе өз мәніңізді енгізіңіз (0.01-99.99):",

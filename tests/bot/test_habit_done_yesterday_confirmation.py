@@ -45,6 +45,9 @@ async def test_yesterday_selection_shows_confirmation():
     with patch(
         "src.bot.handlers.habit_done_handler.get_message_language_async",
         new=AsyncMock(return_value="en"),
+    ), patch(
+        "src.bot.handlers.habit_done_handler.get_user_timezone",
+        new=AsyncMock(return_value="UTC"),
     ):
         result = await habit_done_handler.handle_yesterday_selection(update, context)
 
@@ -87,6 +90,9 @@ async def test_yesterday_confirmation_processes_completion():
         "src.bot.handlers.habit_done_handler.get_message_language_async",
         new=AsyncMock(return_value="en"),
     ), patch(
+        "src.bot.handlers.habit_done_handler.get_user_timezone",
+        new=AsyncMock(return_value="UTC"),
+    ), patch(
         "src.bot.handlers.habit_done_handler.habit_service.process_habit_completion",
         new=AsyncMock(return_value=result_mock),
     ) as process_mock, patch(
@@ -99,6 +105,7 @@ async def test_yesterday_confirmation_processes_completion():
         user_telegram_id=str(update.effective_user.id),
         habit_name="Reading",
         target_date=yesterday,
+        user_timezone="UTC",
     )
     assert result == ConversationHandler.END
 
@@ -133,6 +140,9 @@ async def test_yesterday_confirmation_duplicate_shows_error():
     with patch(
         "src.bot.handlers.habit_done_handler.get_message_language_async",
         new=AsyncMock(return_value="en"),
+    ), patch(
+        "src.bot.handlers.habit_done_handler.get_user_timezone",
+        new=AsyncMock(return_value="UTC"),
     ), patch(
         "src.bot.handlers.habit_done_handler.habit_service.process_habit_completion",
         new=AsyncMock(side_effect=ValueError("already completed")),

@@ -264,11 +264,8 @@ class TestFlexibleStreakTracking:
         mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
         mock_habit_repo.get_by_id.return_value = mock_habit
 
-        # Mock date.today() to return Monday
-        with patch('src.services.streak_service.date') as mock_date:
-            mock_date.today.return_value = monday
-            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
-
+        # Mock get_user_today() to return Monday
+        with patch('src.services.streak_service.get_user_today', return_value=monday):
             with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
                 with patch.object(streak_service, 'habit_repo', mock_habit_repo):
                     streak = streak_service.calculate_streak("user123", "habit123")
@@ -309,11 +306,8 @@ class TestFlexibleStreakTracking:
         mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
         mock_habit_repo.get_by_id.return_value = mock_habit
 
-        # Mock date.today() to return Tuesday
-        with patch('src.services.streak_service.date') as mock_date:
-            mock_date.today.return_value = tuesday
-            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
-
+        # Mock get_user_today() to return Tuesday
+        with patch('src.services.streak_service.get_user_today', return_value=tuesday):
             with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
                 with patch.object(streak_service, 'habit_repo', mock_habit_repo):
                     streak = streak_service.calculate_streak("user123", "habit123")

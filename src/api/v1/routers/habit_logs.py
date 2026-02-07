@@ -1,7 +1,8 @@
 """Habit log history endpoints."""
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -96,7 +97,11 @@ async def list_habit_logs(
 
     # Default date range to last 30 days if not specified
     if end_date is None:
-        end_date = date.today()
+        user_tz = current_user.timezone or 'UTC'
+        try:
+            end_date = datetime.now(ZoneInfo(user_tz)).date()
+        except (KeyError, Exception):
+            end_date = datetime.now(ZoneInfo('UTC')).date()
     if start_date is None:
         start_date = end_date - timedelta(days=30)
 

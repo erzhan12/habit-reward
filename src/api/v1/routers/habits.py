@@ -465,6 +465,7 @@ async def complete_habit(
                 user_telegram_id=current_user.telegram_id,
                 habit_name=habit.name,
                 target_date=request.target_date,
+                user_timezone=current_user.timezone or "UTC",
             )
         )
     except ValueError as e:
@@ -564,6 +565,7 @@ async def batch_complete_habits(
                     user_telegram_id=current_user.telegram_id,
                     habit_name=habit.name,
                     target_date=item.target_date,
+                    user_timezone=current_user.timezone or "UTC",
                 )
             )
 

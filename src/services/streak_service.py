@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from typing import Awaitable
 from src.core.repositories import habit_log_repository, habit_repository
 from src.utils.async_compat import run_sync_or_async, maybe_await
+from src.bot.timezone_utils import get_user_today
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,8 @@ class StreakService:
     def calculate_streak(
         self,
         user_id: str,
-        habit_id: str
+        habit_id: str,
+        user_timezone: str = 'UTC',
     ) -> int | Awaitable[int]:
         """Calculate current streak for a specific habit and user with grace days and exempt weekdays support."""
 
@@ -40,9 +42,9 @@ class StreakService:
 
             # Get habit settings for flexible streak tracking
             habit = await maybe_await(self.habit_repo.get_by_id(habit_id))
-            
+
             last_date = last_log.last_completed_date
-            today = date.today()
+            today = get_user_today(user_timezone)
             yesterday = today - timedelta(days=1)
 
             # Simple cases: today or yesterday

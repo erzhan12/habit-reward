@@ -29,6 +29,7 @@ from src.bot.language import (
     detect_language_from_telegram,
 )
 from src.utils.async_compat import maybe_await
+from src.bot.timezone_utils import get_user_today, get_user_timezone
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -80,8 +81,10 @@ async def habit_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Attempt to filter habits already completed today (service method optional)
     habits = all_habits
     try:
+        user_tz = await get_user_timezone(telegram_id)
+        user_today = get_user_today(user_tz)
         pending_candidates = await maybe_await(
-            habit_service.get_active_habits_pending_for_today(user.id)
+            habit_service.get_active_habits_pending_for_today(user.id, target_date=user_today)
         )
         if isinstance(pending_candidates, list):
             habits = pending_candidates
@@ -299,13 +302,15 @@ async def handle_today_selection(
         return ConversationHandler.END
 
     # Process habit completion for today
+    user_tz = await get_user_timezone(telegram_id)
     try:
         logger.info(f"⚙️ Processing habit completion for today: user {telegram_id}, habit '{habit_name}'")
         result = await maybe_await(
             habit_service.process_habit_completion(
                 user_telegram_id=telegram_id,
                 habit_name=habit_name,
-                target_date=None  # None defaults to today
+                target_date=None,  # None defaults to today in user's timezone
+                user_timezone=user_tz,
             )
         )
 
@@ -360,8 +365,9 @@ async def handle_yesterday_selection(
         )
         return ConversationHandler.END
 
-    # Calculate yesterday's date
-    yesterday = date.today() - timedelta(days=1)
+    # Calculate yesterday's date in user's timezone
+    user_tz = await get_user_timezone(telegram_id)
+    yesterday = get_user_today(user_tz) - timedelta(days=1)
 
     # Store in context for confirmation handler
     context.user_data['backdate_date'] = yesterday
@@ -435,7 +441,8 @@ async def handle_select_date(
     context.user_data['habit_name'] = habit.name
 
     # Get completed dates for this habit (last 7 days back from today)
-    today = date.today()
+    user_tz = await get_user_timezone(telegram_id)
+    today = get_user_today(user_tz)
     start_date = today - timedelta(days=7)
     completed_dates = await maybe_await(
         habit_service.get_habit_completions_for_daterange(
@@ -446,7 +453,7 @@ async def handle_select_date(
     logger.info(f"📅 Habit '{habit.name}' has {len(completed_dates)} completions in date range")
 
     # Build and show date picker
-    keyboard = build_date_picker_keyboard(habit_id, completed_dates, lang)
+    keyboard = build_date_picker_keyboard(habit_id, completed_dates, lang, user_today=today)
     await query.edit_message_text(
         msg('HELP_BACKDATE_SELECT_DATE', lang, habit_name=habit.name),
         reply_markup=keyboard,
@@ -563,13 +570,15 @@ async def handle_backdate_confirmation(
         return ConversationHandler.END
 
     # Process habit completion with target_date
+    user_tz = await get_user_timezone(telegram_id)
     try:
         logger.info(f"⚙️ Processing backdated habit completion for user {telegram_id}, habit '{habit_name}', date {target_date}")
         result = await maybe_await(
             habit_service.process_habit_completion(
                 user_telegram_id=telegram_id,
                 habit_name=habit_name,
-                target_date=target_date
+                target_date=target_date,
+                user_timezone=user_tz,
             )
         )
 
