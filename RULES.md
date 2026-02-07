@@ -1247,6 +1247,16 @@ context.user_data.pop('backdate_date', None)
 
 **Why**: ConversationHandler states don't persist data between callbacks; use context.user_data for flow continuity.
 
+### Duplicate Handler Pitfall: Bridge Handler vs ConversationHandler
+
+**Critical**: When a callback (e.g., `menu_rewards_claim`) is handled by a `ConversationHandler` entry point, it must NOT also appear in the `bridge_command_callback` mapping or regex pattern in `menu_handler.py`. Both handlers will match the same callback, causing duplicate messages (one edited, one new).
+
+**Already excluded from bridge** (handled by ConversationHandlers):
+- `menu_habits_edit` — comment in mapping dict, line ~264
+- `menu_rewards_claim` — comment in mapping dict, line ~268
+
+**When adding new ConversationHandler entry points for menu callbacks**: remove the callback from both the `mapping` dict AND the `bridge_command_callback` regex pattern in `get_menu_handlers()`.
+
 ### Duplicate Handler Pitfall: menu_handler.py vs habit_done_handler.py
 
 **Critical**: The habit completion flow exists in TWO places with different context key prefixes:
