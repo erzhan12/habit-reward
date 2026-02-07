@@ -174,12 +174,12 @@ class HabitService:
                 logger.error("Habit '%s' not found for user %s", habit_name, user.id)
                 raise ValueError(f"Habit '{habit_name}' not found")
 
-            # Default target_date to today if not specified
-            if target_date is None:
-                target_date = get_user_today(user_timezone)
-
             # Validate target_date for backdating
             today = get_user_today(user_timezone)
+
+            # Default target_date to today if not specified
+            if target_date is None:
+                target_date = today
             max_backdate_days = 7
             earliest_allowed = today - timedelta(days=max_backdate_days)
 
