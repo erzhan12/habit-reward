@@ -2,11 +2,27 @@
 
 import logging
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
+
+
+def validate_timezone(tz_string: str) -> bool:
+    """Validate an IANA timezone string.
+
+    Args:
+        tz_string: Timezone name to validate (e.g. 'Asia/Almaty')
+
+    Returns:
+        True if valid, False otherwise
+    """
+    try:
+        ZoneInfo(tz_string)
+        return True
+    except (KeyError, ZoneInfoNotFoundError, ValueError):
+        return False
 
 
 def get_user_today(user_timezone: str = 'UTC') -> date:
@@ -20,7 +36,7 @@ def get_user_today(user_timezone: str = 'UTC') -> date:
     """
     try:
         return datetime.now(ZoneInfo(user_timezone)).date()
-    except (KeyError, Exception):
+    except (KeyError, ZoneInfoNotFoundError, ValueError):
         logger.warning("Invalid timezone '%s', falling back to UTC", user_timezone)
         return datetime.now(ZoneInfo('UTC')).date()
 

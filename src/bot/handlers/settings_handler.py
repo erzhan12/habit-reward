@@ -15,6 +15,7 @@ from telegram.ext import (
 
 from src.core.repositories import user_repository
 from src.bot.keyboards import build_settings_keyboard, build_language_selection_keyboard, build_no_reward_probability_keyboard, build_timezone_selection_keyboard
+from src.bot.timezone_utils import validate_timezone
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async, set_user_language
 from src.bot.navigation import update_navigation_language
@@ -697,17 +698,17 @@ async def change_timezone_callback(update: Update, context: ContextTypes.DEFAULT
 
     # Extract timezone from callback data (e.g., "tz_Asia/Almaty" -> "Asia/Almaty")
     callback_data = query.data
-    timezone = callback_data[3:]  # Remove "tz_" prefix
+    lang = await get_message_language_async(telegram_id, None)
+
+    if not callback_data.startswith("tz_"):
+        logger.error(f"⚠️ Invalid callback_data format: {callback_data}")
+        return AWAITING_SETTINGS_SELECTION
+
+    timezone = callback_data[3:]
 
     logger.info(f"🖱️ User {telegram_id} (@{username}) selected timezone: {timezone}")
 
-    lang = await get_message_language_async(telegram_id, None)
-
-    # Validate timezone
-    try:
-        from zoneinfo import ZoneInfo
-        ZoneInfo(timezone)
-    except (KeyError, Exception):
+    if not validate_timezone(timezone):
         logger.warning(f"⚠️ Invalid timezone '{timezone}' from user {telegram_id}")
         await query.edit_message_text(
             text=msg('ERROR_GENERAL', lang, error="Invalid timezone"),
@@ -763,11 +764,7 @@ async def timezone_custom_entered(update: Update, context: ContextTypes.DEFAULT_
 
     lang = await get_message_language_async(telegram_id, None)
 
-    # Validate timezone
-    try:
-        from zoneinfo import ZoneInfo
-        ZoneInfo(user_input)
-    except (KeyError, Exception):
+    if not validate_timezone(user_input):
         logger.warning(f"⚠️ Invalid timezone '{user_input}' from user {telegram_id}")
         await update.message.reply_text(
             msg('TIMEZONE_INVALID', lang),
