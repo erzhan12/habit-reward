@@ -36,6 +36,7 @@ class HabitLogResponse(BaseModel):
     total_weight_applied: float
     last_completed_date: date
     timestamp: str  # ISO format datetime
+    user_timezone: str = "UTC"
 
     class Config:
         from_attributes = True
@@ -134,6 +135,7 @@ async def list_habit_logs(
     total = len(logs)
     logs = logs[offset : offset + limit]
 
+    user_tz = current_user.timezone or "UTC"
     return HabitLogListResponse(
         logs=[
             HabitLogResponse(
@@ -148,6 +150,7 @@ async def list_habit_logs(
                 total_weight_applied=log.total_weight_applied,
                 last_completed_date=log.last_completed_date,
                 timestamp=log.timestamp.isoformat(),
+                user_timezone=user_tz,
             )
             for log in logs
         ],
@@ -197,6 +200,7 @@ async def get_habit_log(
         total_weight_applied=log.total_weight_applied,
         last_completed_date=log.last_completed_date,
         timestamp=log.timestamp.isoformat(),
+        user_timezone=current_user.timezone or "UTC",
     )
 
 
