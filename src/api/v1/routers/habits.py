@@ -77,6 +77,7 @@ class HabitCompletionResponse(BaseModel):
     total_weight_applied: float
     reward: RewardResponse | None = None
     cumulative_progress: RewardProgressResponse | None = None
+    user_timezone: str = "UTC"
 
 
 # Request Models
@@ -465,6 +466,7 @@ async def complete_habit(
                 user_telegram_id=current_user.telegram_id,
                 habit_name=habit.name,
                 target_date=request.target_date,
+                user_timezone=current_user.timezone or "UTC",
             )
         )
     except ValueError as e:
@@ -513,6 +515,7 @@ async def complete_habit(
         total_weight_applied=result.total_weight_applied,
         reward=reward_response,
         cumulative_progress=progress_response,
+        user_timezone=current_user.timezone or "UTC",
     )
 
 
@@ -564,6 +567,7 @@ async def batch_complete_habits(
                     user_telegram_id=current_user.telegram_id,
                     habit_name=habit.name,
                     target_date=item.target_date,
+                    user_timezone=current_user.timezone or "UTC",
                 )
             )
 
@@ -599,6 +603,7 @@ async def batch_complete_habits(
                     total_weight_applied=result.total_weight_applied,
                     reward=reward_response,
                     cumulative_progress=progress_response,
+                    user_timezone=current_user.timezone or "UTC",
                 )
             )
 

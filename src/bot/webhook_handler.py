@@ -77,9 +77,10 @@ def setup_handlers_sync():
     # Add settings handler
     application.add_handler(settings_conversation)
 
-    # Register menu callbacks
+    # Register menu callbacks in group 1 so they run alongside ConversationHandlers
+    # (ConversationHandlers in group 0 end conversations; group 1 handles navigation)
     for handler in get_menu_handlers():
-        application.add_handler(handler)
+        application.add_handler(handler, group=1)
 
     # DEBUG: Add catch-all callback handler to log all callbacks
     from telegram.ext import CallbackQueryHandler

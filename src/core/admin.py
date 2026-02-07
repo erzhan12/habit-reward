@@ -18,8 +18,8 @@ class UserAdmin(BaseUserAdmin):
     """
 
     # List display with both Django auth and custom fields
-    list_display = ['username', 'telegram_id', 'name', 'is_active', 'language', 'is_staff', 'date_joined']
-    list_filter = ['is_active', 'is_staff', 'is_superuser', 'language', 'date_joined']
+    list_display = ['username', 'telegram_id', 'name', 'is_active', 'language', 'timezone', 'is_staff', 'date_joined']
+    list_filter = ['is_active', 'is_staff', 'is_superuser', 'language', 'timezone', 'date_joined']
     search_fields = ['username', 'telegram_id', 'name', 'email']
     readonly_fields = ['date_joined', 'updated_at', 'last_login']
     ordering = ['-date_joined']
@@ -30,7 +30,7 @@ class UserAdmin(BaseUserAdmin):
             'fields': ('username', 'password')
         }),
         ('Telegram Information', {
-            'fields': ('telegram_id', 'name', 'language')
+            'fields': ('telegram_id', 'name', 'language', 'timezone')
         }),
         ('Personal info', {
             'fields': ('first_name', 'last_name', 'email')

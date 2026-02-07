@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from src.api.dependencies.auth import get_current_user_flexible
+from src.bot.timezone_utils import validate_timezone
 from src.core.models import User
 from src.core.repositories import user_repository
 from src.utils.async_compat import maybe_await
@@ -32,12 +33,13 @@ class UserUpdateRequest(BaseModel):
     """User update request model."""
     name: str | None = Field(default=None, max_length=255)
     language: str | None = Field(default=None, pattern="^(en|ru|kk)$")
+    timezone: str | None = Field(default=None, max_length=50)
 
 
 class UserSettingsResponse(BaseModel):
     """User settings response model."""
     language: str
-    timezone: str = "UTC"  # Future: add timezone field to User model
+    timezone: str = "UTC"
 
 
 @router.get("/me", response_model=UserResponse)
@@ -82,6 +84,14 @@ async def update_current_user(
         update_dict["name"] = updates.name
     if updates.language is not None:
         update_dict["language"] = updates.language
+    if updates.timezone is not None:
+        if not validate_timezone(updates.timezone):
+            from src.api.exceptions import ValidationException
+            raise ValidationException(
+                message=f"Invalid timezone: {updates.timezone}",
+                code="INVALID_TIMEZONE",
+            )
+        update_dict["timezone"] = updates.timezone
 
     if update_dict:
         updated_user = await maybe_await(
@@ -114,5 +124,5 @@ async def get_user_settings(
 
     return UserSettingsResponse(
         language=current_user.language,
-        timezone="UTC"  # Placeholder until timezone is added to model
+        timezone=current_user.timezone or "UTC",
     )

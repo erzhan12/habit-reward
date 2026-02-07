@@ -24,6 +24,7 @@ from src.bot.navigation import (
 from src.services.habit_service import habit_service
 from src.utils.async_compat import maybe_await
 from src.core.repositories import user_repository
+from src.bot.timezone_utils import get_user_today, get_user_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -439,9 +440,11 @@ async def menu_habit_done_simple_show_habits(update: Update, context: ContextTyp
         )
         return 0
 
-    # Get habits not yet completed today
+    # Get habits not yet completed today (using user's timezone)
     from src.bot.keyboards import build_simple_habit_selection_keyboard
-    habits = await maybe_await(habit_service.get_active_habits_pending_for_today(user.id))
+    user_tz = await get_user_timezone(telegram_id)
+    user_today = get_user_today(user_tz)
+    habits = await maybe_await(habit_service.get_active_habits_pending_for_today(user.id, target_date=user_today))
 
     if not habits:
         # All habits completed today (we know user has habits from check above)
@@ -504,7 +507,8 @@ async def simple_habit_selected_callback(update: Update, context: ContextTypes.D
             )
             return 0
 
-        # Process habit completion for today (target_date=None defaults to today)
+        # Process habit completion for today (target_date=None defaults to today in user's timezone)
+        user_tz = await get_user_timezone(telegram_id)
         try:
             from src.bot.formatters import format_habit_completion_message
 
@@ -513,7 +517,8 @@ async def simple_habit_selected_callback(update: Update, context: ContextTypes.D
                 habit_service.process_habit_completion(
                     user_telegram_id=telegram_id,
                     habit_name=habit.name,
-                    target_date=None  # None defaults to today
+                    target_date=None,  # None defaults to today in user's timezone
+                    user_timezone=user_tz,
                 )
             )
 
@@ -526,13 +531,12 @@ async def simple_habit_selected_callback(update: Update, context: ContextTypes.D
             )
 
         except ValueError as e:
-            from datetime import date
             error_msg = str(e)
             logger.error(f"❌ Error processing habit completion: {error_msg}")
 
             # Format error message with proper date display
             if "already completed" in error_msg.lower():
-                today = date.today()
+                today = get_user_today(user_tz)
                 date_display = today.strftime("%d %b %Y")  # Format: 09 Dec 2025
                 user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, habit_name=habit.name, date=date_display)
             else:
@@ -623,6 +627,7 @@ async def menu_habit_today_callback(update: Update, context: ContextTypes.DEFAUL
         return 0
 
     # Process habit completion for today
+    user_tz = await get_user_timezone(telegram_id)
     try:
         from src.bot.formatters import format_habit_completion_message
 
@@ -631,7 +636,8 @@ async def menu_habit_today_callback(update: Update, context: ContextTypes.DEFAUL
             habit_service.process_habit_completion(
                 user_telegram_id=telegram_id,
                 habit_name=habit_name,
-                target_date=None  # None defaults to today
+                target_date=None,  # None defaults to today in user's timezone
+                user_timezone=user_tz,
             )
         )
 
@@ -644,13 +650,12 @@ async def menu_habit_today_callback(update: Update, context: ContextTypes.DEFAUL
         )
 
     except ValueError as e:
-        from datetime import date
         error_msg = str(e)
         logger.error(f"❌ Error processing habit completion: {error_msg}")
 
         # Format error message with proper date display
         if "already completed" in error_msg.lower():
-            today = date.today()
+            today = get_user_today(user_tz)
             date_display = today.strftime("%d %b %Y")  # Format: 09 Dec 2025
             user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, habit_name=habit_name, date=date_display)
         else:
@@ -677,6 +682,7 @@ async def menu_habit_yesterday_callback(update: Update, context: ContextTypes.DE
     lang = await get_message_language_async(telegram_id, update)
 
     habit_name = context.user_data.get('menu_habit_name')
+    habit_id = context.user_data.get('menu_habit_id')
     if not habit_name:
         logger.error(f"❌ Missing habit_name in context for user {telegram_id}")
         await query.edit_message_text(
@@ -685,54 +691,26 @@ async def menu_habit_yesterday_callback(update: Update, context: ContextTypes.DE
         )
         return 0
 
-    # Calculate yesterday's date
-    from datetime import date, timedelta
-    yesterday = date.today() - timedelta(days=1)
+    # Calculate yesterday's date in user's timezone
+    from datetime import timedelta
+    user_tz = await get_user_timezone(telegram_id)
+    yesterday = get_user_today(user_tz) - timedelta(days=1)
 
-    # Process habit completion for yesterday
-    try:
-        from src.bot.formatters import format_habit_completion_message
+    # Store in context for confirmation handler
+    context.user_data['menu_backdate_date'] = yesterday
 
-        logger.info(f"⚙️ Processing habit completion for yesterday ({yesterday}): user {telegram_id}, habit '{habit_name}'")
-        result = await maybe_await(
-            habit_service.process_habit_completion(
-                user_telegram_id=telegram_id,
-                habit_name=habit_name,
-                target_date=yesterday
-            )
-        )
+    # Format date for display
+    date_display = yesterday.strftime("%d %b %Y")  # Format: 09 Dec 2025
 
-        date_display = yesterday.strftime("%d %b %Y")  # Format: 09 Dec 2025
-        message = format_habit_completion_message(result, lang)
-        message = msg('SUCCESS_BACKDATE_COMPLETED', lang, habit_name=habit_name, date=date_display) + "\n\n" + message
-
-        logger.info(f"✅ Habit '{habit_name}' completed for yesterday. Streak: {result.streak_count}")
-        await query.edit_message_text(
-            text=message,
-            reply_markup=build_back_to_menu_keyboard(lang),
-            parse_mode="HTML"
-        )
-
-    except ValueError as e:
-        error_msg = str(e)
-        logger.error(f"❌ Error processing habit completion: {error_msg}")
-
-        if "already completed" in error_msg.lower():
-            user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, habit_name=habit_name, date=yesterday.strftime("%d %b %Y"))
-        elif "before habit was created" in error_msg.lower():
-            user_message = msg('ERROR_BACKDATE_BEFORE_CREATED', lang, date=error_msg.split()[-1])
-        else:
-            user_message = msg('ERROR_GENERAL', lang, error=error_msg)
-
-        await query.edit_message_text(
-            user_message,
-            reply_markup=build_back_to_menu_keyboard(lang),
-            parse_mode="HTML"
-        )
-
-    # Clean up context
-    context.user_data.pop('menu_habit_id', None)
-    context.user_data.pop('menu_habit_name', None)
+    # Show confirmation message (same as "for date" flow)
+    from src.bot.keyboards import build_backdate_confirmation_keyboard
+    keyboard = build_backdate_confirmation_keyboard(habit_id, yesterday, lang)
+    await query.edit_message_text(
+        msg('HELP_BACKDATE_CONFIRM', lang, habit_name=habit_name, date=date_display),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    logger.info(f"📤 Sent yesterday confirmation prompt to {telegram_id} for '{habit_name}' on {yesterday}")
     return 0
 
 
@@ -775,8 +753,9 @@ async def menu_select_date_callback(update: Update, context: ContextTypes.DEFAUL
     context.user_data['menu_habit_name'] = habit.name
 
     # Get completed dates for this habit (last 7 days)
-    from datetime import date, timedelta
-    today = date.today()
+    from datetime import timedelta
+    user_tz = await get_user_timezone(telegram_id)
+    today = get_user_today(user_tz)
     start_date = today - timedelta(days=7)
     completed_dates = await maybe_await(
         habit_service.get_habit_completions_for_daterange(
@@ -786,7 +765,7 @@ async def menu_select_date_callback(update: Update, context: ContextTypes.DEFAUL
 
     # Build and show date picker
     from src.bot.keyboards import build_date_picker_keyboard
-    keyboard = build_date_picker_keyboard(habit_id, completed_dates, lang)
+    keyboard = build_date_picker_keyboard(habit_id, completed_dates, lang, user_today=today)
     await query.edit_message_text(
         msg('HELP_BACKDATE_SELECT_DATE', lang, habit_name=habit.name),
         reply_markup=keyboard,
@@ -899,6 +878,7 @@ async def menu_backdate_confirm_callback(update: Update, context: ContextTypes.D
         return 0
 
     # Process habit completion with target_date
+    user_tz = await get_user_timezone(telegram_id)
     try:
         from src.bot.formatters import format_habit_completion_message
 
@@ -907,7 +887,8 @@ async def menu_backdate_confirm_callback(update: Update, context: ContextTypes.D
             habit_service.process_habit_completion(
                 user_telegram_id=telegram_id,
                 habit_name=habit_name,
-                target_date=target_date
+                target_date=target_date,
+                user_timezone=user_tz,
             )
         )
 

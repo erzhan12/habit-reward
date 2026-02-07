@@ -2,7 +2,17 @@
 
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
+
+
+def validate_iana_timezone(value: str) -> None:
+    """Validate that value is a valid IANA timezone name."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    try:
+        ZoneInfo(value)
+    except (KeyError, ZoneInfoNotFoundError, ValueError):
+        raise ValidationError(f"'{value}' is not a valid IANA timezone.")
 
 
 class User(AbstractUser):
@@ -42,6 +52,12 @@ class User(AbstractUser):
             ('kk', 'Kazakh'),
         ],
         help_text="User's preferred language (ISO 639-1 code)"
+    )
+    timezone = models.CharField(
+        max_length=50,
+        default='UTC',
+        validators=[validate_iana_timezone],
+        help_text="User's IANA timezone (e.g. Asia/Almaty, Europe/Moscow)"
     )
     no_reward_probability = models.FloatField(
         default=50.0,

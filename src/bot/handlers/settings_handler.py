@@ -14,7 +14,8 @@ from telegram.ext import (
 )
 
 from src.core.repositories import user_repository
-from src.bot.keyboards import build_settings_keyboard, build_language_selection_keyboard, build_no_reward_probability_keyboard
+from src.bot.keyboards import build_settings_keyboard, build_language_selection_keyboard, build_no_reward_probability_keyboard, build_timezone_selection_keyboard
+from src.bot.timezone_utils import validate_timezone
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async, set_user_language
 from src.bot.navigation import update_navigation_language
@@ -45,6 +46,8 @@ AWAITING_API_KEY_NAME = 4
 AWAITING_KEY_REVOKE_CONFIRMATION = 5
 AWAITING_NO_REWARD_PROB_SELECTION = 6
 AWAITING_NO_REWARD_PROB_CUSTOM = 7
+AWAITING_TIMEZONE_SELECTION = 8
+AWAITING_TIMEZONE_CUSTOM = 9
 
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -656,6 +659,140 @@ async def no_reward_prob_custom_entered(update: Update, context: ContextTypes.DE
     return AWAITING_SETTINGS_SELECTION
 
 
+# Timezone Handlers
+
+
+async def timezone_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle Timezone menu button."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    logger.info(f"🖱️ User {telegram_id} opened Timezone menu")
+
+    lang = await get_message_language_async(telegram_id, None)
+
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
+        return ConversationHandler.END
+
+    current_tz = user.timezone or 'UTC'
+
+    await query.edit_message_text(
+        text=msg('TIMEZONE_MENU', lang, current=current_tz),
+        reply_markup=build_timezone_selection_keyboard(current_tz, lang),
+        parse_mode="HTML"
+    )
+
+    return AWAITING_TIMEZONE_SELECTION
+
+
+async def change_timezone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle timezone selection button callback."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+
+    # Extract timezone from callback data (e.g., "tz_Asia/Almaty" -> "Asia/Almaty")
+    callback_data = query.data
+    lang = await get_message_language_async(telegram_id, None)
+
+    if not callback_data.startswith("tz_"):
+        logger.error(f"⚠️ Invalid callback_data format: {callback_data}")
+        return AWAITING_SETTINGS_SELECTION
+
+    timezone = callback_data[3:]
+
+    logger.info(f"🖱️ User {telegram_id} (@{username}) selected timezone: {timezone}")
+
+    if not validate_timezone(timezone):
+        logger.warning(f"⚠️ Invalid timezone '{timezone}' from user {telegram_id}")
+        await query.edit_message_text(
+            text=msg('ERROR_GENERAL', lang, error="Invalid timezone"),
+            reply_markup=build_settings_keyboard(lang),
+            parse_mode="HTML"
+        )
+        return AWAITING_SETTINGS_SELECTION
+
+    # Update user timezone
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
+        return ConversationHandler.END
+
+    await maybe_await(user_repository.update(user.id, {'timezone': timezone}))
+
+    logger.info(f"🕐 Timezone updated to '{timezone}' for user {telegram_id}")
+
+    # Show success and return to settings
+    await query.edit_message_text(
+        text=msg('TIMEZONE_UPDATED', lang, timezone=timezone) + "\n\n" + msg('SETTINGS_MENU', lang),
+        reply_markup=build_settings_keyboard(lang),
+        parse_mode="HTML"
+    )
+
+    return AWAITING_SETTINGS_SELECTION
+
+
+async def timezone_custom_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'Type custom' timezone button - prompt for text input."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = str(update.effective_user.id)
+    logger.info(f"🖱️ User {telegram_id} wants to enter custom timezone")
+
+    lang = await get_message_language_async(telegram_id, None)
+
+    await query.edit_message_text(
+        text=msg('TIMEZONE_ENTER_CUSTOM', lang),
+        parse_mode="HTML"
+    )
+
+    return AWAITING_TIMEZONE_CUSTOM
+
+
+async def timezone_custom_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle user entering custom timezone name."""
+    telegram_id = str(update.effective_user.id)
+    user_input = update.message.text.strip()
+
+    logger.info(f"📨 User {telegram_id} entered custom timezone: {user_input}")
+
+    lang = await get_message_language_async(telegram_id, None)
+
+    if not validate_timezone(user_input):
+        logger.warning(f"⚠️ Invalid timezone '{user_input}' from user {telegram_id}")
+        await update.message.reply_text(
+            msg('TIMEZONE_INVALID', lang),
+            parse_mode="HTML"
+        )
+        return AWAITING_TIMEZONE_CUSTOM
+
+    # Get user
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
+        return ConversationHandler.END
+
+    # Update user timezone
+    await maybe_await(user_repository.update(user.id, {'timezone': user_input}))
+
+    logger.info(f"🕐 Timezone updated to '{user_input}' for user {telegram_id}")
+
+    # Show success and return to settings
+    await update.message.reply_text(
+        text=msg('TIMEZONE_UPDATED', lang, timezone=user_input) + "\n\n" + msg('SETTINGS_MENU', lang),
+        reply_markup=build_settings_keyboard(lang),
+        parse_mode="HTML"
+    )
+
+    return AWAITING_SETTINGS_SELECTION
+
+
 # Conversation handler setup
 settings_conversation = ConversationHandler(
     entry_points=[
@@ -665,6 +802,7 @@ settings_conversation = ConversationHandler(
     states={
         AWAITING_SETTINGS_SELECTION: [
             CallbackQueryHandler(select_language_callback, pattern="^settings_language$"),
+            CallbackQueryHandler(timezone_menu_callback, pattern="^settings_timezone$"),
             CallbackQueryHandler(api_keys_menu_callback, pattern="^settings_api_keys$"),
             CallbackQueryHandler(no_reward_prob_menu_callback, pattern="^settings_no_reward_prob$"),
             CallbackQueryHandler(menu_back_end_conversation, pattern="^menu_back$")
@@ -694,6 +832,14 @@ settings_conversation = ConversationHandler(
         ],
         AWAITING_NO_REWARD_PROB_CUSTOM: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, no_reward_prob_custom_entered),
+        ],
+        AWAITING_TIMEZONE_SELECTION: [
+            CallbackQueryHandler(timezone_custom_callback, pattern="^tz_custom$"),
+            CallbackQueryHandler(change_timezone_callback, pattern="^tz_"),
+            CallbackQueryHandler(back_to_settings_callback, pattern="^settings_back$"),
+        ],
+        AWAITING_TIMEZONE_CUSTOM: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, timezone_custom_entered),
         ],
     },
     fallbacks=[],

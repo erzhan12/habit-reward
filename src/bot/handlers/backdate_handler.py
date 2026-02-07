@@ -22,6 +22,7 @@ from src.core.repositories import user_repository
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async
 from src.utils.async_compat import maybe_await
+from src.bot.timezone_utils import get_user_today, get_user_timezone
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -147,7 +148,8 @@ async def habit_selected_for_backdate(
     context.user_data['backdate_habit_name'] = habit.name
 
     # Get completed dates for this habit (last 7 days back from today)
-    today = date.today()
+    user_tz = await get_user_timezone(telegram_id)
+    today = get_user_today(user_tz)
     start_date = today - timedelta(days=7)
     completed_dates = await maybe_await(
         habit_service.get_habit_completions_for_daterange(
@@ -158,7 +160,7 @@ async def habit_selected_for_backdate(
     logger.info(f"📅 Habit '{habit.name}' has {len(completed_dates)} completions in last 7 days")
 
     # Build and show date picker
-    keyboard = build_date_picker_keyboard(habit_id, completed_dates, lang)
+    keyboard = build_date_picker_keyboard(habit_id, completed_dates, lang, user_today=today)
     await query.edit_message_text(
         msg('HELP_BACKDATE_SELECT_DATE', lang, habit_name=habit.name),
         reply_markup=keyboard,
@@ -271,13 +273,15 @@ async def confirm_backdate_completion(
         return ConversationHandler.END
 
     # Process habit completion with target_date
+    user_tz = await get_user_timezone(telegram_id)
     try:
         logger.info(f"⚙️ Processing backdated habit completion for user {telegram_id}, habit '{habit_name}', date {target_date}")
         result = await maybe_await(
             habit_service.process_habit_completion(
                 user_telegram_id=telegram_id,
                 habit_name=habit_name,
-                target_date=target_date
+                target_date=target_date,
+                user_timezone=user_tz,
             )
         )
 

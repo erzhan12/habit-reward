@@ -1247,6 +1247,24 @@ context.user_data.pop('backdate_date', None)
 
 **Why**: ConversationHandler states don't persist data between callbacks; use context.user_data for flow continuity.
 
+### Duplicate Handler Pitfall: menu_handler.py vs habit_done_handler.py
+
+**Critical**: The habit completion flow exists in TWO places with different context key prefixes:
+
+1. **`habit_done_handler.py`** (ConversationHandler via `/habit_done` command)
+   - Context keys: `habit_id`, `habit_name`, `backdate_date`
+   - Uses conversation states: `CONFIRMING_BACKDATE`, etc.
+
+2. **`menu_handler.py`** (standalone CallbackQueryHandlers via menu buttons)
+   - Context keys: `menu_habit_id`, `menu_habit_name`, `menu_backdate_date`
+   - Returns `0` from all handlers (no conversation states)
+
+**When modifying the "yesterday" or "for date" flow, you MUST update BOTH handlers.** The menu flow is the one users typically interact with (via the main menu buttons), while the conversation handler is used via `/habit_done` command.
+
+### cancel_handler Must Handle Both Message and Callback
+
+The `cancel_handler` in `habit_done_handler.py` is used as both a `CommandHandler` fallback (`/cancel` message) and a `CallbackQueryHandler` (clicking "No" button). It must check `update.callback_query` to decide whether to use `edit_message_text()` or `reply_text()`.
+
 ### Known Limitations
 
 **Streak Propagation**: When a past completion is inserted via backdating, the system DOES NOT recalculate streak counts for existing future logs. This means:
