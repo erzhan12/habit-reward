@@ -132,7 +132,7 @@ langbot.habitreward.org {
     # Reverse proxy to Telegram webhook server on host
     reverse_proxy host.docker.internal:8002 {
         # Health check
-        health_uri /health
+        health_uri /
         health_interval 30s
         health_timeout 10s
     }

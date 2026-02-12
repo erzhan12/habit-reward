@@ -6,8 +6,6 @@ This document tracks planned features, improvements, and enhancements for the Ha
 
 ### High Priority
 
-
-
 ## 🔧 Admin Panel Improvements
 
 ### High Priority
