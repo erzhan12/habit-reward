@@ -555,18 +555,18 @@ class RewardService:
                 status = p.get_status()
                 if status == RewardStatus.CLAIMED:
                     continue
-                if status == RewardStatus.ACHIEVED:
+                elif status == RewardStatus.ACHIEVED:
                     achieved.append(p)
-                elif status != RewardStatus.PENDING:
+                elif status == RewardStatus.PENDING:
+                    if p.pieces_earned == 0:
+                        never_won.append(p)
+                    else:
+                        pending.append(p)
+                else:
                     logger.warning(
                         "Unexpected reward status %s for progress %s — skipping",
                         status, getattr(p, "id", "?"),
                     )
-                    continue
-                elif p.pieces_earned == 0:
-                    never_won.append(p)
-                else:
-                    pending.append(p)
 
             # Sort pending by fill percentage descending.
             # `or 1` guards against zero division: pieces_required is always >= 1

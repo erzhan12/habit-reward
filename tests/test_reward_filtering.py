@@ -10,14 +10,15 @@ from src.models.reward_progress import RewardProgress
 def _make_progress(
     *,
     pieces_earned: int,
-    pieces_required: int,
+    pieces_required: int | None,
     claimed: bool = False,
+    progress_id: int | None = None,
     reward_id: int = 99,
     user_id: int = 42,
 ) -> RewardProgress:
     """Build a Pydantic RewardProgress, letting the model derive status itself."""
     return RewardProgress(
-        id=reward_id,
+        id=progress_id if progress_id is not None else reward_id,
         user_id=user_id,
         reward_id=reward_id,
         pieces_earned=pieces_earned,
@@ -156,6 +157,20 @@ class TestGetUserRewardProgress:
 
         # Python's stable sort preserves insertion order for equal keys
         assert [r.reward_id for r in result] == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    async def test_pieces_required_none_sorts_above_normal(self, service):
+        """Reward with pieces_required=None uses fallback of 1, sorting as 100*earned %."""
+        service.progress_repo.get_all_by_user.return_value = [
+            _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),     # 50%
+            _make_progress(pieces_earned=3, pieces_required=None, reward_id=2),   # 3/1 = 300%
+        ]
+
+        result = await service.get_user_reward_progress("1")
+
+        # pieces_required=None falls back to 1 via get_pieces_required(),
+        # so reward_id=2 sorts first (300% > 50%)
+        assert [r.reward_id for r in result] == [2, 1]
 
     @pytest.mark.asyncio
     async def test_empty_list_returns_empty(self, service):

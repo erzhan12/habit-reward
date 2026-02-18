@@ -1,7 +1,7 @@
 """Reward progress model for tracking cumulative reward completion."""
 
 from enum import Enum
-from pydantic import BaseModel, Field, computed_field, model_validator, ConfigDict
+from pydantic import BaseModel, Field, computed_field, ConfigDict
 
 
 class RewardStatus(str, Enum):
@@ -18,21 +18,19 @@ class RewardProgress(BaseModel):
     user_id: str | int = Field(..., description="Link to Users table")
     reward_id: str | int = Field(..., description="Link to Rewards table")
     pieces_earned: int = Field(default=0, description="Number of pieces earned so far")
-    status: RewardStatus = Field(default=RewardStatus.PENDING, description="Current status of reward")
     pieces_required: int | None = Field(default=None, description="Cached from reward for calculations")
     claimed: bool = Field(default=False, description="Whether user has claimed this reward")
     reward: object | None = Field(default=None, description="Optional reward payload for convenience")
 
-    @model_validator(mode="after")
-    def _derive_status(self) -> "RewardProgress":
-        """Compute status from claimed/pieces_earned/pieces_required to match Django model logic."""
+    @computed_field
+    @property
+    def status(self) -> RewardStatus:
+        """Derived from claimed/pieces_earned/pieces_required (mirrors Django model logic)."""
         if self.claimed:
-            self.status = RewardStatus.CLAIMED
-        elif self.pieces_required is not None and self.pieces_earned >= self.pieces_required:
-            self.status = RewardStatus.ACHIEVED
-        else:
-            self.status = RewardStatus.PENDING
-        return self
+            return RewardStatus.CLAIMED
+        if self.pieces_required is not None and self.pieces_earned >= self.pieces_required:
+            return RewardStatus.ACHIEVED
+        return RewardStatus.PENDING
 
     @computed_field
     @property
