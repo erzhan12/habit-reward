@@ -1,7 +1,7 @@
 """Reward progress model for tracking cumulative reward completion."""
 
 from enum import Enum
-from pydantic import BaseModel, Field, computed_field, ConfigDict
+from pydantic import BaseModel, Field, computed_field, model_validator, ConfigDict
 
 
 class RewardStatus(str, Enum):
@@ -22,6 +22,17 @@ class RewardProgress(BaseModel):
     pieces_required: int | None = Field(default=None, description="Cached from reward for calculations")
     claimed: bool = Field(default=False, description="Whether user has claimed this reward")
     reward: object | None = Field(default=None, description="Optional reward payload for convenience")
+
+    @model_validator(mode="after")
+    def _derive_status(self) -> "RewardProgress":
+        """Compute status from claimed/pieces_earned/pieces_required to match Django model logic."""
+        if self.claimed:
+            self.status = RewardStatus.CLAIMED
+        elif self.pieces_required is not None and self.pieces_earned >= self.pieces_required:
+            self.status = RewardStatus.ACHIEVED
+        else:
+            self.status = RewardStatus.PENDING
+        return self
 
     @computed_field
     @property

@@ -547,23 +547,31 @@ class RewardService:
             results = await maybe_await(self.progress_repo.get_all_by_user(user_id))
             coerced = [self._coerce_progress(r) for r in results]
 
-            # Filter out claimed rewards (bot-specific: My Rewards view)
-            unclaimed = [p for p in coerced if p.get_status() != RewardStatus.CLAIMED]
-
-            # Split into 3 groups
+            # Filter claimed and split unclaimed into 3 groups (single pass)
             pending = []
             achieved = []
             never_won = []
-            for p in unclaimed:
+            for p in coerced:
                 status = p.get_status()
+                if status == RewardStatus.CLAIMED:
+                    continue
                 if status == RewardStatus.ACHIEVED:
                     achieved.append(p)
+                elif status != RewardStatus.PENDING:
+                    logger.warning(
+                        "Unexpected reward status %s for progress %s — skipping",
+                        status, getattr(p, "id", "?"),
+                    )
+                    continue
                 elif p.pieces_earned == 0:
                     never_won.append(p)
                 else:
                     pending.append(p)
 
-            # Sort pending by fill percentage descending
+            # Sort pending by fill percentage descending.
+            # `or 1` guards against zero division: pieces_required is always >= 1
+            # for valid rewards, but get_pieces_required() falls back to 1 when
+            # the value is None (no linked reward loaded), so 0 cannot occur here.
             pending.sort(
                 key=lambda p: p.pieces_earned / (p.get_pieces_required() or 1),
                 reverse=True,
