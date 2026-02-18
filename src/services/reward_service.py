@@ -535,11 +535,41 @@ class RewardService:
         self,
         user_id: str
     ) -> list[RewardProgress] | Awaitable[list[RewardProgress]]:
-        """Get all reward progress for a user."""
+        """Get all reward progress for a user.
+
+        Returns unclaimed rewards sorted by:
+        1. Pending rewards (pieces > 0) sorted by fill percentage descending
+        2. Achieved rewards (ready to claim)
+        3. Never-won rewards (0 pieces earned)
+        """
 
         async def _impl() -> list[RewardProgress]:
             results = await maybe_await(self.progress_repo.get_all_by_user(user_id))
-            return [self._coerce_progress(r) for r in results]
+            coerced = [self._coerce_progress(r) for r in results]
+
+            # Filter out claimed rewards (bot-specific: My Rewards view)
+            unclaimed = [p for p in coerced if p.get_status() != RewardStatus.CLAIMED]
+
+            # Split into 3 groups
+            pending = []
+            achieved = []
+            never_won = []
+            for p in unclaimed:
+                status = p.get_status()
+                if status == RewardStatus.ACHIEVED:
+                    achieved.append(p)
+                elif p.pieces_earned == 0:
+                    never_won.append(p)
+                else:
+                    pending.append(p)
+
+            # Sort pending by fill percentage descending
+            pending.sort(
+                key=lambda p: p.pieces_earned / (p.get_pieces_required() or 1),
+                reverse=True,
+            )
+
+            return pending + achieved + never_won
 
         return run_sync_or_async(_impl())
 
