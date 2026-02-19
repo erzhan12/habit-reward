@@ -574,11 +574,9 @@ class RewardService:
                     )
 
             # Sort pending by fill percentage descending.
-            # `or 1` guards against zero division: pieces_required is always >= 1
-            # for valid rewards, but get_pieces_required() falls back to 1 when
-            # the value is None (no linked reward loaded), so 0 cannot occur here.
+            # get_pieces_required() always returns >= 1 (falls back to 1 for None).
             pending.sort(
-                key=lambda p: p.pieces_earned / (p.get_pieces_required() or 1),
+                key=lambda rp: rp.pieces_earned / rp.get_pieces_required(),
                 reverse=True,
             )
 
