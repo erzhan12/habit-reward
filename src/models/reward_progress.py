@@ -14,14 +14,25 @@ class RewardStatus(str, Enum):
 class RewardProgress(BaseModel):
     """Model for tracking progress toward rewards."""
 
+    # --- Regular fields ---
     id: str | int | None = None  # Airtable or DB PK
     user_id: str | int = Field(..., description="Link to Users table")
     reward_id: str | int = Field(..., description="Link to Rewards table")
     pieces_earned: int = Field(default=0, description="Number of pieces earned so far")
-    status: RewardStatus = Field(default=RewardStatus.PENDING, description="Current status of reward")
     pieces_required: int | None = Field(default=None, description="Cached from reward for calculations")
     claimed: bool = Field(default=False, description="Whether user has claimed this reward")
     reward: object | None = Field(default=None, description="Optional reward payload for convenience")
+
+    # --- Computed fields (always derived, never set directly) ---
+    @computed_field
+    @property
+    def status(self) -> RewardStatus:
+        """Derived from claimed/pieces_earned/pieces_required (mirrors Django model logic)."""
+        if self.claimed:
+            return RewardStatus.CLAIMED
+        if self.pieces_required is not None and self.pieces_earned >= self.pieces_required:
+            return RewardStatus.ACHIEVED
+        return RewardStatus.PENDING
 
     @computed_field
     @property
@@ -37,6 +48,7 @@ class RewardProgress(BaseModel):
         """Get emoji for current status."""
         return self.status.value.split()[0]
 
+    # --- Compatibility methods (match Django model interface) ---
     def get_status(self) -> RewardStatus:
         """Backwards-compatible helper for legacy call sites/tests."""
         return self.status
@@ -44,8 +56,8 @@ class RewardProgress(BaseModel):
     def get_pieces_required(self) -> int:
         """Get pieces required for this reward.
 
-        This method exists for compatibility with Django model interface.
-        Returns the pieces_required field value.
+        Returns the pieces_required field value, falling back to 1
+        when pieces_required is None (no linked reward loaded).
         """
         if self.pieces_required is not None:
             return self.pieces_required

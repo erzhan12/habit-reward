@@ -2,6 +2,7 @@
 
 import random
 import logging
+from datetime import date
 from typing import Awaitable
 from types import SimpleNamespace, MethodType
 
@@ -535,11 +536,55 @@ class RewardService:
         self,
         user_id: str
     ) -> list[RewardProgress] | Awaitable[list[RewardProgress]]:
-        """Get all reward progress for a user."""
+        """Get all reward progress for a user.
+
+        Returns unclaimed rewards sorted by:
+        1. Pending rewards (pieces > 0) sorted by fill percentage descending
+        2. Achieved rewards (ready to claim)
+        3. Never-won rewards (0 pieces earned)
+        """
 
         async def _impl() -> list[RewardProgress]:
             results = await maybe_await(self.progress_repo.get_all_by_user(user_id))
-            return [self._coerce_progress(r) for r in results]
+            coerced = [self._coerce_progress(r) for r in results]
+
+            # Filter claimed and split unclaimed into 3 groups (single pass).
+            # Uses get_status() — the unified interface across Django and Pydantic models
+            # (Django RewardProgress has no .status field, only get_status() method).
+            pending = []
+            achieved = []
+            never_won = []
+            for p in coerced:
+                status = p.get_status()
+                if status == RewardStatus.CLAIMED:
+                    continue
+                elif status == RewardStatus.ACHIEVED:
+                    achieved.append(p)
+                elif status == RewardStatus.PENDING:
+                    # Never-won: no progress, or pieces_required unknown.
+                    # getattr sentinel avoids AttributeError on Django models
+                    # (which lack a pieces_required field — it lives on Reward).
+                    pieces_req = getattr(p, "pieces_required", -1)
+                    if p.pieces_earned == 0 or pieces_req is None:
+                        never_won.append(p)
+                    else:
+                        pending.append(p)
+                else:
+                    # Unreachable with current Pydantic/Django models (status is
+                    # always CLAIMED/ACHIEVED/PENDING); guard for future status values.
+                    logger.warning(
+                        "Unexpected reward status %s for progress %s — skipping",
+                        status, getattr(p, "id", "?"),
+                    )
+
+            # Sort pending by fill percentage descending.
+            # get_pieces_required() always returns >= 1 (falls back to 1 for None).
+            pending.sort(
+                key=lambda rp: rp.pieces_earned / rp.get_pieces_required(),
+                reverse=True,
+            )
+
+            return pending + achieved + never_won
 
         return run_sync_or_async(_impl())
 

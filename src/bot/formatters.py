@@ -74,12 +74,8 @@ def format_reward_progress_message(progress: RewardProgress, reward: Reward, lan
 
     message = (
         f"{progress.get_status_emoji()} <b>{reward.name}</b>\n"
-        f"📊 {progress_bar} {progress.pieces_earned}/{progress.get_pieces_required() or 1}\n"
-        f"{msg('FORMAT_STATUS', language, status=progress.get_status().value)}"
+        f"📊 {progress_bar} {progress.pieces_earned}/{progress.get_pieces_required() or 1}"
     )
-
-    if progress.get_status() == RewardStatus.ACHIEVED:
-        message += "\n" + msg('FORMAT_READY_TO_CLAIM', language)
 
     return message
 

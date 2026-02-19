@@ -67,6 +67,16 @@ This document tracks planned features, improvements, and enhancements for the Ha
 
 ### Medium Priority
 
+- [ ] **Claimed Rewards Menu Button**
+  - Add a "Claimed Rewards" button to the Rewards menu
+  - Shows a simple list of one-time (`is_recurring=False`) claimed rewards
+  - Recurring rewards reset after claiming and appear in normal My Rewards list, so only non-recurring claimed rewards need this separate view
+  - **Files**:
+    - `src/bot/keyboards.py` - Add button to `build_rewards_menu_keyboard()`
+    - `src/bot/handlers/reward_handlers.py` - New handler for claimed rewards list
+    - `src/bot/messages.py` - Add message constants
+    - `src/bot/handlers/menu_handler.py` - Register callback
+
 - [ ] **Auto-delete Habit Name Message on Creation, Reward Name on creation and API Key name on creation**
   - When a user creates a new habit, the message that shows the habit name/title should be auto-deleted or replaced
   - When a user creates a new reward, the message that shows the reward name/title should be auto-deleted or replaced
