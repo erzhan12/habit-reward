@@ -561,13 +561,17 @@ class RewardService:
                 elif status == RewardStatus.ACHIEVED:
                     achieved.append(p)
                 elif status == RewardStatus.PENDING:
-                    # pieces_earned == 0 covers both normal rewards and rewards
-                    # with pieces_required=None (status derives as PENDING either way)
-                    if p.pieces_earned == 0:
+                    # Never-won: no progress, or pieces_required unknown.
+                    # getattr sentinel avoids AttributeError on Django models
+                    # (which lack a pieces_required field — it lives on Reward).
+                    pieces_req = getattr(p, "pieces_required", -1)
+                    if p.pieces_earned == 0 or pieces_req is None:
                         never_won.append(p)
                     else:
                         pending.append(p)
                 else:
+                    # Unreachable with current Pydantic/Django models (status is
+                    # always CLAIMED/ACHIEVED/PENDING); guard for future status values.
                     logger.warning(
                         "Unexpected reward status %s for progress %s — skipping",
                         status, getattr(p, "id", "?"),

@@ -185,23 +185,17 @@ class TestGetUserRewardProgress:
         assert [r.reward_id for r in result] == [1, 2, 3]
 
     @pytest.mark.asyncio
-    async def test_pieces_required_none_sorts_above_normal(self, service):
-        """Reward with pieces_required=None sorts by get_pieces_required() fallback of 1.
-
-        This means pieces_earned/1 = pieces_earned, so a reward with
-        pieces_earned=3 and pieces_required=None sorts as 300%.
-        If get_pieces_required()'s fallback changes, this test must be updated.
-        """
+    async def test_pieces_required_none_goes_to_never_won(self, service):
+        """Reward with pieces_required=None is bucketed into never-won, not pending."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),     # 50%
-            _make_progress(pieces_earned=3, pieces_required=None, reward_id=2),   # 3/1 = 300%
+            _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),     # pending 50%
+            _make_progress(pieces_earned=3, pieces_required=None, reward_id=2),   # never-won
         ]
 
         result = await service.get_user_reward_progress("1")
 
-        # pieces_required=None falls back to 1 via get_pieces_required(),
-        # so reward_id=2 sorts first (300% > 50%)
-        assert [r.reward_id for r in result] == [2, 1]
+        # pending first, then never-won (pieces_required=None)
+        assert [r.reward_id for r in result] == [1, 2]
 
     @pytest.mark.asyncio
     async def test_empty_list_returns_empty(self, service):

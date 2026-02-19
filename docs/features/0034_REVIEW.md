@@ -12,10 +12,10 @@ No feature-specific findings remain.
 
 | Requirement | Status | Notes |
 | --- | --- | --- |
-| Hide claimed rewards in My Rewards | ✅ Done | Implemented in `src/services/reward_service.py:550` |
-| Reorder unclaimed rewards (pending by %, then achieved, then never-won) | ✅ Done | Implemented in `src/services/reward_service.py:553` |
-| Remove status + "Ready to claim" lines in bot formatter | ✅ Done | Implemented in `src/bot/formatters.py:75` |
-| Add TODO entry for claimed rewards menu button | ✅ Done | Added in `TODO.md:70` |
+| Hide claimed rewards in My Rewards | ✅ Done | `get_user_reward_progress()` in `src/services/reward_service.py` |
+| Reorder unclaimed rewards (pending by %, then achieved, then never-won) | ✅ Done | `get_user_reward_progress()` in `src/services/reward_service.py` |
+| Remove status + "Ready to claim" lines in bot formatter | ✅ Done | `format_reward_progress_message()` in `src/bot/formatters.py` |
+| Add TODO entry for claimed rewards menu button | ✅ Done | Added in `TODO.md` |
 | Add unit tests for filtering/ordering scenarios | ✅ Done | 12 tests in `tests/test_reward_filtering.py` |
 
 ## Data Alignment Review
