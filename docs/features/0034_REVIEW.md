@@ -16,7 +16,7 @@ No feature-specific findings remain.
 | Reorder unclaimed rewards (pending by %, then achieved, then never-won) | ✅ Done | Implemented in `src/services/reward_service.py:553` |
 | Remove status + "Ready to claim" lines in bot formatter | ✅ Done | Implemented in `src/bot/formatters.py:75` |
 | Add TODO entry for claimed rewards menu button | ✅ Done | Added in `TODO.md:70` |
-| Add unit tests for filtering/ordering scenarios | ✅ Done | Added in `tests/test_reward_filtering.py` |
+| Add unit tests for filtering/ordering scenarios | ✅ Done | 12 tests in `tests/test_reward_filtering.py` |
 
 ## Data Alignment Review
 No snake_case/camelCase or nested payload-shape issues were found in this feature path.
@@ -25,7 +25,6 @@ No snake_case/camelCase or nested payload-shape issues were found in this featur
 No over-engineering introduced in the changed code paths.
 
 ## Validation Performed
-- `uv run pytest tests/test_reward_filtering.py tests/test_reward_service.py tests/api/test_rewards.py tests/services/test_reward_service_async.py -q` (56 passed)
-- `uv run ruff check src/services/reward_service.py src/bot/formatters.py tests/test_reward_filtering.py`
-  - No new lint findings in feature tests.
-  - Pre-existing non-feature lint issues remain in `src/services/reward_service.py:57`, `src/services/reward_service.py:269`, `src/services/reward_service.py:299` (`F821` for `'date'` annotation).
+- `uv run pytest tests/ -q` (447 passed)
+- `uv run ruff check src/services/reward_service.py src/bot/formatters.py tests/test_reward_filtering.py` — All checks passed
+  - Pre-existing F821 lint errors (`date` annotation) fixed by adding `from datetime import date` import.
