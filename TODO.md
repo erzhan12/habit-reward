@@ -107,11 +107,6 @@ This document tracks planned features, improvements, and enhancements for the Ha
 
 ### Low Priority
 
-- [ ] **Fix F821 lint errors in reward_service.py**
-  - `target_date: 'date | None'` annotations at lines 57, 269, 299 reference undefined `date`
-  - Add `from datetime import date` import to resolve
-  - **File**: `src/services/reward_service.py`
-
 - [ ] **Undo Button for Recent Completions**
   - Add inline "Undo" button that appears after completing a habit (within 5 minutes)
   - Quick way to revert accidental completions without using `/revert_habit` command

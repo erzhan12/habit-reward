@@ -14,6 +14,7 @@ class RewardStatus(str, Enum):
 class RewardProgress(BaseModel):
     """Model for tracking progress toward rewards."""
 
+    # --- Regular fields ---
     id: str | int | None = None  # Airtable or DB PK
     user_id: str | int = Field(..., description="Link to Users table")
     reward_id: str | int = Field(..., description="Link to Rewards table")
@@ -22,6 +23,7 @@ class RewardProgress(BaseModel):
     claimed: bool = Field(default=False, description="Whether user has claimed this reward")
     reward: object | None = Field(default=None, description="Optional reward payload for convenience")
 
+    # --- Computed fields (always derived, never set directly) ---
     @computed_field
     @property
     def status(self) -> RewardStatus:
@@ -46,6 +48,7 @@ class RewardProgress(BaseModel):
         """Get emoji for current status."""
         return self.status.value.split()[0]
 
+    # --- Compatibility methods (match Django model interface) ---
     def get_status(self) -> RewardStatus:
         """Backwards-compatible helper for legacy call sites/tests."""
         return self.status
@@ -53,8 +56,8 @@ class RewardProgress(BaseModel):
     def get_pieces_required(self) -> int:
         """Get pieces required for this reward.
 
-        This method exists for compatibility with Django model interface.
-        Returns the pieces_required field value.
+        Returns the pieces_required field value, falling back to 1
+        when pieces_required is None (no linked reward loaded).
         """
         if self.pieces_required is not None:
             return self.pieces_required

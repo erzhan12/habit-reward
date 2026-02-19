@@ -2,6 +2,7 @@
 
 import random
 import logging
+from datetime import date
 from typing import Awaitable
 from types import SimpleNamespace, MethodType
 
@@ -547,7 +548,9 @@ class RewardService:
             results = await maybe_await(self.progress_repo.get_all_by_user(user_id))
             coerced = [self._coerce_progress(r) for r in results]
 
-            # Filter claimed and split unclaimed into 3 groups (single pass)
+            # Filter claimed and split unclaimed into 3 groups (single pass).
+            # Uses get_status() — the unified interface across Django and Pydantic models
+            # (Django RewardProgress has no .status field, only get_status() method).
             pending = []
             achieved = []
             never_won = []
@@ -558,6 +561,8 @@ class RewardService:
                 elif status == RewardStatus.ACHIEVED:
                     achieved.append(p)
                 elif status == RewardStatus.PENDING:
+                    # pieces_earned == 0 covers both normal rewards and rewards
+                    # with pieces_required=None (status derives as PENDING either way)
                     if p.pieces_earned == 0:
                         never_won.append(p)
                     else:

@@ -65,6 +65,32 @@ class TestGetUserRewardProgress:
 
         assert result == []
 
+    @pytest.mark.asyncio
+    async def test_partially_earned_claimed_reward_hidden(self, service):
+        """Claimed reward with pieces_earned < pieces_required is still filtered out."""
+        service.progress_repo.get_all_by_user.return_value = [
+            _make_progress(pieces_earned=3, pieces_required=10, claimed=True, reward_id=1),
+            _make_progress(pieces_earned=5, pieces_required=10, reward_id=2),
+        ]
+
+        result = await service.get_user_reward_progress("1")
+
+        assert len(result) == 1
+        assert result[0].reward_id == 2
+
+    @pytest.mark.asyncio
+    async def test_claimed_with_pieces_required_none_hidden(self, service):
+        """claimed=True takes priority even when pieces_required is None."""
+        service.progress_repo.get_all_by_user.return_value = [
+            _make_progress(pieces_earned=2, pieces_required=None, claimed=True, reward_id=1),
+            _make_progress(pieces_earned=5, pieces_required=10, reward_id=2),
+        ]
+
+        result = await service.get_user_reward_progress("1")
+
+        assert len(result) == 1
+        assert result[0].reward_id == 2
+
     # ------------------------------------------------------------------
     # Ordering
     # ------------------------------------------------------------------
@@ -160,7 +186,12 @@ class TestGetUserRewardProgress:
 
     @pytest.mark.asyncio
     async def test_pieces_required_none_sorts_above_normal(self, service):
-        """Reward with pieces_required=None uses fallback of 1, sorting as 100*earned %."""
+        """Reward with pieces_required=None sorts by get_pieces_required() fallback of 1.
+
+        This means pieces_earned/1 = pieces_earned, so a reward with
+        pieces_earned=3 and pieces_required=None sorts as 300%.
+        If get_pieces_required()'s fallback changes, this test must be updated.
+        """
         service.progress_repo.get_all_by_user.return_value = [
             _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),     # 50%
             _make_progress(pieces_earned=3, pieces_required=None, reward_id=2),   # 3/1 = 300%
