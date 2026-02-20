@@ -1,11 +1,15 @@
 """Message formatting functions for Telegram bot responses."""
 
+import logging
+
 from src.models.habit_completion_result import HabitCompletionResult
 from src.models.reward_progress import RewardProgress, RewardStatus
 from src.models.reward import Reward
 from src.models.habit_log import HabitLog
 from src.config import settings
 from src.bot.messages import msg
+
+logger = logging.getLogger(__name__)
 
 
 def format_habit_completion_message(result: HabitCompletionResult, language: str = 'en') -> str:
@@ -132,7 +136,7 @@ def format_rewards_list_message(rewards: list[Reward], language: str = 'en') -> 
         # Build details list (pieces and weight)
         details = []
         if reward.pieces_required > 1:
-            details.append(f"{reward.pieces_required} pieces")
+            details.append(f"{reward.pieces_required} {msg('LABEL_PIECES', language)}")
         details.append(f"w: {int(reward.weight)}")
 
         if details:
@@ -233,5 +237,37 @@ def format_claim_success_with_progress(
         if reward:
             progress_msg = format_reward_progress_message(progress, reward, language)
             message_parts.append("\n" + progress_msg)
+
+    return "\n".join(message_parts)
+
+
+def format_claimed_rewards_message(
+    progress_list: list[RewardProgress],
+    rewards_dict: dict[str | int, Reward],
+    language: str = 'en'
+) -> str:
+    """
+    Format claimed one-time rewards into a message.
+
+    Args:
+        progress_list: List of claimed RewardProgress objects
+        rewards_dict: Dictionary mapping reward_id to Reward object
+        language: Language code for translations
+
+    Returns:
+        Formatted message string with header and reward list
+    """
+    message_parts = [msg('HEADER_CLAIMED_REWARDS', language)]
+
+    for progress in progress_list:
+        reward = rewards_dict.get(progress.reward_id)
+        if reward:
+            pieces = progress.get_pieces_required()
+            if pieces is None:
+                logger.warning(f"Missing pieces_required for progress {progress.id}")
+                pieces = 1
+            message_parts.append(
+                f"🏆 <b>{reward.name}</b> — {pieces} {msg('LABEL_PIECES', language)}"
+            )
 
     return "\n".join(message_parts)

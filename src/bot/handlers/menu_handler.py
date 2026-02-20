@@ -208,6 +208,7 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
     from src.bot.handlers.reward_handlers import (
         list_rewards_command,
         my_rewards_command,
+        claimed_rewards_command,
     )
 
     # Create a mock message object that handlers can use
@@ -264,6 +265,7 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
         # 'menu_habits_remove': now in direct_command_map
         'menu_rewards_list': list_rewards_command,
         'menu_rewards_my': my_rewards_command,
+        'menu_rewards_claimed': claimed_rewards_command,
         # 'menu_rewards_claim': claim_reward_command,  # Handled by ConversationHandler
     }
 
@@ -968,7 +970,7 @@ def get_menu_handlers():
         CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_habits$"),
         CallbackQueryHandler(open_rewards_menu_callback, pattern="^menu_rewards$"),
         CallbackQueryHandler(close_menu_callback, pattern="^menu_close$"),
-        CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_habit_done_date|menu_habits_remove|menu_streaks|menu_help|menu_habits_add|menu_habits_revert|menu_rewards_list|menu_rewards_my)$"),
+        CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_habit_done_date|menu_habits_remove|menu_streaks|menu_help|menu_habits_add|menu_habits_revert|menu_rewards_list|menu_rewards_my|menu_rewards_claimed)$"),
         CallbackQueryHandler(open_start_menu_callback, pattern="^menu_back_start$"),
         CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_back_habits$"),
         CallbackQueryHandler(generic_back_callback, pattern="^menu_back$"),

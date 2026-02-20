@@ -19,10 +19,11 @@ from src.core.repositories import user_repository, reward_repository
 from src.bot.formatters import (
     format_reward_progress_message,
     format_rewards_list_message,
-    format_claim_success_with_progress
+    format_claim_success_with_progress,
+    format_claimed_rewards_message,
 )
 from src.bot.keyboards import (
-    # build_back_to_menu_keyboard,
+    build_back_to_menu_keyboard,
     build_claimable_rewards_keyboard,
     build_reward_cancel_keyboard,
     build_reward_weight_keyboard,
@@ -149,7 +150,6 @@ async def list_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYP
     logger.info(f"🔍 Found {len(rewards)} active rewards for user {telegram_id}")
     message = format_rewards_list_message(rewards, lang)
 
-    from src.bot.keyboards import build_back_to_menu_keyboard
     await update.message.reply_text(
         message,
         reply_markup=build_back_to_menu_keyboard(lang),
@@ -192,8 +192,6 @@ async def my_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     logger.info(f"🔍 Found {len(progress_list)} reward progress entries for user {telegram_id}")
 
-    from src.bot.keyboards import build_back_to_menu_keyboard
-
     if not progress_list:
         logger.info(f"ℹ️ No reward progress found for user {telegram_id}")
         await update.message.reply_text(
@@ -219,6 +217,63 @@ async def my_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode="HTML"
     )
     logger.info(f"📤 Sent reward progress to {telegram_id}")
+
+
+async def claimed_rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /claimed_rewards command - show claimed one-time rewards."""
+    telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+    logger.info(f"📨 Received /claimed_rewards command from user {telegram_id} (@{username})")
+    lang = await get_message_language_async(telegram_id, update)
+
+    # Validate user exists
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        logger.warning(f"⚠️ User {telegram_id} not found in database")
+        await update.message.reply_text(
+            msg('ERROR_USER_NOT_FOUND', lang)
+        )
+        logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
+        return
+
+    # Check if user is active
+    if not user.is_active:
+        logger.warning(f"⚠️ User {telegram_id} is inactive")
+        await update.message.reply_text(
+            msg('ERROR_USER_INACTIVE', lang)
+        )
+        logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
+        return
+
+    lang = user.language or lang
+
+    # Get claimed one-time rewards
+    claimed_list = await maybe_await(
+        reward_service.get_claimed_one_time_rewards(user.id)
+    )
+    logger.info(f"🔍 Found {len(claimed_list)} claimed one-time rewards for user {telegram_id}")
+
+    if not claimed_list:
+        logger.info(f"ℹ️ No claimed one-time rewards found for user {telegram_id}")
+        await update.message.reply_text(
+            msg('INFO_NO_CLAIMED_REWARDS', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        logger.info(f"📤 Sent INFO_NO_CLAIMED_REWARDS message to {telegram_id}")
+        return
+
+    # Build rewards dictionary from progress list
+    rewards_dict = await _get_rewards_dict(claimed_list)
+
+    # Format and send response
+    message = format_claimed_rewards_message(claimed_list, rewards_dict, lang)
+    logger.info(f"✅ Sending claimed rewards list for {len(claimed_list)} rewards to user {telegram_id}")
+    await update.message.reply_text(
+        message,
+        reply_markup=build_back_to_menu_keyboard(lang),
+        parse_mode="HTML"
+    )
+    logger.info(f"📤 Sent claimed rewards list to {telegram_id}")
 
 
 async def claim_reward_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -261,7 +316,6 @@ async def claim_reward_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if not achieved_rewards:
         logger.info(f"ℹ️ No achieved rewards found for user {telegram_id}")
-        from src.bot.keyboards import build_back_to_menu_keyboard
         await update.message.reply_text(
             msg('INFO_NO_REWARDS_TO_CLAIM', lang),
             reply_markup=build_back_to_menu_keyboard(lang),
@@ -334,7 +388,6 @@ async def menu_claim_reward_callback(update: Update, context: ContextTypes.DEFAU
 
     if not achieved_rewards:
         logger.info(f"ℹ️ No achieved rewards found for user {telegram_id}")
-        from src.bot.keyboards import build_back_to_menu_keyboard
         await query.edit_message_text(
             msg('INFO_NO_REWARDS_TO_CLAIM', lang),
             reply_markup=build_back_to_menu_keyboard(lang),
@@ -449,7 +502,6 @@ async def claim_reward_callback(
                 # Add auto-deactivation message
                 message += f"\n\n{msg('INFO_REWARD_NON_RECURRING_DEACTIVATED', lang)}"
 
-            from src.bot.keyboards import build_back_to_menu_keyboard
             await query.edit_message_text(
                 text=message,
                 reply_markup=build_back_to_menu_keyboard(lang),
