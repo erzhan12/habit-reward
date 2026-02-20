@@ -17,6 +17,7 @@ def _make_progress(
     claimed: bool = False,
     reward_id: int = 1,
     user_id: int = 42,
+    reward: Reward | None = None,
 ) -> RewardProgress:
     """Build a Pydantic RewardProgress for testing."""
     return RewardProgress(
@@ -26,6 +27,7 @@ def _make_progress(
         pieces_earned=pieces_earned,
         pieces_required=pieces_required,
         claimed=claimed,
+        reward=reward,
     )
 
 
@@ -89,6 +91,50 @@ class TestGetClaimedOneTimeRewards:
         assert len(result) == 1
         # Coerced result should have get_status() returning CLAIMED
         assert result[0].get_status().value == "✅ Claimed"
+
+    @pytest.mark.asyncio
+    async def test_sorts_alphabetically_by_reward_name(self, service):
+        """Results are sorted alphabetically by reward name."""
+        reward_z = _make_reward(reward_id=1, name="Zebra Trip")
+        reward_a = _make_reward(reward_id=2, name="Apple Juice")
+        reward_m = _make_reward(reward_id=3, name="Movie Night")
+
+        service.progress_repo.get_claimed_non_recurring_by_user.return_value = [
+            _make_progress(reward_id=1, claimed=True, reward=reward_z),
+            _make_progress(reward_id=2, claimed=True, reward=reward_a),
+            _make_progress(reward_id=3, claimed=True, reward=reward_m),
+        ]
+
+        result = await service.get_claimed_one_time_rewards("42")
+
+        names = [r.reward.name for r in result]
+        assert names == ["Apple Juice", "Movie Night", "Zebra Trip"]
+
+    @pytest.mark.asyncio
+    async def test_excludes_unclaimed_non_recurring(self, service):
+        """Unclaimed non-recurring rewards are NOT returned (filtered by repo)."""
+        # The repo method only returns claimed=True, so if it returns nothing
+        # for unclaimed progress, the service should return empty.
+        service.progress_repo.get_claimed_non_recurring_by_user.return_value = []
+
+        result = await service.get_claimed_one_time_rewards("42")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_recurring_claimed_excluded_by_repo(self, service):
+        """Recurring claimed rewards are excluded (filtered by repo query)."""
+        # The repo filters reward__is_recurring=False, so recurring rewards
+        # should never appear. We verify the service passes through correctly.
+        service.progress_repo.get_claimed_non_recurring_by_user.return_value = [
+            _make_progress(reward_id=1, claimed=True, pieces_required=5),
+        ]
+
+        result = await service.get_claimed_one_time_rewards("42")
+
+        # Only the non-recurring one from the repo is returned
+        assert len(result) == 1
+        assert result[0].reward_id == 1
 
 
 class TestFormatClaimedRewardsMessage:

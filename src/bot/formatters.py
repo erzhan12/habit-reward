@@ -239,7 +239,7 @@ def format_claim_success_with_progress(
 
 def format_claimed_rewards_message(
     progress_list: list[RewardProgress],
-    rewards_dict: dict[str, Reward],
+    rewards_dict: dict[str | int, Reward],
     language: str = 'en'
 ) -> str:
     """

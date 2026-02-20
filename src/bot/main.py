@@ -24,6 +24,7 @@ from src.bot.handlers.habit_management_handler import (
 from src.bot.handlers.reward_handlers import (
     list_rewards_command,
     my_rewards_command,
+    claimed_rewards_command,
     claim_reward_conversation,
     add_reward_conversation,
     edit_reward_conversation,
@@ -72,6 +73,7 @@ def main():
     # Add reward handlers
     application.add_handler(CommandHandler("list_rewards", list_rewards_command))
     application.add_handler(CommandHandler("my_rewards", my_rewards_command))
+    application.add_handler(CommandHandler("claimed_rewards", claimed_rewards_command))
     application.add_handler(claim_reward_conversation)
     application.add_handler(add_reward_conversation)
     application.add_handler(edit_reward_conversation)
