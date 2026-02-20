@@ -1616,3 +1616,95 @@ uvicorn asgi:app --port 8000
 - Rate limiting middleware
 - API tests (`tests/api/`)
 - Webhook notifications (optional)
+
+## Claimed Rewards Feature (Feature 0035)
+
+### Sorting Belongs in the Repository
+
+When a repository query already includes `.order_by()`, do NOT add a redundant sort in the service layer. The service should trust the repository's ordering.
+
+```python
+# ✅ Good - Repository handles sorting
+async def get_claimed_non_recurring_by_user(self, user_id):
+    return await sync_to_async(list)(
+        RewardProgress.objects.filter(
+            user_id=user_pk, claimed=True, reward__is_recurring=False,
+        ).select_related("reward", "user").order_by("reward__name")
+    )
+
+# Service just coerces, no re-sort needed
+async def _impl():
+    results = await maybe_await(self.progress_repo.get_claimed_non_recurring_by_user(user_id))
+    return [self._coerce_progress(r) for r in results]
+
+# ❌ Bad - Redundant sort in service
+coerced.sort(key=lambda rp: rp.reward.name if rp.reward else "")
+```
+
+### Language Detection Consistency
+
+When `lang` is already fetched via `get_message_language_async()` at the top of a handler, use that variable for ALL messages in the handler — including error messages. Do NOT call `detect_language_from_telegram(update)` separately for error paths.
+
+```python
+# ✅ Good - Use pre-fetched lang everywhere
+lang = await get_message_language_async(telegram_id, update)
+if not user:
+    await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
+
+# ❌ Bad - Redundant detection call
+if not user:
+    await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update)))
+```
+
+### Import Organization in Handlers
+
+Move all imports to the top of handler files. Avoid inline `from ... import ...` inside function bodies. This improves dependency visibility and avoids scattered duplicate imports.
+
+```python
+# ✅ Good - Top-level imports
+from src.bot.keyboards import build_back_to_menu_keyboard
+from src.bot.formatters import format_claimed_rewards_message
+
+# ❌ Bad - Inline imports repeated in multiple functions
+async def my_handler(...):
+    from src.bot.keyboards import build_back_to_menu_keyboard  # Repeated 6 times!
+```
+
+### Test Assertions: Use Exact Message Constants
+
+In handler tests, assert against exact `msg()` constants instead of loose substring matching. This catches unintended message changes and prevents false positives.
+
+```python
+from src.bot.messages import msg
+
+# ✅ Good - Exact match
+assert call_args[0][0] == msg('ERROR_USER_NOT_FOUND', 'en')
+
+# ❌ Bad - Loose substring matching (false positives possible)
+assert "not found" in call_args[0][0].lower() or "User not found" in call_args[0][0]
+```
+
+### Silent Fallbacks: Log Instead of Hiding
+
+When using fallback values (e.g., `or 1`), add a warning log so unexpected None values surface in logs rather than being silently swallowed.
+
+```python
+# ✅ Good - Defensive logging
+pieces = progress.get_pieces_required()
+if pieces is None:
+    logger.warning(f"Missing pieces_required for progress {progress.id}")
+    pieces = 1
+
+# ❌ Bad - Silent fallback hides bugs
+pieces = progress.get_pieces_required() or 1
+```
+
+### DB-Backed Repository Integration Tests
+
+For critical query filters (like `claimed=True AND reward__is_recurring=False`), always write a DB-backed integration test alongside unit tests. Unit tests with mocked repos cannot verify actual query filtering.
+
+**Pattern** (in `tests/services/test_reward_service_async.py`):
+- Create test data with `await Model.objects.acreate(...)`
+- Call the repository method directly
+- Assert only expected rows are returned
+- Clean up in a `finally` block with `await Model.objects.filter(...).adelete()`
