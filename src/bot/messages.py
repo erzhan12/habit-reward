@@ -152,6 +152,7 @@ Your streak multiplier increases your chances of getting rewards!"""
     FORMAT_STREAK = "<b>Streak:</b> {streak_count} days"
     FORMAT_REWARD = "🎁 <b>Reward:</b> {reward_name}"
     FORMAT_PROGRESS = "📊 Progress: {progress_bar} {pieces_earned}/{pieces_required}"
+    LABEL_PIECES = "pieces"
     FORMAT_STATUS = "Status: {status}"
     FORMAT_READY_TO_CLAIM = "⏳ <b>Ready to claim!</b>"
     FORMAT_NO_REWARDS_YET = "No rewards configured yet."
@@ -476,6 +477,7 @@ Use this key in your app with the header:
             'FORMAT_STREAK': "<b>Серия:</b> {streak_count} дней",
             'FORMAT_REWARD': "🎁 <b>Награда:</b> {reward_name}",
             'FORMAT_PROGRESS': "📊 Прогресс: {progress_bar} {pieces_earned}/{pieces_required}",
+            'LABEL_PIECES': "частей",
             'FORMAT_STATUS': "Статус: {status}",
             'FORMAT_READY_TO_CLAIM': "⏳ <b>Готово к получению!</b>",
             'FORMAT_NO_REWARDS_YET': "Награды ещё не настроены.",
@@ -797,6 +799,7 @@ Use this key in your app with the header:
             'FORMAT_STREAK': "<b>Серия:</b> {streak_count} күн",
             'FORMAT_REWARD': "🎁 <b>Сыйлық:</b> {reward_name}",
             'FORMAT_PROGRESS': "📊 Прогресс: {progress_bar} {pieces_earned}/{pieces_required}",
+            'LABEL_PIECES': "бөліктер",
             'FORMAT_STATUS': "Статус: {status}",
             'FORMAT_READY_TO_CLAIM': "⏳ <b>Алуға дайын!</b>",
             'FORMAT_NO_REWARDS_YET': "Сыйлықтар әлі конфигурацияланбаған.",

@@ -136,7 +136,7 @@ def format_rewards_list_message(rewards: list[Reward], language: str = 'en') -> 
         # Build details list (pieces and weight)
         details = []
         if reward.pieces_required > 1:
-            details.append(f"{reward.pieces_required} pieces")
+            details.append(f"{reward.pieces_required} {msg('LABEL_PIECES', language)}")
         details.append(f"w: {int(reward.weight)}")
 
         if details:
@@ -267,7 +267,7 @@ def format_claimed_rewards_message(
                 logger.warning(f"Missing pieces_required for progress {progress.id}")
                 pieces = 1
             message_parts.append(
-                f"🏆 <b>{reward.name}</b> — {pieces} pieces"
+                f"🏆 <b>{reward.name}</b> — {pieces} {msg('LABEL_PIECES', language)}"
             )
 
     return "\n".join(message_parts)
