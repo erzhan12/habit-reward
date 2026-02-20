@@ -28,6 +28,7 @@ class Messages:
 
     # Info Messages
     INFO_NO_REWARD_PROGRESS = "No reward progress yet. Keep completing habits!"
+    INFO_NO_CLAIMED_REWARDS = "No claimed rewards yet. Claim one-time rewards to see them here!"
     INFO_NO_REWARD = "❌ No reward this time - keep going!"
     INFO_REWARD_ACTIONABLE = "⏳ <b>Reward achieved!</b> You can claim it now!"
     INFO_FEATURE_COMING_SOON = "🎁 <b>Add New Reward</b>\n\nThis feature will guide you through creating a new reward.\nFor now, please add rewards via the /add_reward command or Django admin.\n\nComing soon: conversational reward creation!"
@@ -62,6 +63,7 @@ class Messages:
 
     # Headers/Titles
     HEADER_REWARD_PROGRESS = "🎁 <b>Your Reward Progress:</b>\n"
+    HEADER_CLAIMED_REWARDS = "🏆 <b>Claimed Rewards:</b>\n"
     HEADER_STREAKS = "🔥 <b>Your Current Streaks:</b>\n"
     HEADER_REWARDS_LIST = "🎁 <b>Available Rewards:</b>\n"
     HEADER_HABIT_LOGS = "📋 <b>Recent Habit Completions:</b>\n"
@@ -92,6 +94,7 @@ class Messages:
     BUTTON_LIST_REWARDS = "📄 List Rewards"
     BUTTON_MY_REWARDS = "📊 My Rewards"
     BUTTON_CLAIM_REWARD = "🎯 Claim Reward"
+    BUTTON_CLAIMED_REWARDS = "🏆 Claimed Rewards"
     BUTTON_YES = "✅ Yes"
     BUTTON_NO = "❌ No"
     BUTTON_EXEMPT_NONE = "None"
@@ -356,6 +359,7 @@ Use this key in your app with the header:
 
             # Info Messages
             'INFO_NO_REWARD_PROGRESS': "Прогресс по наградам отсутствует. Продолжайте выполнять привычки!",
+            'INFO_NO_CLAIMED_REWARDS': "Полученных наград пока нет. Получите разовые награды, чтобы увидеть их здесь!",
             'INFO_NO_REWARD': "❌ В этот раз награды нет - продолжайте!",
             'INFO_REWARD_ACTIONABLE': "⏳ <b>Награда достигнута!</b> Вы можете забрать её сейчас!",
             'INFO_FEATURE_COMING_SOON': "🎁 <b>Добавить новую награду</b>\n\nЭта функция проведёт вас через создание новой награды.\nПока что добавляйте награды через команду /add_reward или Django admin.\n\nСкоро: создание наград через бота!",
@@ -383,6 +387,7 @@ Use this key in your app with the header:
 
             # Headers/Titles
             'HEADER_REWARD_PROGRESS': "🎁 <b>Ваш прогресс по наградам:</b>\n",
+            'HEADER_CLAIMED_REWARDS': "🏆 <b>Полученные награды:</b>\n",
             'HEADER_STREAKS': "🔥 <b>Ваши текущие серии:</b>\n",
             'HEADER_REWARDS_LIST': "🎁 <b>Доступные награды:</b>\n",
             'HEADER_HABIT_LOGS': "📋 <b>Недавние выполнения привычек:</b>\n",
@@ -413,6 +418,7 @@ Use this key in your app with the header:
             'BUTTON_LIST_REWARDS': "📄 Список наград",
             'BUTTON_MY_REWARDS': "📊 Мои награды",
             'BUTTON_CLAIM_REWARD': "🎯 Получить награду",
+            'BUTTON_CLAIMED_REWARDS': "🏆 Полученные награды",
             'BUTTON_YES': "✅ Да",
             'BUTTON_NO': "❌ Нет",
             'BUTTON_EXEMPT_NONE': "Нет",
@@ -674,6 +680,7 @@ Use this key in your app with the header:
 
             # Info Messages
             'INFO_NO_REWARD_PROGRESS': "Сыйлық бойынша прогресс жоқ. Әдеттерді орындауды жалғастырыңыз!",
+            'INFO_NO_CLAIMED_REWARDS': "Алынған марапаттар жоқ. Бір реттік марапаттарды алыңыз, олар осында көрінеді!",
             'INFO_NO_REWARD': "❌ Бұл жолы сыйлық жоқ - жалғастырыңыз!",
             'INFO_REWARD_ACTIONABLE': "⏳ <b>Сыйлық қол жеткізілді!</b> Оны қазір алуға болады!",
             'INFO_FEATURE_COMING_SOON': "🎁 <b>Жаңа сыйлық қосу</b>\n\nБұл функция жаңа сыйлық жасауға жетелейді.\nҚазірше /add_reward командасы арқылы немесе Django admin арқылы сыйлықтар қосыңыз.\n\nЖақында: бот арқылы сыйлықтар жасау!",
@@ -701,6 +708,7 @@ Use this key in your app with the header:
 
             # Headers/Titles
             'HEADER_REWARD_PROGRESS': "🎁 <b>Сіздің сыйлық бойынша прогресс:</b>\n",
+            'HEADER_CLAIMED_REWARDS': "🏆 <b>Алынған марапаттар:</b>\n",
             'HEADER_STREAKS': "🔥 <b>Сіздің ағымдағы сериялар:</b>\n",
             'HEADER_REWARDS_LIST': "🎁 <b>Қолжетімді сыйлықтар:</b>\n",
             'HEADER_HABIT_LOGS': "📋 <b>Соңғы орындалған әдеттер:</b>\n",
@@ -731,6 +739,7 @@ Use this key in your app with the header:
             'BUTTON_LIST_REWARDS': "📄 Марапаттар тізімі",
             'BUTTON_MY_REWARDS': "📊 Менің марапаттарым",
             'BUTTON_CLAIM_REWARD': "🎯 Марапат алу",
+            'BUTTON_CLAIMED_REWARDS': "🏆 Алынған марапаттар",
             'BUTTON_YES': "✅ Иә",
             'BUTTON_NO': "❌ Жоқ",
             'BUTTON_EXEMPT_NONE': "Жоқ",

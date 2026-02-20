@@ -235,3 +235,32 @@ def format_claim_success_with_progress(
             message_parts.append("\n" + progress_msg)
 
     return "\n".join(message_parts)
+
+
+def format_claimed_rewards_message(
+    progress_list: list[RewardProgress],
+    rewards_dict: dict[str, Reward],
+    language: str = 'en'
+) -> str:
+    """
+    Format claimed one-time rewards into a message.
+
+    Args:
+        progress_list: List of claimed RewardProgress objects
+        rewards_dict: Dictionary mapping reward_id to Reward object
+        language: Language code for translations
+
+    Returns:
+        Formatted message string with header and reward list
+    """
+    message_parts = [msg('HEADER_CLAIMED_REWARDS', language)]
+
+    for progress in progress_list:
+        reward = rewards_dict.get(progress.reward_id)
+        if reward:
+            pieces = progress.get_pieces_required() or 1
+            message_parts.append(
+                f"🏆 <b>{reward.name}</b> — {pieces} pieces"
+            )
+
+    return "\n".join(message_parts)

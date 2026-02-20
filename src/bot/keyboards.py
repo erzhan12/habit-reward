@@ -826,6 +826,7 @@ def build_rewards_menu_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=msg('BUTTON_LIST_REWARDS', language), callback_data="menu_rewards_list")],
         [InlineKeyboardButton(text=msg('BUTTON_MY_REWARDS', language), callback_data="menu_rewards_my")],
         [InlineKeyboardButton(text=msg('BUTTON_CLAIM_REWARD', language), callback_data="menu_rewards_claim")],
+        [InlineKeyboardButton(text=msg('BUTTON_CLAIMED_REWARDS', language), callback_data="menu_rewards_claimed")],
         [InlineKeyboardButton(text=msg('MENU_BACK', language), callback_data="menu_back_start")]
     ]
     return InlineKeyboardMarkup(keyboard)

@@ -602,6 +602,20 @@ class RewardService:
 
         return run_sync_or_async(_impl())
 
+    def get_claimed_one_time_rewards(
+        self,
+        user_id: str
+    ) -> list[RewardProgress] | Awaitable[list[RewardProgress]]:
+        """Get claimed one-time (non-recurring) rewards for a user."""
+
+        async def _impl() -> list[RewardProgress]:
+            results = await maybe_await(
+                self.progress_repo.get_claimed_non_recurring_by_user(user_id)
+            )
+            return [self._coerce_progress(r) for r in results]
+
+        return run_sync_or_async(_impl())
+
     def toggle_reward_active(
         self,
         user_id: str,
