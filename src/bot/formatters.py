@@ -1,11 +1,15 @@
 """Message formatting functions for Telegram bot responses."""
 
+import logging
+
 from src.models.habit_completion_result import HabitCompletionResult
 from src.models.reward_progress import RewardProgress, RewardStatus
 from src.models.reward import Reward
 from src.models.habit_log import HabitLog
 from src.config import settings
 from src.bot.messages import msg
+
+logger = logging.getLogger(__name__)
 
 
 def format_habit_completion_message(result: HabitCompletionResult, language: str = 'en') -> str:
@@ -258,7 +262,10 @@ def format_claimed_rewards_message(
     for progress in progress_list:
         reward = rewards_dict.get(progress.reward_id)
         if reward:
-            pieces = progress.get_pieces_required() or 1  # Default to 1 for instant rewards
+            pieces = progress.get_pieces_required()
+            if pieces is None:
+                logger.warning(f"Missing pieces_required for progress {progress.id}")
+                pieces = 1
             message_parts.append(
                 f"🏆 <b>{reward.name}</b> — {pieces} pieces"
             )

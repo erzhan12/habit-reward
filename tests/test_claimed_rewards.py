@@ -8,6 +8,7 @@ from src.models.reward_progress import RewardProgress
 from src.models.reward import Reward
 from src.bot.formatters import format_claimed_rewards_message
 from src.bot.keyboards import build_rewards_menu_keyboard
+from src.bot.messages import msg
 
 
 def _make_progress(
@@ -263,7 +264,7 @@ class TestClaimedRewardsHandler:
 
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
-        assert "not found" in call_args[0][0].lower() or "User not found" in call_args[0][0]
+        assert call_args[0][0] == msg('ERROR_USER_NOT_FOUND', 'en')
 
     @pytest.mark.asyncio
     @patch('src.bot.handlers.reward_handlers.reward_service')
@@ -283,4 +284,4 @@ class TestClaimedRewardsHandler:
 
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
-        assert "No claimed rewards" in call_args[0][0] or "claimed rewards" in call_args[0][0].lower()
+        assert call_args[0][0] == msg('INFO_NO_CLAIMED_REWARDS', 'en')
