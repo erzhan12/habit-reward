@@ -140,7 +140,6 @@ async def test_reward_progress_repository_no_n_plus_one_queries() -> None:
     from src.core.repositories import RewardProgressRepository
     from src.core.models import RewardProgress
     from django.db import connection, reset_queries
-    from django.conf import settings
 
     # Create test user
     user = await User.objects.acreate(
@@ -187,6 +186,87 @@ async def test_reward_progress_repository_no_n_plus_one_queries() -> None:
 
     finally:
         # Cleanup
+        await RewardProgress.objects.filter(user=user).adelete()
+        await Reward.objects.filter(user=user).adelete()
+        await user.adelete()
+
+
+@pytest.mark.asyncio
+async def test_get_claimed_non_recurring_by_user_filters_correctly() -> None:
+    """Repository returns only claimed non-recurring progress rows.
+
+    Scenario (from plan #6):
+      - claimed recurring       → excluded (is_recurring=True)
+      - claimed non-recurring   → included
+      - unclaimed non-recurring → excluded (claimed=False)
+    """
+    from src.core.repositories import RewardProgressRepository
+    from src.core.models import RewardProgress
+
+    user = await User.objects.acreate(
+        telegram_id="777666555",
+        name="Claimed Filter Test User",
+        username="claimed_filter_test",
+    )
+
+    try:
+        # --- rewards -------------------------------------------------------
+        recurring_reward = await Reward.objects.acreate(
+            user=user,
+            name="Recurring Reward",
+            weight=10.0,
+            pieces_required=3,
+            is_recurring=True,
+        )
+        non_recurring_reward_a = await Reward.objects.acreate(
+            user=user,
+            name="Alpha Non-Recurring",
+            weight=10.0,
+            pieces_required=5,
+            is_recurring=False,
+        )
+        non_recurring_reward_b = await Reward.objects.acreate(
+            user=user,
+            name="Beta Non-Recurring",
+            weight=10.0,
+            pieces_required=2,
+            is_recurring=False,
+        )
+
+        # --- progress rows -------------------------------------------------
+        # 1) claimed recurring  → should NOT appear
+        await RewardProgress.objects.acreate(
+            user=user,
+            reward=recurring_reward,
+            pieces_earned=3,
+            claimed=True,
+        )
+        # 2) claimed non-recurring → should appear
+        await RewardProgress.objects.acreate(
+            user=user,
+            reward=non_recurring_reward_a,
+            pieces_earned=5,
+            claimed=True,
+        )
+        # 3) unclaimed non-recurring → should NOT appear
+        await RewardProgress.objects.acreate(
+            user=user,
+            reward=non_recurring_reward_b,
+            pieces_earned=1,
+            claimed=False,
+        )
+
+        # --- act -----------------------------------------------------------
+        repo = RewardProgressRepository()
+        results = await repo.get_claimed_non_recurring_by_user(user.id)
+
+        # --- assert --------------------------------------------------------
+        assert len(results) == 1
+        assert results[0].reward.name == "Alpha Non-Recurring"
+        assert results[0].claimed is True
+        assert results[0].reward.is_recurring is False
+
+    finally:
         await RewardProgress.objects.filter(user=user).adelete()
         await Reward.objects.filter(user=user).adelete()
         await user.adelete()
