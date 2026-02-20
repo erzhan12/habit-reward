@@ -608,18 +608,14 @@ class RewardService:
     ) -> list[RewardProgress] | Awaitable[list[RewardProgress]]:
         """Get claimed one-time (non-recurring) rewards for a user.
 
-        Returns results sorted alphabetically by reward name.
+        Results are sorted alphabetically by reward name (handled by repository query).
         """
 
         async def _impl() -> list[RewardProgress]:
             results = await maybe_await(
                 self.progress_repo.get_claimed_non_recurring_by_user(user_id)
             )
-            coerced = [self._coerce_progress(r) for r in results]
-            coerced.sort(
-                key=lambda rp: getattr(rp.reward, "name", "") if rp.reward else ""
-            )
-            return coerced
+            return [self._coerce_progress(r) for r in results]
 
         return run_sync_or_async(_impl())
 

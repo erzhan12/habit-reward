@@ -258,7 +258,7 @@ def format_claimed_rewards_message(
     for progress in progress_list:
         reward = rewards_dict.get(progress.reward_id)
         if reward:
-            pieces = progress.get_pieces_required() or 1
+            pieces = progress.get_pieces_required() or 1  # Default to 1 for instant rewards
             message_parts.append(
                 f"🏆 <b>{reward.name}</b> — {pieces} pieces"
             )

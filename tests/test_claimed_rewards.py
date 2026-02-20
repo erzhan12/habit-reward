@@ -93,16 +93,17 @@ class TestGetClaimedOneTimeRewards:
         assert result[0].get_status().value == "✅ Claimed"
 
     @pytest.mark.asyncio
-    async def test_sorts_alphabetically_by_reward_name(self, service):
-        """Results are sorted alphabetically by reward name."""
-        reward_z = _make_reward(reward_id=1, name="Zebra Trip")
-        reward_a = _make_reward(reward_id=2, name="Apple Juice")
-        reward_m = _make_reward(reward_id=3, name="Movie Night")
+    async def test_preserves_repo_alphabetical_order(self, service):
+        """Results preserve alphabetical order provided by the repository query."""
+        reward_a = _make_reward(reward_id=1, name="Apple Juice")
+        reward_m = _make_reward(reward_id=2, name="Movie Night")
+        reward_z = _make_reward(reward_id=3, name="Zebra Trip")
 
+        # Repo returns already sorted by reward__name
         service.progress_repo.get_claimed_non_recurring_by_user.return_value = [
-            _make_progress(reward_id=1, claimed=True, reward=reward_z),
-            _make_progress(reward_id=2, claimed=True, reward=reward_a),
-            _make_progress(reward_id=3, claimed=True, reward=reward_m),
+            _make_progress(reward_id=1, claimed=True, reward=reward_a),
+            _make_progress(reward_id=2, claimed=True, reward=reward_m),
+            _make_progress(reward_id=3, claimed=True, reward=reward_z),
         ]
 
         result = await service.get_claimed_one_time_rewards("42")

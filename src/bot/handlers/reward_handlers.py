@@ -233,7 +233,7 @@ async def claimed_rewards_command(update: Update, context: ContextTypes.DEFAULT_
     if not user:
         logger.warning(f"⚠️ User {telegram_id} not found in database")
         await update.message.reply_text(
-            msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update))
+            msg('ERROR_USER_NOT_FOUND', lang)
         )
         logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
         return
@@ -242,12 +242,12 @@ async def claimed_rewards_command(update: Update, context: ContextTypes.DEFAULT_
     if not user.is_active:
         logger.warning(f"⚠️ User {telegram_id} is inactive")
         await update.message.reply_text(
-            msg('ERROR_USER_INACTIVE', detect_language_from_telegram(update))
+            msg('ERROR_USER_INACTIVE', lang)
         )
         logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return
 
-    lang = (user.language or lang)
+    lang = user.language or lang
 
     # Get claimed one-time rewards
     claimed_list = await maybe_await(
