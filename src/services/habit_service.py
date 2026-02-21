@@ -716,6 +716,24 @@ class HabitService:
 
         return run_sync_or_async(_impl())
 
+    def get_habit_by_id(
+        self,
+        user_id: int | str,
+        habit_id: int | str,
+    ) -> Habit | None | Awaitable[Habit | None]:
+        """Get a single active habit by ID, verifying it belongs to the user."""
+
+        async def _impl() -> Habit | None:
+            habit = await maybe_await(self.habit_repo.get_by_id(habit_id))
+            if not habit or not getattr(habit, "active", True):
+                return None
+            user_pk = int(user_id) if isinstance(user_id, str) else user_id
+            if habit.user_id != user_pk:
+                return None
+            return habit
+
+        return run_sync_or_async(_impl())
+
     def get_all_active_habits(self, user_id: int | str) -> list[Habit] | Awaitable[list[Habit]]:
         """Get all active habits for a specific user supporting sync tests and async handlers."""
 

@@ -9,7 +9,7 @@ from datetime import date
 from typing import Any
 from decimal import Decimal
 from asgiref.sync import sync_to_async
-from django.db.models import F
+from django.db.models import Count, F, Max, Q
 
 from src.core.models import User, Habit, HabitLog, Reward, RewardProgress, AuthCode, APIKey
 
@@ -755,6 +755,83 @@ class HabitLogRepository:
 
         await sync_to_async(log.save)()
         return log
+
+    async def get_total_count_by_user(self, user_id: int | str) -> int:
+        """Count all habit log entries for a user.
+
+        Args:
+            user_id: User primary key
+
+        Returns:
+            Total number of habit log entries
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        return await sync_to_async(
+            HabitLog.objects.filter(user_id=user_pk).count
+        )()
+
+    async def get_habit_streak_stats(
+        self, user_id: int | str, week_start: date, today: date
+    ) -> list[dict]:
+        """Get per-habit streak stats in a single annotated query.
+
+        Returns longest streak and weekly completion count for each habit,
+        avoiding N+1 queries in the streaks view.
+
+        Args:
+            user_id: User primary key
+            week_start: Start of the current week (Monday)
+            today: Today's date in user timezone
+
+        Returns:
+            List of dicts: [{"habit_id": 1, "longest_streak": 30, "week_completions": 5}, ...]
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        results = await sync_to_async(list)(
+            HabitLog.objects.filter(user_id=user_pk)
+            .values("habit_id")
+            .annotate(
+                longest_streak=Max("streak_count"),
+                week_completions=Count(
+                    "id",
+                    filter=Q(
+                        last_completed_date__gte=week_start,
+                        last_completed_date__lte=today,
+                    ),
+                ),
+            )
+        )
+        return results
+
+    async def get_logs_in_daterange(
+        self,
+        user_id: int | str,
+        start_date: date,
+        end_date: date,
+        habit_id: int | None = None,
+    ) -> list[HabitLog]:
+        """Get habit logs within a date range with optional habit filter.
+
+        Args:
+            user_id: User primary key
+            start_date: Start of range (inclusive)
+            end_date: End of range (exclusive)
+            habit_id: Optional habit ID to filter by
+
+        Returns:
+            List of HabitLog instances with related habit loaded
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        queryset = HabitLog.objects.filter(
+            user_id=user_pk,
+            last_completed_date__gte=start_date,
+            last_completed_date__lt=end_date,
+        ).select_related("habit")
+
+        if habit_id is not None:
+            queryset = queryset.filter(habit_id=habit_id)
+
+        return await sync_to_async(list)(queryset)
 
 
 class AuthCodeRepository:

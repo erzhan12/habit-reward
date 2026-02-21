@@ -1,0 +1,14 @@
+{% load django_vite %}
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Habit Reward</title>
+    {% vite_hmr_client %}
+    {% vite_asset 'src/main.js' %}
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen antialiased">
+    {% block inertia %}{% endblock %}
+</body>
+</html>

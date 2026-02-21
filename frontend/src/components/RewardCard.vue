@@ -1,0 +1,87 @@
+<template>
+  <div class="bg-bg-card rounded-xl p-4">
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="font-medium text-text-primary truncate">{{ reward.name }}</h3>
+      <span
+        class="text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
+        :class="statusClass"
+      >
+        {{ statusLabel }}
+      </span>
+    </div>
+
+    <!-- Progress bar -->
+    <div class="w-full bg-gray-800 rounded-full h-2 mb-2">
+      <div
+        class="h-2 rounded-full transition-all duration-500"
+        :class="progressBarClass"
+        :style="{ width: progressPercent + '%' }"
+      />
+    </div>
+
+    <div class="flex items-center justify-between">
+      <span class="text-xs text-text-secondary">
+        {{ reward.piecesEarned }} / {{ reward.piecesRequired }} pieces
+      </span>
+
+      <button
+        v-if="reward.status === 'ACHIEVED'"
+        @click="$emit('claim', reward.id)"
+        :disabled="loading"
+        class="px-3 py-1 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-medium transition-colors disabled:opacity-50"
+      >
+        Claim
+      </button>
+
+      <span v-if="reward.isRecurring" class="text-xs text-text-secondary">
+        recurring
+      </span>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed } from "vue";
+
+const props = defineProps({
+  reward: { type: Object, required: true },
+  loading: { type: Boolean, default: false },
+});
+
+defineEmits(["claim"]);
+
+const progressPercent = computed(() => {
+  if (props.reward.piecesRequired === 0) return 0;
+  return Math.min(
+    100,
+    Math.round((props.reward.piecesEarned / props.reward.piecesRequired) * 100)
+  );
+});
+
+const statusClass = computed(() => {
+  switch (props.reward.status) {
+    case "ACHIEVED":
+      return "bg-accent/20 text-accent";
+    case "CLAIMED":
+      return "bg-gray-700 text-text-secondary";
+    default:
+      return "bg-gray-800 text-text-secondary";
+  }
+});
+
+const statusLabel = computed(() => {
+  switch (props.reward.status) {
+    case "ACHIEVED":
+      return "Ready";
+    case "CLAIMED":
+      return "Claimed";
+    default:
+      return `${progressPercent.value}%`;
+  }
+});
+
+const progressBarClass = computed(() => {
+  if (props.reward.status === "ACHIEVED") return "bg-accent";
+  return "bg-emerald-700";
+});
+</script>

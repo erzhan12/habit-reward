@@ -90,3 +90,7 @@ temp/
 
 # Test Data Setup Scripts (local testing only)
 scripts/setup_test_data_0028.py
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

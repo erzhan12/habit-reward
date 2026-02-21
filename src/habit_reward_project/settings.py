@@ -49,6 +49,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'src.core',  # Core models for habit reward system
+    'django_vite',  # Vite asset integration
+    'inertia',  # Inertia.js server adapter
 ]
 
 # Custom User Model
@@ -62,8 +64,11 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'src.web.middleware.WebAuthMiddleware',  # Web login redirect
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'src.web.middleware.InertiaFlashMiddleware',  # Django messages → Inertia flash props
+    'inertia.middleware.InertiaMiddleware',  # Inertia.js protocol
 ]
 
 ROOT_URLCONF = 'src.habit_reward_project.urls'
@@ -71,7 +76,7 @@ ROOT_URLCONF = 'src.habit_reward_project.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'src' / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -132,6 +137,7 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [BASE_DIR / 'frontend' / 'dist']
 
 # WhiteNoise configuration for serving static files
 STORAGES = {
@@ -210,6 +216,24 @@ HABIT_CATEGORIES = [
 HABIT_NAME_MAX_LENGTH = 100
 HABIT_WEIGHT_MIN = 1
 HABIT_WEIGHT_MAX = 100
+
+# Telegram Login Widget
+TELEGRAM_BOT_USERNAME = env('TELEGRAM_BOT_USERNAME', default='')
+
+
+# =============================================================================
+# INERTIA.JS + VITE CONFIGURATION
+# =============================================================================
+
+INERTIA_LAYOUT = 'base.html'
+
+DJANGO_VITE = {
+    'default': {
+        'dev_mode': DEBUG,
+        'dev_server_host': env('DJANGO_VITE_DEV_SERVER_HOST', default='localhost'),
+        'dev_server_port': env.int('DJANGO_VITE_DEV_SERVER_PORT', default=5173),
+    }
+}
 
 
 # =============================================================================
