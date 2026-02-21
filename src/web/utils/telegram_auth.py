@@ -10,7 +10,7 @@ OPTIONAL_FIELDS = {"first_name", "last_name", "username", "photo_url"}
 ALLOWED_FIELDS = REQUIRED_FIELDS | OPTIONAL_FIELDS
 
 
-def verify_telegram_auth(data: dict, bot_token: str, max_age_seconds: int = 86400) -> bool:
+def verify_telegram_auth(data: dict[str, str], bot_token: str, max_age_seconds: int = 86400) -> bool:
     """Verify Telegram Login Widget authentication data.
 
     Implements the official verification algorithm:

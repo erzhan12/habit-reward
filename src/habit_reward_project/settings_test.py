@@ -9,3 +9,6 @@ DATABASES = {
         'NAME': ':memory:',
     }
 }
+
+# Disable HTTPS enforcement in tests
+SECURE_SSL_REDIRECT = False

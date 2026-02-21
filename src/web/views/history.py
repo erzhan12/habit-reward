@@ -18,6 +18,8 @@ def history_page(request):
     user = request.user
 
     # Parse month from query params (default: current month in user's timezone)
+    if not user.timezone:
+        logger.warning("User %s has no timezone set, falling back to UTC", user.id)
     user_today = get_user_today(user.timezone or "UTC")
     month_str = request.GET.get("month")
     if month_str:

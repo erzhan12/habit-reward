@@ -30,7 +30,7 @@ def login_page(request):
 
 
 @require_POST
-@ratelimit(key="ip", rate="5/m", method="POST", block=True)
+@ratelimit(key="ip", rate="10/m", method="POST", block=True)
 def telegram_callback(request):
     """Handle Telegram Login Widget callback.
 
@@ -77,3 +77,18 @@ def logout_view(request):
     """Log out the user and redirect to login page."""
     logout(request)
     return redirect("/auth/login/")
+
+
+def rate_limited_view(request, exception=None):
+    """Custom 403 handler — returns JSON for rate-limited requests."""
+    from django_ratelimit.exceptions import Ratelimited
+
+    if isinstance(exception, Ratelimited):
+        logger.warning("Rate limit exceeded for ip=%s on %s", request.META.get("REMOTE_ADDR", "unknown"), request.path)
+        return JsonResponse(
+            {"error": "Too many requests. Please wait a moment and try again."},
+            status=429,
+        )
+
+    # Default 403 for non-rate-limit cases
+    return JsonResponse({"error": "Forbidden"}, status=403)

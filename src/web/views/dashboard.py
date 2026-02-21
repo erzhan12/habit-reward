@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 def dashboard(request):
     """Main screen: list of today's habits with completion status."""
     user = request.user
-    today = get_user_today(user.timezone or "UTC")
+    tz = user.timezone or "UTC"
+    if not user.timezone:
+        logger.warning("User %s has no timezone set, falling back to UTC", user.id)
+    today = get_user_today(tz)
 
     # Services handle sync/async bridging internally
     all_habits = habit_service.get_all_active_habits(user.id)
@@ -75,6 +78,7 @@ def complete_habit(request, habit_id):
 
     habit = habit_service.get_habit_by_id(user.id, habit_id)
     if not habit:
+        logger.warning("User %s attempted to complete habit %s (not found or unauthorized)", user.id, habit_id)
         return redirect("/")
 
     try:
@@ -97,6 +101,7 @@ def revert_habit(request, habit_id):
 
     habit = habit_service.get_habit_by_id(user.id, habit_id)
     if not habit:
+        logger.warning("User %s attempted to revert habit %s (not found or unauthorized)", user.id, habit_id)
         return redirect("/")
 
     try:

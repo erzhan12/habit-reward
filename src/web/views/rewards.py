@@ -64,6 +64,7 @@ def claim_reward(request, reward_id):
     # Verify reward belongs to user
     reward = run_sync_or_async(reward_repository.get_by_id(reward_id))
     if not reward or reward.user_id != user.id:
+        logger.warning("User %s attempted to claim reward %s (not found or unauthorized)", user.id, reward_id)
         return redirect("/rewards/")
 
     try:

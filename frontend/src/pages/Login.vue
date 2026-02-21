@@ -55,7 +55,11 @@ window.onTelegramAuth = async (user) => {
       error.value = data.error || "Authentication failed";
     }
   } catch (e) {
-    error.value = "Network error. Please try again.";
+    if (e.message === "CSRF token missing") {
+      error.value = "Page configuration error. Please refresh.";
+    } else {
+      error.value = "Network error. Please try again.";
+    }
   }
 };
 
@@ -63,8 +67,7 @@ function getCsrfToken() {
   const meta = document.querySelector('meta[name="csrf-token"]');
   if (!meta || !meta.content) {
     console.error("CSRF token not found in page meta tags");
-    error.value = "Page configuration error. Please refresh.";
-    return "";
+    throw new Error("CSRF token missing");
   }
   return meta.content;
 }
@@ -86,6 +89,9 @@ onMounted(() => {
   script.setAttribute("data-onauth", "onTelegramAuth(user)");
   script.setAttribute("data-request-access", "write");
   script.async = true;
+  script.onerror = () => {
+    error.value = "Failed to load Telegram widget. Please refresh the page.";
+  };
 
   if (telegramWidget.value) {
     telegramWidget.value.appendChild(script);

@@ -363,6 +363,19 @@ class TestAuth:
         # Verify session was created
         assert str(user.pk) == client.session["_auth_user_id"]
 
+    def test_telegram_callback_rate_limited(self):
+        """Exceeding rate limit returns 429 with JSON error."""
+        import json as json_module
+
+        from django_ratelimit.exceptions import Ratelimited
+
+        from src.web.views.auth import rate_limited_view
+
+        request = type("Request", (), {"META": {"REMOTE_ADDR": "1.2.3.4"}, "path": "/auth/telegram/callback/"})()
+        response = rate_limited_view(request, exception=Ratelimited())
+        assert response.status_code == 429
+        assert json_module.loads(response.content)["error"] == "Too many requests. Please wait a moment and try again."
+
     def test_logout_redirects(self, auth_client):
         response = auth_client.post("/auth/logout/")
         assert response.status_code == 302

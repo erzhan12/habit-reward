@@ -1708,3 +1708,114 @@ For critical query filters (like `claimed=True AND reward__is_recurring=False`),
 - Call the repository method directly
 - Assert only expected rows are returned
 - Clean up in a `finally` block with `await Model.objects.filter(...).adelete()`
+
+## Web Interface Security Patterns (Feature 0036)
+
+### Authentication Endpoint Hardening
+
+**Rate Limiting**: Auth endpoints MUST use `django-ratelimit` to prevent brute-force:
+```python
+from django_ratelimit.decorators import ratelimit
+
+@require_POST
+@ratelimit(key="ip", rate="5/m", method="POST", block=True)
+def telegram_callback(request):
+    ...
+```
+
+**Generic Error Messages**: Auth failures MUST return identical responses regardless of failure reason. Never reveal whether a user exists, is inactive, or has an invalid hash.
+
+```python
+# ✅ Good - All failures return same generic message + 403
+return JsonResponse({"error": "Authentication failed. Please try again."}, status=403)
+
+# ❌ Bad - Reveals system internals to attacker
+return JsonResponse({"error": "User not found. Please use the Telegram bot first."}, status=404)
+```
+
+**Server-Side Logging**: Always log the actual failure reason with client IP for ops visibility:
+```python
+client_ip = request.META.get("REMOTE_ADDR", "unknown")
+logger.warning("Login failed: telegram_id=%s not found, ip=%s", telegram_id, client_ip)
+```
+
+### Repository Pattern in Web Views
+
+Web views (`src/web/views/`) MUST use repositories, not direct ORM. Use `run_sync_or_async` to bridge async repositories in sync Django views:
+
+```python
+from src.core.repositories import user_repository
+from src.utils.async_compat import run_sync_or_async
+
+# ✅ Good - Repository pattern
+user = run_sync_or_async(user_repository.get_by_telegram_id(str(telegram_id)))
+
+# ❌ Bad - Direct ORM in view
+user = User.objects.get(telegram_id=str(telegram_id))
+```
+
+### Web View Test Pattern with `run_sync_or_async`
+
+When testing views that use `run_sync_or_async`, mock it to avoid SQLite locking issues in tests (async-to-sync bridging conflicts with test transactions):
+
+```python
+# Mock run_sync_or_async to return a specific value
+@patch("src.web.views.auth.run_sync_or_async", return_value=None)
+def test_user_not_found(self, mock_sync):
+    ...
+
+# Or mock with a specific return value
+@patch("src.web.views.auth.run_sync_or_async")
+def test_success(self, mock_sync, user):
+    mock_sync.return_value = user
+    ...
+```
+
+### External Script Security (SRI)
+
+External scripts MUST include Subresource Integrity (SRI) attributes:
+```javascript
+script.src = "https://telegram.org/js/telegram-widget.js?22";
+script.integrity = "sha384-...";
+script.crossOrigin = "anonymous";
+```
+
+Generate hash: `curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A`
+
+### Telegram Auth Input Validation
+
+`src/web/utils/telegram_auth.py` validates and filters widget data before HMAC verification:
+1. Required fields check (`id`, `auth_date`, `hash`)
+2. Numeric type validation for `id` and `auth_date`
+3. Field filtering — only allowed fields (`ALLOWED_FIELDS`) are included in HMAC computation, unexpected keys are silently stripped
+
+### CSRF Token Pattern
+
+Frontend reads CSRF token from a `<meta>` tag (set in `src/templates/base.html`), NOT from `document.cookie`:
+```javascript
+// ✅ Good - Meta tag (secure, works with HttpOnly cookies)
+const meta = document.querySelector('meta[name="csrf-token"]');
+return meta.content;
+
+// ❌ Bad - Cookie parsing (vulnerable to XSS token theft)
+return document.cookie.match(/csrftoken=([^;]+)/)[1];
+```
+
+**Note**: Do NOT set `CSRF_COOKIE_HTTPONLY=True` in Django settings — Inertia.js uses axios which reads the `XSRF-TOKEN` cookie internally for its own POST/PUT/DELETE requests.
+
+### Batch Query Pattern (N+1 Prevention)
+
+For dashboard-style views that display per-item aggregates, use batch queries instead of per-item lookups:
+
+```python
+# ✅ Good - Single query for all streaks
+streak_map = run_sync_or_async(habit_log_repository.get_latest_streak_counts(user.id))
+for habit in all_habits:
+    streak = streak_map.get(habit.id, 0)
+
+# ❌ Bad - N+1 queries
+for habit in all_habits:
+    streak = streak_service.get_current_streak(user.id, habit.id)  # 1 query per habit!
+```
+
+`get_latest_streak_counts()` uses Django `Subquery` to fetch latest streak per habit in one query. See `src/core/repositories.py`.

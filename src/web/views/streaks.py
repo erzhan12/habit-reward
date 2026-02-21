@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 def streaks_page(request):
     """Streaks & progress overview."""
     user = request.user
+    if not user.timezone:
+        logger.warning("User %s has no timezone set, falling back to UTC", user.id)
     today = get_user_today(user.timezone or "UTC")
     week_start = today - timedelta(days=today.weekday())  # Monday
 

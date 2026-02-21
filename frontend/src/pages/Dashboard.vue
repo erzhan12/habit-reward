@@ -57,9 +57,11 @@ function completeHabit(habitId) {
   loadingId.value = habitId;
   router.post(`/habits/${habitId}/complete/`, {}, {
     preserveScroll: true,
+    onSuccess: () => {
+      showUndo(habitId, "Habit completed");
+    },
     onFinish: () => {
       loadingId.value = null;
-      showUndo(habitId, "Habit completed");
     },
   });
 }

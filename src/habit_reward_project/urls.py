@@ -11,3 +11,5 @@ urlpatterns = [
     path('auth/', include('src.web.urls_auth')),
     path('', include('src.web.urls')),
 ]
+
+handler403 = 'src.web.views.auth.rate_limited_view'
