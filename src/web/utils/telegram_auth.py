@@ -5,14 +5,21 @@ import hmac
 import time
 
 
+REQUIRED_FIELDS = {"id", "auth_date", "hash"}
+OPTIONAL_FIELDS = {"first_name", "last_name", "username", "photo_url"}
+ALLOWED_FIELDS = REQUIRED_FIELDS | OPTIONAL_FIELDS
+
+
 def verify_telegram_auth(data: dict, bot_token: str, max_age_seconds: int = 86400) -> bool:
     """Verify Telegram Login Widget authentication data.
 
     Implements the official verification algorithm:
-    1. Sort all fields alphabetically (excluding 'hash')
-    2. Build data_check_string as "key=value\\n" pairs
-    3. Compute HMAC-SHA-256 using SHA256(bot_token) as secret key
-    4. Compare with received hash
+    1. Validate required fields and types
+    2. Filter to allowed fields only (defense in depth)
+    3. Sort all fields alphabetically (excluding 'hash')
+    4. Build data_check_string as "key=value\\n" pairs
+    5. Compute HMAC-SHA-256 using SHA256(bot_token) as secret key
+    6. Compare with received hash
 
     Args:
         data: Dict with Telegram auth fields (id, first_name, auth_date, hash, etc.)
@@ -22,25 +29,28 @@ def verify_telegram_auth(data: dict, bot_token: str, max_age_seconds: int = 8640
     Returns:
         True if authentication is valid, False otherwise
     """
-    received_hash = data.get("hash")
-    if not received_hash:
+    # Validate required fields present
+    if not all(field in data for field in REQUIRED_FIELDS):
         return False
 
-    auth_date = data.get("auth_date")
-    if not auth_date:
+    # Validate id and auth_date are numeric
+    try:
+        int(data["id"])
+        int(data["auth_date"])
+    except (ValueError, TypeError):
         return False
+
+    # Filter to allowed fields only (strip unexpected keys)
+    filtered = {k: v for k, v in data.items() if k in ALLOWED_FIELDS}
 
     # Check auth_date freshness
-    try:
-        auth_timestamp = int(auth_date)
-        if time.time() - auth_timestamp > max_age_seconds:
-            return False
-    except (ValueError, TypeError):
+    auth_timestamp = int(filtered["auth_date"])
+    if time.time() - auth_timestamp > max_age_seconds:
         return False
 
     # Build data_check_string from sorted key=value pairs (excluding hash)
     check_pairs = sorted(
-        f"{k}={v}" for k, v in data.items() if k != "hash"
+        f"{k}={v}" for k, v in filtered.items() if k != "hash"
     )
     data_check_string = "\n".join(check_pairs)
 
@@ -54,4 +64,4 @@ def verify_telegram_auth(data: dict, bot_token: str, max_age_seconds: int = 8640
         hashlib.sha256,
     ).hexdigest()
 
-    return hmac.compare_digest(computed_hash, received_hash)
+    return hmac.compare_digest(computed_hash, filtered["hash"])

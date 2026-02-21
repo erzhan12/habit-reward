@@ -335,20 +335,23 @@ class TestAuth:
         )
         assert response.status_code == 403
 
+    @patch("src.web.views.auth.run_sync_or_async", return_value=None)
     @patch("src.web.views.auth.verify_telegram_auth", return_value=True)
-    def test_telegram_callback_nonexistent_user(self, mock_verify, user):
+    def test_telegram_callback_nonexistent_user(self, mock_verify, mock_sync, user):
         """Valid hash but unknown telegram_id returns 404."""
         response = Client().post(
             "/auth/telegram/callback/",
             data={"id": "000000000", "auth_date": "1", "hash": "fakehash"},
             content_type="application/json",
         )
-        assert response.status_code == 404
-        assert response.json()["error"] == "User not found. Please use the Telegram bot first."
+        assert response.status_code == 403
+        assert response.json()["error"] == "Authentication failed. Please try again."
 
+    @patch("src.web.views.auth.run_sync_or_async")
     @patch("src.web.views.auth.verify_telegram_auth", return_value=True)
-    def test_telegram_callback_success(self, mock_verify, user):
+    def test_telegram_callback_success(self, mock_verify, mock_sync, user):
         """Valid hash + existing user logs in and returns success JSON."""
+        mock_sync.return_value = user
         client = Client()
         response = client.post(
             "/auth/telegram/callback/",

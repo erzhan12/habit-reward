@@ -37,6 +37,7 @@ dependencies = [
     # Web interface dependencies
     "inertia-django>=1.2.0",  # Inertia.js server adapter
     "django-vite>=3.0.0",  # Vite asset integration
+    "django-ratelimit>=4.1.0",  # Rate limiting for views
 ]
 
 [project.optional-dependencies]

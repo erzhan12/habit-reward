@@ -61,7 +61,12 @@ window.onTelegramAuth = async (user) => {
 
 function getCsrfToken() {
   const meta = document.querySelector('meta[name="csrf-token"]');
-  return meta ? meta.content : "";
+  if (!meta || !meta.content) {
+    console.error("CSRF token not found in page meta tags");
+    error.value = "Page configuration error. Please refresh.";
+    return "";
+  }
+  return meta.content;
 }
 
 onMounted(() => {
@@ -73,6 +78,8 @@ onMounted(() => {
   // Load Telegram widget script
   const script = document.createElement("script");
   script.src = "https://telegram.org/js/telegram-widget.js?22";
+  script.integrity = "sha384-I+W8gJkm5OWQibtRzgVIojXtlJek6sKioAqefhZ4f0SodL9LyEGvj4zjPPFhStA0";
+  script.crossOrigin = "anonymous";
   script.setAttribute("data-telegram-login", props.telegramBotUsername);
   script.setAttribute("data-size", "large");
   script.setAttribute("data-radius", "8");

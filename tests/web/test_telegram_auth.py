@@ -85,3 +85,25 @@ def test_invalid_auth_date_format():
     data["auth_date"] = "not-a-number"
     # Hash will be wrong too, but auth_date check comes first
     assert verify_telegram_auth(data, BOT_TOKEN) is False
+
+
+def test_non_numeric_id():
+    """Non-numeric id should fail early."""
+    data = _make_auth_data()
+    data["id"] = "not-a-number"
+    assert verify_telegram_auth(data, BOT_TOKEN) is False
+
+
+def test_missing_id():
+    """Data without id field should fail."""
+    data = _make_auth_data()
+    del data["id"]
+    assert verify_telegram_auth(data, BOT_TOKEN) is False
+
+
+def test_unexpected_fields_stripped():
+    """Extra fields injected into data should be stripped before HMAC check."""
+    data = _make_auth_data()
+    # Add unexpected field — if not stripped, HMAC will include it and fail
+    data["evil_field"] = "injected"
+    assert verify_telegram_auth(data, BOT_TOKEN) is True
