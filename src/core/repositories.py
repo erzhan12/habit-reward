@@ -9,7 +9,7 @@ from datetime import date
 from typing import Any
 from decimal import Decimal
 from asgiref.sync import sync_to_async
-from django.db.models import Count, F, Max, Q
+from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 
 from src.core.models import User, Habit, HabitLog, Reward, RewardProgress, AuthCode, APIKey
 
@@ -832,6 +832,41 @@ class HabitLogRepository:
             queryset = queryset.filter(habit_id=habit_id)
 
         return await sync_to_async(list)(queryset)
+
+    async def get_latest_streak_counts(self, user_id: int | str) -> dict[int, int]:
+        """Get the current streak count for each habit in a single query.
+
+        Uses a subquery to find the most recent log per habit, then extracts
+        streak_count from those logs. Replaces N per-habit queries with 1.
+
+        Args:
+            user_id: User primary key
+
+        Returns:
+            Dict mapping habit_id to streak_count (e.g. {1: 5, 2: 3})
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+
+        # Subquery: latest log id per habit
+        latest_log_ids = (
+            HabitLog.objects.filter(user_id=user_pk, habit_id=OuterRef("habit_id"))
+            .order_by("-timestamp")
+            .values("id")[:1]
+        )
+
+        rows = await sync_to_async(list)(
+            HabitLog.objects.filter(
+                user_id=user_pk,
+                id__in=Subquery(
+                    HabitLog.objects.filter(user_id=user_pk)
+                    .values("habit_id")
+                    .annotate(latest_id=Subquery(latest_log_ids))
+                    .values("latest_id")
+                ),
+            ).values_list("habit_id", "streak_count")
+        )
+
+        return {habit_id: streak for habit_id, streak in rows}
 
 
 class AuthCodeRepository:

@@ -11,7 +11,6 @@ from inertia import render as inertia_render
 from src.bot.timezone_utils import get_user_today
 from src.core.repositories import habit_log_repository
 from src.services.habit_service import habit_service
-from src.services.streak_service import streak_service
 from src.utils.async_compat import run_sync_or_async
 
 logger = logging.getLogger(__name__)
@@ -31,13 +30,18 @@ def dashboard(request):
     )
     completed_habit_ids = {log.habit_id for log in todays_logs}
 
+    # Batch fetch all streaks in one query (avoids N+1)
+    streak_map = run_sync_or_async(
+        habit_log_repository.get_latest_streak_counts(user.id)
+    )
+
     # Build habit list with streak and completion info
     habits = []
     completed_count = 0
     total_points = 0
 
     for habit in all_habits:
-        streak = streak_service.get_current_streak(str(user.id), str(habit.id))
+        streak = streak_map.get(habit.id, 0)
         is_completed = habit.id in completed_habit_ids
         if is_completed:
             completed_count += 1
@@ -90,6 +94,10 @@ def complete_habit(request, habit_id):
 def revert_habit(request, habit_id):
     """Revert the most recent completion of a habit."""
     user = request.user
+
+    habit = habit_service.get_habit_by_id(user.id, habit_id)
+    if not habit:
+        return redirect("/")
 
     try:
         habit_service.revert_habit_completion(

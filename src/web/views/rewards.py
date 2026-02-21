@@ -8,7 +8,9 @@ from django.views.decorators.http import require_POST
 
 from inertia import render as inertia_render
 
+from src.core.repositories import reward_repository
 from src.services.reward_service import reward_service
+from src.utils.async_compat import run_sync_or_async
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,11 @@ def rewards_page(request):
 def claim_reward(request, reward_id):
     """Claim an achieved reward."""
     user = request.user
+
+    # Verify reward belongs to user
+    reward = run_sync_or_async(reward_repository.get_by_id(reward_id))
+    if not reward or reward.user_id != user.id:
+        return redirect("/rewards/")
 
     try:
         reward_service.mark_reward_claimed(str(user.id), str(reward_id))

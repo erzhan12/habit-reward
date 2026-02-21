@@ -60,8 +60,8 @@ window.onTelegramAuth = async (user) => {
 };
 
 function getCsrfToken() {
-  const match = document.cookie.match(/csrftoken=([^;]+)/);
-  return match ? match[1] : "";
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  return meta ? meta.content : "";
 }
 
 onMounted(() => {

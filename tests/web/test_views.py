@@ -108,24 +108,23 @@ class TestDashboard:
     """Dashboard view tests (service layer mocked)."""
 
     @patch("src.web.views.dashboard.run_sync_or_async", side_effect=lambda x: x)
-    @patch("src.web.views.dashboard.streak_service")
     @patch("src.web.views.dashboard.habit_log_repository")
     @patch("src.web.views.dashboard.habit_service")
-    def test_dashboard_returns_200(self, mock_hs, mock_repo, mock_ss, mock_rsa, auth_client):
+    def test_dashboard_returns_200(self, mock_hs, mock_repo, mock_rsa, auth_client):
         mock_hs.get_all_active_habits.return_value = []
         mock_repo.get_todays_logs_by_user.return_value = []
+        mock_repo.get_latest_streak_counts.return_value = {}
         response = auth_client.get("/")
         assert response.status_code == 200
 
     @patch("src.web.views.dashboard.run_sync_or_async", side_effect=lambda x: x)
-    @patch("src.web.views.dashboard.streak_service")
     @patch("src.web.views.dashboard.habit_log_repository")
     @patch("src.web.views.dashboard.habit_service")
-    def test_dashboard_with_habits(self, mock_hs, mock_repo, mock_ss, mock_rsa, auth_client):
+    def test_dashboard_with_habits(self, mock_hs, mock_repo, mock_rsa, auth_client):
         habit = _mock_habit()
         mock_hs.get_all_active_habits.return_value = [habit]
         mock_repo.get_todays_logs_by_user.return_value = []
-        mock_ss.get_current_streak.return_value = 5
+        mock_repo.get_latest_streak_counts.return_value = {1: 5}
         response = auth_client.get("/")
         assert response.status_code == 200
 
@@ -146,13 +145,22 @@ class TestDashboard:
 
     @patch("src.web.views.dashboard.habit_service")
     def test_revert_habit_redirects(self, mock_hs, auth_client):
+        mock_hs.get_habit_by_id.return_value = _mock_habit()
         mock_hs.revert_habit_completion.return_value = MagicMock()
         response = auth_client.post("/habits/1/revert/")
         assert response.status_code == 302
         assert response.url == "/"
 
     @patch("src.web.views.dashboard.habit_service")
+    def test_revert_nonexistent_habit_redirects(self, mock_hs, auth_client):
+        mock_hs.get_habit_by_id.return_value = None
+        response = auth_client.post("/habits/99999/revert/")
+        assert response.status_code == 302
+        assert response.url == "/"
+
+    @patch("src.web.views.dashboard.habit_service")
     def test_revert_failure_still_redirects(self, mock_hs, auth_client):
+        mock_hs.get_habit_by_id.return_value = _mock_habit()
         mock_hs.revert_habit_completion.side_effect = ValueError("No log found")
         response = auth_client.post("/habits/1/revert/")
         assert response.status_code == 302
@@ -252,15 +260,35 @@ class TestRewards:
         # The status should use .name, not .value
         progress.get_status.assert_called()
 
+    @patch("src.web.views.rewards.run_sync_or_async", side_effect=lambda x: x)
+    @patch("src.web.views.rewards.reward_repository")
     @patch("src.web.views.rewards.reward_service")
-    def test_claim_reward_redirects(self, mock_rs, auth_client):
+    def test_claim_reward_redirects(self, mock_rs, mock_repo, mock_rsa, auth_client, user):
+        reward = MagicMock()
+        reward.user_id = user.id
+        mock_repo.get_by_id.return_value = reward
         mock_rs.mark_reward_claimed.return_value = MagicMock()
         response = auth_client.post("/rewards/1/claim/")
         assert response.status_code == 302
         assert response.url == "/rewards/"
 
+    @patch("src.web.views.rewards.run_sync_or_async", side_effect=lambda x: x)
+    @patch("src.web.views.rewards.reward_repository")
     @patch("src.web.views.rewards.reward_service")
-    def test_claim_failure_still_redirects(self, mock_rs, auth_client):
+    def test_claim_nonexistent_reward_redirects(self, mock_rs, mock_repo, mock_rsa, auth_client):
+        mock_repo.get_by_id.return_value = None
+        response = auth_client.post("/rewards/99999/claim/")
+        assert response.status_code == 302
+        assert response.url == "/rewards/"
+        mock_rs.mark_reward_claimed.assert_not_called()
+
+    @patch("src.web.views.rewards.run_sync_or_async", side_effect=lambda x: x)
+    @patch("src.web.views.rewards.reward_repository")
+    @patch("src.web.views.rewards.reward_service")
+    def test_claim_failure_still_redirects(self, mock_rs, mock_repo, mock_rsa, auth_client, user):
+        reward = MagicMock()
+        reward.user_id = user.id
+        mock_repo.get_by_id.return_value = reward
         mock_rs.mark_reward_claimed.side_effect = ValueError("Not achieved")
         response = auth_client.post("/rewards/1/claim/")
         assert response.status_code == 302
@@ -354,15 +382,14 @@ class TestPropStructure:
     """Verify prop shapes returned by Inertia views."""
 
     @patch("src.web.views.dashboard.run_sync_or_async", side_effect=lambda x: x)
-    @patch("src.web.views.dashboard.streak_service")
     @patch("src.web.views.dashboard.habit_log_repository")
     @patch("src.web.views.dashboard.habit_service")
-    def test_dashboard_prop_structure(self, mock_hs, mock_repo, mock_ss, mock_rsa, auth_client):
+    def test_dashboard_prop_structure(self, mock_hs, mock_repo, mock_rsa, auth_client):
         habit = _mock_habit(id=1, name="Running", weight=10)
         mock_hs.get_all_active_habits.return_value = [habit]
         log = _mock_habit_log(habit_id=1)
         mock_repo.get_todays_logs_by_user.return_value = [log]
-        mock_ss.get_current_streak.return_value = 3
+        mock_repo.get_latest_streak_counts.return_value = {1: 3}
 
         response = auth_client.get("/", **INERTIA_HEADERS)
         component, props = _inertia_props(response)
@@ -429,6 +456,7 @@ class TestErrorFlashMessages:
     @patch("src.web.views.dashboard.messages")
     @patch("src.web.views.dashboard.habit_service")
     def test_revert_habit_error_sets_flash(self, mock_hs, mock_messages, auth_client):
+        mock_hs.get_habit_by_id.return_value = _mock_habit()
         mock_hs.revert_habit_completion.side_effect = ValueError("No log found")
 
         auth_client.post("/habits/1/revert/")
@@ -436,9 +464,14 @@ class TestErrorFlashMessages:
         mock_messages.error.assert_called_once()
         assert "No log found" in str(mock_messages.error.call_args)
 
+    @patch("src.web.views.rewards.run_sync_or_async", side_effect=lambda x: x)
+    @patch("src.web.views.rewards.reward_repository")
     @patch("src.web.views.rewards.messages")
     @patch("src.web.views.rewards.reward_service")
-    def test_claim_non_achieved_shows_error_message(self, mock_rs, mock_messages, auth_client):
+    def test_claim_non_achieved_shows_error_message(self, mock_rs, mock_messages, mock_repo, mock_rsa, auth_client, user):
+        reward = MagicMock()
+        reward.user_id = user.id
+        mock_repo.get_by_id.return_value = reward
         mock_rs.mark_reward_claimed.side_effect = ValueError("Not achieved yet")
 
         auth_client.post("/rewards/1/claim/")
