@@ -1778,9 +1778,15 @@ External scripts MUST include Subresource Integrity (SRI) attributes:
 script.src = "https://telegram.org/js/telegram-widget.js?22";
 script.integrity = "sha384-...";
 script.crossOrigin = "anonymous";
+script.onerror = () => { error.value = "Failed to load..."; };
 ```
 
 Generate hash: `curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A`
+
+**SRI hash updates**: The hash is tied to a specific script version (`?22`). If Telegram updates the widget and the SRI check fails, the `onerror` handler will show an error to the user. To update:
+1. Run the hash command above with the new URL
+2. Update the `integrity` attribute in `frontend/src/pages/Login.vue`
+3. Test login flow in staging before deploying
 
 ### Telegram Auth Input Validation
 

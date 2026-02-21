@@ -37,7 +37,7 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, onUnmounted } from "vue";
 import { router } from "@inertiajs/vue3";
 import HabitCard from "../components/HabitCard.vue";
 import UndoToast from "../components/UndoToast.vue";
@@ -52,6 +52,10 @@ const undoVisible = ref(false);
 const undoMessage = ref("");
 const undoHabitId = ref(null);
 let undoTimer = null;
+
+onUnmounted(() => {
+  if (undoTimer) clearTimeout(undoTimer);
+});
 
 function completeHabit(habitId) {
   loadingId.value = habitId;
