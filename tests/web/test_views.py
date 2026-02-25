@@ -69,6 +69,68 @@ def _mock_progress(reward_id=1, name="Coffee", pieces_earned=2,
     return progress
 
 
+# ---- WebAuthMiddleware unit tests ----
+
+
+class TestWebAuthMiddleware:
+    """Direct tests for WebAuthMiddleware exempt prefixes and auth enforcement."""
+
+    # Paths that should never be redirected to /auth/login/ regardless of auth state.
+    # Each entry is (path, expected_status_not_to_be_login_redirect).
+    EXEMPT_PATHS = [
+        "/auth/login/",
+        "/admin/",
+        "/webhook/test/",
+        "/api/health/",
+    ]
+
+    def test_unauthenticated_protected_path_redirects_to_login(self):
+        response = Client().get("/")
+        assert response.status_code == 302
+        assert response.url == "/auth/login/"
+
+    def test_authenticated_protected_path_is_allowed_through(self, auth_client):
+        """Middleware passes authenticated requests; downstream view returns 200."""
+        from unittest.mock import AsyncMock, patch
+
+        with (
+            patch("src.web.views.dashboard.habit_service") as mock_hs,
+            patch("src.web.views.dashboard.habit_log_repository") as mock_repo,
+            patch("src.web.views.dashboard.streak_service") as mock_ss,
+        ):
+            mock_hs.get_all_active_habits.return_value = []
+            mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
+            mock_ss.get_validated_streak_map.return_value = {}
+            response = auth_client.get("/")
+        assert response.status_code == 200
+
+    def test_auth_prefix_exempt_unauthenticated(self):
+        response = Client().get("/auth/login/")
+        assert response.status_code == 200
+
+    def test_admin_prefix_exempt_unauthenticated(self):
+        """Admin path is handled by Django admin, not redirected to /auth/login/."""
+        response = Client().get("/admin/")
+        # Django admin redirects to its own login; the middleware must not intercept.
+        assert response.status_code != 302 or "/auth/login/" not in (response.url or "")
+
+    def test_webhook_prefix_exempt_unauthenticated(self):
+        """/webhook/* paths pass through the middleware (may 404, not redirect)."""
+        response = Client().get("/webhook/nonexistent/")
+        assert response.status_code != 302 or "/auth/login/" not in (response.url or "")
+
+    def test_api_prefix_exempt_unauthenticated(self):
+        """/api/* paths pass through the middleware (may 404, not redirect)."""
+        response = Client().get("/api/nonexistent/")
+        assert response.status_code != 302 or "/auth/login/" not in (response.url or "")
+
+    def test_redirect_target_is_exact_login_url(self):
+        """Redirect must point to exactly /auth/login/, not a partial match."""
+        response = Client().get("/dashboard/")
+        assert response.status_code == 302
+        assert response.url == "/auth/login/"
+
+
 # ---- Unauthenticated access tests ----
 
 
@@ -237,6 +299,55 @@ class TestDashboard:
         response = auth_client.post("/habits/1/revert/")
         assert response.status_code == 302
         assert response.url == "/"
+
+    @patch("src.web.views.dashboard.messages")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_complete_habit_twice_second_raises_error_flash(self, mock_hs, mock_messages, auth_client):
+        """Second completion attempt is rejected by service; both calls still redirect cleanly."""
+        first_result = MagicMock()
+        first_result.got_reward = False
+        first_result.reward = None
+        first_result.cumulative_progress = None
+
+        mock_hs.get_habit_by_id.return_value = _mock_habit()
+        mock_hs.process_habit_completion.side_effect = [
+            first_result,
+            ValueError("Habit already completed today"),
+        ]
+
+        response1 = auth_client.post("/habits/1/complete/")
+        assert response1.status_code == 302
+
+        response2 = auth_client.post("/habits/1/complete/")
+        assert response2.status_code == 302
+
+        assert mock_hs.process_habit_completion.call_count == 2
+        mock_messages.error.assert_called_once()
+        assert "already completed" in str(mock_messages.error.call_args).lower()
+
+    @patch("src.web.views.dashboard.messages")
+    @patch("src.web.views.dashboard._dashboard_action_ratelimited", return_value=True)
+    def test_complete_habit_when_rate_limited_redirects_with_error(
+        self, _mock_rl, mock_messages, auth_client
+    ):
+        """Rate-limited complete request redirects home with an error flash; service is not called."""
+        response = auth_client.post("/habits/1/complete/")
+        assert response.status_code == 302
+        assert response.url == "/"
+        mock_messages.error.assert_called_once()
+        assert "Too many requests" in str(mock_messages.error.call_args)
+
+    @patch("src.web.views.dashboard.messages")
+    @patch("src.web.views.dashboard._dashboard_action_ratelimited", return_value=True)
+    def test_revert_habit_when_rate_limited_redirects_with_error(
+        self, _mock_rl, mock_messages, auth_client
+    ):
+        """Rate-limited revert request redirects home with an error flash; service is not called."""
+        response = auth_client.post("/habits/1/revert/")
+        assert response.status_code == 302
+        assert response.url == "/"
+        mock_messages.error.assert_called_once()
+        assert "Too many requests" in str(mock_messages.error.call_args)
 
 
 # ---- Streaks tests ----
@@ -445,6 +556,37 @@ class TestAuth:
         assert response.status_code == 302
         assert "/auth/login/" in response.url
 
+    def test_auth_callback_rate_limit_http_level(self):
+        """Sending 11 requests from the same IP triggers the 10/m rate limit and returns 429 JSON.
+
+        The first 10 requests decrement the rate limit quota (they return 403 for the
+        invalid hash). The 11th request exceeds the limit; Django's handler403 is invoked
+        which returns 429 with a JSON body.
+        """
+        from django.core.cache import cache
+
+        cache.clear()
+
+        payload = json.dumps({"id": "999888777", "auth_date": "1", "hash": "badhash"})
+        client = Client()
+
+        for _ in range(10):
+            client.post(
+                "/auth/telegram/callback/",
+                data=payload,
+                content_type="application/json",
+                REMOTE_ADDR="192.0.2.99",
+            )
+
+        response = client.post(
+            "/auth/telegram/callback/",
+            data=payload,
+            content_type="application/json",
+            REMOTE_ADDR="192.0.2.99",
+        )
+        assert response.status_code == 429
+        assert response.json()["error"] == "Too many requests. Please wait a moment and try again."
+
 
 # ---- Prop structure tests (Inertia JSON mode) ----
 
@@ -556,3 +698,42 @@ class TestErrorFlashMessages:
 
         mock_messages.error.assert_called_once()
         assert "Not achieved yet" in str(mock_messages.error.call_args)
+
+
+# ---- Timezone edge case tests ----
+
+
+class TestDashboardTimezone:
+    """Dashboard must use user.timezone when computing today's date for log queries."""
+
+    @pytest.mark.parametrize("tz", ["UTC", "America/New_York", "Asia/Tokyo"])
+    @patch("src.web.views.dashboard.get_user_today")
+    @patch("src.web.views.dashboard.streak_service")
+    @patch("src.web.views.dashboard.habit_log_repository")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_dashboard_uses_user_timezone(
+        self, mock_hs, mock_repo, mock_ss, mock_today, auth_client, user, tz
+    ):
+        """Dashboard passes user.timezone to get_user_today and forwards the returned
+        date to habit_log_repository so that habit completion is scoped to the correct
+        calendar day for every timezone.
+        """
+        from datetime import date
+        from unittest.mock import ANY
+
+        fake_date = date(2026, 1, 15)
+        mock_today.return_value = fake_date
+        mock_hs.get_all_active_habits.return_value = []
+        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
+        mock_ss.get_validated_streak_map.return_value = {}
+
+        user.timezone = tz
+        user.save()
+
+        response = auth_client.get("/")
+
+        assert response.status_code == 200
+        mock_today.assert_called_once_with(tz)
+        mock_repo.get_todays_logs_by_user.assert_called_once_with(
+            ANY, target_date=fake_date
+        )

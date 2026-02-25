@@ -38,7 +38,7 @@ ALLOWED_HOSTS_BASE = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'
 # For development (localhost), leave empty - not needed
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])
 
-# HTTPS enforcement in production
+# HTTPS enforcement and session security in production
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
@@ -46,6 +46,14 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000  # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
+
+    # Session cookie hardening: timeout, no JS access, SameSite
+    SESSION_COOKIE_AGE = 1209600  # 2 weeks
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+
+    # CSRF cookie SameSite (HttpOnly omitted: Inertia/axios reads XSRF-TOKEN; see RULES.md)
+    CSRF_COOKIE_SAMESITE = "Lax"
 
 
 # Application definition
@@ -229,6 +237,13 @@ HABIT_WEIGHT_MAX = 100
 
 # Telegram Login Widget
 TELEGRAM_BOT_USERNAME = env('TELEGRAM_BOT_USERNAME', default='')
+# Max age of auth_date for Login Widget verification (seconds). Use 300 for tighter security.
+TELEGRAM_AUTH_MAX_AGE = env.int('TELEGRAM_AUTH_MAX_AGE', default=86400)
+
+# Web auth rate limit (django-ratelimit format, e.g. '10/m', '5/m')
+AUTH_RATE_LIMIT = env('AUTH_RATE_LIMIT', default='10/m')
+# Dashboard actions (complete/revert habit) rate limit per user
+DASHBOARD_ACTION_RATE_LIMIT = env('DASHBOARD_ACTION_RATE_LIMIT', default='60/m')
 
 
 # =============================================================================

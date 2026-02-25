@@ -2,12 +2,15 @@
 
 import logging
 
+from django.conf import settings
 from django.contrib import messages
 from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
+from django_ratelimit.core import is_ratelimited
 
 from inertia import render as inertia_render
 
+from asgiref.sync import sync_to_async
 from src.bot.timezone_utils import get_user_today
 from src.core.repositories import habit_log_repository
 from src.services.habit_service import habit_service
@@ -72,9 +75,31 @@ async def dashboard(request):
     })
 
 
+def _dashboard_action_ratelimited(request):  # Sync helper for cache access from async view
+    return is_ratelimited(
+        request,
+        group="dashboard_action",
+        key="user",
+        rate=settings.DASHBOARD_ACTION_RATE_LIMIT,
+        method="POST",
+        increment=True,
+    )
+
+
 @require_POST
 async def complete_habit(request, habit_id):
     """Mark a habit as completed for today."""
+    if await sync_to_async(_dashboard_action_ratelimited)(request):
+        messages.error(request, "Too many requests. Please wait a moment and try again.")
+        return redirect("/")
+
+    try:
+        habit_id = int(habit_id)
+    except (ValueError, TypeError):
+        logger.warning("Invalid habit_id format: %s", habit_id)
+        messages.error(request, "Invalid habit ID")
+        return redirect("/")
+
     user = request.user
 
     habit = await maybe_await(habit_service.get_habit_by_id(user.id, habit_id))
@@ -115,6 +140,17 @@ async def complete_habit(request, habit_id):
 @require_POST
 async def revert_habit(request, habit_id):
     """Revert the most recent completion of a habit."""
+    if await sync_to_async(_dashboard_action_ratelimited)(request):
+        messages.error(request, "Too many requests. Please wait a moment and try again.")
+        return redirect("/")
+
+    try:
+        habit_id = int(habit_id)
+    except (ValueError, TypeError):
+        logger.warning("Invalid habit_id format: %s", habit_id)
+        messages.error(request, "Invalid habit ID")
+        return redirect("/")
+
     user = request.user
 
     habit = await maybe_await(habit_service.get_habit_by_id(user.id, habit_id))

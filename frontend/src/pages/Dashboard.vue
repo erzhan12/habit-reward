@@ -51,10 +51,10 @@ const loadingId = ref(null);
 const undoVisible = ref(false);
 const undoMessage = ref("");
 const undoHabitId = ref(null);
-let undoTimer = null;
+const undoTimer = ref(null);
 
 onUnmounted(() => {
-  if (undoTimer) clearTimeout(undoTimer);
+  if (undoTimer.value) clearTimeout(undoTimer.value);
 });
 
 function completeHabit(habitId) {
@@ -86,13 +86,13 @@ function showUndo(habitId, message) {
   undoHabitId.value = habitId;
   undoMessage.value = message;
   undoVisible.value = true;
-  undoTimer = setTimeout(() => {
+  undoTimer.value = setTimeout(() => {
     undoVisible.value = false;
   }, 5000);
 }
 
 function hideUndo() {
-  if (undoTimer) clearTimeout(undoTimer);
+  if (undoTimer.value) clearTimeout(undoTimer.value);
   undoVisible.value = false;
 }
 

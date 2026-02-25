@@ -6,6 +6,7 @@ from datetime import datetime, date, timedelta
 from typing import Awaitable
 from contextlib import asynccontextmanager
 from asgiref.sync import sync_to_async
+from django.core.cache import cache
 from django.db import transaction
 from src.core.repositories import (
     user_repository,
@@ -286,6 +287,7 @@ class HabitService:
                     last_completed_date=target_date,  # Use target_date for backdating
                 )
                 await maybe_await(self.habit_log_repo.create(habit_log))
+                await cache.adelete(streak_service.cache_key(user.id))
 
             # If backdating, recalculate streaks for all subsequent logs
             if target_date < today:
@@ -527,6 +529,8 @@ class HabitService:
                 )
                 raise
 
+            await cache.adelete(streak_service.cache_key(user.id))
+
             if progress:
                 reward_progress_model = RewardProgressModel.model_validate(
                     progress,
@@ -653,6 +657,8 @@ class HabitService:
                     error,
                 )
                 raise
+
+            await cache.adelete(streak_service.cache_key(log.user_id))
 
             if progress:
                 reward_progress_model = RewardProgressModel.model_validate(

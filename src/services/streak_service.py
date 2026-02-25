@@ -3,6 +3,7 @@
 import logging
 from datetime import date, timedelta
 from typing import Awaitable
+from django.core.cache import cache
 from src.core.repositories import habit_log_repository, habit_repository
 from src.utils.async_compat import run_sync_or_async, maybe_await
 from src.bot.timezone_utils import get_user_today
@@ -291,6 +292,11 @@ class StreakService:
 
         return run_sync_or_async(_impl())
 
+    @staticmethod
+    def cache_key(user_id: int | str) -> str:
+        """Return the cache key for a user's validated streak map."""
+        return f'streaks:{user_id}'
+
     def get_validated_streak_map(
         self,
         user_id: int | str,
@@ -301,6 +307,8 @@ class StreakService:
 
         Uses one DB query via get_latest_streak_counts(), then applies
         _is_streak_alive() per habit so broken streaks show as 0.
+        Results are cached for 5 minutes (keyed by user_id) and invalidated
+        whenever a habit completion or revert changes the underlying data.
 
         Args:
             user_id: User primary key.
@@ -314,6 +322,12 @@ class StreakService:
 
         async def _impl() -> dict[int, int]:
             self._refresh_dependencies()
+
+            key = self.cache_key(user_id)
+            cached = await cache.aget(key)
+            if cached is not None:
+                return cached
+
             today = get_user_today(user_timezone)
 
             # Single DB round-trip: habit_id -> (streak_count, last_completed_date)
@@ -339,6 +353,7 @@ class StreakService:
                 else:
                     result[habit.id] = 0
 
+            await cache.aset(key, result, timeout=300)
             return result
 
         return run_sync_or_async(_impl())

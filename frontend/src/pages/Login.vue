@@ -37,8 +37,11 @@ const error = ref(null);
 // Global callback for Telegram widget
 window.onTelegramAuth = async (user) => {
   error.value = null;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
   try {
     const response = await fetch("/auth/telegram/callback/", {
+      signal: controller.signal,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -46,6 +49,7 @@ window.onTelegramAuth = async (user) => {
       },
       body: JSON.stringify(user),
     });
+    clearTimeout(timeoutId);
 
     const data = await response.json();
 
@@ -55,7 +59,10 @@ window.onTelegramAuth = async (user) => {
       error.value = data.error || "Authentication failed";
     }
   } catch (e) {
-    if (e.message === "CSRF token missing") {
+    clearTimeout(timeoutId);
+    if (e.name === "AbortError") {
+      error.value = "Request timed out. Please try again.";
+    } else if (e.message === "CSRF token missing") {
       error.value = "Page configuration error. Please refresh.";
     } else {
       error.value = "Network error. Please try again.";
@@ -78,23 +85,38 @@ onMounted(() => {
     return;
   }
 
-  // Load Telegram widget script
-  const script = document.createElement("script");
-  script.src = "https://telegram.org/js/telegram-widget.js?22";
-  script.integrity = "sha384-I+W8gJkm5OWQibtRzgVIojXtlJek6sKioAqefhZ4f0SodL9LyEGvj4zjPPFhStA0";
-  script.crossOrigin = "anonymous";
-  script.setAttribute("data-telegram-login", props.telegramBotUsername);
-  script.setAttribute("data-size", "large");
-  script.setAttribute("data-radius", "8");
-  script.setAttribute("data-onauth", "onTelegramAuth(user)");
-  script.setAttribute("data-request-access", "write");
-  script.async = true;
-  script.onerror = () => {
-    error.value = "Failed to load Telegram widget. Please refresh the page.";
-  };
+  const WIDGET_URL = "https://telegram.org/js/telegram-widget.js?22";
+  const WIDGET_SRI = "sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb";
 
-  if (telegramWidget.value) {
-    telegramWidget.value.appendChild(script);
+  function appendWidgetScript(useIntegrity) {
+    const script = document.createElement("script");
+    script.src = WIDGET_URL;
+    if (useIntegrity) {
+      script.integrity = WIDGET_SRI;
+      script.crossOrigin = "anonymous";
+    }
+    script.setAttribute("data-telegram-login", props.telegramBotUsername);
+    script.setAttribute("data-size", "large");
+    script.setAttribute("data-radius", "8");
+    script.setAttribute("data-onauth", "onTelegramAuth(user)");
+    script.setAttribute("data-request-access", "write");
+    script.async = true;
+    script.onerror = () => {
+      if (useIntegrity) {
+        console.warn(
+          "[Login] Telegram widget SRI check failed; retrying without SRI. Update frontend hash: ./scripts/verify_telegram_widget_sri.sh --print"
+        );
+        if (telegramWidget.value) telegramWidget.value.innerHTML = "";
+        appendWidgetScript(false);
+      } else {
+        error.value = "Failed to load Telegram widget. Please refresh the page.";
+      }
+    };
+    if (telegramWidget.value) {
+      telegramWidget.value.appendChild(script);
+    }
   }
+
+  appendWidgetScript(true);
 });
 </script>

@@ -107,3 +107,9 @@ def test_unexpected_fields_stripped():
     # Add unexpected field — if not stripped, HMAC will include it and fail
     data["evil_field"] = "injected"
     assert verify_telegram_auth(data, BOT_TOKEN) is True
+
+
+def test_concurrent_timestamp():
+    """auth_date equal to current time should pass."""
+    data = _make_auth_data(auth_date=str(int(time.time())))
+    assert verify_telegram_auth(data, BOT_TOKEN) is True

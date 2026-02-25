@@ -519,6 +519,18 @@ The `StreakService` has three key methods and one helper:
 
 **Critical Pitfall**: `get_latest_streak_counts()` in the repository returns raw stored values — it does NOT validate freshness. Always go through `streak_service.get_validated_streak_map()` (for batch/dashboard) or `streak_service.get_current_streak()` (for single habit) when displaying streaks to users.
 
+### Streak Map Caching
+
+`get_validated_streak_map()` caches its result in Django's cache backend (default: `LocMemCache`) for **5 minutes** per user, keyed as `streaks:<user_id>`. The cache is invalidated on every write that affects streak data:
+
+- Habit completion (`process_habit_completion`) — invalidates immediately after `habit_log_repo.create()`
+- Habit revert via telegram ID (`revert_habit_completion`) — invalidates after `_revert_log_transaction()`
+- Habit revert via log ID (`revert_habit_completion_by_log_id`) — invalidates after `_revert_log_transaction()`
+
+**Cache key is centralized** in `StreakService.cache_key(user_id)` — always use this method instead of constructing the key manually, so invalidation sites stay in sync.
+
+**Django async cache API** (`cache.aget()`, `cache.aset()`, `cache.adelete()`) is used throughout since all write paths run inside async `_impl()` closures. Available from Django 4.1+.
+
 **Why Three Methods?**: Using `calculate_streak()` for display caused incorrect results when viewing streaks on Day 2 (habits not done today were incorrectly incremented). The `get_current_streak()` / `get_validated_streak_map()` methods validate the stored value against today's date before returning.
 
 ### Flexible Streak Tracking (Feature 0017)
@@ -1758,17 +1770,32 @@ For critical query filters (like `claimed=True AND reward__is_recurring=False`),
 
 ## Web Interface Security Patterns (Feature 0036)
 
+### Security Headers (CSP and Hardening)
+
+**Middleware**: `src/web/middleware.py` — `ContentSecurityPolicyMiddleware` sets security headers in production (when `DEBUG=False`).
+
+**Headers applied**:
+- `Content-Security-Policy` — Restricts script/style/img/frame/connect sources.
+- `X-Content-Type-Options: nosniff` — Prevents MIME sniffing.
+- `X-Frame-Options: DENY` — Prevents clickjacking.
+- `Referrer-Policy: strict-origin-when-cross-origin` — Limits referrer leakage.
+
+**CSP tradeoff**: `style-src` includes `'unsafe-inline'` because Tailwind and Vue often rely on inline styles. For stronger XSS protection, consider nonces or hashes (requires build/template changes); the tradeoff is documented in the middleware docstring.
+
 ### Authentication Endpoint Hardening
 
-**Rate Limiting**: Auth endpoints MUST use `django-ratelimit` to prevent brute-force:
+**Rate Limiting**: Auth endpoints MUST use `django-ratelimit` to prevent brute-force. The rate is configurable via `settings.AUTH_RATE_LIMIT` (env: `AUTH_RATE_LIMIT`, default `'10/m'`) so it can be tuned per environment without code changes.
 ```python
 from django_ratelimit.decorators import ratelimit
+from django.conf import settings
 
 @require_POST
-@ratelimit(key="ip", rate="5/m", method="POST", block=True)
+@ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True)
 def telegram_callback(request):
     ...
 ```
+
+**Dashboard action rate limiting**: Complete/revert habit endpoints (`src/web/views/dashboard.py`) MUST be rate-limited per user to prevent rapid clicking, abuse, and race conditions. Use `django_ratelimit.core.is_ratelimited` with `group="dashboard_action"` and `key="user"` so both endpoints share one limit. Rate is configurable via `settings.DASHBOARD_ACTION_RATE_LIMIT` (env: `DASHBOARD_ACTION_RATE_LIMIT`, default `'60/m'`). Use the core API (not the decorator) so rate limiting works in async views.
 
 **Generic Error Messages**: Auth failures MUST return identical responses regardless of failure reason. Never reveal whether a user exists, is inactive, or has an invalid hash.
 
@@ -1820,20 +1847,20 @@ def test_success(self, mock_sync, user):
 
 ### External Script Security (SRI)
 
-External scripts MUST include Subresource Integrity (SRI) attributes:
-```javascript
-script.src = "https://telegram.org/js/telegram-widget.js?22";
-script.integrity = "sha384-...";
-script.crossOrigin = "anonymous";
-script.onerror = () => { error.value = "Failed to load..."; };
-```
+External scripts MUST include Subresource Integrity (SRI) attributes. See `frontend/src/pages/Login.vue`: the Telegram widget is loaded with a `WIDGET_SRI` constant and optional fallback.
 
-Generate hash: `curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A`
+**Verify / get current hash** (run from repo root):
+- `./scripts/verify_telegram_widget_sri.sh` — verify stored hash matches live widget; exit 1 if mismatch (used in CI).
+- `./scripts/verify_telegram_widget_sri.sh --print` — print current SRI hash for manual update.
 
-**SRI hash updates**: The hash is tied to a specific script version (`?22`). If Telegram updates the widget and the SRI check fails, the `onerror` handler will show an error to the user. To update:
-1. Run the hash command above with the new URL
-2. Update the `integrity` attribute in `frontend/src/pages/Login.vue`
-3. Test login flow in staging before deploying
+**SRI hash updates**: The hash is tied to the widget URL (`?22`). When Telegram updates the widget, CI will fail (Verify Telegram widget SRI step). To fix:
+1. Run `./scripts/verify_telegram_widget_sri.sh --print` and copy the hash.
+2. Update the `WIDGET_SRI` constant in `frontend/src/pages/Login.vue`.
+3. Run `./scripts/verify_telegram_widget_sri.sh` to confirm; test login in staging before deploying.
+
+**Fallback**: If the script fails to load (e.g. SRI mismatch), the login page retries once **without** SRI so users can still sign in. A console warning is logged. This is a deliberate availability vs. integrity tradeoff; update the hash when CI or the script reports a mismatch.
+
+**Optional automation**: A scheduled workflow or cron can run `./scripts/verify_telegram_widget_sri.sh` weekly and e.g. open an issue on failure to catch widget changes before users hit the fallback.
 
 ### Telegram Auth Input Validation
 
@@ -1841,6 +1868,7 @@ Generate hash: `curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A
 1. Required fields check (`id`, `auth_date`, `hash`)
 2. Numeric type validation for `id` and `auth_date`
 3. Field filtering — only allowed fields (`ALLOWED_FIELDS`) are included in HMAC computation, unexpected keys are silently stripped
+4. **Auth date freshness**: `auth_date` must be within `settings.TELEGRAM_AUTH_MAX_AGE` seconds (env: `TELEGRAM_AUTH_MAX_AGE`, default 86400 = 24h). Use 300 for 5 minutes for tighter security.
 
 ### CSRF Token Pattern
 

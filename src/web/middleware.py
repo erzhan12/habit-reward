@@ -53,10 +53,15 @@ class InertiaFlashMiddleware:
 
 
 class ContentSecurityPolicyMiddleware:
-    """Set Content-Security-Policy header on all responses.
+    """Set Content-Security-Policy and other security headers on all responses.
 
-    In production (DEBUG=False), applies a strict policy.
-    In development, skips the header to allow Vite HMR.
+    In production (DEBUG=False), applies a strict CSP and security headers.
+    In development, skips these headers to allow Vite HMR.
+
+    CSP tradeoff: style-src includes 'unsafe-inline' because Tailwind/Vue
+    and component-scoped styles often rely on inline styles. Alternatives
+    (nonces or hashes) would require build/template changes; documented here
+    for future hardening.
     """
 
     CSP_POLICY = "; ".join([
@@ -75,4 +80,7 @@ class ContentSecurityPolicyMiddleware:
         response = self.get_response(request)
         if not settings.DEBUG:
             response["Content-Security-Policy"] = self.CSP_POLICY
+            response["X-Content-Type-Options"] = "nosniff"
+            response["X-Frame-Options"] = "DENY"
+            response["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response

@@ -30,7 +30,7 @@ def login_page(request):
 
 
 @require_POST
-@ratelimit(key="ip", rate="10/m", method="POST", block=True)
+@ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True)
 def telegram_callback(request):
     """Handle Telegram Login Widget callback.
 
