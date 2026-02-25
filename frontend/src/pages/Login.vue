@@ -86,7 +86,7 @@ onMounted(() => {
   }
 
   const WIDGET_URL = "https://telegram.org/js/telegram-widget.js?22";
-  const WIDGET_SRI = "sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb";
+  const WIDGET_SRI = "sha384-I+W8gJkm5OWQibtRzgVIojXtlJek6sKioAqefhZ4f0SodL9LyEGvj4zjPPFhStA0";
 
   function appendWidgetScript(useIntegrity) {
     const script = document.createElement("script");
