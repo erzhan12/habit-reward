@@ -120,7 +120,7 @@ jobs:
 
       - name: Create deployment directory
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'SETUP'
+          ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=10 ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'SETUP'
             mkdir -p ${{ secrets.DEPLOY_PATH }}
             mkdir -p ${{ secrets.DEPLOY_PATH }}/data
             mkdir -p ${{ secrets.DEPLOY_PATH }}/staticfiles
@@ -177,7 +177,7 @@ jobs:
 
       - name: Deploy containers with Caddy
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'DEPLOY'
+          ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=10 ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'DEPLOY'
             cd ${{ secrets.DEPLOY_PATH }}
 
             # Login to GitHub Container Registry
@@ -203,7 +203,7 @@ jobs:
 
       - name: Verify deployment health
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'VERIFY'
+          ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=10 ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'VERIFY'
             cd ${{ secrets.DEPLOY_PATH }}
 
             echo "Checking container logs:"
