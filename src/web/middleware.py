@@ -62,11 +62,14 @@ class ContentSecurityPolicyMiddleware:
     and component-scoped styles often rely on inline styles. Alternatives
     (nonces or hashes) would require build/template changes; documented here
     for future hardening.
+
+    script-src includes 'unsafe-eval' because the Telegram Login Widget
+    (telegram-widget.js) uses eval() internally for __parseFunction.
     """
 
     CSP_POLICY = "; ".join([
         "default-src 'self'",
-        "script-src 'self' https://telegram.org",
+        "script-src 'self' 'unsafe-eval' https://telegram.org",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: https:",
         "frame-src https://oauth.telegram.org",
