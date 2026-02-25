@@ -51,6 +51,9 @@ jobs:
           DEBUG: "True"
           CI: "true"
 
+      - name: Verify Telegram widget SRI
+        run: ./scripts/verify_telegram_widget_sri.sh
+
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest

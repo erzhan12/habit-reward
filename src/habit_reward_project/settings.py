@@ -38,6 +38,23 @@ ALLOWED_HOSTS_BASE = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'
 # For development (localhost), leave empty - not needed
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])
 
+# HTTPS enforcement and session security in production
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+
+    # Session cookie hardening: timeout, no JS access, SameSite
+    SESSION_COOKIE_AGE = 1209600  # 2 weeks
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+
+    # CSRF cookie SameSite (HttpOnly omitted: Inertia/axios reads XSRF-TOKEN; see RULES.md)
+    CSRF_COOKIE_SAMESITE = "Lax"
+
 
 # Application definition
 
@@ -49,6 +66,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'src.core',  # Core models for habit reward system
+    'django_vite',  # Vite asset integration
+    'inertia',  # Inertia.js server adapter
 ]
 
 # Custom User Model
@@ -57,13 +76,17 @@ AUTH_USER_MODEL = 'core.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'src.web.middleware.ContentSecurityPolicyMiddleware',  # CSP headers
     'whitenoise.middleware.WhiteNoiseMiddleware',  # Serve static files
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'src.web.middleware.WebAuthMiddleware',  # Web login redirect
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'src.web.middleware.InertiaFlashMiddleware',  # Django messages → Inertia flash props
+    'inertia.middleware.InertiaMiddleware',  # Inertia.js protocol
 ]
 
 ROOT_URLCONF = 'src.habit_reward_project.urls'
@@ -71,7 +94,7 @@ ROOT_URLCONF = 'src.habit_reward_project.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'src' / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -132,6 +155,7 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [BASE_DIR / 'frontend' / 'dist']
 
 # WhiteNoise configuration for serving static files
 STORAGES = {
@@ -210,6 +234,31 @@ HABIT_CATEGORIES = [
 HABIT_NAME_MAX_LENGTH = 100
 HABIT_WEIGHT_MIN = 1
 HABIT_WEIGHT_MAX = 100
+
+# Telegram Login Widget
+TELEGRAM_BOT_USERNAME = env('TELEGRAM_BOT_USERNAME', default='')
+# Max age of auth_date for Login Widget verification (seconds). Use 300 for tighter security.
+TELEGRAM_AUTH_MAX_AGE = env.int('TELEGRAM_AUTH_MAX_AGE', default=86400)
+
+# Web auth rate limit (django-ratelimit format, e.g. '10/m', '5/m')
+AUTH_RATE_LIMIT = env('AUTH_RATE_LIMIT', default='10/m')
+# Dashboard actions (complete/revert habit) rate limit per user
+DASHBOARD_ACTION_RATE_LIMIT = env('DASHBOARD_ACTION_RATE_LIMIT', default='60/m')
+
+
+# =============================================================================
+# INERTIA.JS + VITE CONFIGURATION
+# =============================================================================
+
+INERTIA_LAYOUT = 'base.html'
+
+DJANGO_VITE = {
+    'default': {
+        'dev_mode': DEBUG,
+        'dev_server_host': env('DJANGO_VITE_DEV_SERVER_HOST', default='localhost'),
+        'dev_server_port': env.int('DJANGO_VITE_DEV_SERVER_PORT', default=5173),
+    }
+}
 
 
 # =============================================================================

@@ -1,10 +1,34 @@
 # Scripts Directory
 
-This directory contains utility scripts for managing the Telegram bot webhook configuration.
+This directory contains utility scripts for managing the Telegram bot webhook configuration and frontend security checks.
 
 ## Available Scripts
 
-### 1. `set_webhook.py` - Webhook Configuration Manager
+### 1. `verify_telegram_widget_sri.sh` - Telegram Login Widget SRI Check
+
+Verifies that the Subresource Integrity (SRI) hash in `frontend/src/pages/Login.vue` matches the live Telegram widget script. Used in CI to fail when Telegram updates the widget so the hash can be updated.
+
+#### Usage
+
+```bash
+# Verify stored hash matches current widget (exit 0 = OK, 1 = mismatch)
+./scripts/verify_telegram_widget_sri.sh
+
+# Print current SRI hash for manual update of Login.vue
+./scripts/verify_telegram_widget_sri.sh --print
+```
+
+#### When to Use
+
+- **CI**: The deploy workflow runs the verify step automatically.
+- **After Telegram widget changes**: Run `--print`, update `WIDGET_SRI` in `frontend/src/pages/Login.vue`, then run verify again.
+- **Optional**: Run weekly (e.g. cron or scheduled workflow) to detect widget updates early.
+
+Requires `curl` and `openssl`. See RULES.md → "External Script Security (SRI)" for fallback behavior and update steps.
+
+---
+
+### 2. `set_webhook.py` - Webhook Configuration Manager
 
 A comprehensive Python script for managing Telegram webhook settings.
 
@@ -68,7 +92,7 @@ IP address: 123.45.67.89
 
 ---
 
-### 2. `start_webhook_dev.sh` - Interactive Webhook Setup
+### 3. `start_webhook_dev.sh` - Interactive Webhook Setup
 
 An interactive bash script that guides you through the complete webhook development setup process.
 
@@ -184,7 +208,7 @@ Happy coding! 🚀
 
 ---
 
-### 3. `test_webhook.py` - Webhook Endpoint Tester
+### 4. `test_webhook.py` - Webhook Endpoint Tester
 
 A utility script to verify that your webhook endpoint is accessible and responding correctly.
 
@@ -279,7 +303,7 @@ Testing ngrok tunnel...
 
 ---
 
-### 4. `fix_allowed_hosts.py` - ALLOWED_HOSTS Quick Fix
+### 5. `fix_allowed_hosts.py` - ALLOWED_HOSTS Quick Fix
 
 A utility script to quickly add ngrok domains to Django's ALLOWED_HOSTS configuration in your `.env` file. This resolves the common `DisallowedHost` error when using ngrok tunnels.
 
@@ -352,7 +376,7 @@ uvicorn src.habit_reward_project.asgi:application --host 0.0.0.0 --port 8000 --r
 
 ---
 
-### 5. `reset_admin_password.py` - Django Admin Password Manager
+### 6. `reset_admin_password.py` - Django Admin Password Manager
 
 A Django management script to reset passwords for admin users or list all admin/staff users in the system.
 

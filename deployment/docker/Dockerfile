@@ -18,7 +18,18 @@ COPY pyproject.toml ./
 # Install Python dependencies using uv
 RUN uv pip install --system --no-cache -r pyproject.toml
 
-# Stage 2: Runtime - Minimal production image
+# Stage 2: Frontend - Build Vite assets
+FROM node:22-slim AS frontend
+
+WORKDIR /app/frontend
+
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci --no-audit
+
+COPY frontend/ ./
+RUN npm run build
+
+# Stage 3: Runtime - Minimal production image
 FROM python:3.13-slim
 
 # Install minimal runtime dependencies
@@ -38,6 +49,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY --chown=botuser:botuser src/ ./src/
 COPY --chown=botuser:botuser manage.py asgi.py ./
+
+# Copy built frontend assets from frontend stage
+COPY --from=frontend --chown=botuser:botuser /app/frontend/dist ./frontend/dist/
 
 # Copy entrypoint script
 COPY --chown=botuser:botuser deployment/scripts/entrypoint.sh /app/entrypoint.sh

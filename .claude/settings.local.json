@@ -54,7 +54,15 @@
       "Bash(make lint:*)",
       "Bash(make test:*)",
       "Bash(ping:*)",
-      "Bash(nslookup:*)"
+      "Bash(nslookup:*)",
+      "WebSearch",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:inertiajs.github.io)",
+      "WebFetch(domain:core.telegram.org)",
+      "Bash(cd /Users/erzhan/DATA/PROJ/habit_reward/frontend && npm install 2>&1 | tail -20)",
+      "Bash(npx vite build 2>&1)",
+      "Bash(cd /Users/erzhan/DATA/PROJ/habit_reward/frontend && npm run build 2>&1)",
+      "Bash(npm run build 2>&1 | tail -5)"
     ],
     "deny": [],
     "ask": []

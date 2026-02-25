@@ -346,3 +346,122 @@ class TestFlexibleStreakTracking:
 
         # When habit not found, should fallback to simple logic (break streak)
         assert streak == 1
+
+
+class TestIsStreakAlive:
+    """Unit tests for the _is_streak_alive() helper."""
+
+    def test_alive_completed_today(self):
+        today = date.today()
+        assert StreakService._is_streak_alive(today, today) is True
+
+    def test_alive_completed_yesterday(self):
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        assert StreakService._is_streak_alive(yesterday, today) is True
+
+    def test_broken_two_days_ago_strict(self):
+        today = date.today()
+        two_days_ago = today - timedelta(days=2)
+        assert StreakService._is_streak_alive(two_days_ago, today, allowed_skip_days=0) is False
+
+    def test_alive_two_days_ago_with_one_grace_day(self):
+        today = date.today()
+        two_days_ago = today - timedelta(days=2)
+        # Gap = yesterday (1 non-exempt day), grace days = 1 → alive
+        assert StreakService._is_streak_alive(two_days_ago, today, allowed_skip_days=1) is True
+
+    def test_broken_three_days_ago_one_grace_day(self):
+        today = date.today()
+        three_days_ago = today - timedelta(days=3)
+        # Gap = 2 days, grace = 1 → broken
+        assert StreakService._is_streak_alive(three_days_ago, today, allowed_skip_days=1) is False
+
+    def test_alive_over_weekend_exempt(self):
+        # Friday → Monday: gap is Sat+Sun, both exempt
+        friday = date(2024, 1, 5)
+        monday = date(2024, 1, 8)
+        assert StreakService._is_streak_alive(
+            friday, monday, allowed_skip_days=0, exempt_weekdays=[6, 7]
+        ) is True
+
+    def test_broken_over_weekend_plus_weekday(self):
+        # Thursday → Monday: gap is Fri+Sat+Sun; Fri is non-exempt → broken with 0 grace
+        thursday = date(2024, 1, 4)
+        monday = date(2024, 1, 8)
+        assert StreakService._is_streak_alive(
+            thursday, monday, allowed_skip_days=0, exempt_weekdays=[6, 7]
+        ) is False
+
+
+class TestGetCurrentStreakDisplay:
+    """Test get_current_streak() for display — must return 0 when streak is broken."""
+
+    def test_returns_streak_when_completed_today(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        today = date.today()
+        mock_log = create_mock_log(streak_count=7, last_completed_date=today)
+        mock_habit = create_mock_habit()
+        mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
+
+        with patch('src.services.streak_service.get_user_today', return_value=today):
+            with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+                with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                    result = streak_service.get_current_streak("user123", "habit123")
+
+        assert result == 7
+
+    def test_returns_streak_when_completed_yesterday(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        mock_log = create_mock_log(streak_count=4, last_completed_date=yesterday)
+        mock_habit = create_mock_habit()
+        mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
+
+        with patch('src.services.streak_service.get_user_today', return_value=today):
+            with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+                with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                    result = streak_service.get_current_streak("user123", "habit123")
+
+        assert result == 4
+
+    def test_returns_zero_when_streak_broken(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        """Broken streak (last done 3 days ago, no grace) must display as 0."""
+        today = date.today()
+        three_days_ago = today - timedelta(days=3)
+        mock_log = create_mock_log(streak_count=10, last_completed_date=three_days_ago)
+        mock_habit = create_mock_habit(allowed_skip_days=0)
+        mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
+
+        with patch('src.services.streak_service.get_user_today', return_value=today):
+            with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+                with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                    result = streak_service.get_current_streak("user123", "habit123")
+
+        assert result == 0, "Broken streak should display as 0, not the historical value"
+
+    def test_returns_zero_when_no_logs(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        mock_habit_log_repo.get_last_log_for_habit.return_value = None
+
+        with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+            result = streak_service.get_current_streak("user123", "habit123")
+
+        assert result == 0
+
+    def test_returns_streak_preserved_by_grace_days(self, streak_service, mock_habit_log_repo, mock_habit_repo):
+        """Streak within grace-day window should still be displayed."""
+        today = date.today()
+        two_days_ago = today - timedelta(days=2)
+        mock_log = create_mock_log(streak_count=5, last_completed_date=two_days_ago)
+        mock_habit = create_mock_habit(allowed_skip_days=1)  # 1 grace day
+        mock_habit_log_repo.get_last_log_for_habit.return_value = mock_log
+        mock_habit_repo.get_by_id.return_value = mock_habit
+
+        with patch('src.services.streak_service.get_user_today', return_value=today):
+            with patch.object(streak_service, 'habit_log_repo', mock_habit_log_repo):
+                with patch.object(streak_service, 'habit_repo', mock_habit_repo):
+                    result = streak_service.get_current_streak("user123", "habit123")
+
+        assert result == 5

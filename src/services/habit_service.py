@@ -6,6 +6,7 @@ from datetime import datetime, date, timedelta
 from typing import Awaitable
 from contextlib import asynccontextmanager
 from asgiref.sync import sync_to_async
+from django.core.cache import cache
 from django.db import transaction
 from src.core.repositories import (
     user_repository,
@@ -286,6 +287,7 @@ class HabitService:
                     last_completed_date=target_date,  # Use target_date for backdating
                 )
                 await maybe_await(self.habit_log_repo.create(habit_log))
+                await cache.adelete(streak_service.cache_key(user.id))
 
             # If backdating, recalculate streaks for all subsequent logs
             if target_date < today:
@@ -440,6 +442,9 @@ class HabitService:
                     await maybe_await(
                         self.habit_log_repo.update(log.id, {"streak_count": new_streak})
                     )
+                    # Keep in-memory object in sync so subsequent loop iterations
+                    # see the updated streak_count (not the stale pre-update value).
+                    log.streak_count = new_streak
                 else:
                     logger.debug(
                         "Log %s streak unchanged: date=%s, streak=%s",
@@ -523,6 +528,8 @@ class HabitService:
                     error,
                 )
                 raise
+
+            await cache.adelete(streak_service.cache_key(user.id))
 
             if progress:
                 reward_progress_model = RewardProgressModel.model_validate(
@@ -651,6 +658,8 @@ class HabitService:
                 )
                 raise
 
+            await cache.adelete(streak_service.cache_key(log.user_id))
+
             if progress:
                 reward_progress_model = RewardProgressModel.model_validate(
                     progress,
@@ -713,6 +722,24 @@ class HabitService:
 
         async def _impl() -> Habit | None:
             return await maybe_await(self.habit_repo.get_by_name(user_id, habit_name))
+
+        return run_sync_or_async(_impl())
+
+    def get_habit_by_id(
+        self,
+        user_id: int | str,
+        habit_id: int | str,
+    ) -> Habit | None | Awaitable[Habit | None]:
+        """Get a single active habit by ID, verifying it belongs to the user."""
+
+        async def _impl() -> Habit | None:
+            habit = await maybe_await(self.habit_repo.get_by_id(habit_id))
+            if not habit or not getattr(habit, "active", True):
+                return None
+            user_pk = int(user_id) if isinstance(user_id, str) else user_id
+            if habit.user_id != user_pk:
+                return None
+            return habit
 
         return run_sync_or_async(_impl())
 

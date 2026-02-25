@@ -247,6 +247,7 @@ class RewardProgress(models.Model):
         indexes = [
             models.Index(fields=['user', 'reward']),
             models.Index(fields=['user']),
+            models.Index(fields=['user', 'claimed']),
         ]
         ordering = ['reward__name']
 
@@ -370,6 +371,8 @@ class HabitLog(models.Model):
             models.Index(fields=['user', '-timestamp']),
             models.Index(fields=['last_completed_date']),
             models.Index(fields=['got_reward']),
+            models.Index(fields=['user', 'last_completed_date']),
+            models.Index(fields=['user', 'habit', 'last_completed_date']),
         ]
         ordering = ['-timestamp']
 
