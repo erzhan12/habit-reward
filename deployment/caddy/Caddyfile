@@ -13,6 +13,9 @@ habitreward.org {
         health_uri /admin/login/
         health_interval 30s
         health_timeout 10s
+        health_headers {
+            X-Forwarded-Proto "https"
+        }
     }
 
     # Static files

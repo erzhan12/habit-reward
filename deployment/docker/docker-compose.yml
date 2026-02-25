@@ -51,7 +51,7 @@ services:
       - habit_reward_network
 
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/admin/login/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; r=urllib.request.Request('http://localhost:8000/admin/login/',headers={'X-Forwarded-Proto':'https'}); urllib.request.urlopen(r)"]
       interval: 30s
       timeout: 10s
       retries: 3
