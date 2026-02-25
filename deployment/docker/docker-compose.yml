@@ -20,6 +20,7 @@ services:
 
       # Telegram Bot Configuration
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://habitreward.org/webhook/telegram}
 
       # Optional: Django Superuser (created on first run)
