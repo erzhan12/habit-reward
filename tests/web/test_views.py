@@ -197,9 +197,8 @@ class TestDashboard:
         assert response.status_code == 302
         assert response.url == "/"
 
-    @patch("src.web.views.dashboard.messages")
     @patch("src.web.views.dashboard.habit_service")
-    def test_complete_habit_sets_reward_message(self, mock_hs, mock_messages, auth_client):
+    def test_complete_habit_sets_reward_message(self, mock_hs, auth_client):
         result = MagicMock()
         result.got_reward = True
         result.reward = MagicMock(name="reward")
@@ -213,13 +212,13 @@ class TestDashboard:
 
         auth_client.post("/habits/1/complete/")
 
-        mock_messages.success.assert_called_once()
-        assert "Reward: Coffee (2/5)" in str(mock_messages.success.call_args)
-        mock_messages.info.assert_not_called()
+        flash = auth_client.session.get("_completion_flash")
+        assert flash is not None
+        assert flash["got_reward"] is True
+        assert "Reward: Coffee (2/5)" in flash["text"]
 
-    @patch("src.web.views.dashboard.messages")
     @patch("src.web.views.dashboard.habit_service")
-    def test_complete_habit_sets_no_reward_message(self, mock_hs, mock_messages, auth_client):
+    def test_complete_habit_sets_no_reward_message(self, mock_hs, auth_client):
         result = MagicMock()
         result.got_reward = False
         result.reward = None
@@ -230,9 +229,10 @@ class TestDashboard:
 
         auth_client.post("/habits/1/complete/")
 
-        mock_messages.info.assert_called_once()
-        assert "No reward this time." in str(mock_messages.info.call_args)
-        mock_messages.success.assert_not_called()
+        flash = auth_client.session.get("_completion_flash")
+        assert flash is not None
+        assert flash["got_reward"] is False
+        assert "No reward this time." in flash["text"]
 
     @patch("src.web.views.dashboard.habit_service")
     def test_complete_nonexistent_habit_redirects(self, mock_hs, auth_client):

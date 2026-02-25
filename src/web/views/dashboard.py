@@ -65,6 +65,8 @@ async def dashboard(request):
     # Sort: incomplete first, then completed
     habits.sort(key=lambda h: h["completedToday"])
 
+    completion_flash = request.session.pop("_completion_flash", None)
+
     return inertia_render(request, "Dashboard", props={
         "habits": habits,
         "stats": {
@@ -72,6 +74,7 @@ async def dashboard(request):
             "totalToday": len(all_habits),
             "totalPointsToday": total_points,
         },
+        "completionFlash": completion_flash,
     })
 
 
@@ -127,9 +130,15 @@ async def complete_habit(request, habit_id):
                         f"{reward_message} ({pieces_earned}/{pieces_required})"
                     )
 
-            messages.success(request, f"Habit completed. {reward_message}")
+            request.session["_completion_flash"] = {
+                "text": f"Habit completed. {reward_message}",
+                "got_reward": True,
+            }
         else:
-            messages.info(request, "Habit completed. No reward this time.")
+            request.session["_completion_flash"] = {
+                "text": "Habit completed. No reward this time.",
+                "got_reward": False,
+            }
     except ValueError as e:
         logger.warning("Habit completion failed: %s", e)
         messages.error(request, str(e))
