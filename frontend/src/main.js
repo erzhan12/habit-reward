@@ -1,7 +1,22 @@
 import { createApp, h } from "vue";
-import { createInertiaApp } from "@inertiajs/vue3";
+import { createInertiaApp, router } from "@inertiajs/vue3";
 import Layout from "./components/Layout.vue";
 import "./app.css";
+
+// Inject Django CSRF token into every Inertia request
+function getCookie(name) {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(";").shift();
+  return null;
+}
+
+router.on("before", (event) => {
+  const token = getCookie("csrftoken");
+  if (token) {
+    event.detail.visit.headers["X-CSRFToken"] = token;
+  }
+});
 
 createInertiaApp({
   resolve: (name) => {

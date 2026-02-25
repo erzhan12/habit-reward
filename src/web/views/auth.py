@@ -13,7 +13,7 @@ from django_ratelimit.decorators import ratelimit
 from inertia import render as inertia_render
 
 from src.core.repositories import user_repository
-from src.utils.async_compat import run_sync_or_async
+from src.web.utils.sync import call_async
 from src.web.utils.telegram_auth import verify_telegram_auth
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ def telegram_callback(request):
         return JsonResponse({"error": "Invalid authentication"}, status=403)
 
     # Look up existing user via repository
-    user = run_sync_or_async(
+    user = call_async(
         user_repository.get_by_telegram_id(str(telegram_id))
     )
     if not user:
@@ -77,6 +77,30 @@ def logout_view(request):
     """Log out the user and redirect to login page."""
     logout(request)
     return redirect("/auth/login/")
+
+
+def dev_login(request):
+    """DEV ONLY: Log in as user from DEFAULT_USER_TELEGRAM_ID setting.
+
+    Only available when DEBUG=True. Skips Telegram auth entirely.
+    """
+    if not settings.DEBUG:
+        return redirect("/auth/login/")
+
+    from src.core.models import User
+
+    telegram_id = settings.DEFAULT_USER_TELEGRAM_ID
+    if telegram_id:
+        user = User.objects.filter(telegram_id=str(telegram_id), is_active=True).first()
+    else:
+        user = User.objects.filter(is_active=True).first()
+
+    if not user:
+        return JsonResponse({"error": "No active users in database"}, status=404)
+
+    login(request, user)
+    logger.info("Dev login as user %s (id=%s)", user.name, user.id)
+    return redirect("/")
 
 
 def rate_limited_view(request, exception=None):

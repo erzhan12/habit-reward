@@ -495,7 +495,7 @@ class NLPService:
 
 ### Streak Service Pattern
 
-The `StreakService` has two distinct methods:
+The `StreakService` has three key methods and one helper:
 
 1. **`calculate_streak(user_id, habit_id)`** - Used when LOGGING a new habit
    - Returns what the NEXT streak will be after logging
@@ -503,11 +503,23 @@ The `StreakService` has two distinct methods:
    - If `last_completed_date == today`: returns current streak
    - If `last_completed_date < yesterday`: applies flexible streak logic (see below)
 
-2. **`get_current_streak(user_id, habit_id)`** - Used when DISPLAYING current streak
-   - Returns the CURRENT streak from the most recent log
-   - Does NOT increment or calculate - just retrieves stored value
+2. **`get_current_streak(user_id, habit_id, user_timezone='UTC')`** - Used when DISPLAYING current streak
+   - Validates streak freshness via `_is_streak_alive()` before returning
+   - Returns **0** if the streak is broken (last completion too far in the past)
+   - Accepts `user_timezone` to compute "today" correctly
 
-**Why Two Methods?**: Using `calculate_streak()` for display caused incorrect results when viewing streaks on Day 2 (habits not done today were incorrectly incremented).
+3. **`get_validated_streak_map(user_id, habits, user_timezone='UTC')`** - Batch display for dashboards
+   - Fetches all habit streaks in **one** DB query
+   - Applies `_is_streak_alive()` per habit → returns 0 for broken streaks
+   - Replaces the old `habit_log_repository.get_latest_streak_counts()` direct call in views
+
+4. **`_is_streak_alive(last_completed_date, today, allowed_skip_days, exempt_weekdays)`** - Static helper
+   - Returns `True` if the streak is still alive (not broken)
+   - Shared logic used by both `get_current_streak()` and `get_validated_streak_map()`
+
+**Critical Pitfall**: `get_latest_streak_counts()` in the repository returns raw stored values — it does NOT validate freshness. Always go through `streak_service.get_validated_streak_map()` (for batch/dashboard) or `streak_service.get_current_streak()` (for single habit) when displaying streaks to users.
+
+**Why Three Methods?**: Using `calculate_streak()` for display caused incorrect results when viewing streaks on Day 2 (habits not done today were incorrectly incremented). The `get_current_streak()` / `get_validated_streak_map()` methods validate the stored value against today's date before returning.
 
 ### Flexible Streak Tracking (Feature 0017)
 
@@ -1116,6 +1128,26 @@ BotAuditLog.objects.create(
 
 **Why**: Django's `TextChoices` validates enum values. Invalid strings are silently rejected, resulting in NULL database values.
 
+## HabitLog Ordering: Use `last_completed_date`, NOT `timestamp`
+
+**CRITICAL**: When querying for the "most recent" habit log, always order by `last_completed_date DESC`, never by `timestamp DESC`.
+
+**Why**: Backdated entries are created with `timestamp = now()` but `last_completed_date = past_date`. If a user logs today's habit first, then backdates yesterday's habit, the backdated entry has a **newer `timestamp`** but an **older `last_completed_date`**. Ordering by `timestamp` would wrongly return the yesterday log as "most recent," causing the streak to show the lower historical value.
+
+**Affected repository methods** (`src/core/repositories.py`):
+- `get_last_log_for_habit()` — uses `.latest("last_completed_date")`
+- `get_latest_streak_counts()` — subquery uses `.order_by("-last_completed_date")`
+
+```python
+# ❌ Bad — breaks when user backdates after logging today
+HabitLog.objects.filter(...).latest("timestamp")
+HabitLog.objects.filter(...).order_by("-timestamp")
+
+# ✅ Good — always returns the entry with the furthest-forward completion date
+HabitLog.objects.filter(...).latest("last_completed_date")
+HabitLog.objects.filter(...).order_by("-last_completed_date")
+```
+
 ## Backdate Habit Completion Pattern
 
 **Feature**: Allows users to log habits for past dates (up to 7 days back) through the Telegram bot.
@@ -1274,6 +1306,21 @@ context.user_data.pop('backdate_date', None)
 ### cancel_handler Must Handle Both Message and Callback
 
 The `cancel_handler` in `habit_done_handler.py` is used as both a `CommandHandler` fallback (`/cancel` message) and a `CallbackQueryHandler` (clicking "No" button). It must check `update.callback_query` to decide whether to use `edit_message_text()` or `reply_text()`.
+
+### In-Memory Object Sync After DB Update in Loops
+
+**CRITICAL**: When iterating a list of DB objects and updating them inside the loop, always update the **in-memory object** immediately after the DB call. Otherwise, subsequent iterations that reference the updated object (e.g., `prev_log`) will see the stale pre-update value.
+
+```python
+# ❌ Bad — DB updated but in-memory stale; next iteration uses wrong streak_count
+await maybe_await(self.habit_log_repo.update(log.id, {"streak_count": new_streak}))
+
+# ✅ Good — keep in-memory in sync
+await maybe_await(self.habit_log_repo.update(log.id, {"streak_count": new_streak}))
+log.streak_count = new_streak  # ← sync the object
+```
+
+**Where this matters**: `recalculate_streaks_after_backdate()` in `src/services/habit_service.py`. If omitted, a streak chain of length N only propagates the first update correctly; all subsequent logs compute based on the stale value.
 
 ### Known Limitations
 

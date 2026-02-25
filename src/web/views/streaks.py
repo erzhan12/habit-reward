@@ -9,12 +9,12 @@ from src.bot.timezone_utils import get_user_today
 from src.core.repositories import habit_log_repository
 from src.services.habit_service import habit_service
 from src.services.streak_service import streak_service
-from src.utils.async_compat import run_sync_or_async
+from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
 
 
-def streaks_page(request):
+async def streaks_page(request):
     """Streaks & progress overview."""
     user = request.user
     if not user.timezone:
@@ -22,14 +22,14 @@ def streaks_page(request):
     today = get_user_today(user.timezone or "UTC")
     week_start = today - timedelta(days=today.weekday())  # Monday
 
-    all_habits = habit_service.get_all_active_habits(user.id)
+    all_habits = await maybe_await(habit_service.get_all_active_habits(user.id))
 
     # Batch queries via repository (avoids N+1)
-    total_completions = run_sync_or_async(
-        habit_log_repository.get_total_count_by_user(str(user.id))
+    total_completions = await habit_log_repository.get_total_count_by_user(
+        str(user.id)
     )
-    streak_stats = run_sync_or_async(
-        habit_log_repository.get_habit_streak_stats(str(user.id), week_start, today)
+    streak_stats = await habit_log_repository.get_habit_streak_stats(
+        str(user.id), week_start, today
     )
 
     # Index stats by habit_id for O(1) lookup
@@ -42,7 +42,9 @@ def streaks_page(request):
     best_streak_count = 0
 
     for habit in all_habits:
-        current_streak = streak_service.get_current_streak(str(user.id), str(habit.id))
+        current_streak = await maybe_await(
+            streak_service.get_current_streak(str(user.id), str(habit.id), user.timezone or "UTC")
+        )
         stats = stats_by_habit.get(habit.id, {})
 
         if current_streak > best_streak_count:

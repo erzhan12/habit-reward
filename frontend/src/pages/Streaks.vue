@@ -24,7 +24,7 @@
     <!-- Habit streaks list -->
     <div class="space-y-2">
       <div
-        v-for="habit in habits"
+        v-for="habit in activeHabits"
         :key="habit.id"
         class="bg-bg-card rounded-xl p-4"
       >
@@ -49,16 +49,20 @@
         </div>
       </div>
 
-      <div v-if="habits.length === 0" class="text-center py-12">
-        <p class="text-text-secondary">No habits yet.</p>
+      <div v-if="activeHabits.length === 0" class="text-center py-12">
+        <p class="text-text-secondary">No active streaks. Complete a habit to start one!</p>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue';
+
+const props = defineProps({
   habits: { type: Array, default: () => [] },
   summary: { type: Object, default: () => ({ totalCompletions: 0, activeHabits: 0, bestStreak: { habitName: "N/A", count: 0 } }) },
 });
+
+const activeHabits = computed(() => props.habits.filter(h => h.currentStreak > 0));
 </script>

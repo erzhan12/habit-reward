@@ -8,12 +8,12 @@ from inertia import render as inertia_render
 from src.bot.timezone_utils import get_user_today
 from src.core.repositories import habit_log_repository
 from src.services.habit_service import habit_service
-from src.utils.async_compat import run_sync_or_async
+from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
 
 
-def history_page(request):
+async def history_page(request):
     """Calendar history view showing habit completions by month."""
     user = request.user
 
@@ -37,7 +37,7 @@ def history_page(request):
     else:
         next_month = current_date.replace(month=current_date.month + 1)
 
-    all_habits = habit_service.get_all_active_habits(user.id)
+    all_habits = await maybe_await(habit_service.get_all_active_habits(user.id))
 
     # Optional habit filter
     habit_filter = request.GET.get("habit")
@@ -49,10 +49,8 @@ def history_page(request):
             pass
 
     # Query logs for this month via repository
-    logs = run_sync_or_async(
-        habit_log_repository.get_logs_in_daterange(
-            str(user.id), current_date, next_month, habit_id=habit_id
-        )
+    logs = await habit_log_repository.get_logs_in_daterange(
+        str(user.id), current_date, next_month, habit_id=habit_id
     )
 
     # Group completions by habit_id -> list of date strings

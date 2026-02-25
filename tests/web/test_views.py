@@ -1,8 +1,7 @@
 """Tests for web interface views."""
 
 import json
-from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from django.test import Client
@@ -107,24 +106,24 @@ class TestUnauthenticatedRedirect:
 class TestDashboard:
     """Dashboard view tests (service layer mocked)."""
 
-    @patch("src.web.views.dashboard.run_sync_or_async", side_effect=lambda x: x)
+    @patch("src.web.views.dashboard.streak_service")
     @patch("src.web.views.dashboard.habit_log_repository")
     @patch("src.web.views.dashboard.habit_service")
-    def test_dashboard_returns_200(self, mock_hs, mock_repo, mock_rsa, auth_client):
+    def test_dashboard_returns_200(self, mock_hs, mock_repo, mock_ss, auth_client):
         mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_todays_logs_by_user.return_value = []
-        mock_repo.get_latest_streak_counts.return_value = {}
+        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
+        mock_ss.get_validated_streak_map.return_value = {}
         response = auth_client.get("/")
         assert response.status_code == 200
 
-    @patch("src.web.views.dashboard.run_sync_or_async", side_effect=lambda x: x)
+    @patch("src.web.views.dashboard.streak_service")
     @patch("src.web.views.dashboard.habit_log_repository")
     @patch("src.web.views.dashboard.habit_service")
-    def test_dashboard_with_habits(self, mock_hs, mock_repo, mock_rsa, auth_client):
+    def test_dashboard_with_habits(self, mock_hs, mock_repo, mock_ss, auth_client):
         habit = _mock_habit()
         mock_hs.get_all_active_habits.return_value = [habit]
-        mock_repo.get_todays_logs_by_user.return_value = []
-        mock_repo.get_latest_streak_counts.return_value = {1: 5}
+        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
+        mock_ss.get_validated_streak_map.return_value = {1: 5}
         response = auth_client.get("/")
         assert response.status_code == 200
 
@@ -135,6 +134,43 @@ class TestDashboard:
         response = auth_client.post("/habits/1/complete/")
         assert response.status_code == 302
         assert response.url == "/"
+
+    @patch("src.web.views.dashboard.messages")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_complete_habit_sets_reward_message(self, mock_hs, mock_messages, auth_client):
+        result = MagicMock()
+        result.got_reward = True
+        result.reward = MagicMock(name="reward")
+        result.reward.name = "Coffee"
+        result.cumulative_progress = MagicMock()
+        result.cumulative_progress.pieces_earned = 2
+        result.cumulative_progress.get_pieces_required.return_value = 5
+
+        mock_hs.get_habit_by_id.return_value = _mock_habit()
+        mock_hs.process_habit_completion.return_value = result
+
+        auth_client.post("/habits/1/complete/")
+
+        mock_messages.success.assert_called_once()
+        assert "Reward: Coffee (2/5)" in str(mock_messages.success.call_args)
+        mock_messages.info.assert_not_called()
+
+    @patch("src.web.views.dashboard.messages")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_complete_habit_sets_no_reward_message(self, mock_hs, mock_messages, auth_client):
+        result = MagicMock()
+        result.got_reward = False
+        result.reward = None
+        result.cumulative_progress = None
+
+        mock_hs.get_habit_by_id.return_value = _mock_habit()
+        mock_hs.process_habit_completion.return_value = result
+
+        auth_client.post("/habits/1/complete/")
+
+        mock_messages.info.assert_called_once()
+        assert "No reward this time." in str(mock_messages.info.call_args)
+        mock_messages.success.assert_not_called()
 
     @patch("src.web.views.dashboard.habit_service")
     def test_complete_nonexistent_habit_redirects(self, mock_hs, auth_client):
@@ -150,6 +186,42 @@ class TestDashboard:
         response = auth_client.post("/habits/1/revert/")
         assert response.status_code == 302
         assert response.url == "/"
+
+    @patch("src.web.views.dashboard.messages")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_revert_habit_sets_reward_removed_message(self, mock_hs, mock_messages, auth_client):
+        result = MagicMock()
+        result.reward_reverted = True
+        result.reward_name = "Coffee"
+        result.reward_progress = MagicMock()
+        result.reward_progress.pieces_earned = 0
+        result.reward_progress.get_pieces_required.return_value = 5
+
+        mock_hs.get_habit_by_id.return_value = _mock_habit()
+        mock_hs.revert_habit_completion.return_value = result
+
+        auth_client.post("/habits/1/revert/")
+
+        mock_messages.info.assert_called_once()
+        assert "Reward removed: Coffee (0/5)" in str(mock_messages.info.call_args)
+        mock_messages.success.assert_not_called()
+
+    @patch("src.web.views.dashboard.messages")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_revert_habit_sets_plain_success_when_no_reward(self, mock_hs, mock_messages, auth_client):
+        result = MagicMock()
+        result.reward_reverted = False
+        result.reward_name = None
+        result.reward_progress = None
+
+        mock_hs.get_habit_by_id.return_value = _mock_habit()
+        mock_hs.revert_habit_completion.return_value = result
+
+        auth_client.post("/habits/1/revert/")
+
+        mock_messages.success.assert_called_once()
+        assert "Habit undone." in str(mock_messages.success.call_args)
+        mock_messages.info.assert_not_called()
 
     @patch("src.web.views.dashboard.habit_service")
     def test_revert_nonexistent_habit_redirects(self, mock_hs, auth_client):
@@ -173,14 +245,13 @@ class TestDashboard:
 class TestStreaks:
     """Streaks view tests."""
 
-    @patch("src.web.views.streaks.run_sync_or_async", side_effect=lambda x: x)
     @patch("src.web.views.streaks.streak_service")
     @patch("src.web.views.streaks.habit_log_repository")
     @patch("src.web.views.streaks.habit_service")
-    def test_streaks_returns_200(self, mock_hs, mock_repo, mock_ss, mock_rsa, auth_client):
+    def test_streaks_returns_200(self, mock_hs, mock_repo, mock_ss, auth_client):
         mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_total_count_by_user.return_value = 0
-        mock_repo.get_habit_streak_stats.return_value = []
+        mock_repo.get_total_count_by_user = AsyncMock(return_value=0)
+        mock_repo.get_habit_streak_stats = AsyncMock(return_value=[])
         response = auth_client.get("/streaks/")
         assert response.status_code == 200
 
@@ -191,39 +262,35 @@ class TestStreaks:
 class TestHistory:
     """History view tests."""
 
-    @patch("src.web.views.history.run_sync_or_async", side_effect=lambda x: x)
     @patch("src.web.views.history.habit_log_repository")
     @patch("src.web.views.history.habit_service")
-    def test_history_returns_200(self, mock_hs, mock_repo, mock_rsa, auth_client):
+    def test_history_returns_200(self, mock_hs, mock_repo, auth_client):
         mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_logs_in_daterange.return_value = []
+        mock_repo.get_logs_in_daterange = AsyncMock(return_value=[])
         response = auth_client.get("/history/")
         assert response.status_code == 200
 
-    @patch("src.web.views.history.run_sync_or_async", side_effect=lambda x: x)
     @patch("src.web.views.history.habit_log_repository")
     @patch("src.web.views.history.habit_service")
-    def test_history_custom_month(self, mock_hs, mock_repo, mock_rsa, auth_client):
+    def test_history_custom_month(self, mock_hs, mock_repo, auth_client):
         mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_logs_in_daterange.return_value = []
+        mock_repo.get_logs_in_daterange = AsyncMock(return_value=[])
         response = auth_client.get("/history/?month=2026-01")
         assert response.status_code == 200
 
-    @patch("src.web.views.history.run_sync_or_async", side_effect=lambda x: x)
     @patch("src.web.views.history.habit_log_repository")
     @patch("src.web.views.history.habit_service")
-    def test_history_invalid_month_fallback(self, mock_hs, mock_repo, mock_rsa, auth_client):
+    def test_history_invalid_month_fallback(self, mock_hs, mock_repo, auth_client):
         mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_logs_in_daterange.return_value = []
+        mock_repo.get_logs_in_daterange = AsyncMock(return_value=[])
         response = auth_client.get("/history/?month=invalid")
         assert response.status_code == 200
 
-    @patch("src.web.views.history.run_sync_or_async", side_effect=lambda x: x)
     @patch("src.web.views.history.habit_log_repository")
     @patch("src.web.views.history.habit_service")
-    def test_history_habit_filter(self, mock_hs, mock_repo, mock_rsa, auth_client):
+    def test_history_habit_filter(self, mock_hs, mock_repo, auth_client):
         mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_logs_in_daterange.return_value = []
+        mock_repo.get_logs_in_daterange = AsyncMock(return_value=[])
         response = auth_client.get("/history/?habit=1")
         assert response.status_code == 200
 
@@ -260,35 +327,32 @@ class TestRewards:
         # The status should use .name, not .value
         progress.get_status.assert_called()
 
-    @patch("src.web.views.rewards.run_sync_or_async", side_effect=lambda x: x)
     @patch("src.web.views.rewards.reward_repository")
     @patch("src.web.views.rewards.reward_service")
-    def test_claim_reward_redirects(self, mock_rs, mock_repo, mock_rsa, auth_client, user):
+    def test_claim_reward_redirects(self, mock_rs, mock_repo, auth_client, user):
         reward = MagicMock()
         reward.user_id = user.id
-        mock_repo.get_by_id.return_value = reward
+        mock_repo.get_by_id = AsyncMock(return_value=reward)
         mock_rs.mark_reward_claimed.return_value = MagicMock()
         response = auth_client.post("/rewards/1/claim/")
         assert response.status_code == 302
         assert response.url == "/rewards/"
 
-    @patch("src.web.views.rewards.run_sync_or_async", side_effect=lambda x: x)
     @patch("src.web.views.rewards.reward_repository")
     @patch("src.web.views.rewards.reward_service")
-    def test_claim_nonexistent_reward_redirects(self, mock_rs, mock_repo, mock_rsa, auth_client):
-        mock_repo.get_by_id.return_value = None
+    def test_claim_nonexistent_reward_redirects(self, mock_rs, mock_repo, auth_client):
+        mock_repo.get_by_id = AsyncMock(return_value=None)
         response = auth_client.post("/rewards/99999/claim/")
         assert response.status_code == 302
         assert response.url == "/rewards/"
         mock_rs.mark_reward_claimed.assert_not_called()
 
-    @patch("src.web.views.rewards.run_sync_or_async", side_effect=lambda x: x)
     @patch("src.web.views.rewards.reward_repository")
     @patch("src.web.views.rewards.reward_service")
-    def test_claim_failure_still_redirects(self, mock_rs, mock_repo, mock_rsa, auth_client, user):
+    def test_claim_failure_still_redirects(self, mock_rs, mock_repo, auth_client, user):
         reward = MagicMock()
         reward.user_id = user.id
-        mock_repo.get_by_id.return_value = reward
+        mock_repo.get_by_id = AsyncMock(return_value=reward)
         mock_rs.mark_reward_claimed.side_effect = ValueError("Not achieved")
         response = auth_client.post("/rewards/1/claim/")
         assert response.status_code == 302
@@ -335,7 +399,7 @@ class TestAuth:
         )
         assert response.status_code == 403
 
-    @patch("src.web.views.auth.run_sync_or_async", return_value=None)
+    @patch("src.web.views.auth.call_async", return_value=None)
     @patch("src.web.views.auth.verify_telegram_auth", return_value=True)
     def test_telegram_callback_nonexistent_user(self, mock_verify, mock_sync, user):
         """Valid hash but unknown telegram_id returns 404."""
@@ -347,7 +411,7 @@ class TestAuth:
         assert response.status_code == 403
         assert response.json()["error"] == "Authentication failed. Please try again."
 
-    @patch("src.web.views.auth.run_sync_or_async")
+    @patch("src.web.views.auth.call_async")
     @patch("src.web.views.auth.verify_telegram_auth", return_value=True)
     def test_telegram_callback_success(self, mock_verify, mock_sync, user):
         """Valid hash + existing user logs in and returns success JSON."""
@@ -397,15 +461,15 @@ def _inertia_props(response):
 class TestPropStructure:
     """Verify prop shapes returned by Inertia views."""
 
-    @patch("src.web.views.dashboard.run_sync_or_async", side_effect=lambda x: x)
+    @patch("src.web.views.dashboard.streak_service")
     @patch("src.web.views.dashboard.habit_log_repository")
     @patch("src.web.views.dashboard.habit_service")
-    def test_dashboard_prop_structure(self, mock_hs, mock_repo, mock_rsa, auth_client):
+    def test_dashboard_prop_structure(self, mock_hs, mock_repo, mock_ss, auth_client):
         habit = _mock_habit(id=1, name="Running", weight=10)
         mock_hs.get_all_active_habits.return_value = [habit]
         log = _mock_habit_log(habit_id=1)
-        mock_repo.get_todays_logs_by_user.return_value = [log]
-        mock_repo.get_latest_streak_counts.return_value = {1: 3}
+        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[log])
+        mock_ss.get_validated_streak_map.return_value = {1: 3}
 
         response = auth_client.get("/", **INERTIA_HEADERS)
         component, props = _inertia_props(response)
@@ -436,12 +500,11 @@ class TestPropStructure:
         assert r["piecesRequired"] == 5
         assert r["status"] == "PENDING"
 
-    @patch("src.web.views.history.run_sync_or_async", side_effect=lambda x: x)
     @patch("src.web.views.history.habit_log_repository")
     @patch("src.web.views.history.habit_service")
-    def test_history_prop_structure(self, mock_hs, mock_repo, mock_rsa, auth_client):
+    def test_history_prop_structure(self, mock_hs, mock_repo, auth_client):
         mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_logs_in_daterange.return_value = []
+        mock_repo.get_logs_in_daterange = AsyncMock(return_value=[])
 
         response = auth_client.get("/history/", **INERTIA_HEADERS)
         component, props = _inertia_props(response)
@@ -480,14 +543,13 @@ class TestErrorFlashMessages:
         mock_messages.error.assert_called_once()
         assert "No log found" in str(mock_messages.error.call_args)
 
-    @patch("src.web.views.rewards.run_sync_or_async", side_effect=lambda x: x)
     @patch("src.web.views.rewards.reward_repository")
     @patch("src.web.views.rewards.messages")
     @patch("src.web.views.rewards.reward_service")
-    def test_claim_non_achieved_shows_error_message(self, mock_rs, mock_messages, mock_repo, mock_rsa, auth_client, user):
+    def test_claim_non_achieved_shows_error_message(self, mock_rs, mock_messages, mock_repo, auth_client, user):
         reward = MagicMock()
         reward.user_id = user.id
-        mock_repo.get_by_id.return_value = reward
+        mock_repo.get_by_id = AsyncMock(return_value=reward)
         mock_rs.mark_reward_claimed.side_effect = ValueError("Not achieved yet")
 
         auth_client.post("/rewards/1/claim/")

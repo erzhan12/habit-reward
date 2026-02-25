@@ -573,7 +573,7 @@ class HabitLogRepository:
                 HabitLog.objects.filter(user_id=user_pk, habit_id=habit_pk)
                 .select_related("habit", "user", "reward")
                 .latest
-            )("timestamp")
+            )("last_completed_date")
         except (HabitLog.DoesNotExist, ValueError):
             return None
 
@@ -833,24 +833,27 @@ class HabitLogRepository:
 
         return await sync_to_async(list)(queryset)
 
-    async def get_latest_streak_counts(self, user_id: int | str) -> dict[int, int]:
-        """Get the current streak count for each habit in a single query.
+    async def get_latest_streak_counts(
+        self, user_id: int | str
+    ) -> dict[int, tuple[int, "date"]]:
+        """Get the streak count and last completion date for each habit in one query.
 
         Uses a subquery to find the most recent log per habit, then extracts
-        streak_count from those logs. Replaces N per-habit queries with 1.
+        streak_count and last_completed_date from those logs.
 
         Args:
             user_id: User primary key
 
         Returns:
-            Dict mapping habit_id to streak_count (e.g. {1: 5, 2: 3})
+            Dict mapping habit_id to (streak_count, last_completed_date).
+            e.g. {1: (5, date(2026, 2, 24)), 2: (3, date(2026, 2, 20))}
         """
         user_pk = int(user_id) if isinstance(user_id, str) else user_id
 
-        # Subquery: latest log id per habit
+        # Subquery: log with the most recent completion date per habit
         latest_log_ids = (
             HabitLog.objects.filter(user_id=user_pk, habit_id=OuterRef("habit_id"))
-            .order_by("-timestamp")
+            .order_by("-last_completed_date")
             .values("id")[:1]
         )
 
@@ -863,10 +866,10 @@ class HabitLogRepository:
                     .annotate(latest_id=Subquery(latest_log_ids))
                     .values("latest_id")
                 ),
-            ).values_list("habit_id", "streak_count")
+            ).values_list("habit_id", "streak_count", "last_completed_date")
         )
 
-        return {habit_id: streak for habit_id, streak in rows}
+        return {habit_id: (streak, last_date) for habit_id, streak, last_date in rows}
 
 
 class AuthCodeRepository:

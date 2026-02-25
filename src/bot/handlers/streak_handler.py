@@ -44,9 +44,9 @@ async def streaks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"📤 Sent ERROR_USER_INACTIVE message to {telegram_id}")
         return
 
-    # Get all streaks
+    # Get all streaks (timezone-aware; broken streaks return 0)
     streaks_dict = await maybe_await(
-        streak_service.get_all_streaks_for_user(user.id)
+        streak_service.get_all_streaks_for_user(user.id, user_timezone=user.timezone or 'UTC')
     )
     logger.info(f"🔍 Found {len(streaks_dict)} habit streaks for user {telegram_id}")
 
@@ -59,13 +59,24 @@ async def streaks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"📤 Sent ERROR_NO_HABITS_LOGGED message to {telegram_id}")
         return
 
-    # Get habit names
+    # Get habit names, skipping habits with broken streaks (streak_count == 0)
     habits_with_names = {}
     for habit_id, streak_count in streaks_dict.items():
+        if streak_count == 0:
+            continue
         habit = await maybe_await(habit_repository.get_by_id(habit_id))
         if habit:
             habits_with_names[habit_id] = (habit.name, streak_count)
             logger.info(f"🔥 User {telegram_id} - Habit '{habit.name}': {streak_count} day streak")
+
+    if not habits_with_names:
+        logger.info(f"ℹ️ All streaks are broken for user {telegram_id}, sending no-active-streaks message")
+        await update.message.reply_text(
+            msg('FORMAT_NO_STREAKS', lang),
+            reply_markup=build_back_to_menu_keyboard(lang)
+        )
+        logger.info(f"📤 Sent FORMAT_NO_STREAKS message to {telegram_id}")
+        return
 
     # Format and send message
     message = format_streaks_message(habits_with_names, lang)

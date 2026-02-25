@@ -11,12 +11,13 @@ from inertia import render as inertia_render
 from src.bot.timezone_utils import get_user_today
 from src.core.repositories import habit_log_repository
 from src.services.habit_service import habit_service
-from src.utils.async_compat import run_sync_or_async
+from src.services.streak_service import streak_service
+from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
 
 
-def dashboard(request):
+async def dashboard(request):
     """Main screen: list of today's habits with completion status."""
     user = request.user
     tz = user.timezone or "UTC"
@@ -24,18 +25,18 @@ def dashboard(request):
         logger.warning("User %s has no timezone set, falling back to UTC", user.id)
     today = get_user_today(tz)
 
-    # Services handle sync/async bridging internally
-    all_habits = habit_service.get_all_active_habits(user.id)
+    # In async context, service returns coroutine via run_sync_or_async
+    all_habits = await maybe_await(habit_service.get_all_active_habits(user.id))
 
-    # Repository calls are async — need run_sync_or_async
-    todays_logs = run_sync_or_async(
-        habit_log_repository.get_todays_logs_by_user(str(user.id), target_date=today)
+    # Repository calls are async — await directly
+    todays_logs = await habit_log_repository.get_todays_logs_by_user(
+        str(user.id), target_date=today
     )
     completed_habit_ids = {log.habit_id for log in todays_logs}
 
-    # Batch fetch all streaks in one query (avoids N+1)
-    streak_map = run_sync_or_async(
-        habit_log_repository.get_latest_streak_counts(user.id)
+    # Batch-fetch validated streaks (1 query; returns 0 for broken streaks)
+    streak_map = await maybe_await(
+        streak_service.get_validated_streak_map(user.id, all_habits, tz)
     )
 
     # Build habit list with streak and completion info
@@ -72,21 +73,38 @@ def dashboard(request):
 
 
 @require_POST
-def complete_habit(request, habit_id):
+async def complete_habit(request, habit_id):
     """Mark a habit as completed for today."""
     user = request.user
 
-    habit = habit_service.get_habit_by_id(user.id, habit_id)
+    habit = await maybe_await(habit_service.get_habit_by_id(user.id, habit_id))
     if not habit:
         logger.warning("User %s attempted to complete habit %s (not found or unauthorized)", user.id, habit_id)
         return redirect("/")
 
     try:
-        habit_service.process_habit_completion(
+        result = await maybe_await(habit_service.process_habit_completion(
             user_telegram_id=user.telegram_id,
             habit_name=habit.name,
             user_timezone=user.timezone or "UTC",
-        )
+        ))
+        if result.got_reward and result.reward:
+            reward_message = f"Reward: {result.reward.name}"
+            if result.cumulative_progress:
+                pieces_required = (
+                    result.cumulative_progress.get_pieces_required()
+                    if hasattr(result.cumulative_progress, "get_pieces_required")
+                    else getattr(result.cumulative_progress, "pieces_required", None)
+                )
+                pieces_earned = getattr(result.cumulative_progress, "pieces_earned", None)
+                if pieces_required is not None and pieces_earned is not None:
+                    reward_message = (
+                        f"{reward_message} ({pieces_earned}/{pieces_required})"
+                    )
+
+            messages.success(request, f"Habit completed. {reward_message}")
+        else:
+            messages.info(request, "Habit completed. No reward this time.")
     except ValueError as e:
         logger.warning("Habit completion failed: %s", e)
         messages.error(request, str(e))
@@ -95,20 +113,36 @@ def complete_habit(request, habit_id):
 
 
 @require_POST
-def revert_habit(request, habit_id):
+async def revert_habit(request, habit_id):
     """Revert the most recent completion of a habit."""
     user = request.user
 
-    habit = habit_service.get_habit_by_id(user.id, habit_id)
+    habit = await maybe_await(habit_service.get_habit_by_id(user.id, habit_id))
     if not habit:
         logger.warning("User %s attempted to revert habit %s (not found or unauthorized)", user.id, habit_id)
         return redirect("/")
 
     try:
-        habit_service.revert_habit_completion(
+        result = await maybe_await(habit_service.revert_habit_completion(
             user_telegram_id=user.telegram_id,
             habit_id=habit_id,
-        )
+        ))
+        if result.reward_reverted:
+            reward_message = f"Habit undone. Reward removed: {result.reward_name or 'Unknown'}"
+            if result.reward_progress:
+                pieces_required = (
+                    result.reward_progress.get_pieces_required()
+                    if hasattr(result.reward_progress, "get_pieces_required")
+                    else getattr(result.reward_progress, "pieces_required", None)
+                )
+                pieces_earned = getattr(result.reward_progress, "pieces_earned", None)
+                if pieces_required is not None and pieces_earned is not None:
+                    reward_message = (
+                        f"{reward_message} ({pieces_earned}/{pieces_required})"
+                    )
+            messages.info(request, reward_message)
+        else:
+            messages.success(request, "Habit undone.")
     except ValueError as e:
         logger.warning("Habit revert failed: %s", e)
         messages.error(request, str(e))

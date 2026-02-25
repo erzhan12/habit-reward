@@ -440,6 +440,9 @@ class HabitService:
                     await maybe_await(
                         self.habit_log_repo.update(log.id, {"streak_count": new_streak})
                     )
+                    # Keep in-memory object in sync so subsequent loop iterations
+                    # see the updated streak_count (not the stale pre-update value).
+                    log.streak_count = new_streak
                 else:
                     logger.debug(
                         "Log %s streak unchanged: date=%s, streak=%s",
