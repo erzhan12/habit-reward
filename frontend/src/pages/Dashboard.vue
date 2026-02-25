@@ -45,6 +45,7 @@ import UndoToast from "../components/UndoToast.vue";
 defineProps({
   habits: { type: Array, default: () => [] },
   stats: { type: Object, default: () => ({}) },
+  completionFlash: { type: Object, default: null },
 });
 
 const loadingId = ref(null);
@@ -61,8 +62,9 @@ function completeHabit(habitId) {
   loadingId.value = habitId;
   router.post(`/habits/${habitId}/complete/`, {}, {
     preserveScroll: true,
-    onSuccess: () => {
-      showUndo(habitId, "Habit completed");
+    onSuccess: (page) => {
+      const flash = page.props.completionFlash;
+      showUndo(habitId, flash?.text || "Habit completed");
     },
     onFinish: () => {
       loadingId.value = null;
