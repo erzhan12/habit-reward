@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
+from src.core.models import WebLoginRequest
 from src.core.repositories import web_login_request_repository
 from src.utils.async_compat import maybe_await
 from src.web.services.web_login_service import WL_CONFIRM_PREFIX, WL_DENY_PREFIX
@@ -41,7 +42,7 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     # Verify the user pressing the button is the request owner
-    if str(update.effective_user.id) != str(login_request.user.telegram_id):
+    if str(update.effective_user.id) != login_request.user.telegram_id:
         logger.warning(
             "User %s tried to respond to login request for user %s",
             update.effective_user.id,
@@ -55,14 +56,14 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     # Check if already handled
-    if login_request.status != 'pending':
-        status_text = "confirmed" if login_request.status == 'confirmed' else "denied"
+    if login_request.status != WebLoginRequest.Status.PENDING.value:
+        status_text = "confirmed" if login_request.status == WebLoginRequest.Status.CONFIRMED.value else "denied"
         await query.edit_message_text(f"This login request was already {status_text}.")
         return
 
     if action == 'c':
         updated = await maybe_await(
-            web_login_request_repository.update_status(token, 'confirmed')
+            web_login_request_repository.update_status(token, WebLoginRequest.Status.CONFIRMED.value)
         )
         if updated:
             await query.edit_message_text("✅ Login confirmed. You can close this message.")
@@ -71,7 +72,7 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.edit_message_text("⚠️ This login request has already been processed.")
     else:
         updated = await maybe_await(
-            web_login_request_repository.update_status(token, 'denied')
+            web_login_request_repository.update_status(token, WebLoginRequest.Status.DENIED.value)
         )
         if updated:
             await query.edit_message_text("❌ Login denied. The request has been rejected.")

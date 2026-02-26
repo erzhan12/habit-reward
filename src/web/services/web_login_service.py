@@ -10,7 +10,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 
 from django.conf import settings
+from django.db import transaction
+
+from src.core.models import WebLoginRequest
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+
+from asgiref.sync import sync_to_async
 
 from src.core.repositories import user_repository, web_login_request_repository
 from src.utils.async_compat import maybe_await
@@ -25,7 +30,7 @@ WL_DENY_PREFIX = "wl_d_"
 # Caps concurrent threads to prevent resource exhaustion under load; excess
 # submissions queue up instead of spawning unbounded threads.
 _login_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="web_login")
-atexit.register(_login_executor.shutdown, wait=False)
+atexit.register(_login_executor.shutdown, wait=True)
 
 
 class WebLoginService:
@@ -60,8 +65,9 @@ class WebLoginService:
         # Derive cache timeout from the same expires_at timestamp so both
         # cache eviction and DB expiry use a single source of truth.
         token = secrets.token_urlsafe(32)
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
-        cache_ttl = int((expires_at - datetime.now(timezone.utc)).total_seconds())
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
+        cache_ttl = int((expires_at - now).total_seconds())
         cache.set(f"wl_pending:{token}", True, timeout=cache_ttl)
 
         if user and user.telegram_id:
@@ -94,23 +100,33 @@ class WebLoginService:
             asyncio.run(self._process_login_request(user, token, expires_at, device_info))
         except Exception as e:
             logger.error("Background login processing failed for user %s: %s", user.id, e)
+            # Set a failure cache key so check_status can return an error
+            # instead of leaving the user polling "pending" indefinitely.
+            from django.core.cache import cache
+            cache.set(f"wl_failed:{token}", True, timeout=int((expires_at - datetime.now(timezone.utc)).total_seconds()))
 
     async def _process_login_request(
         self, user, token: str, expires_at, device_info: str | None
     ) -> None:
         """Perform DB writes and send Telegram notification."""
-        # Invalidate any pending requests for this user
-        await maybe_await(self.request_repo.invalidate_pending_for_user(user.id))
 
-        # Create new request
-        login_request = await maybe_await(
-            self.request_repo.create(
-                user_id=user.id,
-                token=token,
-                expires_at=expires_at,
-                device_info=device_info,
-            )
-        )
+        # Wrap invalidate + create in a transaction so that if create fails,
+        # the invalidation is rolled back and the user's pending request is preserved.
+        @sync_to_async
+        def _transactional_writes():
+            with transaction.atomic():
+                WebLoginRequest.objects.filter(
+                    user_id=user.id,
+                    status=WebLoginRequest.Status.PENDING,
+                ).update(status=WebLoginRequest.Status.DENIED)
+                return WebLoginRequest.objects.create(
+                    user_id=user.id,
+                    token=token,
+                    expires_at=expires_at,
+                    device_info=device_info,
+                )
+
+        login_request = await _transactional_writes()
 
         logger.info(
             "Web login request created for user %s (token=%s...)",
@@ -168,7 +184,7 @@ class WebLoginService:
         A small random jitter masks any residual timing variation.
 
         Returns:
-            One of: 'pending', 'confirmed', 'denied', 'expired', 'used'
+            One of: 'pending', 'confirmed', 'denied', 'expired', 'used', 'error'
         """
         from django.core.cache import cache
         from django.db import OperationalError
@@ -193,12 +209,15 @@ class WebLoginService:
             login_request = None
 
         cache_pending = cache.get(f"wl_pending:{token}")
+        cache_failed = cache.get(f"wl_failed:{token}")
 
-        # Now use the results — logic is the same, but both lookups
+        # Now use the results — logic is the same, but all lookups
         # have already been performed regardless of which path we take.
         if not login_request:
+            if cache_failed:
+                return "error"
             if cache_pending:
-                return "pending"
+                return WebLoginRequest.Status.PENDING.value
             return "expired"
 
         # Check expiry
@@ -222,7 +241,7 @@ class WebLoginService:
             return None
 
         # Must be confirmed
-        if login_request.status != 'confirmed':
+        if login_request.status != WebLoginRequest.Status.CONFIRMED.value:
             logger.warning(
                 "Complete login attempt with status=%s for token=%s...",
                 login_request.status,

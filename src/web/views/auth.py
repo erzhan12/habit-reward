@@ -34,6 +34,12 @@ def _parse_ip_address(request) -> str:
     Takes the leftmost IP from X-Forwarded-For (the original client IP when
     behind a proxy) and validates it with ipaddress.ip_address().  Falls back
     to REMOTE_ADDR if the header is missing or contains a malformed value.
+
+    IMPORTANT: This function trusts the X-Forwarded-For header, which can be
+    spoofed by clients if the application is exposed directly to the internet.
+    A reverse proxy (e.g., nginx or Caddy) MUST be configured to overwrite
+    X-Forwarded-For with the real client IP before forwarding to Django.
+    Without this, attackers can inject arbitrary IPs via the header.
     """
     forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
     if forwarded:

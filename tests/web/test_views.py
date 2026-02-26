@@ -721,8 +721,10 @@ class TestAuth:
         assert status == "confirmed"
         # DB query must have been called
         mock_db.assert_called_once_with(token)
-        # Cache lookup must ALSO have been called (constant-time: no short-circuit)
-        mock_cache_get.assert_called_once_with(f"wl_pending:{token}")
+        # Cache lookups must ALSO have been called (constant-time: no short-circuit)
+        cache_get_calls = [c.args[0] for c in mock_cache_get.call_args_list]
+        assert f"wl_pending:{token}" in cache_get_calls
+        assert f"wl_failed:{token}" in cache_get_calls
 
     @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
     def test_check_status_applies_jitter(self, mock_sleep):
@@ -999,29 +1001,24 @@ class TestBackgroundProcessingFailures:
         cache entry remains so check_status returns 'pending'."""
         from django.core.cache import cache
         from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
 
         cache.clear()
         svc = WebLoginService()
 
-        mock_user = MagicMock()
-        mock_user.id = 1
-        mock_user.telegram_id = "999999999"
+        # Use a real user so the transactional DB writes succeed
+        user = User.objects.create_user(
+            username="tg_tgfail1", telegram_id="111111111", name="TG Fail User",
+            language="en", timezone="UTC",
+        )
 
         token = "tg_fail_token_aaa"
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
         cache.set(f"wl_pending:{token}", True, timeout=300)
 
-        with (
-            patch.object(svc.request_repo, "invalidate_pending_for_user", new_callable=AsyncMock),
-            patch.object(svc.request_repo, "create", new_callable=AsyncMock) as mock_create,
-            patch.object(svc, "_send_login_notification", new_callable=AsyncMock,
-                         side_effect=Exception("Telegram API unavailable")),
-        ):
-            mock_create.return_value = MagicMock(id=42)
-
+        with patch.object(svc, "_send_login_notification", new_callable=AsyncMock,
+                         side_effect=Exception("Telegram API unavailable")):
             # _process_login_background catches all exceptions
-            svc._process_login_background(mock_user, token, expires_at, None)
+            svc._process_login_background(user, token, expires_at, None)
 
         # Cache entry survives the background failure
         assert cache.get(f"wl_pending:{token}") is True
@@ -1046,7 +1043,7 @@ class TestBackgroundProcessingFailures:
         assert status == "pending"
 
     def test_db_failure_in_background_thread_is_caught(self):
-        """If DB create() raises in the background thread, the exception
+        """If DB operations raise in the background thread, the exception
         is caught and logged — no crash, cache still valid."""
         from django.core.cache import cache
         from django.db import OperationalError
@@ -1063,11 +1060,9 @@ class TestBackgroundProcessingFailures:
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
         cache.set(f"wl_pending:{token}", True, timeout=300)
 
-        with (
-            patch.object(svc.request_repo, "invalidate_pending_for_user", new_callable=AsyncMock),
-            patch.object(svc.request_repo, "create", new_callable=AsyncMock,
-                         side_effect=OperationalError("connection lost")),
-        ):
+        # Mock _process_login_request to raise DB error (simulates any DB failure)
+        with patch.object(svc, "_process_login_request", new_callable=AsyncMock,
+                         side_effect=OperationalError("connection lost")):
             # Should not raise — exception caught in _process_login_background
             svc._process_login_background(mock_user, token, expires_at, None)
 
@@ -1102,12 +1097,12 @@ class TestBackgroundProcessingFailures:
         mock_user.id = 99
 
         with (
-            patch.object(svc.request_repo, "invalidate_pending_for_user", new_callable=AsyncMock,
+            patch.object(svc, "_process_login_request", new_callable=AsyncMock,
                          side_effect=Exception("boom")),
             patch("src.web.services.web_login_service.logger") as mock_logger,
         ):
             svc._process_login_background(
-                mock_user, "log_test_token", datetime.now(timezone.utc), None
+                mock_user, "log_test_token", datetime.now(timezone.utc) + timedelta(minutes=5), None
             )
 
         mock_logger.error.assert_called_once()
@@ -1428,3 +1423,166 @@ class TestUsernameRecycling:
 
         user.refresh_from_db()
         assert user.telegram_username == "stable"
+
+
+# ---- Full login flow integration test ----
+
+
+class TestFullLoginFlow:
+    """Integration test simulating the complete login flow end-to-end:
+    create request → bot confirmation → poll status → complete login → session created.
+    """
+
+    @pytest.fixture
+    def login_user(self):
+        """Create a user for the full flow test."""
+        return User.objects.create_user(
+            username="tg_777777777",
+            telegram_id="777777777",
+            name="Flow User",
+            language="en",
+            timezone="UTC",
+            telegram_username="flowuser",
+        )
+
+    def test_full_login_flow(self, login_user):
+        """End-to-end: create request → bot confirmation → poll status → complete → session."""
+        from django.core.cache import cache
+        from src.core.models import WebLoginRequest
+        from src.core.repositories import WebLoginRequestRepository
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+        repo = WebLoginRequestRepository()
+        client = Client()
+
+        # Step 1: Create login request via HTTP (background thread is async,
+        # so we create the DB record directly to simulate what it does)
+        token = "full_flow_test_token"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        cache.set(f"wl_pending:{token}", True, timeout=300)
+
+        login_request = WebLoginRequest.objects.create(
+            user=login_user,
+            token=token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=expires_at,
+        )
+        assert login_request.status == WebLoginRequest.Status.PENDING.value
+
+        # Step 2: Poll status — should be pending
+        with patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock):
+            status = call_async(svc.check_status(token))
+        assert status == WebLoginRequest.Status.PENDING.value
+
+        # Step 3: Simulate bot confirmation (as if user pressed Confirm)
+        updated = call_async(repo.update_status(token, WebLoginRequest.Status.CONFIRMED.value))
+        assert updated == 1
+
+        # Step 4: Poll status — should be confirmed
+        with patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock):
+            status = call_async(svc.check_status(token))
+        assert status == WebLoginRequest.Status.CONFIRMED.value
+
+        # Step 5: Complete login via HTTP
+        response = client.post(
+            "/auth/bot-login/complete/",
+            data=json.dumps({"token": token}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        data = json.loads(response.content)
+        assert data["success"] is True
+
+        # Step 6: Verify session was created — user is now authenticated
+        response = client.get("/")
+        assert response.status_code == 200  # Not redirected to login
+
+        # Step 7: Verify token is marked as used (replay protection)
+        login_request.refresh_from_db()
+        assert login_request.status == WebLoginRequest.Status.USED.value
+
+        # Step 8: Replay attempt should fail
+        response = client.post(
+            "/auth/bot-login/complete/",
+            data=json.dumps({"token": token}),
+            content_type="application/json",
+        )
+        assert response.status_code == 403
+
+
+# ---- Concurrent login request test ----
+
+
+class TestConcurrentLoginRequests:
+    """Test that concurrent login requests from the same user properly
+    invalidate old pending requests.
+    """
+
+    @pytest.fixture
+    def concurrent_user(self):
+        """Create a user for concurrent request tests."""
+        return User.objects.create_user(
+            username="tg_666666666",
+            telegram_id="666666666",
+            name="Concurrent User",
+            language="en",
+            timezone="UTC",
+            telegram_username="concurrentuser",
+        )
+
+    def test_second_request_invalidates_first(self, concurrent_user):
+        """When a user creates a second login request, the first pending
+        request is set to 'denied' and only the second is active."""
+        from django.core.cache import cache
+        from django.db import transaction as db_transaction
+        from src.core.models import WebLoginRequest
+        from src.core.repositories import WebLoginRequestRepository
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+        repo = WebLoginRequestRepository()
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        # Create first pending request
+        req1 = WebLoginRequest.objects.create(
+            user=concurrent_user,
+            token="concurrent_token_1",
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=expires_at,
+        )
+        assert req1.status == WebLoginRequest.Status.PENDING.value
+
+        # Simulate creating a second request (transactional invalidate + create)
+        with db_transaction.atomic():
+            WebLoginRequest.objects.filter(
+                user_id=concurrent_user.id,
+                status=WebLoginRequest.Status.PENDING,
+            ).update(status=WebLoginRequest.Status.DENIED)
+            req2 = WebLoginRequest.objects.create(
+                user=concurrent_user,
+                token="concurrent_token_2",
+                status=WebLoginRequest.Status.PENDING,
+                expires_at=expires_at,
+            )
+
+        # First request should now be denied
+        req1.refresh_from_db()
+        assert req1.status == WebLoginRequest.Status.DENIED.value
+
+        # Second request should be pending
+        assert req2.status == WebLoginRequest.Status.PENDING.value
+
+        # Confirm second request and complete login — should succeed
+        call_async(repo.update_status("concurrent_token_2", WebLoginRequest.Status.CONFIRMED.value))
+        user = call_async(svc.complete_login("concurrent_token_2"))
+        assert user is not None
+        assert user.id == concurrent_user.id
+
+        # First token should NOT be completable (status is 'denied')
+        user_from_old = call_async(svc.complete_login("concurrent_token_1"))
+        assert user_from_old is None
