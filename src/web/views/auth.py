@@ -19,7 +19,7 @@ Security properties
 * **Anti-enumeration**: Both known and unknown usernames receive an identical
   200 response with a token.  Background processing is deferred to a thread
   pool so timing is constant.
-* **Timing jitter**: ``check_status`` adds 100-500ms random jitter from a
+* **Timing jitter**: ``check_status`` adds 10-50ms random jitter from a
   ``secrets.SystemRandom()`` CSPRNG.
 * **Atomic replay prevention**: Confirmed tokens are atomically marked
   ``used`` via ``UPDATE … WHERE status='confirmed'``.
@@ -67,9 +67,9 @@ def _parse_device_info(request) -> str:
     Output is HTML-escaped and truncated to 255 characters (DB field limit)
     at this input boundary.
     """
-    ua = request.META.get("HTTP_USER_AGENT", "")
-    # Truncate extremely long UA strings before parsing to avoid regex DoS.
-    ua = ua[:1024]
+    # Truncate extremely long UA strings immediately to avoid keeping
+    # potentially multi-MB strings in memory before parsing.
+    ua = request.META.get("HTTP_USER_AGENT", "")[:1024]
     ip = parse_ip_address(request)
 
     # Extract browser name
@@ -210,7 +210,7 @@ def bot_login_status(request, token):
     Error responses:
         - 429: Rate limit exceeded (AUTH_STATUS_RATE_LIMIT, default 30/m).
 
-    Includes random 50-200ms jitter to mask timing side-channels.
+    Includes random 10-50ms jitter to mask timing side-channels.
 
     Example::
 

@@ -288,9 +288,9 @@ class WebLoginService:
         from django.core.cache import cache
         from django.db import OperationalError
 
-        # Random jitter (100-500ms) masks residual timing differences
+        # Random jitter (10-50ms) masks residual timing differences
         # between DB hit vs miss, cache hit vs miss, etc.
-        await asyncio.sleep(_secure_random.uniform(0.1, 0.5))
+        await asyncio.sleep(_secure_random.uniform(0.01, 0.05))
 
         # Always perform both lookups to ensure constant-time work.
         # Do NOT short-circuit — both must execute every time.
@@ -317,20 +317,21 @@ class WebLoginService:
 
         # Now use the results — logic is the same, but all lookups
         # have already been performed regardless of which path we take.
-        # Return Status enum values consistently; Django's TextChoices
-        # serialise to their string value automatically in JsonResponse.
+        # Return string status values consistently for JSON serialization.
+        # Django's TextChoices members must be converted to their .value
+        # (string) for JSON responses.
         if not login_request:
             if cache_failed:
                 return "error"
             if cache_pending:
-                return WebLoginRequest.Status.PENDING
+                return "pending"
             return "expired"
 
         # Check expiry
         if datetime.now(timezone.utc) > login_request.expires_at:
             return "expired"
 
-        return login_request.status
+        return str(login_request.status)
 
     async def complete_login(self, token: str):
         """Complete the login after confirmation.

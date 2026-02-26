@@ -32,4 +32,13 @@ def check_xff_trust_configuration(app_configs, **kwargs):
             )
             logger.warning("SECURITY: %s", msg)
             errors.append(Warning(msg, id="web.W001"))
+        if not settings.DEBUG:
+            msg = (
+                "TRUST_X_FORWARDED_FOR=True in a production environment "
+                "(DEBUG=False). Ensure Django is behind a trusted reverse proxy "
+                "(nginx, Caddy, etc.) that overwrites the X-Forwarded-For "
+                "header. Without this, clients can spoof their IP address."
+            )
+            logger.warning("SECURITY: %s", msg)
+            errors.append(Warning(msg, id="web.W002"))
     return errors

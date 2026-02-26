@@ -144,6 +144,47 @@ describe("Login.vue", () => {
     expect(wrapper.text()).toContain("Server error");
   });
 
+  // --- Expired state transition ---
+
+  it("transitions to expired state after timeout", async () => {
+    vi.useFakeTimers();
+    wrapper = createWrapper();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          token: "tok_expire",
+          expires_at: new Date(Date.now() + 300000).toISOString(),
+          message: "ok",
+        }),
+    });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    // Should be in waiting state now
+    expect(wrapper.text()).toContain("Check your Telegram");
+
+    // Mock status poll to keep returning "pending"
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ status: "pending" }),
+    });
+
+    // Advance past the 5-minute LOGIN_EXPIRY_MS timeout
+    vi.advanceTimersByTime(300_000);
+    await flushPromises();
+
+    // Should now show the expired state
+    expect(wrapper.text()).toContain("Request expired");
+    expect(wrapper.text()).toContain("timed out");
+
+    vi.useRealTimers();
+  });
+
   // --- Multiple rapid clicks (debouncing) ---
 
   it("ignores rapid duplicate submits while submitting is true", async () => {

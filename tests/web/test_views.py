@@ -743,7 +743,7 @@ class TestAuth:
 
         mock_sleep.assert_called_once()
         jitter = mock_sleep.call_args[0][0]
-        assert 0.1 <= jitter <= 0.5
+        assert 0.01 <= jitter <= 0.05
 
     def test_cache_ttl_derived_from_expires_at(self):
         """Cache timeout is derived from expires_at, not a separate constant."""

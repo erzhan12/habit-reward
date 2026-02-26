@@ -186,7 +186,7 @@ DEFAULT_USER_TELEGRAM_ID=your_telegram_id_here
 | `WEB_LOGIN_EXPIRY_MINUTES` | `5` | How long users have to confirm a login request in Telegram. |
 | `AUTH_RATE_LIMIT` | `10/m` | Rate limit for login request and complete endpoints (per IP). |
 | `AUTH_STATUS_RATE_LIMIT` | `30/m` | Rate limit for status polling endpoint (per IP). |
-| `TRUST_X_FORWARDED_FOR` | `False` | Trust X-Forwarded-For header for client IP. **Only enable behind a trusted reverse proxy** (nginx/Caddy) that overwrites this header. When exposed directly to the internet, clients can spoof their IP. |
+| `TRUST_X_FORWARDED_FOR` | `False` | Trust X-Forwarded-For header for client IP. **Only enable behind a trusted reverse proxy** (nginx/Caddy) that overwrites this header. When exposed directly to the internet, clients can spoof their IP. **WARNING:** In production (`DEBUG=False`), enabling this without a reverse proxy is a security risk — attackers can forge their IP to bypass rate limiting and IP-based access controls. |
 | `CONN_MAX_AGE` | `600` | Database connection reuse timeout in seconds (reduces overhead in thread pool workers). |
 
 ### Scheduled Tasks
@@ -283,7 +283,7 @@ The web interface uses a bot-based Confirm/Deny login — no passwords.
 
 **Security properties:**
 - **Anti-enumeration**: Known and unknown usernames produce identical responses and timing (background work is deferred to a thread pool).
-- **Timing jitter**: Status polling adds 100-500ms random jitter from `secrets.SystemRandom()`.
+- **Timing jitter**: Status polling adds 10-50ms random jitter from `secrets.SystemRandom()`.
 - **Replay prevention**: Confirmed tokens are atomically marked `used` via `UPDATE … WHERE status='confirmed'`.
 - **Rate limiting**: All endpoints are rate-limited per IP (`AUTH_RATE_LIMIT`, `AUTH_STATUS_RATE_LIMIT`).
 - **CSP nonce**: Production responses include a per-request CSP nonce for `style-src`.
