@@ -187,6 +187,10 @@ async function pollStatus() {
     } else if (data.status === "expired" || data.status === "not_found") {
       stopPolling();
       state.value = "expired";
+    } else if (data.status === "used") {
+      // Login completed in another tab — session already exists
+      stopPolling();
+      router.visit("/");
     }
     // 'pending' — keep polling
   } catch {

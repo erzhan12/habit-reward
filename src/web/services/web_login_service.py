@@ -116,11 +116,17 @@ class WebLoginService:
         """Check the status of a login request.
 
         Returns:
-            One of: 'pending', 'confirmed', 'denied', 'expired', 'not_found'
+            One of: 'pending', 'confirmed', 'denied', 'expired', 'used'
         """
         login_request = await maybe_await(self.request_repo.get_by_token(token))
         if not login_request:
-            return "not_found"
+            # Check if this is a fake token from anti-enumeration logic.
+            # Cached → return 'pending' (indistinguishable from real).
+            # Not cached → return 'expired' (cache TTL mirrors DB expiry).
+            from django.core.cache import cache
+            if cache.get(f"wl_fake:{token}"):
+                return "pending"
+            return "expired"
 
         # Check expiry
         if datetime.now(timezone.utc) > login_request.expires_at:

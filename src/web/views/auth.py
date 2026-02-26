@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 
 from django.contrib.auth import login, logout
 from django.conf import settings
+from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
@@ -83,6 +84,9 @@ def bot_login_request(request):
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({"error": "Invalid request body"}, status=400)
 
+    if not isinstance(data, dict):
+        return JsonResponse({"error": "Invalid request body"}, status=400)
+
     username = data.get("username", "").strip()
     if not username:
         return JsonResponse({"error": "Username is required"}, status=400)
@@ -105,6 +109,8 @@ def bot_login_request(request):
         # identically for known and unknown users (anti-enumeration).
         fake_token = secrets.token_urlsafe(32)
         fake_expires = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+        # Cache fake token so status endpoint returns 'pending' until expiry
+        cache.set(f"wl_fake:{fake_token}", True, timeout=300)
         return JsonResponse({
             "message": "If this username is registered, a login confirmation has been sent.",
             "token": fake_token,
@@ -140,6 +146,9 @@ def bot_login_complete(request):
     try:
         data = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid request body"}, status=400)
+
+    if not isinstance(data, dict):
         return JsonResponse({"error": "Invalid request body"}, status=400)
 
     token = data.get("token", "").strip()

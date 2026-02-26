@@ -11,6 +11,15 @@ from src.core.models import User
 pytestmark = pytest.mark.django_db
 
 
+def _call_async_mock(return_value):
+    """Side effect for call_async mock that properly closes unawaited coroutines."""
+    def _impl(coro):
+        if hasattr(coro, 'close'):
+            coro.close()
+        return return_value
+    return _impl
+
+
 @pytest.fixture
 def user():
     """Create a test user."""
@@ -509,7 +518,7 @@ class TestAuth:
         )
         assert response.status_code == 400
 
-    @patch("src.web.views.auth.call_async", return_value=None)
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock(None))
     def test_bot_login_request_unknown_user(self, mock_async):
         """Unknown username returns 200 with generic message (anti-enumeration)."""
         response = Client().post(
@@ -524,10 +533,9 @@ class TestAuth:
         assert data["sent"] is False
         assert "If this username is registered" in data["message"]
 
-    @patch("src.web.views.auth.call_async")
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock({"token": "test_token_123", "expires_at": "2026-01-01T00:00:00+00:00"}))
     def test_bot_login_request_success(self, mock_async, user):
         """Valid username returns token, expires_at, sent=True, and generic message."""
-        mock_async.return_value = {"token": "test_token_123", "expires_at": "2026-01-01T00:00:00+00:00"}
         response = Client().post(
             "/auth/bot-login/request/",
             data={"username": "testuser"},
@@ -540,49 +548,48 @@ class TestAuth:
         assert data["sent"] is True
         assert "If this username is registered" in data["message"]
 
-    @patch("src.web.views.auth.call_async", return_value="pending")
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("pending"))
     def test_bot_login_status_pending(self, mock_async):
         """Status endpoint returns pending."""
         response = Client().get("/auth/bot-login/status/some_token/")
         assert response.status_code == 200
         assert response.json()["status"] == "pending"
 
-    @patch("src.web.views.auth.call_async", return_value="confirmed")
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("confirmed"))
     def test_bot_login_status_confirmed(self, mock_async):
         """Status endpoint returns confirmed."""
         response = Client().get("/auth/bot-login/status/some_token/")
         assert response.status_code == 200
         assert response.json()["status"] == "confirmed"
 
-    @patch("src.web.views.auth.call_async", return_value="denied")
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("denied"))
     def test_bot_login_status_denied(self, mock_async):
         """Status endpoint returns denied."""
         response = Client().get("/auth/bot-login/status/some_token/")
         assert response.status_code == 200
         assert response.json()["status"] == "denied"
 
-    @patch("src.web.views.auth.call_async", return_value="expired")
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("expired"))
     def test_bot_login_status_expired(self, mock_async):
         """Status endpoint returns expired."""
         response = Client().get("/auth/bot-login/status/some_token/")
         assert response.status_code == 200
         assert response.json()["status"] == "expired"
 
-    @patch("src.web.views.auth.call_async")
-    def test_bot_login_complete_success(self, mock_async, user):
+    def test_bot_login_complete_success(self, user):
         """Confirmed login creates Django session."""
-        mock_async.return_value = user
-        client = Client()
-        response = client.post(
-            "/auth/bot-login/complete/",
-            data={"token": "confirmed_token"},
-            content_type="application/json",
-        )
-        assert response.status_code == 200
-        assert response.json() == {"success": True, "redirect": "/"}
-        assert str(user.pk) == client.session["_auth_user_id"]
+        with patch("src.web.views.auth.call_async", side_effect=_call_async_mock(user)):
+            client = Client()
+            response = client.post(
+                "/auth/bot-login/complete/",
+                data={"token": "confirmed_token"},
+                content_type="application/json",
+            )
+            assert response.status_code == 200
+            assert response.json() == {"success": True, "redirect": "/"}
+            assert str(user.pk) == client.session["_auth_user_id"]
 
-    @patch("src.web.views.auth.call_async", return_value=None)
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock(None))
     def test_bot_login_complete_fails_for_invalid_token(self, mock_async):
         """Invalid/expired token returns 403."""
         response = Client().post(
@@ -599,6 +606,39 @@ class TestAuth:
             content_type="application/json",
         )
         assert response.status_code == 400
+
+    def test_bot_login_request_rejects_array_body(self):
+        """POST with JSON array (not object) returns 400, not 500."""
+        response = Client().post(
+            "/auth/bot-login/request/",
+            data=json.dumps(["not", "an", "object"]),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_bot_login_complete_rejects_array_body(self):
+        """POST with JSON array (not object) returns 400, not 500."""
+        response = Client().post(
+            "/auth/bot-login/complete/",
+            data=json.dumps([1, 2, 3]),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock(None))
+    def test_fake_token_cached_for_status_polling(self, mock_async):
+        """Fake token from unknown user is cached so status returns 'pending'."""
+        from django.core.cache import cache
+
+        cache.clear()
+        response = Client().post(
+            "/auth/bot-login/request/",
+            data={"username": "unknownuser"},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        fake_token = response.json()["token"]
+        assert cache.get(f"wl_fake:{fake_token}") is True
 
     def test_rate_limited_view(self):
         """Rate limit handler returns 429 with JSON error."""
