@@ -1,5 +1,6 @@
 """Authentication views for bot-based Confirm/Deny login."""
 
+import ipaddress
 import json
 import logging
 import re
@@ -27,12 +28,28 @@ def login_page(request):
     return inertia_render(request, "Login")
 
 
+def _parse_ip_address(request) -> str:
+    """Extract and validate the client IP from the request.
+
+    Takes the leftmost IP from X-Forwarded-For (the original client IP when
+    behind a proxy) and validates it with ipaddress.ip_address().  Falls back
+    to REMOTE_ADDR if the header is missing or contains a malformed value.
+    """
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded:
+        candidate = forwarded.split(",")[0].strip()
+        try:
+            ipaddress.ip_address(candidate)
+            return candidate
+        except ValueError:
+            pass
+    return request.META.get("REMOTE_ADDR", "unknown")
+
+
 def _parse_device_info(request) -> str:
     """Extract a human-readable device description from the request."""
     ua = request.META.get("HTTP_USER_AGENT", "")
-    ip = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
-    if not ip:
-        ip = request.META.get("REMOTE_ADDR", "unknown")
+    ip = _parse_ip_address(request)
 
     # Extract browser name
     browser = "Unknown browser"
@@ -103,6 +120,10 @@ def bot_login_request(request):
         web_login_service.create_login_request(username, device_info)
     )
 
+    # SECURITY: Always return 200 with a generic message and the token.
+    # The service returns {token, expires_at} for BOTH known and unknown
+    # users — no branching here prevents username enumeration via response
+    # body or status code differences.
     result["message"] = "If this username is registered, a login confirmation has been sent."
     return JsonResponse(result)
 

@@ -605,6 +605,7 @@ class WebLoginRequest(models.Model):
             models.Index(fields=['token']),
             models.Index(fields=['user', 'status']),
             models.Index(fields=['expires_at']),
+            models.Index(fields=['token', 'status'], name='web_login_r_token_status_idx'),
         ]
         ordering = ['-created_at']
 

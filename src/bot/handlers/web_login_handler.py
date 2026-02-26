@@ -9,10 +9,14 @@ from telegram.ext import CallbackQueryHandler, ContextTypes
 
 from src.core.repositories import web_login_request_repository
 from src.utils.async_compat import maybe_await
+from src.web.services.web_login_service import WL_CONFIRM_PREFIX, WL_DENY_PREFIX
 
 logger = logging.getLogger(__name__)
 
-WEB_LOGIN_PATTERN = re.compile(r"^wl_(c|d)_(.+)$")
+# Derive pattern from shared constants so button creation and matching stay in sync.
+_c = re.escape(WL_CONFIRM_PREFIX)
+_d = re.escape(WL_DENY_PREFIX)
+WEB_LOGIN_PATTERN = re.compile(rf"^(?:{_c}|{_d})(.+)$")
 
 
 async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -24,8 +28,8 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not match:
         return
 
-    action = match.group(1)  # 'c' or 'd'
-    token = match.group(2)
+    action = 'c' if query.data.startswith(WL_CONFIRM_PREFIX) else 'd'
+    token = match.group(1)
 
     # Get the login request
     login_request = await maybe_await(

@@ -1,10 +1,12 @@
 """Web login service for bot-based Confirm/Deny authentication."""
 
 import asyncio
+import atexit
 import html
 import logging
+import random
 import secrets
-import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 
 from django.conf import settings
@@ -16,6 +18,14 @@ from src.utils.async_compat import maybe_await
 logger = logging.getLogger(__name__)
 
 LOGIN_REQUEST_EXPIRY_MINUTES = 5
+WL_CONFIRM_PREFIX = "wl_c_"
+WL_DENY_PREFIX = "wl_d_"
+
+# Bounded thread pool for background login processing (DB writes + Telegram send).
+# Caps concurrent threads to prevent resource exhaustion under load; excess
+# submissions queue up instead of spawning unbounded threads.
+_login_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="web_login")
+atexit.register(_login_executor.shutdown, wait=False)
 
 
 class WebLoginService:
@@ -46,20 +56,26 @@ class WebLoginService:
 
         user = await maybe_await(self.user_repo.get_by_telegram_username(username))
 
-        # Generate token and cache it immediately — identical work for both paths
+        # Generate token and cache it immediately — identical work for both paths.
+        # Derive cache timeout from the same expires_at timestamp so both
+        # cache eviction and DB expiry use a single source of truth.
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
-        cache.set(f"wl_pending:{token}", True, timeout=LOGIN_REQUEST_EXPIRY_MINUTES * 60)
+        cache_ttl = int((expires_at - datetime.now(timezone.utc)).total_seconds())
+        cache.set(f"wl_pending:{token}", True, timeout=cache_ttl)
 
         if user and user.telegram_id:
-            # All DB writes + Telegram send happen in a background thread
+            # All DB writes + Telegram send happen in the bounded thread pool
             # so the HTTP response time is constant for both paths.
-            threading.Thread(
-                target=self._process_login_background,
-                args=(user, token, expires_at, device_info),
-                daemon=True,
-            ).start()
+            _login_executor.submit(
+                self._process_login_background, user, token, expires_at, device_info
+            )
         else:
+            # SECURITY: We deliberately do nothing visible here — no error, no
+            # different response.  Returning the same {token, expires_at} for
+            # unknown users prevents an attacker from enumerating valid
+            # usernames by observing response body, timing, or status polling
+            # differences.  The cache-only token expires silently after TTL.
             if not user:
                 logger.warning("Web login request for unknown username: @%s", username)
             else:
@@ -122,8 +138,8 @@ class WebLoginService:
 
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✅ Confirm", callback_data=f"wl_c_{token}"),
-                InlineKeyboardButton("❌ Deny", callback_data=f"wl_d_{token}"),
+                InlineKeyboardButton("✅ Confirm", callback_data=f"{WL_CONFIRM_PREFIX}{token}"),
+                InlineKeyboardButton("❌ Deny", callback_data=f"{WL_DENY_PREFIX}{token}"),
             ]
         ])
 
@@ -147,12 +163,22 @@ class WebLoginService:
     async def check_status(self, token: str) -> str:
         """Check the status of a login request.
 
+        Constant-time: always performs both DB query and cache lookup so
+        that response timing is identical regardless of user existence.
+        A small random jitter masks any residual timing variation.
+
         Returns:
             One of: 'pending', 'confirmed', 'denied', 'expired', 'used'
         """
         from django.core.cache import cache
         from django.db import OperationalError
 
+        # Random jitter (50-200ms) masks residual timing differences
+        # between DB hit vs miss, cache hit vs miss, etc.
+        await asyncio.sleep(random.uniform(0.05, 0.2))
+
+        # Always perform both lookups to ensure constant-time work.
+        # Do NOT short-circuit — both must execute every time.
         try:
             login_request = await maybe_await(self.request_repo.get_by_token(token))
         except OperationalError:
@@ -166,12 +192,12 @@ class WebLoginService:
             )
             login_request = None
 
+        cache_pending = cache.get(f"wl_pending:{token}")
+
+        # Now use the results — logic is the same, but both lookups
+        # have already been performed regardless of which path we take.
         if not login_request:
-            # Token not yet in DB — either unknown user, background thread
-            # hasn't created the record yet, or DB was locked.  Cache check
-            # returns 'pending' while TTL is active, then 'expired' once
-            # cache evicts.
-            if cache.get(f"wl_pending:{token}"):
+            if cache_pending:
                 return "pending"
             return "expired"
 

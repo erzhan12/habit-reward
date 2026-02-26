@@ -1,6 +1,7 @@
 """Tests for web interface views."""
 
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -669,7 +670,8 @@ class TestAuth:
         token = result["token"]
         assert cache.get(f"wl_pending:{token}") is True
 
-    def test_check_status_falls_back_to_cache_on_db_lock(self):
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_check_status_falls_back_to_cache_on_db_lock(self, mock_sleep):
         """check_status returns 'pending' (not 500) when SQLite DB is locked."""
         from django.core.cache import cache
         from django.db import OperationalError
@@ -688,6 +690,80 @@ class TestAuth:
             status = call_async(svc.check_status(token))
 
         assert status == "pending"
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_check_status_always_performs_both_lookups(self, mock_sleep):
+        """Both DB query and cache lookup execute regardless of DB result.
+
+        Prevents timing side-channel where DB-hit path skips cache lookup.
+        """
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+        token = "both_lookup_token"
+
+        # Simulate a confirmed DB record (known-user path)
+        db_record = MagicMock()
+        db_record.status = "confirmed"
+        db_record.expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        cache.set(f"wl_pending:{token}", True, timeout=300)
+
+        with (
+            patch.object(svc.request_repo, "get_by_token", return_value=db_record) as mock_db,
+            patch.object(cache, "get", wraps=cache.get) as mock_cache_get,
+        ):
+            status = call_async(svc.check_status(token))
+
+        assert status == "confirmed"
+        # DB query must have been called
+        mock_db.assert_called_once_with(token)
+        # Cache lookup must ALSO have been called (constant-time: no short-circuit)
+        mock_cache_get.assert_called_once_with(f"wl_pending:{token}")
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_check_status_applies_jitter(self, mock_sleep):
+        """check_status calls asyncio.sleep with a random jitter value."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+        token = "jitter_test_token"
+        cache.set(f"wl_pending:{token}", True, timeout=300)
+
+        with patch.object(svc.request_repo, "get_by_token", return_value=None):
+            call_async(svc.check_status(token))
+
+        mock_sleep.assert_called_once()
+        jitter = mock_sleep.call_args[0][0]
+        assert 0.05 <= jitter <= 0.2
+
+    def test_cache_ttl_derived_from_expires_at(self):
+        """Cache timeout is derived from expires_at, not a separate constant."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        svc = WebLoginService()
+
+        with (
+            patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
+            patch.object(cache, "set", wraps=cache.set) as mock_set,
+        ):
+            result = call_async(svc.create_login_request("unknownuser"))
+
+        token = result["token"]
+        mock_set.assert_called_once()
+        call_args = mock_set.call_args
+        assert call_args[0][0] == f"wl_pending:{token}"
+        # timeout should be close to 300s but derived from expires_at
+        timeout = call_args[1].get("timeout") or call_args[0][2]
+        assert 295 <= timeout <= 300
 
     def test_rate_limited_view(self):
         """Rate limit handler returns 429 with JSON error."""
@@ -736,6 +812,394 @@ class TestAuth:
         )
         assert response.status_code == 429
         assert response.json()["error"] == "Too many requests. Please wait a moment and try again."
+
+
+# ---- Race condition / atomicity tests ----
+
+
+class TestLoginRaceConditions:
+    """Integration tests for atomic operations and concurrent access patterns.
+
+    These hit the real DB to verify that the atomic UPDATE ... WHERE guards
+    in the repository layer behave correctly under contention.
+    """
+
+    @pytest.fixture
+    def login_user(self):
+        """Create a user for login race condition tests."""
+        return User.objects.create_user(
+            username="tg_888888888",
+            telegram_id="888888888",
+            name="Race User",
+            language="en",
+            timezone="UTC",
+        )
+
+    @pytest.fixture
+    def pending_request(self, login_user):
+        """Create a pending WebLoginRequest in the DB."""
+        from src.core.models import WebLoginRequest
+
+        return WebLoginRequest.objects.create(
+            user=login_user,
+            token="race_test_token_aaa",
+            status="pending",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+    @pytest.fixture
+    def confirmed_request(self, login_user):
+        """Create a confirmed WebLoginRequest in the DB."""
+        from src.core.models import WebLoginRequest
+
+        return WebLoginRequest.objects.create(
+            user=login_user,
+            token="race_test_token_bbb",
+            status="confirmed",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+    def test_update_status_atomic_only_first_call_succeeds(self, pending_request):
+        """update_status uses UPDATE WHERE status='pending' — the second call
+        must return 0 because the status is no longer 'pending'."""
+        from src.core.repositories import WebLoginRequestRepository
+        from src.web.utils.sync import call_async
+
+        repo = WebLoginRequestRepository()
+        token = pending_request.token
+
+        first = call_async(repo.update_status(token, "confirmed"))
+        second = call_async(repo.update_status(token, "confirmed"))
+
+        assert first == 1
+        assert second == 0
+
+        pending_request.refresh_from_db()
+        assert pending_request.status == "confirmed"
+
+    def test_mark_as_used_atomic_only_first_call_succeeds(self, confirmed_request):
+        """mark_as_used uses UPDATE WHERE status='confirmed' — the second call
+        must return 0 because the status is now 'used'."""
+        from src.core.repositories import WebLoginRequestRepository
+        from src.web.utils.sync import call_async
+
+        repo = WebLoginRequestRepository()
+        token = confirmed_request.token
+
+        first = call_async(repo.mark_as_used(token))
+        second = call_async(repo.mark_as_used(token))
+
+        assert first == 1
+        assert second == 0
+
+        confirmed_request.refresh_from_db()
+        assert confirmed_request.status == "used"
+
+    def test_complete_login_replay_returns_none(self, confirmed_request):
+        """Calling complete_login twice with the same token: first returns User,
+        second returns None (token already marked as used)."""
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        svc = WebLoginService()
+        token = confirmed_request.token
+
+        first = call_async(svc.complete_login(token))
+        second = call_async(svc.complete_login(token))
+
+        assert first is not None
+        assert second is None
+
+        confirmed_request.refresh_from_db()
+        assert confirmed_request.status == "used"
+
+    def test_new_login_request_invalidates_previous(self, login_user):
+        """Creating a second login request for the same user sets the first to 'denied'."""
+        from src.core.models import WebLoginRequest
+        from src.core.repositories import WebLoginRequestRepository
+        from src.web.utils.sync import call_async
+
+        repo = WebLoginRequestRepository()
+
+        first = call_async(repo.create(
+            user_id=login_user.id,
+            token="first_token_111",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        ))
+        assert first.status == "pending"
+
+        # Invalidate + create second (mimics _process_login_request)
+        call_async(repo.invalidate_pending_for_user(login_user.id))
+        call_async(repo.create(
+            user_id=login_user.id,
+            token="second_token_222",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        ))
+
+        first.refresh_from_db()
+        assert first.status == "denied"
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_status_returns_pending_before_db_write(self, mock_sleep):
+        """check_status returns 'pending' via cache even when no DB record exists yet
+        (simulates the window between cache.set and background thread DB write)."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+        token = "no_db_yet_token"
+
+        # Token is in cache but NOT in DB (background thread hasn't run)
+        cache.set(f"wl_pending:{token}", True, timeout=300)
+
+        with patch.object(svc.request_repo, "get_by_token", return_value=None):
+            status = call_async(svc.check_status(token))
+
+        assert status == "pending"
+
+    def test_mark_as_used_rejects_pending_token(self, pending_request):
+        """mark_as_used only works on confirmed tokens, not pending ones."""
+        from src.core.repositories import WebLoginRequestRepository
+        from src.web.utils.sync import call_async
+
+        repo = WebLoginRequestRepository()
+        updated = call_async(repo.mark_as_used(pending_request.token))
+        assert updated == 0
+
+        pending_request.refresh_from_db()
+        assert pending_request.status == "pending"
+
+    def test_update_status_rejects_confirmed_token(self, confirmed_request):
+        """update_status only works on pending tokens, not confirmed ones."""
+        from src.core.repositories import WebLoginRequestRepository
+        from src.web.utils.sync import call_async
+
+        repo = WebLoginRequestRepository()
+        updated = call_async(repo.update_status(confirmed_request.token, "denied"))
+        assert updated == 0
+
+        confirmed_request.refresh_from_db()
+        assert confirmed_request.status == "confirmed"
+
+
+# ---- Background thread failure tests ----
+
+
+class TestBackgroundProcessingFailures:
+    """Tests for graceful degradation when background thread processing fails.
+
+    The background thread handles DB writes + Telegram send.  When it fails,
+    the user should still see 'pending' (from cache) until the token expires.
+    """
+
+    def test_telegram_api_failure_logs_error_and_cache_stays_valid(self):
+        """If Telegram send_message raises, the error is logged but the
+        cache entry remains so check_status returns 'pending'."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+
+        mock_user = MagicMock()
+        mock_user.id = 1
+        mock_user.telegram_id = "999999999"
+
+        token = "tg_fail_token_aaa"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        cache.set(f"wl_pending:{token}", True, timeout=300)
+
+        with (
+            patch.object(svc.request_repo, "invalidate_pending_for_user", new_callable=AsyncMock),
+            patch.object(svc.request_repo, "create", new_callable=AsyncMock) as mock_create,
+            patch.object(svc, "_send_login_notification", new_callable=AsyncMock,
+                         side_effect=Exception("Telegram API unavailable")),
+        ):
+            mock_create.return_value = MagicMock(id=42)
+
+            # _process_login_background catches all exceptions
+            svc._process_login_background(mock_user, token, expires_at, None)
+
+        # Cache entry survives the background failure
+        assert cache.get(f"wl_pending:{token}") is True
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_status_pending_after_telegram_failure(self, mock_sleep):
+        """check_status returns 'pending' via cache even when background
+        thread failed and no DB record was created."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+        token = "tg_fail_status_token"
+        cache.set(f"wl_pending:{token}", True, timeout=300)
+
+        # No DB record exists (background thread failed before DB write)
+        with patch.object(svc.request_repo, "get_by_token", return_value=None):
+            status = call_async(svc.check_status(token))
+
+        assert status == "pending"
+
+    def test_db_failure_in_background_thread_is_caught(self):
+        """If DB create() raises in the background thread, the exception
+        is caught and logged — no crash, cache still valid."""
+        from django.core.cache import cache
+        from django.db import OperationalError
+        from src.web.services.web_login_service import WebLoginService
+
+        cache.clear()
+        svc = WebLoginService()
+
+        mock_user = MagicMock()
+        mock_user.id = 2
+        mock_user.telegram_id = "888888888"
+
+        token = "db_fail_token_bbb"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        cache.set(f"wl_pending:{token}", True, timeout=300)
+
+        with (
+            patch.object(svc.request_repo, "invalidate_pending_for_user", new_callable=AsyncMock),
+            patch.object(svc.request_repo, "create", new_callable=AsyncMock,
+                         side_effect=OperationalError("connection lost")),
+        ):
+            # Should not raise — exception caught in _process_login_background
+            svc._process_login_background(mock_user, token, expires_at, None)
+
+        assert cache.get(f"wl_pending:{token}") is True
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_cache_expiry_transitions_to_expired_after_failure(self, mock_sleep):
+        """After background failure + cache TTL expiry, check_status
+        returns 'expired' (not 'pending' forever)."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+        token = "expired_after_fail_token"
+
+        # Cache entry already evicted (TTL passed)
+        # No DB record (background thread failed)
+        with patch.object(svc.request_repo, "get_by_token", return_value=None):
+            status = call_async(svc.check_status(token))
+
+        assert status == "expired"
+
+    def test_background_failure_error_is_logged(self):
+        """_process_login_background logs the error with user ID."""
+        from src.web.services.web_login_service import WebLoginService
+
+        svc = WebLoginService()
+
+        mock_user = MagicMock()
+        mock_user.id = 99
+
+        with (
+            patch.object(svc.request_repo, "invalidate_pending_for_user", new_callable=AsyncMock,
+                         side_effect=Exception("boom")),
+            patch("src.web.services.web_login_service.logger") as mock_logger,
+        ):
+            svc._process_login_background(
+                mock_user, "log_test_token", datetime.now(timezone.utc), None
+            )
+
+        mock_logger.error.assert_called_once()
+        log_msg = mock_logger.error.call_args[0][0]
+        assert "Background login processing failed" in log_msg
+
+    def test_create_login_request_returns_token_even_if_thread_will_fail(self):
+        """create_login_request always returns {token, expires_at} regardless
+        of what happens in the background thread."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService, _login_executor
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+
+        mock_user = MagicMock()
+        mock_user.telegram_id = "777777777"
+
+        with (
+            patch.object(svc.user_repo, "get_by_telegram_username", return_value=mock_user),
+            patch.object(_login_executor, "submit") as mock_submit,
+        ):
+            result = call_async(svc.create_login_request("testuser"))
+
+        assert "token" in result
+        assert "expires_at" in result
+        # Executor was called (whether it succeeds or not is irrelevant here)
+        mock_submit.assert_called_once()
+
+
+# ---- IP address validation tests ----
+
+
+class TestIPAddressParsing:
+    """Tests for _parse_ip_address validation and fallback."""
+
+    def test_valid_ipv4_from_forwarded_for(self):
+        from src.web.views.auth import _parse_ip_address
+
+        request = MagicMock()
+        request.META = {"HTTP_X_FORWARDED_FOR": "203.0.113.50, 70.41.3.18", "REMOTE_ADDR": "127.0.0.1"}
+        assert _parse_ip_address(request) == "203.0.113.50"
+
+    def test_valid_ipv6_from_forwarded_for(self):
+        from src.web.views.auth import _parse_ip_address
+
+        request = MagicMock()
+        request.META = {"HTTP_X_FORWARDED_FOR": "2001:db8::1", "REMOTE_ADDR": "127.0.0.1"}
+        assert _parse_ip_address(request) == "2001:db8::1"
+
+    def test_malformed_ip_falls_back_to_remote_addr(self):
+        from src.web.views.auth import _parse_ip_address
+
+        request = MagicMock()
+        request.META = {"HTTP_X_FORWARDED_FOR": "<script>alert(1)</script>", "REMOTE_ADDR": "10.0.0.1"}
+        assert _parse_ip_address(request) == "10.0.0.1"
+
+    def test_empty_forwarded_for_falls_back_to_remote_addr(self):
+        from src.web.views.auth import _parse_ip_address
+
+        request = MagicMock()
+        request.META = {"HTTP_X_FORWARDED_FOR": "", "REMOTE_ADDR": "192.168.1.1"}
+        assert _parse_ip_address(request) == "192.168.1.1"
+
+    def test_missing_forwarded_for_falls_back_to_remote_addr(self):
+        from src.web.views.auth import _parse_ip_address
+
+        request = MagicMock()
+        request.META = {"REMOTE_ADDR": "172.16.0.1"}
+        assert _parse_ip_address(request) == "172.16.0.1"
+
+    def test_missing_both_headers_returns_unknown(self):
+        from src.web.views.auth import _parse_ip_address
+
+        request = MagicMock()
+        request.META = {}
+        assert _parse_ip_address(request) == "unknown"
+
+    def test_device_info_uses_validated_ip(self):
+        """_parse_device_info delegates to _parse_ip_address for the IP."""
+        from src.web.views.auth import _parse_device_info
+
+        request = MagicMock()
+        request.META = {
+            "HTTP_USER_AGENT": "Mozilla/5.0 Chrome/120.0",
+            "HTTP_X_FORWARDED_FOR": "not-an-ip",
+            "REMOTE_ADDR": "10.0.0.5",
+        }
+        info = _parse_device_info(request)
+        assert "10.0.0.5" in info
+        assert "not-an-ip" not in info
 
 
 # ---- Prop structure tests (Inertia JSON mode) ----

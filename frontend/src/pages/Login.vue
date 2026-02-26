@@ -96,13 +96,23 @@ import { router } from "@inertiajs/vue3";
 // No Layout wrapper for login page
 defineOptions({ layout: null });
 
+// Polling constants — must stay in sync with server's LOGIN_REQUEST_EXPIRY_MINUTES (5 min)
+const POLL_INITIAL_DELAY_MS = 2000; // First poll after 2s
+const POLL_BACKOFF_STEP_MS = 1000; // Add 1s per poll
+const POLL_MAX_DELAY_MS = 5000; // Cap at 5s between polls
+const LOGIN_EXPIRY_MS = 300_000; // 5 minutes — matches server expiry
+
+// Must match backend regex in auth.py: ^[a-zA-Z0-9_]{3,32}$
+const TELEGRAM_USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
+
 const username = ref("");
 const state = ref("idle"); // idle | waiting | denied | expired | error
 const error = ref(null);
 const submitting = ref(false);
 const loginToken = ref(null);
-let pollInterval = null;
-let pollTimeout = null;
+let pollTimer = null;
+let expiryTimer = null;
+let pollDelay = 0;
 
 function getCsrfToken() {
   const meta = document.querySelector('meta[name="csrf-token"]');
@@ -115,6 +125,13 @@ function getCsrfToken() {
 async function submitLogin() {
   if (!username.value.trim() || submitting.value) return;
 
+  const cleaned = username.value.trim().replace(/^@/, "");
+  if (!TELEGRAM_USERNAME_RE.test(cleaned)) {
+    error.value = "Invalid Telegram username (3-32 characters, letters/numbers/underscores)";
+    state.value = "error";
+    return;
+  }
+
   submitting.value = true;
   error.value = null;
 
@@ -125,12 +142,24 @@ async function submitLogin() {
         "Content-Type": "application/json",
         "X-CSRFToken": getCsrfToken(),
       },
-      body: JSON.stringify({
-        username: username.value.trim().replace(/^@/, ""),
-      }),
+      body: JSON.stringify({ username: cleaned }),
     });
 
+    if (response.status === 429) {
+      error.value = "Too many attempts. Please wait a moment and try again.";
+      state.value = "error";
+      submitting.value = false;
+      return;
+    }
+
     const data = await response.json();
+
+    if (response.status >= 500) {
+      error.value = "Server error. Please try again later.";
+      state.value = "error";
+      submitting.value = false;
+      return;
+    }
 
     if (!response.ok) {
       error.value = data.error || "Request failed";
@@ -143,7 +172,7 @@ async function submitLogin() {
     state.value = "waiting";
     submitting.value = false;
     startPolling();
-  } catch (e) {
+  } catch {
     error.value = "Network error. Please try again.";
     state.value = "error";
     submitting.value = false;
@@ -152,22 +181,34 @@ async function submitLogin() {
 
 function startPolling() {
   stopPolling();
-  pollInterval = setInterval(pollStatus, 3000);
-  // Auto-expire after 5.5 minutes (slightly beyond server's 5min expiry)
-  pollTimeout = setTimeout(() => {
+  pollDelay = POLL_INITIAL_DELAY_MS;
+
+  function schedulePoll() {
+    pollTimer = setTimeout(async () => {
+      await pollStatus();
+      if (state.value === "waiting") {
+        pollDelay = Math.min(pollDelay + POLL_BACKOFF_STEP_MS, POLL_MAX_DELAY_MS);
+        schedulePoll();
+      }
+    }, pollDelay);
+  }
+
+  schedulePoll();
+
+  expiryTimer = setTimeout(() => {
     stopPolling();
     state.value = "expired";
-  }, 330_000);
+  }, LOGIN_EXPIRY_MS);
 }
 
 function stopPolling() {
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
+  if (pollTimer) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
   }
-  if (pollTimeout) {
-    clearTimeout(pollTimeout);
-    pollTimeout = null;
+  if (expiryTimer) {
+    clearTimeout(expiryTimer);
+    expiryTimer = null;
   }
 }
 
@@ -194,7 +235,8 @@ async function pollStatus() {
     }
     // 'pending' — keep polling
   } catch {
-    // Network error during poll — keep trying
+    // Network error during poll — back off to max delay before retrying
+    pollDelay = POLL_MAX_DELAY_MS;
   }
 }
 
@@ -209,10 +251,19 @@ async function completeLogin() {
       body: JSON.stringify({ token: loginToken.value }),
     });
 
+    if (response.status === 429) {
+      error.value = "Too many attempts. Please wait a moment and try again.";
+      state.value = "error";
+      return;
+    }
+
     const data = await response.json();
 
     if (response.ok && data.success) {
       router.visit(data.redirect || "/");
+    } else if (response.status >= 500) {
+      error.value = "Server error. Please try again later.";
+      state.value = "error";
     } else {
       error.value = data.error || "Login failed";
       state.value = "error";
