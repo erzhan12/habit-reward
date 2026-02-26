@@ -68,6 +68,7 @@ class User(AbstractUser):
         max_length=32,
         null=True,
         blank=True,
+        unique=True,
         db_index=True,
         help_text="Telegram @username (lowercase, without @)"
     )
@@ -559,6 +560,7 @@ class WebLoginRequest(models.Model):
         PENDING = 'pending', 'Pending'
         CONFIRMED = 'confirmed', 'Confirmed'
         DENIED = 'denied', 'Denied'
+        USED = 'used', 'Used'
 
     user = models.ForeignKey(
         User,

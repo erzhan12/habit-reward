@@ -3,6 +3,8 @@
 import json
 import logging
 import re
+import secrets
+from datetime import datetime, timezone, timedelta
 
 from django.contrib.auth import login, logout
 from django.conf import settings
@@ -66,13 +68,15 @@ def _parse_device_info(request) -> str:
 
 
 @require_POST
-@ratelimit(key="ip", rate="5/m", method="POST", block=True)
+@ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True)
 def bot_login_request(request):
     """Handle login request: user submits their @username.
 
     POST /auth/bot-login/request/
     Body: {"username": "johndoe"}
-    Returns: {"token": "...", "expires_at": "..."}
+    Returns: {"token": "...", "expires_at": "...", "sent": true}
+
+    Always returns 200 with a generic message to prevent username enumeration.
     """
     try:
         data = json.loads(request.body)
@@ -97,14 +101,23 @@ def bot_login_request(request):
     )
 
     if not result:
-        return JsonResponse(
-            {"error": "No account found for this username. Use the Telegram bot first to register."},
-            status=404,
-        )
+        # Return a fake token/expiry so frontend transitions to polling
+        # identically for known and unknown users (anti-enumeration).
+        fake_token = secrets.token_urlsafe(32)
+        fake_expires = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+        return JsonResponse({
+            "message": "If this username is registered, a login confirmation has been sent.",
+            "token": fake_token,
+            "expires_at": fake_expires,
+            "sent": False,
+        })
 
+    result["message"] = "If this username is registered, a login confirmation has been sent."
+    result["sent"] = True
     return JsonResponse(result)
 
 
+@ratelimit(key="ip", rate="30/m", method="GET", block=True)
 def bot_login_status(request, token):
     """Check login request status.
 
@@ -116,6 +129,7 @@ def bot_login_status(request, token):
 
 
 @require_POST
+@ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True)
 def bot_login_complete(request):
     """Complete login after confirmation.
 

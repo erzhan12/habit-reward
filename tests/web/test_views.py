@@ -511,18 +511,22 @@ class TestAuth:
 
     @patch("src.web.views.auth.call_async", return_value=None)
     def test_bot_login_request_unknown_user(self, mock_async):
-        """Unknown username returns 404."""
+        """Unknown username returns 200 with generic message (anti-enumeration)."""
         response = Client().post(
             "/auth/bot-login/request/",
             data={"username": "nonexistentuser"},
             content_type="application/json",
         )
-        assert response.status_code == 404
-        assert "No account found" in response.json()["error"]
+        assert response.status_code == 200
+        data = response.json()
+        assert "token" in data
+        assert "expires_at" in data
+        assert data["sent"] is False
+        assert "If this username is registered" in data["message"]
 
     @patch("src.web.views.auth.call_async")
     def test_bot_login_request_success(self, mock_async, user):
-        """Valid username returns token and expires_at."""
+        """Valid username returns token, expires_at, sent=True, and generic message."""
         mock_async.return_value = {"token": "test_token_123", "expires_at": "2026-01-01T00:00:00+00:00"}
         response = Client().post(
             "/auth/bot-login/request/",
@@ -533,6 +537,8 @@ class TestAuth:
         data = response.json()
         assert "token" in data
         assert "expires_at" in data
+        assert data["sent"] is True
+        assert "If this username is registered" in data["message"]
 
     @patch("src.web.views.auth.call_async", return_value="pending")
     def test_bot_login_status_pending(self, mock_async):
@@ -613,7 +619,10 @@ class TestAuth:
         assert "/auth/login/" in response.url
 
     def test_bot_login_rate_limit_http_level(self):
-        """Sending 6 requests from the same IP triggers the 5/m rate limit and returns 429 JSON."""
+        """Sending requests over the limit triggers rate limiting and returns 429 JSON.
+
+        Uses settings.AUTH_RATE_LIMIT (default 10/m).
+        """
         from django.core.cache import cache
 
         cache.clear()
@@ -621,7 +630,8 @@ class TestAuth:
         payload = json.dumps({"username": "nonexistent_user_test"})
         client = Client()
 
-        for _ in range(5):
+        # Send requests up to the limit (default 10/m)
+        for _ in range(10):
             client.post(
                 "/auth/bot-login/request/",
                 data=payload,

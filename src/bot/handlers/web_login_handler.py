@@ -2,6 +2,7 @@
 
 import logging
 import re
+from datetime import datetime, timezone
 
 from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
@@ -11,7 +12,7 @@ from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
 
-WEB_LOGIN_PATTERN = re.compile(r"^web_login_(confirm|deny)_(.+)$")
+WEB_LOGIN_PATTERN = re.compile(r"^wl_(c|d)_(.+)$")
 
 
 async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -23,7 +24,7 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not match:
         return
 
-    action = match.group(1)  # 'confirm' or 'deny'
+    action = match.group(1)  # 'c' or 'd'
     token = match.group(2)
 
     # Get the login request
@@ -44,13 +45,18 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
+    # Check expiry before processing
+    if datetime.now(timezone.utc) > login_request.expires_at:
+        await query.edit_message_text("⚠️ This login request has expired.")
+        return
+
     # Check if already handled
     if login_request.status != 'pending':
         status_text = "confirmed" if login_request.status == 'confirmed' else "denied"
         await query.edit_message_text(f"This login request was already {status_text}.")
         return
 
-    if action == 'confirm':
+    if action == 'c':
         updated = await maybe_await(
             web_login_request_repository.update_status(token, 'confirmed')
         )

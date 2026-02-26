@@ -102,6 +102,7 @@ const error = ref(null);
 const submitting = ref(false);
 const loginToken = ref(null);
 let pollInterval = null;
+let pollTimeout = null;
 
 function getCsrfToken() {
   const meta = document.querySelector('meta[name="csrf-token"]');
@@ -152,12 +153,21 @@ async function submitLogin() {
 function startPolling() {
   stopPolling();
   pollInterval = setInterval(pollStatus, 3000);
+  // Auto-expire after 5.5 minutes (slightly beyond server's 5min expiry)
+  pollTimeout = setTimeout(() => {
+    stopPolling();
+    state.value = "expired";
+  }, 330_000);
 }
 
 function stopPolling() {
   if (pollInterval) {
     clearInterval(pollInterval);
     pollInterval = null;
+  }
+  if (pollTimeout) {
+    clearTimeout(pollTimeout);
+    pollTimeout = null;
   }
 }
 

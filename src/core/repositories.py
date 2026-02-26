@@ -1291,6 +1291,16 @@ class WebLoginRequestRepository:
             WebLoginRequest.objects.filter(token=token, status='pending').update
         )(status=status)
 
+    async def mark_as_used(self, token: str) -> int:
+        """Atomically mark a confirmed request as used.
+
+        Returns:
+            Number of rows updated (0 or 1). 0 means another request beat us.
+        """
+        return await sync_to_async(
+            WebLoginRequest.objects.filter(token=token, status='confirmed').update
+        )(status='used')
+
     async def update_telegram_message_id(
         self, request_id: int | str, telegram_message_id: int
     ) -> None:

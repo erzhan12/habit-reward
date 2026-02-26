@@ -1,5 +1,6 @@
 """Web login service for bot-based Confirm/Deny authentication."""
 
+import html
 import logging
 import secrets
 from datetime import datetime, timezone, timedelta
@@ -65,7 +66,7 @@ class WebLoginService:
         # Send Telegram message with Confirm/Deny buttons
         try:
             bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
-            device_text = device_info or "Unknown device"
+            device_text = html.escape(device_info or "Unknown device")
             message_text = (
                 f"🔐 <b>Web Login Request</b>\n\n"
                 f"Someone is trying to log in to your account:\n"
@@ -75,8 +76,8 @@ class WebLoginService:
 
             keyboard = InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("✅ Confirm", callback_data=f"web_login_confirm_{token}"),
-                    InlineKeyboardButton("❌ Deny", callback_data=f"web_login_deny_{token}"),
+                    InlineKeyboardButton("✅ Confirm", callback_data=f"wl_c_{token}"),
+                    InlineKeyboardButton("❌ Deny", callback_data=f"wl_d_{token}"),
                 ]
             ])
 
@@ -103,8 +104,7 @@ class WebLoginService:
 
         except Exception as e:
             logger.error("Failed to send Telegram login message: %s", e)
-            # Still return the token - user can retry
-            # But mark the request as failed
+            # Failed to send — return None so view returns generic message
             return None
 
         return {
@@ -154,6 +154,12 @@ class WebLoginService:
         # Must not be expired
         if datetime.now(timezone.utc) > login_request.expires_at:
             logger.warning("Complete login attempt with expired token: %s...", token[:8])
+            return None
+
+        # Atomically mark as used to prevent token replay
+        updated = await maybe_await(self.request_repo.mark_as_used(token))
+        if not updated:
+            logger.warning("Token replay attempt — already used: %s...", token[:8])
             return None
 
         logger.info("Web login completed for user %s", login_request.user_id)
