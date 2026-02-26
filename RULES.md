@@ -1175,6 +1175,20 @@ WebLoginRequest.objects.filter(status=WebLoginRequest.Status.PENDING.value)
 
 When logging IP addresses (e.g., rate limiting), use `_anonymize_ip()` from `src/web/views/auth.py` to hash IPs for GDPR compliance. Never log raw IP addresses in production.
 
+## Web Login Service: Error Handling Patterns
+
+- **Cache writes**: Use `_safe_cache_set(key, value, timeout)` from `web_login_service.py` — never raw `cache.set()` with manual try/except.
+- **telegram_id**: Always validate with `try: int(user.telegram_id)` before passing to Telegram API — non-numeric values cause `ValueError`.
+- **ThreadPoolExecutor.submit()**: Wrap in try/except RuntimeError to release the semaphore if the executor is shut down.
+- **Timing jitter**: Always apply uniformly to ALL status check paths — selective jitter is itself a timing side-channel.
+
+## Validation Pattern Sync
+
+The Telegram username regex exists in two places that MUST stay in sync:
+- **Backend**: `src/web/utils/validation.py` → `TELEGRAM_USERNAME_PATTERN`
+- **Frontend**: `frontend/src/pages/Login.vue` → `TELEGRAM_USERNAME_RE`
+- **Test**: `tests/web/test_views.py::TestValidationPatternSync` asserts they match
+
 ## HabitLog Ordering: Use `last_completed_date`, NOT `timestamp`
 
 **CRITICAL**: When querying for the "most recent" habit log, always order by `last_completed_date DESC`, never by `timestamp DESC`.

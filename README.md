@@ -187,6 +187,15 @@ DEFAULT_USER_TELEGRAM_ID=your_telegram_id_here
 | `AUTH_RATE_LIMIT` | `10/m` | Rate limit for login request and complete endpoints (per IP). |
 | `AUTH_STATUS_RATE_LIMIT` | `30/m` | Rate limit for status polling endpoint (per IP). |
 | `TRUST_X_FORWARDED_FOR` | `False` | Trust X-Forwarded-For header for client IP. **Only enable behind a trusted reverse proxy** (nginx/Caddy) that overwrites this header. When exposed directly to the internet, clients can spoof their IP. **WARNING:** In production (`DEBUG=False`), enabling this without a reverse proxy is a security risk — attackers can forge their IP to bypass rate limiting and IP-based access controls. |
+
+#### Security Design
+
+The bot login flow implements several security properties:
+
+- **Anti-enumeration**: Unknown usernames receive the same response as known ones (same token, same timing) to prevent attackers from discovering valid usernames.
+- **Timing resistance**: All status checks include 50-200ms random jitter from a CSPRNG to mask timing differences between cache hits, DB lookups, and different code paths.
+- **Atomic replay prevention**: Tokens are marked as "used" atomically via SQL UPDATE with a WHERE clause, preventing race conditions where the same token could be used twice.
+- **Rate limiting**: All endpoints are rate-limited per IP address to prevent brute force attacks and abuse.
 | `CONN_MAX_AGE` | `600` | Database connection reuse timeout in seconds (reduces overhead in thread pool workers). |
 | `WEB_LOGIN_JITTER_MIN` | `0.05` | Minimum timing jitter (seconds) added to status polling responses. |
 | `WEB_LOGIN_JITTER_MAX` | `0.2` | Maximum timing jitter (seconds) added to status polling responses. |
@@ -333,7 +342,12 @@ Key metrics to track for the web login flow:
 
 **Too many 429 (rate limit) errors:**
 - Increase `AUTH_RATE_LIMIT` (default `10/m`) for login requests, or `AUTH_STATUS_RATE_LIMIT` (default `30/m`) for status polling.
-- If behind a reverse proxy, ensure `TRUST_X_FORWARDED_FOR=True` so rate limiting uses real client IPs instead of the proxy IP.
+- If behind a reverse proxy, ensure `TRUST_X_FORWARDED_FOR=True` AND set `SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https")` in settings. Example nginx config:
+  ```nginx
+  proxy_set_header X-Forwarded-For $remote_addr;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  ```
+  Without this, rate limiting will see all requests coming from the proxy IP instead of real client IPs, making rate limits ineffective.
 
 ## Ethical Considerations
 

@@ -3,7 +3,7 @@
 import logging
 
 from django.conf import settings
-from django.core.checks import Warning, register
+from django.core.checks import Error, Warning, register
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def check_xff_trust_configuration(app_configs, **kwargs):
                 "TRUST_X_FORWARDED_FOR."
             )
             logger.warning("SECURITY: %s", msg)
-            errors.append(Warning(msg, id="web.W001"))
+            errors.append(Error(msg, id="web.E001"))
         if not settings.DEBUG:
             msg = (
                 "TRUST_X_FORWARDED_FOR=True in a production environment "
@@ -40,5 +40,5 @@ def check_xff_trust_configuration(app_configs, **kwargs):
                 "header. Without this, clients can spoof their IP address."
             )
             logger.warning("SECURITY: %s", msg)
-            errors.append(Warning(msg, id="web.W002"))
+            errors.append(Error(msg, id="web.E002"))
     return errors

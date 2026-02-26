@@ -49,6 +49,9 @@ _JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
 # WEB_LOGIN_MAX_QUEUED (default 50) before returning HTTP 503.  If you
 # observe frequent 503s, increase these values or investigate slow Telegram
 # API responses / DB writes.
+# IMPORTANT: SQLite doesn't handle concurrent writes well. Under high load,
+# you may see "database is locked" errors. For production with significant
+# traffic, use PostgreSQL instead of SQLite.
 _login_executor = ThreadPoolExecutor(max_workers=settings.WEB_LOGIN_THREAD_POOL_SIZE, thread_name_prefix="web_login")
 atexit.register(_login_executor.shutdown, wait=True)
 
@@ -328,6 +331,7 @@ class WebLoginService:
 
         # Always perform both lookups to ensure constant-time work.
         # Do NOT short-circuit — both must execute every time.
+        db_unavailable = False
         try:
             login_request = await maybe_await(self.request_repo.get_by_token(token))
         except OperationalError:
@@ -340,6 +344,7 @@ class WebLoginService:
                 token[:8],
             )
             login_request = None
+            db_unavailable = True
 
         try:
             cache_keys = cache.get_many([f"wl_pending:{token}", f"wl_failed:{token}"])
@@ -359,6 +364,8 @@ class WebLoginService:
                 return "error"
             if cache_pending:
                 return "pending"
+            if db_unavailable and not cache_keys:  # DB is down, no cache data
+                return "error"
             return "expired"
 
         # Check expiry

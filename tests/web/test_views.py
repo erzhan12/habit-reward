@@ -1930,6 +1930,35 @@ class TestDeviceInfoEdgeCases:
         info = _parse_device_info(request)
         assert "<img" not in info
 
+    def test_device_info_handles_malicious_user_agent(self):
+        """Malicious User-Agent with CRLF and control chars is sanitized."""
+        from src.web.views.auth import _parse_device_info
+
+        request = MagicMock()
+        request.META = {
+            "HTTP_USER_AGENT": "Mozilla\r\n\x00<script>alert(1)</script>",
+            "REMOTE_ADDR": "10.0.0.1",
+        }
+        info = _parse_device_info(request)
+        # Should not contain CRLF or null bytes
+        assert "\r" not in info
+        assert "\n" not in info
+        assert "\x00" not in info
+
+    def test_device_info_truncates_extremely_long_user_agent(self):
+        """User-Agent longer than 1024 chars is truncated before parsing."""
+        from src.web.views.auth import _parse_device_info
+
+        request = MagicMock()
+        request.META = {
+            "HTTP_USER_AGENT": "A" * 10000,  # 10KB of data
+            "REMOTE_ADDR": "10.0.0.1",
+        }
+        info = _parse_device_info(request)
+        # Should complete without memory issues and produce valid output
+        assert len(info) <= 255
+        assert "unknown" in info.lower()  # Should fail to parse
+
 
 # ---- Cache backend failure tests ----
 

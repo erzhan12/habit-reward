@@ -48,6 +48,11 @@ from src.web.utils.validation import TELEGRAM_USERNAME_PATTERN
 
 logger = logging.getLogger(__name__)
 
+# Maximum length for User-Agent string before parsing (prevent memory issues)
+MAX_USER_AGENT_LENGTH = 1024
+# Maximum device_info length (DB field constraint)
+MAX_DEVICE_INFO_LENGTH = 255
+
 # Re-export for backward compatibility with existing tests.
 _parse_ip_address = parse_ip_address
 
@@ -70,7 +75,8 @@ def _parse_device_info(request) -> str:
     """
     # Truncate extremely long UA strings immediately to avoid keeping
     # potentially multi-MB strings in memory before parsing.
-    ua = request.META.get("HTTP_USER_AGENT", "")[:1024]
+    ua = request.META.get("HTTP_USER_AGENT", "")[:MAX_USER_AGENT_LENGTH]
+    ua = ''.join(c for c in ua if c.isprintable() or c.isspace())
     ip = parse_ip_address(request)
 
     # Extract browser name
@@ -113,7 +119,7 @@ def _parse_device_info(request) -> str:
     raw = f"{browser} on {os_name}, IP: {ip}"
     if not raw or raw.isspace():
         raw = "Unknown device"
-    return raw[:255]
+    return raw[:MAX_DEVICE_INFO_LENGTH]
 
 
 @require_POST
