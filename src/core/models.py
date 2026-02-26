@@ -1,5 +1,7 @@
 """Django ORM models for habit reward system."""
 
+import re
+
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
@@ -101,7 +103,9 @@ class User(AbstractUser):
 
         # Normalize telegram_username: lowercase, strip @
         if self.telegram_username:
-            self.telegram_username = self.telegram_username.lstrip('@').lower()
+            self.telegram_username = re.sub(
+                r'[^a-z0-9_]', '', self.telegram_username.lstrip('@').lower()
+            )
 
         # Set unusable password for Telegram-only users if no password set
         if not self.password:

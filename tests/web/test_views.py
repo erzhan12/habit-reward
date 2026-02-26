@@ -692,39 +692,29 @@ class TestAuth:
         assert status == "pending"
 
     @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
-    def test_check_status_always_performs_both_lookups(self, mock_sleep):
-        """Both DB query and cache lookup execute regardless of DB result.
-
-        Prevents timing side-channel where DB-hit path skips cache lookup.
-        """
+    def test_check_status_uses_cache_and_skips_db_when_cache_hit(self, mock_sleep):
+        """Status check should avoid DB reads when cache already has state."""
         from django.core.cache import cache
         from src.web.services.web_login_service import WebLoginService
         from src.web.utils.sync import call_async
 
         cache.clear()
         svc = WebLoginService()
-        token = "both_lookup_token"
-
-        # Simulate a confirmed DB record (known-user path)
-        db_record = MagicMock()
-        db_record.status = "confirmed"
-        db_record.expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        token = "cache_hit_token"
 
         cache.set(f"wl_pending:{token}", True, timeout=300)
 
         with (
-            patch.object(svc.request_repo, "get_by_token", return_value=db_record) as mock_db,
-            patch.object(cache, "get", wraps=cache.get) as mock_cache_get,
+            patch.object(svc.request_repo, "get_by_token") as mock_db,
+            patch.object(cache, "get_many", wraps=cache.get_many) as mock_cache_get_many,
         ):
             status = call_async(svc.check_status(token))
 
-        assert status == "confirmed"
-        # DB query must have been called
-        mock_db.assert_called_once_with(token)
-        # Cache lookups must ALSO have been called (constant-time: no short-circuit)
-        cache_get_calls = [c.args[0] for c in mock_cache_get.call_args_list]
-        assert f"wl_pending:{token}" in cache_get_calls
-        assert f"wl_failed:{token}" in cache_get_calls
+        assert status == "pending"
+        mock_cache_get_many.assert_called_once_with(
+            [f"wl_pending:{token}", f"wl_failed:{token}"]
+        )
+        mock_db.assert_not_called()
 
     @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
     def test_check_status_applies_jitter(self, mock_sleep):
@@ -2044,6 +2034,34 @@ class TestCacheBackendFailure:
         assert "token" in result
         assert "expires_at" in result
 
+    def test_create_login_request_raises_after_three_cache_write_failures(self):
+        """Three consecutive cache write failures should raise service unavailable."""
+        from django.core.cache import cache
+        import src.web.services.web_login_service as svc_mod
+        from src.web.services.web_login_service import LoginServiceUnavailable, WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+        with svc_mod._cache_failure_lock:
+            svc_mod._cache_failure_count = 0
+
+        try:
+            with patch.object(svc.user_repo, "get_by_telegram_username", return_value=None), \
+                 patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis down")):
+                first = call_async(svc.create_login_request("cachefail1"))
+                second = call_async(svc.create_login_request("cachefail2"))
+                assert "token" in first
+                assert "token" in second
+
+                with pytest.raises(
+                    LoginServiceUnavailable, match="Login service temporarily unavailable"
+                ):
+                    call_async(svc.create_login_request("cachefail3"))
+        finally:
+            with svc_mod._cache_failure_lock:
+                svc_mod._cache_failure_count = 0
+
     def test_background_processing_logs_cache_failure(self):
         """_process_login_background logs a warning when cache.set fails
         during error recovery (wl_failed key)."""
@@ -2290,6 +2308,45 @@ class TestTokenCollisionRetry:
         with patch.object(WebLoginRequest.objects, "create", side_effect=IntegrityError("dup")), \
              pytest.raises(DatabaseError, match="Failed to generate unique token"):
             call_async(svc._process_login_request(user, "exhaust_tok", expires_at, None))
+
+
+class TestConcurrentTokenGeneration:
+    """Verify token generation remains safe under concurrent requests."""
+
+    def test_concurrent_create_login_request_tokens_are_unique(self):
+        import threading
+
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+        token_count = 20
+        tokens = []
+        errors = []
+        result_lock = threading.Lock()
+
+        def _worker():
+            try:
+                result = call_async(svc.create_login_request("parallel_user"))
+                with result_lock:
+                    tokens.append(result["token"])
+            except Exception as exc:
+                with result_lock:
+                    errors.append(exc)
+
+        with patch.object(svc.user_repo, "get_by_telegram_username", return_value=None):
+            threads = [threading.Thread(target=_worker) for _ in range(token_count)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=5)
+
+        assert all(not thread.is_alive() for thread in threads)
+        assert not errors
+        assert len(tokens) == token_count
+        assert len(set(tokens)) == token_count
 
 
 class TestConcurrentStatusChecks:

@@ -188,6 +188,12 @@ DEFAULT_USER_TELEGRAM_ID=your_telegram_id_here
 | `AUTH_STATUS_RATE_LIMIT` | `30/m` | Rate limit for status polling endpoint (per IP). |
 | `TRUST_X_FORWARDED_FOR` | `False` | Trust X-Forwarded-For header for client IP. **Only enable behind a trusted reverse proxy** (nginx/Caddy) that overwrites this header. When exposed directly to the internet, clients can spoof their IP. **WARNING:** In production (`DEBUG=False`), enabling this without a reverse proxy is a security risk — attackers can forge their IP to bypass rate limiting and IP-based access controls. |
 
+#### Bot Login Endpoint Rate Limits
+
+- `POST /auth/bot-login/request/` uses `AUTH_RATE_LIMIT` (default `10/m`).
+- `POST /auth/bot-login/complete/` uses `AUTH_RATE_LIMIT` (default `10/m`).
+- `GET /auth/bot-login/status/<token>/` uses `AUTH_STATUS_RATE_LIMIT` (default `30/m`).
+
 #### Security Design
 
 The bot login flow implements several security properties:

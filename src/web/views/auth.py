@@ -75,9 +75,10 @@ def _parse_device_info(request) -> str:
     Output is truncated to 255 characters (DB field limit) at this input
     boundary.  No IP address is included (GDPR).
     """
-    # Truncate extremely long UA strings immediately to avoid keeping
-    # potentially multi-MB strings in memory before parsing.
-    ua = request.META.get("HTTP_USER_AGENT", "")[:MAX_USER_AGENT_LENGTH]
+    # Truncate before filtering/parsing so downstream processing is always
+    # bounded by MAX_USER_AGENT_LENGTH.
+    ua = request.META.get("HTTP_USER_AGENT", "")
+    ua = ua[:MAX_USER_AGENT_LENGTH]
     ua = ''.join(c for c in ua if c.isprintable() or c.isspace())
 
     ua_parsed = parse_ua(ua)

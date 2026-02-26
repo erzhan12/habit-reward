@@ -1271,6 +1271,13 @@ class APIKeyRepository:
 class WebLoginRequestRepository:
     """Repository for bot-based web login requests."""
 
+    @staticmethod
+    def _clear_login_cache_keys(token: str) -> None:
+        """Clear cache keys tied to a login token after terminal DB transitions."""
+        from django.core.cache import cache
+
+        cache.delete_many([f"wl_pending:{token}", f"wl_failed:{token}"])
+
     async def create(
         self,
         user_id: int | str,
@@ -1302,9 +1309,12 @@ class WebLoginRequestRepository:
         Returns:
             Number of rows updated (0 or 1)
         """
-        return await sync_to_async(
+        updated = await sync_to_async(
             WebLoginRequest.objects.filter(token=token, status=WebLoginRequest.Status.PENDING.value).update
         )(status=status)
+        if updated:
+            await sync_to_async(self._clear_login_cache_keys)(token)
+        return updated
 
     async def mark_as_used(self, token: str) -> int:
         """Atomically mark a confirmed request as used.
@@ -1312,9 +1322,12 @@ class WebLoginRequestRepository:
         Returns:
             Number of rows updated (0 or 1). 0 means another request beat us.
         """
-        return await sync_to_async(
+        updated = await sync_to_async(
             WebLoginRequest.objects.filter(token=token, status=WebLoginRequest.Status.CONFIRMED.value).update
         )(status=WebLoginRequest.Status.USED.value)
+        if updated:
+            await sync_to_async(self._clear_login_cache_keys)(token)
+        return updated
 
     async def update_telegram_message_id(
         self, request_id: int | str, telegram_message_id: int

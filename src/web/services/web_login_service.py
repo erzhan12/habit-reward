@@ -51,7 +51,8 @@ _JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
 # API responses / DB writes.
 # IMPORTANT: SQLite doesn't handle concurrent writes well. Under high load,
 # you may see "database is locked" errors. For production with significant
-# traffic, use PostgreSQL instead of SQLite.
+# traffic, use PostgreSQL instead of SQLite. Also tune CONN_MAX_AGE so the
+# DB connection pool can keep up with WEB_LOGIN_THREAD_POOL_SIZE workers.
 _login_executor = ThreadPoolExecutor(max_workers=settings.WEB_LOGIN_THREAD_POOL_SIZE, thread_name_prefix="web_login")
 atexit.register(_login_executor.shutdown, wait=True)
 
@@ -74,6 +75,7 @@ class CacheWriteError(Exception):
 
 # Consecutive cache write failure counter.
 _cache_failure_count = 0
+_cache_failure_lock = threading.Lock()
 _CACHE_FAILURE_THRESHOLD = 3
 
 
@@ -89,16 +91,19 @@ def _safe_cache_set(key: str, value, timeout: int) -> None:
 
     try:
         cache.set(key, value, timeout=timeout)
-        _cache_failure_count = 0
+        with _cache_failure_lock:
+            _cache_failure_count = 0
     except Exception:
-        _cache_failure_count += 1
+        with _cache_failure_lock:
+            _cache_failure_count += 1
+            failure_count = _cache_failure_count
         logger.warning(
             "Cache write failed for %s (consecutive failures: %d)",
-            key[:20], _cache_failure_count,
+            key[:20], failure_count,
         )
-        if _cache_failure_count >= _CACHE_FAILURE_THRESHOLD:
+        if failure_count >= _CACHE_FAILURE_THRESHOLD:
             raise CacheWriteError(
-                f"Cache writes have failed {_cache_failure_count} times consecutively "
+                f"Cache writes have failed {failure_count} times consecutively "
                 "— check cache backend configuration"
             )
 
@@ -127,8 +132,6 @@ class WebLoginService:
         Returns:
             Dict with {token, expires_at} — always returned for both paths.
         """
-        from django.core.cache import cache
-
         user = await maybe_await(self.user_repo.get_by_telegram_username(username))
 
         # Generate a cryptographically random token.  Instead of the old
@@ -143,7 +146,14 @@ class WebLoginService:
         # Cache backend failure is non-fatal — the login flow can still
         # proceed via DB-only path (check_status will find the DB record
         # once the background thread writes it).
-        _safe_cache_set(f"wl_pending:{token}", True, cache_ttl)
+        try:
+            _safe_cache_set(f"wl_pending:{token}", True, cache_ttl)
+        except CacheWriteError as exc:
+            logger.critical(
+                "Cache backend unhealthy during login request creation",
+                extra={"username": username},
+            )
+            raise LoginServiceUnavailable("Login service temporarily unavailable") from exc
 
         if user and user.telegram_id:
             # Circuit breaker: reject if the background queue is saturated.
@@ -160,8 +170,11 @@ class WebLoginService:
             # All DB writes + Telegram send happen in the bounded thread pool
             # so the HTTP response time is constant for both paths.
             try:
-                _login_executor.submit(
+                future = _login_executor.submit(
                     self._process_login_background, user, token, expires_at, device_info
+                )
+                future.add_done_callback(
+                    lambda f: _queue_slots.release() if f.cancelled() else None
                 )
             except RuntimeError:
                 # Executor is shut down (e.g. during server shutdown).
@@ -204,6 +217,20 @@ class WebLoginService:
             cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
             _safe_cache_set(f"wl_failed:{token}", True, cache_ttl)
 
+        def _mark_failed_safely():
+            """Best-effort cache write; failures are logged but non-fatal here."""
+            try:
+                _mark_failed()
+            except CacheWriteError as cache_error:
+                logger.error(
+                    "Failed to write wl_failed marker to cache",
+                    extra={
+                        "user_id": user.id,
+                        "token_prefix": token[:8],
+                        "error": str(cache_error),
+                    },
+                )
+
         try:
             call_async(self._process_login_request(user, token, expires_at, device_info))
         except (InvalidToken, Forbidden) as e:
@@ -213,7 +240,7 @@ class WebLoginService:
                 "Permanent Telegram error during login processing — check bot config",
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
-            _mark_failed()
+            _mark_failed_safely()
         except TelegramError as e:
             # Temporary Telegram errors (network, rate limit, etc.) —
             # may resolve on next attempt.
@@ -221,19 +248,19 @@ class WebLoginService:
                 "Temporary Telegram error during login processing",
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
-            _mark_failed()
+            _mark_failed_safely()
         except DatabaseError as e:
             logger.error(
                 "Database error during login processing",
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
-            _mark_failed()
+            _mark_failed_safely()
         except Exception as e:
             logger.error(
                 "Unexpected error during login processing",
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
-            _mark_failed()
+            _mark_failed_safely()
         finally:
             _queue_slots.release()
 
@@ -261,12 +288,17 @@ class WebLoginService:
             except IntegrityError:
                 # Token collision — regenerate and retry.
                 token = secrets.token_urlsafe(TOKEN_BYTES)
+        from django.core.cache import cache
+        cache.delete(f"wl_pending:{token}")
         raise DatabaseError("Failed to generate unique token after retries")
 
     async def _process_login_request(
         self, user, token: str, expires_at, device_info: str | None
     ) -> None:
         """Perform DB writes and send Telegram notification."""
+
+        if not token or not token.strip():
+            raise ValueError("Token cannot be empty")
 
         login_request, token = await sync_to_async(
             self._create_login_request_with_retry
@@ -340,9 +372,9 @@ class WebLoginService:
     async def check_status(self, token: str) -> str:
         """Check the status of a login request.
 
-        Constant-time: always performs both DB query and cache lookup so
-        that response timing is identical regardless of user existence.
-        A small random jitter masks any residual timing variation.
+        Constant-time in cache paths: always performs a single cache.get_many()
+        call, and only falls back to DB when both cache keys are missing.
+        A small random jitter masks residual timing variation.
 
         Returns:
             One of: 'pending', 'confirmed', 'denied', 'expired', 'used', 'error'
@@ -358,42 +390,38 @@ class WebLoginService:
         # becoming a timing side-channel.
         await asyncio.sleep(_secure_random.uniform(_JITTER_MIN, _JITTER_MAX))
 
-        # Always perform both lookups to ensure constant-time work.
-        # Do NOT short-circuit — both must execute every time.
+        pending_key = f"wl_pending:{token}"
+        failed_key = f"wl_failed:{token}"
+        try:
+            cache_keys = cache.get_many([pending_key, failed_key])
+        except Exception:
+            logger.warning("Cache read failed during status check for token=%s…", token[:8])
+            cache_keys = {}
+        cache_pending = cache_keys.get(pending_key)
+        cache_failed = cache_keys.get(failed_key)
+
+        if cache_failed:
+            return "error"
+        if cache_pending:
+            return "pending"
+
+        # Cache is empty; fall back to DB lookup.
         db_unavailable = False
         try:
             login_request = await maybe_await(self.request_repo.get_by_token(token))
         except OperationalError:
-            # SQLite can raise "database table is locked" when the background
-            # thread is writing (invalidate + create).  The cache always holds
-            # the correct fallback because it was set *before* the thread
-            # launched.  Fall through to the cache check.
             logger.warning(
-                "DB lock during status check for token=%s…, falling back to cache",
+                "DB lock during status check for token=%s…, and cache is empty",
                 token[:8],
             )
             login_request = None
             db_unavailable = True
 
-        try:
-            cache_keys = cache.get_many([f"wl_pending:{token}", f"wl_failed:{token}"])
-        except Exception:
-            logger.warning("Cache read failed during status check for token=%s…", token[:8])
-            cache_keys = {}
-        cache_pending = cache_keys.get(f"wl_pending:{token}")
-        cache_failed = cache_keys.get(f"wl_failed:{token}")
-
-        # Now use the results — logic is the same, but all lookups
-        # have already been performed regardless of which path we take.
         # Return string status values consistently for JSON serialization.
         # Django's TextChoices members must be converted to their .value
         # (string) for JSON responses.
         if not login_request:
-            if cache_failed:
-                return "error"
-            if cache_pending:
-                return "pending"
-            if db_unavailable and not cache_keys:  # DB is down, no cache data
+            if db_unavailable:
                 return "error"
             return "expired"
 

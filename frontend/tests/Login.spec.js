@@ -16,14 +16,17 @@ vi.mock("@inertiajs/vue3", () => ({
   router: { visit: vi.fn() },
 }));
 
+import { router } from "@inertiajs/vue3";
 import Login from "../src/pages/Login.vue";
 
-function createWrapper() {
-  // Provide a CSRF meta tag in the DOM.
-  const meta = document.createElement("meta");
-  meta.setAttribute("name", "csrf-token");
-  meta.setAttribute("content", "test-csrf-token");
-  document.head.appendChild(meta);
+function createWrapper({ withCsrf = true } = {}) {
+  if (withCsrf) {
+    // Provide a CSRF meta tag in the DOM.
+    const meta = document.createElement("meta");
+    meta.setAttribute("name", "csrf-token");
+    meta.setAttribute("content", "test-csrf-token");
+    document.head.appendChild(meta);
+  }
 
   return mount(Login, {
     global: {
@@ -110,6 +113,18 @@ describe("Login.vue", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Network error");
+  });
+
+  it("shows a graceful error when CSRF token is missing", async () => {
+    wrapper = createWrapper({ withCsrf: false });
+    global.fetch = vi.fn();
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Security token missing");
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   // --- Error handling ---
@@ -213,5 +228,54 @@ describe("Login.vue", () => {
       json: () => Promise.resolve({ token: "t", expires_at: "2099-01-01", message: "ok" }),
     });
     await flushPromises();
+  });
+
+  it("recovers from polling network error and retries successfully", async () => {
+    vi.useFakeTimers();
+    wrapper = createWrapper();
+    global.fetch = vi
+      .fn()
+      // submitLogin()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            token: "poll_retry_tok",
+            expires_at: "2099-01-01T00:00:00Z",
+            message: "ok",
+          }),
+      })
+      // first pollStatus() call -> network error
+      .mockRejectedValueOnce(new Error("poll timeout"))
+      // second pollStatus() call -> confirmed
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ status: "confirmed" }),
+      })
+      // completeLogin()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true, redirect: "/" }),
+      });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Check your Telegram");
+
+    // First poll after initial 2s delay; it fails and should back off.
+    await vi.advanceTimersByTimeAsync(2000);
+    await flushPromises();
+
+    // Retry at max backoff (30s) should still proceed and complete login.
+    await vi.advanceTimersByTimeAsync(30000);
+    await flushPromises();
+
+    expect(global.fetch).toHaveBeenCalledTimes(4);
+    expect(router.visit).toHaveBeenCalledWith("/");
+    vi.useRealTimers();
   });
 });

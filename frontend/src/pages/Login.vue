@@ -118,10 +118,7 @@ let pollDelay = 0;
 
 function getCsrfToken() {
   const meta = document.querySelector('meta[name="csrf-token"]');
-  if (!meta || !meta.content) {
-    throw new Error("CSRF token missing");
-  }
-  return meta.content;
+  return meta?.content || "";
 }
 
 /**
@@ -142,13 +139,20 @@ async function submitLogin() {
 
   submitting.value = true;
   error.value = null;
+  const csrfToken = getCsrfToken();
+  if (!csrfToken) {
+    error.value = "Security token missing. Refresh the page and try again.";
+    state.value = "error";
+    submitting.value = false;
+    return;
+  }
 
   try {
     const response = await fetch("/auth/bot-login/request/", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-CSRFToken": getCsrfToken(),
+        "X-CSRFToken": csrfToken,
       },
       body: JSON.stringify({ username: cleaned }),
     });
@@ -269,12 +273,19 @@ async function pollStatus() {
  * to "error" state with an appropriate message.
  */
 async function completeLogin() {
+  const csrfToken = getCsrfToken();
+  if (!csrfToken) {
+    error.value = "Security token missing. Refresh the page and try again.";
+    state.value = "error";
+    return;
+  }
+
   try {
     const response = await fetch("/auth/bot-login/complete/", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-CSRFToken": getCsrfToken(),
+        "X-CSRFToken": csrfToken,
       },
       body: JSON.stringify({ token: loginToken.value }),
     });

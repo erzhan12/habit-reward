@@ -123,6 +123,8 @@ DATABASES = {
 # Reuse database connections for 10 minutes instead of closing after each
 # request.  Reduces connection overhead in the ThreadPoolExecutor workers
 # that handle background login processing under high traffic.
+# NOTE: Tune based on thread pool size - with 10 workers, you need at least
+# 10 DB connections available.
 DATABASES['default']['CONN_MAX_AGE'] = env.int('CONN_MAX_AGE', default=600)
 
 

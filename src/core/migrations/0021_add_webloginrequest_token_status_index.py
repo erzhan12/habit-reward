@@ -14,4 +14,8 @@ class Migration(migrations.Migration):
             model_name='webloginrequest',
             index=models.Index(fields=['token', 'status'], name='web_login_r_token_status_idx'),
         ),
+        migrations.AddIndex(
+            model_name='webloginrequest',
+            index=models.Index(fields=['created_at'], name='web_login_r_created_at_idx'),
+        ),
     ]
