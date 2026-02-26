@@ -474,7 +474,7 @@ class TestRewards:
 
 
 class TestAuth:
-    """Auth view tests."""
+    """Auth view tests for bot-based login."""
 
     def test_login_page_renders(self):
         response = Client().get("/auth/login/")
@@ -485,68 +485,124 @@ class TestAuth:
         assert response.status_code == 302
         assert response.url == "/"
 
-    def test_telegram_callback_rejects_invalid_json(self):
+    def test_bot_login_request_rejects_invalid_json(self):
         response = Client().post(
-            "/auth/telegram/callback/",
+            "/auth/bot-login/request/",
             data="not json",
             content_type="application/json",
         )
         assert response.status_code == 400
 
-    def test_telegram_callback_rejects_missing_id(self):
+    def test_bot_login_request_rejects_empty_username(self):
         response = Client().post(
-            "/auth/telegram/callback/",
-            data={"first_name": "Test"},
+            "/auth/bot-login/request/",
+            data={"username": ""},
             content_type="application/json",
         )
         assert response.status_code == 400
 
-    def test_telegram_callback_rejects_invalid_hash(self):
-        """Invalid HMAC hash returns 403."""
+    def test_bot_login_request_rejects_invalid_username(self):
         response = Client().post(
-            "/auth/telegram/callback/",
-            data={"id": "000000000", "auth_date": "1", "hash": "invalid"},
+            "/auth/bot-login/request/",
+            data={"username": "ab"},  # too short
             content_type="application/json",
         )
-        assert response.status_code == 403
+        assert response.status_code == 400
 
     @patch("src.web.views.auth.call_async", return_value=None)
-    @patch("src.web.views.auth.verify_telegram_auth", return_value=True)
-    def test_telegram_callback_nonexistent_user(self, mock_verify, mock_sync, user):
-        """Valid hash but unknown telegram_id returns 404."""
+    def test_bot_login_request_unknown_user(self, mock_async):
+        """Unknown username returns 404."""
         response = Client().post(
-            "/auth/telegram/callback/",
-            data={"id": "000000000", "auth_date": "1", "hash": "fakehash"},
+            "/auth/bot-login/request/",
+            data={"username": "nonexistentuser"},
             content_type="application/json",
         )
-        assert response.status_code == 403
-        assert response.json()["error"] == "Authentication failed. Please try again."
+        assert response.status_code == 404
+        assert "No account found" in response.json()["error"]
 
     @patch("src.web.views.auth.call_async")
-    @patch("src.web.views.auth.verify_telegram_auth", return_value=True)
-    def test_telegram_callback_success(self, mock_verify, mock_sync, user):
-        """Valid hash + existing user logs in and returns success JSON."""
-        mock_sync.return_value = user
+    def test_bot_login_request_success(self, mock_async, user):
+        """Valid username returns token and expires_at."""
+        mock_async.return_value = {"token": "test_token_123", "expires_at": "2026-01-01T00:00:00+00:00"}
+        response = Client().post(
+            "/auth/bot-login/request/",
+            data={"username": "testuser"},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "token" in data
+        assert "expires_at" in data
+
+    @patch("src.web.views.auth.call_async", return_value="pending")
+    def test_bot_login_status_pending(self, mock_async):
+        """Status endpoint returns pending."""
+        response = Client().get("/auth/bot-login/status/some_token/")
+        assert response.status_code == 200
+        assert response.json()["status"] == "pending"
+
+    @patch("src.web.views.auth.call_async", return_value="confirmed")
+    def test_bot_login_status_confirmed(self, mock_async):
+        """Status endpoint returns confirmed."""
+        response = Client().get("/auth/bot-login/status/some_token/")
+        assert response.status_code == 200
+        assert response.json()["status"] == "confirmed"
+
+    @patch("src.web.views.auth.call_async", return_value="denied")
+    def test_bot_login_status_denied(self, mock_async):
+        """Status endpoint returns denied."""
+        response = Client().get("/auth/bot-login/status/some_token/")
+        assert response.status_code == 200
+        assert response.json()["status"] == "denied"
+
+    @patch("src.web.views.auth.call_async", return_value="expired")
+    def test_bot_login_status_expired(self, mock_async):
+        """Status endpoint returns expired."""
+        response = Client().get("/auth/bot-login/status/some_token/")
+        assert response.status_code == 200
+        assert response.json()["status"] == "expired"
+
+    @patch("src.web.views.auth.call_async")
+    def test_bot_login_complete_success(self, mock_async, user):
+        """Confirmed login creates Django session."""
+        mock_async.return_value = user
         client = Client()
         response = client.post(
-            "/auth/telegram/callback/",
-            data={"id": user.telegram_id, "auth_date": "1", "hash": "fakehash"},
+            "/auth/bot-login/complete/",
+            data={"token": "confirmed_token"},
             content_type="application/json",
         )
         assert response.status_code == 200
         assert response.json() == {"success": True, "redirect": "/"}
-        # Verify session was created
         assert str(user.pk) == client.session["_auth_user_id"]
 
-    def test_telegram_callback_rate_limited(self):
-        """Exceeding rate limit returns 429 with JSON error."""
+    @patch("src.web.views.auth.call_async", return_value=None)
+    def test_bot_login_complete_fails_for_invalid_token(self, mock_async):
+        """Invalid/expired token returns 403."""
+        response = Client().post(
+            "/auth/bot-login/complete/",
+            data={"token": "bad_token"},
+            content_type="application/json",
+        )
+        assert response.status_code == 403
+
+    def test_bot_login_complete_rejects_missing_token(self):
+        response = Client().post(
+            "/auth/bot-login/complete/",
+            data={"token": ""},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_rate_limited_view(self):
+        """Rate limit handler returns 429 with JSON error."""
         import json as json_module
 
         from django_ratelimit.exceptions import Ratelimited
 
         from src.web.views.auth import rate_limited_view
 
-        request = type("Request", (), {"META": {"REMOTE_ADDR": "1.2.3.4"}, "path": "/auth/telegram/callback/"})()
+        request = type("Request", (), {"META": {"REMOTE_ADDR": "1.2.3.4"}, "path": "/auth/bot-login/request/"})()
         response = rate_limited_view(request, exception=Ratelimited())
         assert response.status_code == 429
         assert json_module.loads(response.content)["error"] == "Too many requests. Please wait a moment and try again."
@@ -556,30 +612,25 @@ class TestAuth:
         assert response.status_code == 302
         assert "/auth/login/" in response.url
 
-    def test_auth_callback_rate_limit_http_level(self):
-        """Sending 11 requests from the same IP triggers the 10/m rate limit and returns 429 JSON.
-
-        The first 10 requests decrement the rate limit quota (they return 403 for the
-        invalid hash). The 11th request exceeds the limit; Django's handler403 is invoked
-        which returns 429 with a JSON body.
-        """
+    def test_bot_login_rate_limit_http_level(self):
+        """Sending 6 requests from the same IP triggers the 5/m rate limit and returns 429 JSON."""
         from django.core.cache import cache
 
         cache.clear()
 
-        payload = json.dumps({"id": "999888777", "auth_date": "1", "hash": "badhash"})
+        payload = json.dumps({"username": "nonexistent_user_test"})
         client = Client()
 
-        for _ in range(10):
+        for _ in range(5):
             client.post(
-                "/auth/telegram/callback/",
+                "/auth/bot-login/request/",
                 data=payload,
                 content_type="application/json",
                 REMOTE_ADDR="192.0.2.99",
             )
 
         response = client.post(
-            "/auth/telegram/callback/",
+            "/auth/bot-login/request/",
             data=payload,
             content_type="application/json",
             REMOTE_ADDR="192.0.2.99",

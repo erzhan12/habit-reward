@@ -11,7 +11,7 @@ from decimal import Decimal
 from asgiref.sync import sync_to_async
 from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 
-from src.core.models import User, Habit, HabitLog, Reward, RewardProgress, AuthCode, APIKey
+from src.core.models import User, Habit, HabitLog, Reward, RewardProgress, AuthCode, APIKey, WebLoginRequest
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -94,6 +94,35 @@ class UserRepository:
 
         await sync_to_async(User.objects.filter(pk=pk).update)(**updates)
         return await sync_to_async(User.objects.get)(pk=pk)
+
+    async def get_by_telegram_username(self, username: str) -> User | None:
+        """Get user by Telegram username (case-insensitive).
+
+        Args:
+            username: Telegram username (with or without @)
+
+        Returns:
+            User instance or None
+        """
+        normalized = username.lstrip('@').lower()
+        try:
+            return await sync_to_async(User.objects.get)(
+                telegram_username=normalized, is_active=True
+            )
+        except User.DoesNotExist:
+            return None
+
+    async def update_telegram_username(self, telegram_id: str, username: str) -> None:
+        """Sync Telegram username from bot interaction.
+
+        Args:
+            telegram_id: User's Telegram ID
+            username: Current Telegram username
+        """
+        normalized = username.lstrip('@').lower()
+        await sync_to_async(
+            User.objects.filter(telegram_id=telegram_id).update
+        )(telegram_username=normalized)
 
 
 class HabitRepository:
@@ -1224,6 +1253,79 @@ class APIKeyRepository:
             return None
 
 
+class WebLoginRequestRepository:
+    """Repository for bot-based web login requests."""
+
+    async def create(
+        self,
+        user_id: int | str,
+        token: str,
+        expires_at,
+        device_info: str | None = None,
+    ) -> WebLoginRequest:
+        """Create a new web login request."""
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        return await sync_to_async(WebLoginRequest.objects.create)(
+            user_id=user_pk,
+            token=token,
+            expires_at=expires_at,
+            device_info=device_info,
+        )
+
+    async def get_by_token(self, token: str) -> WebLoginRequest | None:
+        """Get a web login request by token."""
+        try:
+            return await sync_to_async(
+                WebLoginRequest.objects.select_related("user").get
+            )(token=token)
+        except WebLoginRequest.DoesNotExist:
+            return None
+
+    async def update_status(self, token: str, status: str) -> int:
+        """Update the status of a web login request.
+
+        Returns:
+            Number of rows updated (0 or 1)
+        """
+        return await sync_to_async(
+            WebLoginRequest.objects.filter(token=token, status='pending').update
+        )(status=status)
+
+    async def update_telegram_message_id(
+        self, request_id: int | str, telegram_message_id: int
+    ) -> None:
+        """Save the Telegram message ID on a login request."""
+        pk = int(request_id) if isinstance(request_id, str) else request_id
+        await sync_to_async(
+            WebLoginRequest.objects.filter(pk=pk).update
+        )(telegram_message_id=telegram_message_id)
+
+    async def invalidate_pending_for_user(self, user_id: int | str) -> int:
+        """Invalidate all pending requests for a user (when new one is created).
+
+        Returns:
+            Number of requests invalidated
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        return await sync_to_async(
+            WebLoginRequest.objects.filter(user_id=user_pk, status='pending').update
+        )(status='denied')
+
+    async def delete_expired(self) -> int:
+        """Delete all expired login requests.
+
+        Returns:
+            Number of deleted requests
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        deleted, _ = await sync_to_async(
+            WebLoginRequest.objects.filter(expires_at__lt=now).delete
+        )()
+        return deleted
+
+
 # Global repository instances (for backward compatibility with Airtable pattern)
 user_repository = UserRepository()
 habit_repository = HabitRepository()
@@ -1232,3 +1334,4 @@ reward_progress_repository = RewardProgressRepository()
 habit_log_repository = HabitLogRepository()
 auth_code_repository = AuthCodeRepository()
 api_key_repository = APIKeyRepository()
+web_login_request_repository = WebLoginRequestRepository()

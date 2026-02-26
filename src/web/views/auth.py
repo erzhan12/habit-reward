@@ -1,10 +1,11 @@
-"""Authentication views for Telegram Login Widget."""
+"""Authentication views for bot-based Confirm/Deny login."""
 
 import json
 import logging
+import re
 
-from django.conf import settings
 from django.contrib.auth import login, logout
+from django.conf import settings
 from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
@@ -12,62 +13,132 @@ from django_ratelimit.decorators import ratelimit
 
 from inertia import render as inertia_render
 
-from src.core.repositories import user_repository
+from src.web.services.web_login_service import web_login_service
 from src.web.utils.sync import call_async
-from src.web.utils.telegram_auth import verify_telegram_auth
 
 logger = logging.getLogger(__name__)
 
 
 def login_page(request):
-    """Render the login page with Telegram Login Widget."""
+    """Render the login page."""
     if request.user.is_authenticated:
         return redirect("/")
 
-    return inertia_render(request, "Login", props={
-        "telegramBotUsername": settings.TELEGRAM_BOT_USERNAME,
-    })
+    return inertia_render(request, "Login")
+
+
+def _parse_device_info(request) -> str:
+    """Extract a human-readable device description from the request."""
+    ua = request.META.get("HTTP_USER_AGENT", "")
+    ip = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
+    if not ip:
+        ip = request.META.get("REMOTE_ADDR", "unknown")
+
+    # Extract browser name
+    browser = "Unknown browser"
+    if "Firefox/" in ua:
+        match = re.search(r"Firefox/([\d.]+)", ua)
+        browser = f"Firefox {match.group(1)}" if match else "Firefox"
+    elif "Edg/" in ua:
+        match = re.search(r"Edg/([\d.]+)", ua)
+        browser = f"Edge {match.group(1)}" if match else "Edge"
+    elif "Chrome/" in ua:
+        match = re.search(r"Chrome/([\d.]+)", ua)
+        browser = f"Chrome {match.group(1)}" if match else "Chrome"
+    elif "Safari/" in ua and "Chrome" not in ua:
+        match = re.search(r"Version/([\d.]+)", ua)
+        browser = f"Safari {match.group(1)}" if match else "Safari"
+
+    # Extract OS
+    os_name = "Unknown OS"
+    if "Windows" in ua:
+        os_name = "Windows"
+    elif "Macintosh" in ua or "Mac OS" in ua:
+        os_name = "macOS"
+    elif "Linux" in ua:
+        os_name = "Linux"
+    elif "iPhone" in ua or "iPad" in ua:
+        os_name = "iOS"
+    elif "Android" in ua:
+        os_name = "Android"
+
+    return f"{browser} on {os_name}, IP: {ip}"
 
 
 @require_POST
-@ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True)
-def telegram_callback(request):
-    """Handle Telegram Login Widget callback.
+@ratelimit(key="ip", rate="5/m", method="POST", block=True)
+def bot_login_request(request):
+    """Handle login request: user submits their @username.
 
-    Receives auth data from the frontend, verifies HMAC hash,
-    looks up the user by telegram_id, and creates a Django session.
+    POST /auth/bot-login/request/
+    Body: {"username": "johndoe"}
+    Returns: {"token": "...", "expires_at": "..."}
     """
     try:
         data = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({"error": "Invalid request body"}, status=400)
 
-    telegram_id = data.get("id")
-    if not telegram_id:
-        return JsonResponse({"error": "Missing Telegram user ID"}, status=400)
+    username = data.get("username", "").strip()
+    if not username:
+        return JsonResponse({"error": "Username is required"}, status=400)
 
-    client_ip = request.META.get("REMOTE_ADDR", "unknown")
+    # Strip @ prefix if present
+    username = username.lstrip("@")
 
-    # Verify HMAC-SHA-256 hash
-    if not verify_telegram_auth(data, settings.TELEGRAM_BOT_TOKEN):
-        logger.warning("Invalid Telegram auth hash for id=%s from ip=%s", telegram_id, client_ip)
-        return JsonResponse({"error": "Invalid authentication"}, status=403)
+    # Basic validation
+    if not re.match(r"^[a-zA-Z0-9_]{3,32}$", username):
+        return JsonResponse({"error": "Invalid Telegram username"}, status=400)
 
-    # Look up existing user via repository
-    user = call_async(
-        user_repository.get_by_telegram_id(str(telegram_id))
+    device_info = _parse_device_info(request)
+
+    result = call_async(
+        web_login_service.create_login_request(username, device_info)
     )
-    if not user:
-        logger.warning("Login failed: telegram_id=%s not found in database, ip=%s", telegram_id, client_ip)
-        return JsonResponse({"error": "Authentication failed. Please try again."}, status=403)
 
-    if not user.is_active:
-        logger.warning("Login failed: inactive account telegram_id=%s, ip=%s", telegram_id, client_ip)
-        return JsonResponse({"error": "Authentication failed. Please try again."}, status=403)
+    if not result:
+        return JsonResponse(
+            {"error": "No account found for this username. Use the Telegram bot first to register."},
+            status=404,
+        )
+
+    return JsonResponse(result)
+
+
+def bot_login_status(request, token):
+    """Check login request status.
+
+    GET /auth/bot-login/status/<token>/
+    Returns: {"status": "pending|confirmed|denied|expired"}
+    """
+    status = call_async(web_login_service.check_status(token))
+    return JsonResponse({"status": status})
+
+
+@require_POST
+def bot_login_complete(request):
+    """Complete login after confirmation.
+
+    POST /auth/bot-login/complete/
+    Body: {"token": "..."}
+    Returns: {"success": true, "redirect": "/"}
+    """
+    try:
+        data = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid request body"}, status=400)
+
+    token = data.get("token", "").strip()
+    if not token:
+        return JsonResponse({"error": "Token is required"}, status=400)
+
+    user = call_async(web_login_service.complete_login(token))
+    if not user:
+        return JsonResponse({"error": "Login failed. Request may have expired or been denied."}, status=403)
 
     # Create Django session
     login(request, user)
-    logger.info("Web login successful for user %s (telegram_id=%s)", user.id, telegram_id)
+    logger.info("Web login successful for user %s (id=%s)", user.name, user.id)
 
     return JsonResponse({"success": True, "redirect": "/"})
 

@@ -64,6 +64,13 @@ class User(AbstractUser):
         validators=[MinValueValidator(0.01), MaxValueValidator(99.99)],
         help_text="Probability of getting no reward during habit completion (0.01-99.99%)"
     )
+    telegram_username = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Telegram @username (lowercase, without @)"
+    )
     last_bot_message_id = models.BigIntegerField(
         null=True,
         blank=True,
@@ -79,6 +86,7 @@ class User(AbstractUser):
         indexes = [
             models.Index(fields=['telegram_id']),
             models.Index(fields=['is_active']),
+            models.Index(fields=['telegram_username']),
         ]
         ordering = ['-date_joined']
 
@@ -89,6 +97,10 @@ class User(AbstractUser):
         """Override save to auto-generate username from telegram_id if not set."""
         if not self.username and self.telegram_id:
             self.username = f"tg_{self.telegram_id}"
+
+        # Normalize telegram_username: lowercase, strip @
+        if self.telegram_username:
+            self.telegram_username = self.telegram_username.lstrip('@').lower()
 
         # Set unusable password for Telegram-only users if no password set
         if not self.password:
@@ -534,6 +546,68 @@ class AuthCode(models.Model):
 
     def __str__(self):
         return f"AuthCode for {self.user.name} (expires: {self.expires_at})"
+
+
+class WebLoginRequest(models.Model):
+    """Bot-based web login request.
+
+    User enters @username on web, bot sends Confirm/Deny buttons,
+    web polls for the result.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        CONFIRMED = 'confirmed', 'Confirmed'
+        DENIED = 'denied', 'Denied'
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='web_login_requests',
+        help_text="User this login request belongs to"
+    )
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="Random token for polling status"
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+        help_text="Current status of the login request"
+    )
+    device_info = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Browser/device info from the requesting client"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the request was created"
+    )
+    expires_at = models.DateTimeField(
+        help_text="When the request expires (5 minutes from creation)"
+    )
+    telegram_message_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Telegram message ID of the Confirm/Deny message"
+    )
+
+    class Meta:
+        db_table = 'web_login_requests'
+        indexes = [
+            models.Index(fields=['token']),
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['expires_at']),
+        ]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"WebLoginRequest for {self.user.name} ({self.status})"
 
 
 class APIKey(models.Model):

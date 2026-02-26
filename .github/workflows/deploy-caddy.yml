@@ -51,9 +51,6 @@ jobs:
           DEBUG: "True"
           CI: "true"
 
-      - name: Verify Telegram widget SRI
-        run: ./scripts/verify_telegram_widget_sri.sh
-
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
@@ -145,7 +142,6 @@ jobs:
 
           # Telegram Bot
           TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_BOT_USERNAME=${{ secrets.TELEGRAM_BOT_USERNAME }}
           TELEGRAM_WEBHOOK_URL=${{ secrets.TELEGRAM_WEBHOOK_URL }}
 
           # Superuser (created on first run if not exists)

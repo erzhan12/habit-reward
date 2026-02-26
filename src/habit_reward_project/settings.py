@@ -236,11 +236,6 @@ HABIT_NAME_MAX_LENGTH = 100
 HABIT_WEIGHT_MIN = 1
 HABIT_WEIGHT_MAX = 100
 
-# Telegram Login Widget
-TELEGRAM_BOT_USERNAME = env('TELEGRAM_BOT_USERNAME', default='')
-# Max age of auth_date for Login Widget verification (seconds). Use 300 for tighter security.
-TELEGRAM_AUTH_MAX_AGE = env.int('TELEGRAM_AUTH_MAX_AGE', default=86400)
-
 # Web auth rate limit (django-ratelimit format, e.g. '10/m', '5/m')
 AUTH_RATE_LIMIT = env('AUTH_RATE_LIMIT', default='10/m')
 # Dashboard actions (complete/revert habit) rate limit per user
