@@ -1,6 +1,33 @@
-"""Authentication views for bot-based Confirm/Deny login."""
+"""Authentication views for bot-based Confirm/Deny login.
 
-import ipaddress
+Endpoints
+---------
+POST /auth/bot-login/request/
+    Initiate a login request — sends Confirm/Deny to the user's Telegram.
+    Rate limit: ``AUTH_RATE_LIMIT`` (default ``10/m``).
+
+GET  /auth/bot-login/status/<token>/
+    Poll the status of a pending login request.
+    Rate limit: ``AUTH_STATUS_RATE_LIMIT`` (default ``30/m``).
+
+POST /auth/bot-login/complete/
+    Complete login after Telegram confirmation — creates a Django session.
+    Rate limit: ``AUTH_RATE_LIMIT`` (default ``10/m``).
+
+Security properties
+~~~~~~~~~~~~~~~~~~~
+* **Anti-enumeration**: Both known and unknown usernames receive an identical
+  200 response with a token.  Background processing is deferred to a thread
+  pool so timing is constant.
+* **Timing jitter**: ``check_status`` adds 100-500ms random jitter from a
+  ``secrets.SystemRandom()`` CSPRNG.
+* **Atomic replay prevention**: Confirmed tokens are atomically marked
+  ``used`` via ``UPDATE … WHERE status='confirmed'``.
+* **Rate limiting**: All endpoints are rate-limited per IP via
+  ``django-ratelimit``.
+"""
+
+import html
 import json
 import logging
 import re
@@ -14,11 +41,15 @@ from django_ratelimit.decorators import ratelimit
 
 from inertia import render as inertia_render
 
-from src.web.services.web_login_service import web_login_service
+from src.web.services.web_login_service import LoginServiceUnavailable, web_login_service
+from src.web.utils.ip import parse_ip_address
 from src.web.utils.sync import call_async
 from src.web.utils.validation import TELEGRAM_USERNAME_PATTERN
 
 logger = logging.getLogger(__name__)
+
+# Re-export for backward compatibility with existing tests.
+_parse_ip_address = parse_ip_address
 
 
 def login_page(request):
@@ -29,36 +60,18 @@ def login_page(request):
     return inertia_render(request, "Login")
 
 
-def _parse_ip_address(request) -> str:
-    """Extract and validate the client IP from the request.
-
-    When ``settings.TRUST_X_FORWARDED_FOR`` is True, takes the leftmost IP
-    from the X-Forwarded-For header (the original client IP when behind a
-    trusted reverse proxy) and validates it with ``ipaddress.ip_address()``.
-    Falls back to REMOTE_ADDR if the header is missing, malformed, or if
-    the setting is disabled (default).
-
-    IMPORTANT: Only enable TRUST_X_FORWARDED_FOR when Django is behind a
-    reverse proxy (e.g. nginx or Caddy) that overwrites X-Forwarded-For
-    with the real client IP.  Without this, attackers can inject arbitrary
-    IPs via the header.
-    """
-    if settings.TRUST_X_FORWARDED_FOR:
-        forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
-        if forwarded:
-            candidate = forwarded.split(",")[0].strip()
-            try:
-                ipaddress.ip_address(candidate)
-                return candidate
-            except ValueError:
-                pass
-    return request.META.get("REMOTE_ADDR", "unknown")
-
-
 def _parse_device_info(request) -> str:
-    """Extract a human-readable device description from the request."""
+    """Extract a human-readable device description from the request.
+
+    Parses the User-Agent header for browser and OS information.
+    Logs unrecognised User-Agent strings at DEBUG level for monitoring.
+    Output is HTML-escaped and truncated to 255 characters (DB field limit)
+    at this input boundary.
+    """
     ua = request.META.get("HTTP_USER_AGENT", "")
-    ip = _parse_ip_address(request)
+    # Truncate extremely long UA strings before parsing to avoid regex DoS.
+    ua = ua[:1024]
+    ip = parse_ip_address(request)
 
     # Extract browser name
     browser = "Unknown browser"
@@ -88,7 +101,16 @@ def _parse_device_info(request) -> str:
     elif "Android" in ua:
         os_name = "Android"
 
-    return f"{browser} on {os_name}, IP: {ip}"
+    if browser == "Unknown browser" or os_name == "Unknown OS":
+        logger.debug(
+            "Unrecognised User-Agent during device_info parsing: %s",
+            ua[:200],
+        )
+
+    # Sanitize at the input boundary: truncate to 255 chars (DB field limit)
+    # and HTML-escape to prevent injection in Telegram messages.
+    raw = f"{browser} on {os_name}, IP: {ip}"
+    return html.escape(raw[:255])
 
 
 @require_POST
@@ -148,9 +170,15 @@ def bot_login_request(request):
 
     device_info = _parse_device_info(request)
 
-    result = call_async(
-        web_login_service.create_login_request(username, device_info)
-    )
+    try:
+        result = call_async(
+            web_login_service.create_login_request(username, device_info)
+        )
+    except LoginServiceUnavailable:
+        return JsonResponse(
+            {"error": "Service temporarily unavailable. Please try again shortly."},
+            status=503,
+        )
 
     # SECURITY: Always return 200 with a generic message and the token.
     # The service returns {token, expires_at} for BOTH known and unknown

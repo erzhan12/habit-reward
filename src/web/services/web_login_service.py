@@ -2,7 +2,6 @@
 
 import asyncio
 import atexit
-import html
 import logging
 import secrets
 from concurrent.futures import ThreadPoolExecutor
@@ -35,6 +34,13 @@ WL_DENY_PREFIX = "wl_d_"
 # submissions queue up instead of spawning unbounded threads.
 _login_executor = ThreadPoolExecutor(max_workers=settings.WEB_LOGIN_THREAD_POOL_SIZE, thread_name_prefix="web_login")
 atexit.register(_login_executor.shutdown, wait=True)
+
+# Maximum number of queued items before rejecting new requests (circuit breaker).
+_MAX_QUEUED_LOGINS = getattr(settings, "WEB_LOGIN_MAX_QUEUED", 50)
+
+
+class LoginServiceUnavailable(Exception):
+    """Raised when the login background queue is full."""
 
 
 class WebLoginService:
@@ -83,6 +89,16 @@ class WebLoginService:
         cache.set(f"wl_pending:{token}", True, timeout=cache_ttl)
 
         if user and user.telegram_id:
+            # Circuit breaker: reject if the background queue is saturated.
+            queue_size = _login_executor._work_queue.qsize()
+            if queue_size >= _MAX_QUEUED_LOGINS:
+                logger.critical(
+                    "Login thread pool queue full (%d pending), rejecting request",
+                    queue_size,
+                )
+                raise LoginServiceUnavailable(
+                    "Login service temporarily unavailable"
+                )
             # All DB writes + Telegram send happen in the bounded thread pool
             # so the HTTP response time is constant for both paths.
             _login_executor.submit(
@@ -118,15 +134,24 @@ class WebLoginService:
         try:
             call_async(self._process_login_request(user, token, expires_at, device_info))
         except TelegramError as e:
-            logger.error("Telegram send failed for user %s: %s", user.id, e)
+            logger.error(
+                "Telegram send failed during login processing",
+                extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
+            )
             cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
             cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
         except DatabaseError as e:
-            logger.error("Database error during login processing for user %s: %s", user.id, e)
+            logger.error(
+                "Database error during login processing",
+                extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
+            )
             cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
             cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
         except Exception as e:
-            logger.error("Unexpected error during login processing for user %s: %s", user.id, e)
+            logger.error(
+                "Unexpected error during login processing",
+                extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
+            )
             # Set a failure cache key so check_status can return an error
             # instead of leaving the user polling "pending" indefinitely.
             cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
@@ -156,9 +181,12 @@ class WebLoginService:
         login_request = await _transactional_writes()
 
         logger.info(
-            "Web login request created for user %s (token=%s...)",
-            user.id,
-            token[:8],
+            "Web login request created",
+            extra={
+                "user_id": user.id,
+                "token_prefix": token[:8],
+                "operation": "create_login_request",
+            },
         )
 
         # Send Telegram notification
@@ -171,7 +199,9 @@ class WebLoginService:
     ) -> None:
         """Send the Telegram message with Confirm/Deny buttons."""
         bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
-        device_text = html.escape((device_info or "Unknown device")[:255])
+        # device_info is already sanitized (HTML-escaped + truncated) at the
+        # input boundary in auth.py:_parse_device_info.
+        device_text = device_info or "Unknown device"
         message_text = (
             f"🔐 <b>Web Login Request</b>\n\n"
             f"Someone is trying to log in to your account:\n"
@@ -201,7 +231,10 @@ class WebLoginService:
             )
         )
 
-        logger.info("Login notification sent for request %s", request_id)
+        logger.info(
+            "Login notification sent",
+            extra={"request_id": request_id, "operation": "send_notification"},
+        )
 
     async def check_status(self, token: str) -> str:
         """Check the status of a login request.
@@ -216,9 +249,9 @@ class WebLoginService:
         from django.core.cache import cache
         from django.db import OperationalError
 
-        # Random jitter (50-200ms) masks residual timing differences
+        # Random jitter (100-500ms) masks residual timing differences
         # between DB hit vs miss, cache hit vs miss, etc.
-        await asyncio.sleep(_secure_random.uniform(0.05, 0.2))
+        await asyncio.sleep(_secure_random.uniform(0.1, 0.5))
 
         # Always perform both lookups to ensure constant-time work.
         # Do NOT short-circuit — both must execute every time.
@@ -241,17 +274,21 @@ class WebLoginService:
 
         # Now use the results — logic is the same, but all lookups
         # have already been performed regardless of which path we take.
+        # All return paths produce plain strings; the view serialises them
+        # directly into JSON.  Using string literals (not Status.PENDING.value)
+        # keeps every branch visually consistent.
         if not login_request:
             if cache_failed:
                 return "error"
             if cache_pending:
-                return WebLoginRequest.Status.PENDING.value
+                return "pending"
             return "expired"
 
         # Check expiry
         if datetime.now(timezone.utc) > login_request.expires_at:
             return "expired"
 
+        # login_request.status is already a string (Django TextChoices).
         return login_request.status
 
     async def complete_login(self, token: str):
@@ -288,7 +325,14 @@ class WebLoginService:
             logger.warning("Token replay attempt — already used: %s...", token[:8])
             return None
 
-        logger.info("Web login completed for user %s", login_request.user_id)
+        logger.info(
+            "Web login completed",
+            extra={
+                "user_id": login_request.user_id,
+                "token_prefix": token[:8],
+                "operation": "complete_login",
+            },
+        )
         return login_request.user
 
 

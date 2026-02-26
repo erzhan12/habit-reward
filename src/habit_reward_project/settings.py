@@ -103,6 +103,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'src.web.context_processors.csp_nonce',
             ],
         },
     },
@@ -118,6 +119,11 @@ ASGI_APPLICATION = 'src.habit_reward_project.asgi.application'
 DATABASES = {
     'default': env.db('DATABASE_URL', default=f'sqlite:///{BASE_DIR}/db.sqlite3')
 }
+
+# Reuse database connections for 10 minutes instead of closing after each
+# request.  Reduces connection overhead in the ThreadPoolExecutor workers
+# that handle background login processing under high traffic.
+DATABASES['default']['CONN_MAX_AGE'] = env.int('CONN_MAX_AGE', default=600)
 
 
 # Password validation

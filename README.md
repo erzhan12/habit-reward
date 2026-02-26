@@ -221,6 +221,53 @@ OUTPUT: reward_progress
 5. RETURN progress
 ```
 
+## Web Login Flow
+
+The web interface uses a bot-based Confirm/Deny login — no passwords.
+
+```
+ Browser                   Django                    Telegram Bot
+    │                         │                           │
+    │  POST /request/         │                           │
+    │  {"username":"alice"}   │                           │
+    │────────────────────────>│                           │
+    │                         │ generate token            │
+    │                         │ cache wl_pending:{token}  │
+    │  200 {token, expires}   │                           │
+    │<────────────────────────│                           │
+    │                         │──[thread pool]──────────> │
+    │                         │  send Confirm/Deny buttons│
+    │                         │                           │
+    │  GET /status/{token}/   │                           │
+    │────────────────────────>│                           │
+    │  {"status":"pending"}   │                           │
+    │<────────────────────────│                           │
+    │                         │                           │
+    │          ...polling...  │    User taps Confirm      │
+    │                         │<──────────────────────────│
+    │                         │  update status=confirmed  │
+    │                         │                           │
+    │  GET /status/{token}/   │                           │
+    │────────────────────────>│                           │
+    │  {"status":"confirmed"} │                           │
+    │<────────────────────────│                           │
+    │                         │                           │
+    │  POST /complete/        │                           │
+    │  {"token":"..."}        │                           │
+    │────────────────────────>│                           │
+    │                         │ mark token as "used"      │
+    │                         │ create Django session     │
+    │  200 {redirect: "/"}    │                           │
+    │<────────────────────────│                           │
+```
+
+**Security properties:**
+- **Anti-enumeration**: Known and unknown usernames produce identical responses and timing (background work is deferred to a thread pool).
+- **Timing jitter**: Status polling adds 100-500ms random jitter from `secrets.SystemRandom()`.
+- **Replay prevention**: Confirmed tokens are atomically marked `used` via `UPDATE … WHERE status='confirmed'`.
+- **Rate limiting**: All endpoints are rate-limited per IP (`AUTH_RATE_LIMIT`, `AUTH_STATUS_RATE_LIMIT`).
+- **CSP nonce**: Production responses include a per-request CSP nonce for `style-src`.
+
 ## Ethical Considerations
 
 1. **Data Privacy**: Only telegram_id stored, full user control via Django admin

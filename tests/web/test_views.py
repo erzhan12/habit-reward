@@ -743,7 +743,7 @@ class TestAuth:
 
         mock_sleep.assert_called_once()
         jitter = mock_sleep.call_args[0][0]
-        assert 0.05 <= jitter <= 0.2
+        assert 0.1 <= jitter <= 0.5
 
     def test_cache_ttl_derived_from_expires_at(self):
         """Cache timeout is derived from expires_at, not a separate constant."""
@@ -1140,18 +1140,18 @@ class TestBackgroundProcessingFailures:
 class TestIPAddressParsing:
     """Tests for _parse_ip_address validation and fallback."""
 
-    @patch("src.web.views.auth.settings")
+    @patch("src.web.utils.ip.settings")
     def test_valid_ipv4_from_forwarded_for(self, mock_settings):
-        from src.web.views.auth import _parse_ip_address
+        from src.web.utils.ip import parse_ip_address as _parse_ip_address
 
         mock_settings.TRUST_X_FORWARDED_FOR = True
         request = MagicMock()
         request.META = {"HTTP_X_FORWARDED_FOR": "203.0.113.50, 70.41.3.18", "REMOTE_ADDR": "127.0.0.1"}
         assert _parse_ip_address(request) == "203.0.113.50"
 
-    @patch("src.web.views.auth.settings")
+    @patch("src.web.utils.ip.settings")
     def test_valid_ipv6_from_forwarded_for(self, mock_settings):
-        from src.web.views.auth import _parse_ip_address
+        from src.web.utils.ip import parse_ip_address as _parse_ip_address
 
         mock_settings.TRUST_X_FORWARDED_FOR = True
         request = MagicMock()
@@ -1746,3 +1746,148 @@ class TestBackgroundProcessingFailure:
         # If the DB record was created (transactional write succeeded before
         # Telegram send), status comes from DB. If not, cache returns 'error'.
         assert status in ("error", "pending")
+
+
+# ---- Timing consistency tests ----
+
+
+class TestTimingConsistency:
+    """Verify that response timing does not leak username existence."""
+
+    def test_known_vs_unknown_username_similar_timing(self, user):
+        """Known and unknown usernames should have similar response times.
+
+        We run a small sample and check that the difference in median
+        response time is within a reasonable bound (< 100ms).  This is a
+        smoke test — not a rigorous statistical test.
+        """
+        import time
+
+        client = Client()
+        samples = 10  # small sample to keep test fast
+
+        def _time_request(username):
+            payload = json.dumps({"username": username})
+            start = time.monotonic()
+            client.post(
+                "/auth/bot-login/request/",
+                data=payload,
+                content_type="application/json",
+            )
+            return time.monotonic() - start
+
+        # Make the user findable by username
+        user.telegram_username = "timinguser"
+        user.save()
+
+        known_times = [_time_request("timinguser") for _ in range(samples)]
+        unknown_times = [_time_request("nonexistent_xyz") for _ in range(samples)]
+
+        known_median = sorted(known_times)[samples // 2]
+        unknown_median = sorted(unknown_times)[samples // 2]
+        diff = abs(known_median - unknown_median)
+
+        # The difference should be small — under 100ms.
+        # This is a loose bound; the real guarantee comes from the
+        # constant-time design (identical code path for both).
+        assert diff < 0.1, (
+            f"Timing diff {diff:.4f}s between known/unknown exceeds 100ms: "
+            f"known_median={known_median:.4f}s, unknown_median={unknown_median:.4f}s"
+        )
+
+
+# ---- Thread pool exhaustion tests ----
+
+
+class TestThreadPoolExhaustion:
+    """Verify behaviour when the login background thread pool is saturated."""
+
+    def test_queue_full_returns_503(self):
+        """When the thread pool queue exceeds the max, the view returns 503."""
+        from django.core.cache import cache
+        import src.web.services.web_login_service as svc_mod
+
+        cache.clear()  # clear rate-limit counters from prior tests
+
+        # Create a known user so the queue-check code path is exercised.
+        User.objects.create_user(
+            username="tg_444444444",
+            telegram_id="444444444",
+            name="Queue User",
+            language="en",
+            timezone="UTC",
+            telegram_username="queueuser",
+        )
+
+        # Replace the real work queue with a mock that reports full.
+        mock_queue = MagicMock()
+        mock_queue.qsize.return_value = 999
+        original_queue = svc_mod._login_executor._work_queue
+        svc_mod._login_executor._work_queue = mock_queue
+        try:
+            client = Client()
+            response = client.post(
+                "/auth/bot-login/request/",
+                data=json.dumps({"username": "queueuser"}),
+                content_type="application/json",
+            )
+        finally:
+            svc_mod._login_executor._work_queue = original_queue
+
+        assert response.status_code == 503
+        assert "temporarily unavailable" in response.json()["error"].lower()
+
+
+# ---- Device info parsing edge cases ----
+
+
+class TestDeviceInfoEdgeCases:
+    """Test _parse_device_info with unusual User-Agent strings."""
+
+    def test_empty_user_agent(self):
+        from src.web.views.auth import _parse_device_info
+
+        request = MagicMock()
+        request.META = {"HTTP_USER_AGENT": "", "REMOTE_ADDR": "1.2.3.4"}
+        info = _parse_device_info(request)
+        assert "Unknown browser" in info
+        assert "Unknown OS" in info
+        assert "1.2.3.4" in info
+
+    def test_extremely_long_user_agent(self):
+        """User-Agent > 10KB is safely truncated."""
+        from src.web.views.auth import _parse_device_info
+
+        long_ua = "A" * 15000
+        request = MagicMock()
+        request.META = {"HTTP_USER_AGENT": long_ua, "REMOTE_ADDR": "5.6.7.8"}
+        info = _parse_device_info(request)
+        # Output must be <= 255 chars (DB limit) and HTML-escaped.
+        assert len(info) <= 255
+        assert "5.6.7.8" in info
+
+    def test_malicious_user_agent_html_escaped(self):
+        """HTML/script tags in User-Agent are escaped."""
+        from src.web.views.auth import _parse_device_info
+
+        request = MagicMock()
+        request.META = {
+            "HTTP_USER_AGENT": '<script>alert("xss")</script>',
+            "REMOTE_ADDR": "9.8.7.6",
+        }
+        info = _parse_device_info(request)
+        # The raw <script> should be escaped.
+        assert "<script>" not in info
+        assert "&lt;" in info or "Unknown" in info
+
+    def test_user_agent_with_html_in_browser_name(self):
+        """Browser version containing HTML chars is escaped."""
+        from src.web.views.auth import _parse_device_info
+
+        request = MagicMock()
+        request.META = {
+            "HTTP_USER_AGENT": 'Mozilla/5.0 Chrome/<img src=x>',
+            "REMOTE_ADDR": "1.1.1.1",
+        }
+        info = _parse_device_info(request)
+        assert "<img" not in info
