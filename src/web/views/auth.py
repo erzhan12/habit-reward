@@ -16,6 +16,7 @@ from inertia import render as inertia_render
 
 from src.web.services.web_login_service import web_login_service
 from src.web.utils.sync import call_async
+from src.web.utils.validation import TELEGRAM_USERNAME_PATTERN
 
 logger = logging.getLogger(__name__)
 
@@ -31,24 +32,26 @@ def login_page(request):
 def _parse_ip_address(request) -> str:
     """Extract and validate the client IP from the request.
 
-    Takes the leftmost IP from X-Forwarded-For (the original client IP when
-    behind a proxy) and validates it with ipaddress.ip_address().  Falls back
-    to REMOTE_ADDR if the header is missing or contains a malformed value.
+    When ``settings.TRUST_X_FORWARDED_FOR`` is True, takes the leftmost IP
+    from the X-Forwarded-For header (the original client IP when behind a
+    trusted reverse proxy) and validates it with ``ipaddress.ip_address()``.
+    Falls back to REMOTE_ADDR if the header is missing, malformed, or if
+    the setting is disabled (default).
 
-    IMPORTANT: This function trusts the X-Forwarded-For header, which can be
-    spoofed by clients if the application is exposed directly to the internet.
-    A reverse proxy (e.g., nginx or Caddy) MUST be configured to overwrite
-    X-Forwarded-For with the real client IP before forwarding to Django.
-    Without this, attackers can inject arbitrary IPs via the header.
+    IMPORTANT: Only enable TRUST_X_FORWARDED_FOR when Django is behind a
+    reverse proxy (e.g. nginx or Caddy) that overwrites X-Forwarded-For
+    with the real client IP.  Without this, attackers can inject arbitrary
+    IPs via the header.
     """
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    if forwarded:
-        candidate = forwarded.split(",")[0].strip()
-        try:
-            ipaddress.ip_address(candidate)
-            return candidate
-        except ValueError:
-            pass
+    if settings.TRUST_X_FORWARDED_FOR:
+        forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+        if forwarded:
+            candidate = forwarded.split(",")[0].strip()
+            try:
+                ipaddress.ip_address(candidate)
+                return candidate
+            except ValueError:
+                pass
     return request.META.get("REMOTE_ADDR", "unknown")
 
 
@@ -91,15 +94,37 @@ def _parse_device_info(request) -> str:
 @require_POST
 @ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True)
 def bot_login_request(request):
-    """Handle login request: user submits their @username.
+    """Initiate a bot-based login request.
 
     POST /auth/bot-login/request/
-    Body: {"username": "johndoe"}
-    Returns: {"token": "...", "expires_at": "...", "message": "..."}
+    Content-Type: application/json
+
+    Request body::
+
+        {"username": "johndoe"}
+
+    Success response (200)::
+
+        {
+            "token": "<urlsafe-base64>",
+            "expires_at": "2026-02-26T12:05:00+00:00",
+            "message": "If this username is registered, a login confirmation has been sent."
+        }
+
+    Error responses:
+        - 400: Invalid/missing request body or username fails validation.
+        - 429: Rate limit exceeded (AUTH_RATE_LIMIT, default 10/m).
 
     Always returns 200 with a generic message to prevent username enumeration.
     The service always returns a token (real or cache-only) so no branching
     is needed here — both known and unknown users get the same response.
+
+    Example::
+
+        curl -X POST http://localhost:8000/auth/bot-login/request/ \\
+             -H 'Content-Type: application/json' \\
+             -H 'X-CSRFToken: <token>' \\
+             -d '{"username": "johndoe"}'
     """
     try:
         data = json.loads(request.body)
@@ -116,9 +141,9 @@ def bot_login_request(request):
     # Strip @ prefix if present
     username = username.lstrip("@")
 
-    # Basic validation
-    # Must match frontend regex in frontend/src/pages/Login.vue line 106
-    if not re.match(r"^[a-zA-Z0-9_]{3,32}$", username):
+    # Basic validation — canonical pattern from src/web/utils/validation.py
+    # Must match frontend regex in frontend/src/pages/Login.vue
+    if not re.match(TELEGRAM_USERNAME_PATTERN, username):
         return JsonResponse({"error": "Invalid Telegram username"}, status=400)
 
     device_info = _parse_device_info(request)
@@ -138,10 +163,30 @@ def bot_login_request(request):
 @require_GET
 @ratelimit(key="ip", rate=settings.AUTH_STATUS_RATE_LIMIT, method="GET", block=True)
 def bot_login_status(request, token):
-    """Check login request status.
+    """Poll the status of a pending login request.
 
     GET /auth/bot-login/status/<token>/
-    Returns: {"status": "pending|confirmed|denied|expired"}
+
+    Success response (200)::
+
+        {"status": "pending|confirmed|denied|expired|used|error"}
+
+    Status values:
+        - ``pending``: Waiting for user to confirm/deny in Telegram.
+        - ``confirmed``: User tapped Confirm — call ``/complete/`` next.
+        - ``denied``: User tapped Deny.
+        - ``expired``: Token TTL (5 min) elapsed.
+        - ``used``: Token was already consumed by ``/complete/``.
+        - ``error``: Background processing failed (Telegram/DB error).
+
+    Error responses:
+        - 429: Rate limit exceeded (AUTH_STATUS_RATE_LIMIT, default 30/m).
+
+    Includes random 50-200ms jitter to mask timing side-channels.
+
+    Example::
+
+        curl http://localhost:8000/auth/bot-login/status/abc123def456/
     """
     status = call_async(web_login_service.check_status(token))
     return JsonResponse({"status": status})
@@ -150,11 +195,33 @@ def bot_login_status(request, token):
 @require_POST
 @ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True)
 def bot_login_complete(request):
-    """Complete login after confirmation.
+    """Complete login after Telegram confirmation — creates a Django session.
 
     POST /auth/bot-login/complete/
-    Body: {"token": "..."}
-    Returns: {"success": true, "redirect": "/"}
+    Content-Type: application/json
+
+    Request body::
+
+        {"token": "<urlsafe-base64>"}
+
+    Success response (200)::
+
+        {"success": true, "redirect": "/"}
+
+    Error responses:
+        - 400: Invalid/missing request body or token.
+        - 403: Token is expired, not confirmed, or already used.
+        - 429: Rate limit exceeded (AUTH_RATE_LIMIT, default 10/m).
+
+    The token must be in ``confirmed`` status. Atomically marks it as
+    ``used`` to prevent replay attacks.
+
+    Example::
+
+        curl -X POST http://localhost:8000/auth/bot-login/complete/ \\
+             -H 'Content-Type: application/json' \\
+             -H 'X-CSRFToken: <token>' \\
+             -d '{"token": "abc123def456"}'
     """
     try:
         data = json.loads(request.body)

@@ -4,16 +4,16 @@ import asyncio
 import atexit
 import html
 import logging
-import random
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 
 from django.conf import settings
-from django.db import transaction
+from django.db import DatabaseError, transaction
 
 from src.core.models import WebLoginRequest
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import TelegramError
 
 from asgiref.sync import sync_to_async
 
@@ -21,6 +21,10 @@ from src.core.repositories import user_repository, web_login_request_repository
 from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
+
+# Cryptographically secure RNG for timing jitter — avoids the predictable
+# Mersenne Twister used by the `random` module.
+_secure_random = secrets.SystemRandom()
 
 LOGIN_REQUEST_EXPIRY_MINUTES = 5
 WL_CONFIRM_PREFIX = "wl_c_"
@@ -64,7 +68,15 @@ class WebLoginService:
         # Generate token and cache it immediately — identical work for both paths.
         # Derive cache timeout from the same expires_at timestamp so both
         # cache eviction and DB expiry use a single source of truth.
-        token = secrets.token_urlsafe(32)
+        # Loop guards against astronomically unlikely token collisions.
+        @sync_to_async
+        def _generate_unique_token():
+            t = secrets.token_urlsafe(32)
+            while WebLoginRequest.objects.filter(token=t).exists():
+                t = secrets.token_urlsafe(32)
+            return t
+
+        token = await _generate_unique_token()
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
         cache_ttl = max(int((expires_at - now).total_seconds()), 1)
@@ -95,14 +107,28 @@ class WebLoginService:
     def _process_login_background(
         self, user, token: str, expires_at, device_info: str | None
     ) -> None:
-        """Process login request in a background thread (DB writes + Telegram send)."""
+        """Process login request in a background thread (DB writes + Telegram send).
+
+        Uses call_async() (asgiref) instead of asyncio.run() to reuse the
+        existing event loop, consistent with the rest of the codebase.
+        """
+        from django.core.cache import cache
+        from src.web.utils.sync import call_async
+
         try:
-            asyncio.run(self._process_login_request(user, token, expires_at, device_info))
+            call_async(self._process_login_request(user, token, expires_at, device_info))
+        except TelegramError as e:
+            logger.error("Telegram send failed for user %s: %s", user.id, e)
+            cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
+            cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
+        except DatabaseError as e:
+            logger.error("Database error during login processing for user %s: %s", user.id, e)
+            cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
+            cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
         except Exception as e:
-            logger.error("Background login processing failed for user %s: %s", user.id, e)
+            logger.error("Unexpected error during login processing for user %s: %s", user.id, e)
             # Set a failure cache key so check_status can return an error
             # instead of leaving the user polling "pending" indefinitely.
-            from django.core.cache import cache
             cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
             cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
 
@@ -145,7 +171,7 @@ class WebLoginService:
     ) -> None:
         """Send the Telegram message with Confirm/Deny buttons."""
         bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
-        device_text = html.escape(device_info or "Unknown device")
+        device_text = html.escape((device_info or "Unknown device")[:255])
         message_text = (
             f"🔐 <b>Web Login Request</b>\n\n"
             f"Someone is trying to log in to your account:\n"
@@ -192,7 +218,7 @@ class WebLoginService:
 
         # Random jitter (50-200ms) masks residual timing differences
         # between DB hit vs miss, cache hit vs miss, etc.
-        await asyncio.sleep(random.uniform(0.05, 0.2))
+        await asyncio.sleep(_secure_random.uniform(0.05, 0.2))
 
         # Always perform both lookups to ensure constant-time work.
         # Do NOT short-circuit — both must execute every time.
@@ -209,8 +235,9 @@ class WebLoginService:
             )
             login_request = None
 
-        cache_pending = cache.get(f"wl_pending:{token}")
-        cache_failed = cache.get(f"wl_failed:{token}")
+        cache_keys = cache.get_many([f"wl_pending:{token}", f"wl_failed:{token}"])
+        cache_pending = cache_keys.get(f"wl_pending:{token}")
+        cache_failed = cache_keys.get(f"wl_failed:{token}")
 
         # Now use the results — logic is the same, but all lookups
         # have already been performed regardless of which path we take.

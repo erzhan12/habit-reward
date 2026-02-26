@@ -102,7 +102,7 @@ const POLL_BACKOFF_STEP_MS = 1000; // Add 1s per poll
 const POLL_MAX_DELAY_MS = 5000; // Cap at 5s between polls
 const LOGIN_EXPIRY_MS = 300_000; // 5 minutes — matches server expiry
 
-// Must match backend regex in src/web/views/auth.py line 121
+// Must match canonical pattern in src/web/utils/validation.py (TELEGRAM_USERNAME_PATTERN)
 const TELEGRAM_USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
 const username = ref("");

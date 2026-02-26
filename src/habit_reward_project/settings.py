@@ -246,6 +246,11 @@ DASHBOARD_ACTION_RATE_LIMIT = env('DASHBOARD_ACTION_RATE_LIMIT', default='60/m')
 # Thread pool size for background login processing (DB writes + Telegram send)
 WEB_LOGIN_THREAD_POOL_SIZE = env.int('WEB_LOGIN_THREAD_POOL_SIZE', default=10)
 
+# Trust X-Forwarded-For header for client IP detection.
+# Only enable when Django is behind a trusted reverse proxy (e.g. nginx/Caddy)
+# that overwrites X-Forwarded-For with the real client IP.
+TRUST_X_FORWARDED_FOR = env.bool('TRUST_X_FORWARDED_FOR', default=False)
+
 
 # =============================================================================
 # INERTIA.JS + VITE CONFIGURATION
