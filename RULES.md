@@ -1784,28 +1784,46 @@ For critical query filters (like `claimed=True AND reward__is_recurring=False`),
 
 ### Authentication Endpoint Hardening
 
-**Rate Limiting**: Auth endpoints MUST use `django-ratelimit` to prevent brute-force. The rate is configurable via `settings.AUTH_RATE_LIMIT` (env: `AUTH_RATE_LIMIT`, default `'10/m'`) so it can be tuned per environment without code changes.
+**Rate Limiting**: Auth endpoints MUST use `django-ratelimit` to prevent brute-force. The rate is configurable via `settings.AUTH_RATE_LIMIT` (env: `AUTH_RATE_LIMIT`, default `'10/m'`) so it can be tuned per environment without code changes. Every auth endpoint MUST have a rate limit — both POST endpoints use `settings.AUTH_RATE_LIMIT`, the GET status endpoint uses `"30/m"`.
 ```python
 from django_ratelimit.decorators import ratelimit
 from django.conf import settings
+from django.views.decorators.http import require_GET, require_POST
 
 @require_POST
 @ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True)
-def telegram_callback(request):
+def bot_login_request(request):
+    ...
+
+@require_GET
+@ratelimit(key="ip", rate="30/m", method="GET", block=True)
+def bot_login_status(request, token):
     ...
 ```
 
+**Method restriction**: Always pair rate-limit `method=` with the corresponding `@require_POST`/`@require_GET` decorator. Without it, requests via other HTTP methods bypass the rate limiter entirely.
+
 **Dashboard action rate limiting**: Complete/revert habit endpoints (`src/web/views/dashboard.py`) MUST be rate-limited per user to prevent rapid clicking, abuse, and race conditions. Use `django_ratelimit.core.is_ratelimited` with `group="dashboard_action"` and `key="user"` so both endpoints share one limit. Rate is configurable via `settings.DASHBOARD_ACTION_RATE_LIMIT` (env: `DASHBOARD_ACTION_RATE_LIMIT`, default `'60/m'`). Use the core API (not the decorator) so rate limiting works in async views.
 
-**Generic Error Messages**: Auth failures MUST return identical responses regardless of failure reason. Never reveal whether a user exists, is inactive, or has an invalid hash.
+**Anti-Enumeration (Username Existence)**: The bot-login request endpoint MUST NOT leak whether a username exists. This requires identical behavior across all observable channels:
+
+1. **Response body** — The service always returns `{token, expires_at}` for both paths; the view always returns `200` with the generic message. Never include a `sent` field or any boolean that distinguishes the two paths.
+2. **Response timing** — ALL DB writes (invalidate + create) AND the Telegram `send_message` MUST run in a single background thread (`threading.Thread`, daemon=True). The service does only: user lookup → generate token → `cache.set(wl_pending:{token})` → return. Both paths execute the same work. See `web_login_service.py:_process_login_background`.
+3. **Status polling** — All tokens are cached as `wl_pending:` on creation. For unknown users, cache expires after TTL → `expired`. For known users, the background thread creates a DB record; once created, status comes from DB. Both paths converge to `expired`. **SQLite lock handling**: `check_status` catches `OperationalError` from the DB read (background thread may hold a write lock) and falls through to the cache, which always has the correct answer because it was set before the thread launched.
+4. **JSON body validation** — Always `str()` user-supplied fields before calling `.strip()` (e.g. `str(data.get("username", "")).strip()`). Non-dict JSON bodies (`[]`, `"str"`, `123`) must be caught with `isinstance(data, dict)` after `json.loads`.
 
 ```python
-# ✅ Good - All failures return same generic message + 403
-return JsonResponse({"error": "Authentication failed. Please try again."}, status=403)
+# ✅ Good - Service always returns a dict, view has no branching
+result = call_async(web_login_service.create_login_request(username, device_info))
+result["message"] = "If this username is registered, ..."
+return JsonResponse(result)
 
-# ❌ Bad - Reveals system internals to attacker
-return JsonResponse({"error": "User not found. Please use the Telegram bot first."}, status=404)
+# ❌ Bad - Branching on result leaks timing (DB writes only for known users)
+if not result:
+    fake_token = secrets.token_urlsafe(32)  # different code path = timing leak
 ```
+
+**Token Replay Prevention**: After a confirmed token is used to create a session, it MUST be atomically marked as `used` (status transition: `confirmed` → `used`). The `mark_as_used` repository method uses `filter(token=..., status='confirmed').update(status='used')` — if it returns 0, another request beat us. See `web_login_service.py:complete_login` and `repositories.py:WebLoginRequestRepository.mark_as_used`.
 
 **Server-Side Logging**: Always log the actual failure reason with client IP for ops visibility:
 ```python
@@ -1845,30 +1863,9 @@ def test_success(self, mock_sync, user):
     ...
 ```
 
-### External Script Security (SRI)
+### Telegram Username Recycling
 
-External scripts MUST include Subresource Integrity (SRI) attributes. See `frontend/src/pages/Login.vue`: the Telegram widget is loaded with a `WIDGET_SRI` constant and optional fallback.
-
-**Verify / get current hash** (run from repo root):
-- `./scripts/verify_telegram_widget_sri.sh` — verify stored hash matches live widget; exit 1 if mismatch (used in CI).
-- `./scripts/verify_telegram_widget_sri.sh --print` — print current SRI hash for manual update.
-
-**SRI hash updates**: The hash is tied to the widget URL (`?22`). When Telegram updates the widget, CI will fail (Verify Telegram widget SRI step). To fix:
-1. Run `./scripts/verify_telegram_widget_sri.sh --print` and copy the hash.
-2. Update the `WIDGET_SRI` constant in `frontend/src/pages/Login.vue`.
-3. Run `./scripts/verify_telegram_widget_sri.sh` to confirm; test login in staging before deploying.
-
-**Fallback**: If the script fails to load (e.g. SRI mismatch), the login page retries once **without** SRI so users can still sign in. A console warning is logged. This is a deliberate availability vs. integrity tradeoff; update the hash when CI or the script reports a mismatch.
-
-**Optional automation**: A scheduled workflow or cron can run `./scripts/verify_telegram_widget_sri.sh` weekly and e.g. open an issue on failure to catch widget changes before users hit the fallback.
-
-### Telegram Auth Input Validation
-
-`src/web/utils/telegram_auth.py` validates and filters widget data before HMAC verification:
-1. Required fields check (`id`, `auth_date`, `hash`)
-2. Numeric type validation for `id` and `auth_date`
-3. Field filtering — only allowed fields (`ALLOWED_FIELDS`) are included in HMAC computation, unexpected keys are silently stripped
-4. **Auth date freshness**: `auth_date` must be within `settings.TELEGRAM_AUTH_MAX_AGE` seconds (env: `TELEGRAM_AUTH_MAX_AGE`, default 86400 = 24h). Use 300 for 5 minutes for tighter security.
+Telegram usernames can be transferred between users. The `update_telegram_username` repository method (`src/core/repositories.py`) clears a username from any previous owner before assigning it to the current user. The `/start` handler (`src/bot/handlers/command_handlers.py`) always syncs the username (including `None` when removed). The `telegram_username` field has `unique=True` (NULLs are allowed in Postgres/SQLite).
 
 ### CSRF Token Pattern
 

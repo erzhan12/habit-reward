@@ -3,12 +3,9 @@
 import json
 import logging
 import re
-import secrets
-from datetime import datetime, timezone, timedelta
 
 from django.contrib.auth import login, logout
 from django.conf import settings
-from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_GET, require_POST
@@ -75,9 +72,11 @@ def bot_login_request(request):
 
     POST /auth/bot-login/request/
     Body: {"username": "johndoe"}
-    Returns: {"token": "...", "expires_at": "...", "sent": true}
+    Returns: {"token": "...", "expires_at": "...", "message": "..."}
 
     Always returns 200 with a generic message to prevent username enumeration.
+    The service always returns a token (real or cache-only) so no branching
+    is needed here — both known and unknown users get the same response.
     """
     try:
         data = json.loads(request.body)
@@ -103,19 +102,6 @@ def bot_login_request(request):
     result = call_async(
         web_login_service.create_login_request(username, device_info)
     )
-
-    if not result:
-        # Return a fake token/expiry so frontend transitions to polling
-        # identically for known and unknown users (anti-enumeration).
-        fake_token = secrets.token_urlsafe(32)
-        fake_expires = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
-        # Cache fake token so status endpoint returns 'pending' until expiry
-        cache.set(f"wl_fake:{fake_token}", True, timeout=300)
-        return JsonResponse({
-            "message": "If this username is registered, a login confirmation has been sent.",
-            "token": fake_token,
-            "expires_at": fake_expires,
-        })
 
     result["message"] = "If this username is registered, a login confirmation has been sent."
     return JsonResponse(result)

@@ -518,9 +518,13 @@ class TestAuth:
         )
         assert response.status_code == 400
 
-    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock(None))
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock({"token": "unknown_user_token", "expires_at": "2026-01-01T00:00:00+00:00"}))
     def test_bot_login_request_unknown_user(self, mock_async):
-        """Unknown username returns 200 with generic message (anti-enumeration)."""
+        """Unknown username returns 200 with generic message (anti-enumeration).
+
+        The service always returns a dict (never None) so the view
+        never branches on user existence.
+        """
         response = Client().post(
             "/auth/bot-login/request/",
             data={"username": "nonexistentuser"},
@@ -575,6 +579,11 @@ class TestAuth:
         response = Client().get("/auth/bot-login/status/some_token/")
         assert response.status_code == 200
         assert response.json()["status"] == "expired"
+
+    def test_bot_login_status_rejects_post(self):
+        """POST to status endpoint returns 405 (GET only)."""
+        response = Client().post("/auth/bot-login/status/some_token/")
+        assert response.status_code == 405
 
     def test_bot_login_complete_success(self, user):
         """Confirmed login creates Django session."""
@@ -645,20 +654,40 @@ class TestAuth:
         )
         assert response.status_code in (400, 403)
 
-    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock(None))
-    def test_fake_token_cached_for_status_polling(self, mock_async):
-        """Fake token from unknown user is cached so status returns 'pending'."""
+    def test_token_cached_for_status_polling(self):
+        """Service caches every token (wl_pending:) so status returns 'pending'."""
         from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
 
         cache.clear()
-        response = Client().post(
-            "/auth/bot-login/request/",
-            data={"username": "unknownuser"},
-            content_type="application/json",
-        )
-        assert response.status_code == 200
-        fake_token = response.json()["token"]
-        assert cache.get(f"wl_fake:{fake_token}") is True
+        svc = WebLoginService()
+        with (
+            patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
+        ):
+            from src.web.utils.sync import call_async
+            result = call_async(svc.create_login_request("unknownuser"))
+        token = result["token"]
+        assert cache.get(f"wl_pending:{token}") is True
+
+    def test_check_status_falls_back_to_cache_on_db_lock(self):
+        """check_status returns 'pending' (not 500) when SQLite DB is locked."""
+        from django.core.cache import cache
+        from django.db import OperationalError
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+        token = "locked_token_abc"
+        cache.set(f"wl_pending:{token}", True, timeout=300)
+
+        with patch.object(
+            svc.request_repo, "get_by_token",
+            side_effect=OperationalError("database table is locked"),
+        ):
+            status = call_async(svc.check_status(token))
+
+        assert status == "pending"
 
     def test_rate_limited_view(self):
         """Rate limit handler returns 429 with JSON error."""
@@ -858,3 +887,80 @@ class TestDashboardTimezone:
         mock_repo.get_todays_logs_by_user.assert_called_once_with(
             ANY, target_date=fake_date
         )
+
+
+# ---- Username recycling tests ----
+
+
+class TestUsernameRecycling:
+    """Tests for update_telegram_username handling recycling and edge cases."""
+
+    def test_assign_username_clears_old_owner(self):
+        """When a username is assigned to user B, it is cleared from user A."""
+        from src.core.repositories import UserRepository
+        from src.web.utils.sync import call_async
+
+        user_a = User.objects.create_user(
+            username="tg_111", telegram_id="111", name="User A",
+            language="en", timezone="UTC", telegram_username="recycled",
+        )
+        user_b = User.objects.create_user(
+            username="tg_222", telegram_id="222", name="User B",
+            language="en", timezone="UTC",
+        )
+
+        repo = UserRepository()
+        call_async(repo.update_telegram_username("222", "recycled"))
+
+        user_a.refresh_from_db()
+        user_b.refresh_from_db()
+        assert user_a.telegram_username is None
+        assert user_b.telegram_username == "recycled"
+
+    def test_assign_none_clears_username(self):
+        """Passing None clears the user's telegram_username."""
+        from src.core.repositories import UserRepository
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_333", telegram_id="333", name="User C",
+            language="en", timezone="UTC", telegram_username="oldname",
+        )
+
+        repo = UserRepository()
+        call_async(repo.update_telegram_username("333", None))
+
+        user.refresh_from_db()
+        assert user.telegram_username is None
+
+    def test_username_normalized_to_lowercase(self):
+        """Username is lowercased and stripped of @ prefix."""
+        from src.core.repositories import UserRepository
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_444", telegram_id="444", name="User D",
+            language="en", timezone="UTC",
+        )
+
+        repo = UserRepository()
+        call_async(repo.update_telegram_username("444", "@MyUserName"))
+
+        user.refresh_from_db()
+        assert user.telegram_username == "myusername"
+
+    def test_reassign_same_username_is_idempotent(self):
+        """Re-assigning the same username to the same user is a no-op."""
+        from src.core.repositories import UserRepository
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_555", telegram_id="555", name="User E",
+            language="en", timezone="UTC", telegram_username="stable",
+        )
+
+        repo = UserRepository()
+        call_async(repo.update_telegram_username("555", "stable"))
+
+        user.refresh_from_db()
+        assert user.telegram_username == "stable"

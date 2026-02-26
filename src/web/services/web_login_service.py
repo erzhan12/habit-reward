@@ -27,36 +27,66 @@ class WebLoginService:
 
     async def create_login_request(
         self, username: str, device_info: str | None = None
-    ) -> dict | None:
+    ) -> dict:
         """Create a login request and dispatch Confirm/Deny to user via bot.
 
-        The Telegram notification is sent in a background thread so the
-        HTTP response returns in constant time regardless of whether the
-        user exists (prevents timing side-channel enumeration).
+        Both known and unknown users execute the same constant-time path:
+        lookup → generate token → cache as pending → return.  All DB writes
+        and the Telegram notification are deferred to a background thread so
+        that response timing is identical regardless of user existence.
 
         Args:
             username: Telegram @username (with or without @)
             device_info: Browser/device info string
 
         Returns:
-            Dict with {token, expires_at} on success, None if user not found
+            Dict with {token, expires_at} — always returned for both paths.
         """
+        from django.core.cache import cache
+
         user = await maybe_await(self.user_repo.get_by_telegram_username(username))
-        if not user:
-            logger.warning("Web login request for unknown username: @%s", username)
-            return None
 
-        if not user.telegram_id:
-            logger.warning("User @%s has no telegram_id", username)
-            return None
+        # Generate token and cache it immediately — identical work for both paths
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
+        cache.set(f"wl_pending:{token}", True, timeout=LOGIN_REQUEST_EXPIRY_MINUTES * 60)
 
+        if user and user.telegram_id:
+            # All DB writes + Telegram send happen in a background thread
+            # so the HTTP response time is constant for both paths.
+            threading.Thread(
+                target=self._process_login_background,
+                args=(user, token, expires_at, device_info),
+                daemon=True,
+            ).start()
+        else:
+            if not user:
+                logger.warning("Web login request for unknown username: @%s", username)
+            else:
+                logger.warning("User @%s has no telegram_id", username)
+
+        return {
+            "token": token,
+            "expires_at": expires_at.isoformat(),
+        }
+
+    def _process_login_background(
+        self, user, token: str, expires_at, device_info: str | None
+    ) -> None:
+        """Process login request in a background thread (DB writes + Telegram send)."""
+        try:
+            asyncio.run(self._process_login_request(user, token, expires_at, device_info))
+        except Exception as e:
+            logger.error("Background login processing failed for user %s: %s", user.id, e)
+
+    async def _process_login_request(
+        self, user, token: str, expires_at, device_info: str | None
+    ) -> None:
+        """Perform DB writes and send Telegram notification."""
         # Invalidate any pending requests for this user
         await maybe_await(self.request_repo.invalidate_pending_for_user(user.id))
 
         # Create new request
-        token = secrets.token_urlsafe(32)
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
-
         login_request = await maybe_await(
             self.request_repo.create(
                 user_id=user.id,
@@ -72,28 +102,10 @@ class WebLoginService:
             token[:8],
         )
 
-        # Send Telegram notification in background thread to avoid
-        # timing side-channel (Telegram API adds 100-500ms only for
-        # known users, which would leak account existence).
-        threading.Thread(
-            target=self._send_notification_background,
-            args=(int(user.telegram_id), login_request.id, token, device_info),
-            daemon=True,
-        ).start()
-
-        return {
-            "token": token,
-            "expires_at": expires_at.isoformat(),
-        }
-
-    def _send_notification_background(
-        self, chat_id: int, request_id: int, token: str, device_info: str | None
-    ) -> None:
-        """Send Telegram login notification in a background thread."""
-        try:
-            asyncio.run(self._send_login_notification(chat_id, request_id, token, device_info))
-        except Exception as e:
-            logger.error("Background login notification failed: %s", e)
+        # Send Telegram notification
+        await self._send_login_notification(
+            int(user.telegram_id), login_request.id, token, device_info
+        )
 
     async def _send_login_notification(
         self, chat_id: int, request_id: int, token: str, device_info: str | None
@@ -138,13 +150,28 @@ class WebLoginService:
         Returns:
             One of: 'pending', 'confirmed', 'denied', 'expired', 'used'
         """
-        login_request = await maybe_await(self.request_repo.get_by_token(token))
+        from django.core.cache import cache
+        from django.db import OperationalError
+
+        try:
+            login_request = await maybe_await(self.request_repo.get_by_token(token))
+        except OperationalError:
+            # SQLite can raise "database table is locked" when the background
+            # thread is writing (invalidate + create).  The cache always holds
+            # the correct fallback because it was set *before* the thread
+            # launched.  Fall through to the cache check.
+            logger.warning(
+                "DB lock during status check for token=%s…, falling back to cache",
+                token[:8],
+            )
+            login_request = None
+
         if not login_request:
-            # Check if this is a fake token from anti-enumeration logic.
-            # Cached → return 'pending' (indistinguishable from real).
-            # Not cached → return 'expired' (cache TTL mirrors DB expiry).
-            from django.core.cache import cache
-            if cache.get(f"wl_fake:{token}"):
+            # Token not yet in DB — either unknown user, background thread
+            # hasn't created the record yet, or DB was locked.  Cache check
+            # returns 'pending' while TTL is active, then 'expired' once
+            # cache evicts.
+            if cache.get(f"wl_pending:{token}"):
                 return "pending"
             return "expired"
 
