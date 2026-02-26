@@ -1144,6 +1144,37 @@ BotAuditLog.objects.create(
 
 **Why**: Django's `TextChoices` validates enum values. Invalid strings are silently rejected, resulting in NULL database values.
 
+## Web Login Status: String Returns and Enum Comparisons
+
+**Convention**: Two rules for WebLoginRequest status handling:
+
+1. **Return values** from `check_status()` must be plain strings for JSON serialization. Use `str(login_request.status)` or string literals.
+2. **Comparisons** in handlers and repository queries should use `WebLoginRequest.Status.PENDING.value` (enum `.value`) for type safety and refactoring support.
+
+**Files**:
+- `src/web/services/web_login_service.py` — `check_status()` returns strings; constants `TOKEN_BYTES`, `TOKEN_GENERATION_MAX_RETRIES`, `_JITTER_MIN`, `_JITTER_MAX` are configurable
+- `src/bot/handlers/web_login_handler.py` — status comparisons use `Status.X.value`
+- `src/core/repositories.py` — filter/update queries use `Status.X.value`
+
+```python
+# ❌ Bad — returns enum member, breaks JSON serialization
+return WebLoginRequest.Status.PENDING
+
+# ✅ Good — consistent string return
+return "pending"
+return str(login_request.status)
+
+# ❌ Bad — string literals in queries (typo-prone)
+WebLoginRequest.objects.filter(status='pending')
+
+# ✅ Good — enum .value in queries
+WebLoginRequest.objects.filter(status=WebLoginRequest.Status.PENDING.value)
+```
+
+## IP Anonymization in Logs
+
+When logging IP addresses (e.g., rate limiting), use `_anonymize_ip()` from `src/web/views/auth.py` to hash IPs for GDPR compliance. Never log raw IP addresses in production.
+
 ## HabitLog Ordering: Use `last_completed_date`, NOT `timestamp`
 
 **CRITICAL**: When querying for the "most recent" habit log, always order by `last_completed_date DESC`, never by `timestamp DESC`.

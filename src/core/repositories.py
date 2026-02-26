@@ -1303,7 +1303,7 @@ class WebLoginRequestRepository:
             Number of rows updated (0 or 1)
         """
         return await sync_to_async(
-            WebLoginRequest.objects.filter(token=token, status='pending').update
+            WebLoginRequest.objects.filter(token=token, status=WebLoginRequest.Status.PENDING.value).update
         )(status=status)
 
     async def mark_as_used(self, token: str) -> int:
@@ -1313,8 +1313,8 @@ class WebLoginRequestRepository:
             Number of rows updated (0 or 1). 0 means another request beat us.
         """
         return await sync_to_async(
-            WebLoginRequest.objects.filter(token=token, status='confirmed').update
-        )(status='used')
+            WebLoginRequest.objects.filter(token=token, status=WebLoginRequest.Status.CONFIRMED.value).update
+        )(status=WebLoginRequest.Status.USED.value)
 
     async def update_telegram_message_id(
         self, request_id: int | str, telegram_message_id: int
@@ -1333,8 +1333,8 @@ class WebLoginRequestRepository:
         """
         user_pk = int(user_id) if isinstance(user_id, str) else user_id
         return await sync_to_async(
-            WebLoginRequest.objects.filter(user_id=user_pk, status='pending').update
-        )(status='denied')
+            WebLoginRequest.objects.filter(user_id=user_pk, status=WebLoginRequest.Status.PENDING.value).update
+        )(status=WebLoginRequest.Status.DENIED.value)
 
     async def delete_expired(self) -> int:
         """Delete all expired login requests.

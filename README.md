@@ -188,6 +188,19 @@ DEFAULT_USER_TELEGRAM_ID=your_telegram_id_here
 | `AUTH_STATUS_RATE_LIMIT` | `30/m` | Rate limit for status polling endpoint (per IP). |
 | `TRUST_X_FORWARDED_FOR` | `False` | Trust X-Forwarded-For header for client IP. **Only enable behind a trusted reverse proxy** (nginx/Caddy) that overwrites this header. When exposed directly to the internet, clients can spoof their IP. **WARNING:** In production (`DEBUG=False`), enabling this without a reverse proxy is a security risk — attackers can forge their IP to bypass rate limiting and IP-based access controls. |
 | `CONN_MAX_AGE` | `600` | Database connection reuse timeout in seconds (reduces overhead in thread pool workers). |
+| `WEB_LOGIN_JITTER_MIN` | `0.05` | Minimum timing jitter (seconds) added to status polling responses. |
+| `WEB_LOGIN_JITTER_MAX` | `0.2` | Maximum timing jitter (seconds) added to status polling responses. |
+
+#### Tuning Thread Pool and Queue Size
+
+If you observe HTTP 503 errors during peak login times, increase `WEB_LOGIN_THREAD_POOL_SIZE` and/or `WEB_LOGIN_MAX_QUEUED`. Monitor with:
+
+```bash
+grep 'Login thread pool queue full' /path/to/logs/app.log
+```
+
+- **`WEB_LOGIN_THREAD_POOL_SIZE`**: Each worker handles one DB write + one Telegram API call. If Telegram responses are slow (>1s), you need more workers. Start with 10 and increase if you see queuing.
+- **`WEB_LOGIN_MAX_QUEUED`**: Requests beyond the thread pool queue here. If this fills up, new requests get 503. Set this to 2-5x the thread pool size. A value of 50 supports bursts of ~60 simultaneous logins.
 
 ### Scheduled Tasks
 
@@ -283,7 +296,7 @@ The web interface uses a bot-based Confirm/Deny login — no passwords.
 
 **Security properties:**
 - **Anti-enumeration**: Known and unknown usernames produce identical responses and timing (background work is deferred to a thread pool).
-- **Timing jitter**: Status polling adds 10-50ms random jitter from `secrets.SystemRandom()`.
+- **Timing jitter**: Status polling adds 50-200ms random jitter (configurable) from `secrets.SystemRandom()`.
 - **Replay prevention**: Confirmed tokens are atomically marked `used` via `UPDATE … WHERE status='confirmed'`.
 - **Rate limiting**: All endpoints are rate-limited per IP (`AUTH_RATE_LIMIT`, `AUTH_STATUS_RATE_LIMIT`).
 - **CSP nonce**: Production responses include a per-request CSP nonce for `style-src`.

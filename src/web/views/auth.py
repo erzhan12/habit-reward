@@ -19,14 +19,15 @@ Security properties
 * **Anti-enumeration**: Both known and unknown usernames receive an identical
   200 response with a token.  Background processing is deferred to a thread
   pool so timing is constant.
-* **Timing jitter**: ``check_status`` adds 10-50ms random jitter from a
-  ``secrets.SystemRandom()`` CSPRNG.
+* **Timing jitter**: ``check_status`` adds 50-200ms random jitter (configurable)
+  from a ``secrets.SystemRandom()`` CSPRNG.
 * **Atomic replay prevention**: Confirmed tokens are atomically marked
   ``used`` via ``UPDATE … WHERE status='confirmed'``.
 * **Rate limiting**: All endpoints are rate-limited per IP via
   ``django-ratelimit``.
 """
 
+import hashlib
 import json
 import logging
 import re
@@ -210,7 +211,7 @@ def bot_login_status(request, token):
     Error responses:
         - 429: Rate limit exceeded (AUTH_STATUS_RATE_LIMIT, default 30/m).
 
-    Includes random 10-50ms jitter to mask timing side-channels.
+    Includes random 50-200ms jitter (configurable) to mask timing side-channels.
 
     Example::
 
@@ -305,12 +306,21 @@ def dev_login(request):
     return redirect("/")
 
 
+def _anonymize_ip(ip: str) -> str:
+    """Hash an IP address for GDPR-safe logging.
+
+    Returns a short SHA-256 prefix that's sufficient for correlating
+    log entries without storing the raw IP.
+    """
+    return hashlib.sha256(ip.encode()).hexdigest()[:12]
+
+
 def rate_limited_view(request, exception=None):
     """Custom 403 handler — returns JSON for rate-limited requests."""
     from django_ratelimit.exceptions import Ratelimited
 
     if isinstance(exception, Ratelimited):
-        logger.warning("Rate limit exceeded for ip=%s on %s", request.META.get("REMOTE_ADDR", "unknown"), request.path)
+        logger.warning("Rate limit exceeded for ip=%s on %s", _anonymize_ip(request.META.get("REMOTE_ADDR", "unknown")), request.path)
         return JsonResponse(
             {"error": "Too many requests. Please wait a moment and try again."},
             status=429,

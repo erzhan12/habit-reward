@@ -56,8 +56,8 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     # Check if already handled
-    if login_request.status != "pending":
-        status_text = "confirmed" if login_request.status == "confirmed" else "denied"
+    if login_request.status != WebLoginRequest.Status.PENDING.value:
+        status_text = "confirmed" if login_request.status == WebLoginRequest.Status.CONFIRMED.value else "denied"
         await query.edit_message_text(f"This login request was already {status_text}.")
         return
 

@@ -13,7 +13,7 @@ from django.db import DatabaseError, IntegrityError, transaction
 
 from src.core.models import WebLoginRequest
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import TelegramError
+from telegram.error import Forbidden, InvalidToken, TelegramError
 
 from asgiref.sync import sync_to_async
 
@@ -31,6 +31,15 @@ _secure_random = secrets.SystemRandom()
 LOGIN_REQUEST_EXPIRY_MINUTES = getattr(settings, "WEB_LOGIN_EXPIRY_MINUTES", 5)
 WL_CONFIRM_PREFIX = "wl_c_"
 WL_DENY_PREFIX = "wl_d_"
+
+# Token generation parameters.
+TOKEN_BYTES = 32  # 256 bits of entropy for secrets.token_urlsafe
+TOKEN_GENERATION_MAX_RETRIES = 3  # Max attempts to generate a unique token
+
+# Configurable timing jitter range (seconds) for status polling.
+# Masks residual timing differences between DB hit/miss, cache hit/miss.
+_JITTER_MIN = getattr(settings, "WEB_LOGIN_JITTER_MIN", 0.05)
+_JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
 
 # Bounded thread pool for background login processing (DB writes + Telegram send).
 # Caps concurrent threads to prevent resource exhaustion under load; excess
@@ -89,7 +98,7 @@ class WebLoginService:
         # concurrency), we just generate one — the 256-bit token space makes
         # collisions astronomically unlikely, and the unique DB constraint
         # on ``WebLoginRequest.token`` catches any that do occur.
-        token = secrets.token_urlsafe(32)
+        token = secrets.token_urlsafe(TOKEN_BYTES)
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
         cache_ttl = max(int((expires_at - now).total_seconds()), 1)
@@ -150,9 +159,23 @@ class WebLoginService:
 
         try:
             call_async(self._process_login_request(user, token, expires_at, device_info))
+        except (InvalidToken, Forbidden) as e:
+            # Permanent Telegram errors — bot token is wrong or bot was
+            # blocked by the user.  These won't resolve on retry.
+            logger.critical(
+                "Permanent Telegram error during login processing — check bot config",
+                extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
+            )
+            cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
+            try:
+                cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
+            except Exception:
+                logger.warning("Cache write failed for wl_failed:%s", token[:8])
         except TelegramError as e:
+            # Temporary Telegram errors (network, rate limit, etc.) —
+            # may resolve on next attempt.
             logger.error(
-                "Telegram send failed during login processing",
+                "Temporary Telegram error during login processing",
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
             cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
@@ -197,7 +220,7 @@ class WebLoginService:
         @sync_to_async
         def _transactional_writes():
             nonlocal token
-            for _attempt in range(3):
+            for _attempt in range(TOKEN_GENERATION_MAX_RETRIES):
                 try:
                     with transaction.atomic():
                         WebLoginRequest.objects.filter(
@@ -212,7 +235,7 @@ class WebLoginService:
                         )
                 except IntegrityError:
                     # Token collision — regenerate and retry.
-                    token = secrets.token_urlsafe(32)
+                    token = secrets.token_urlsafe(TOKEN_BYTES)
             raise DatabaseError("Failed to generate unique token after retries")
 
         login_request = await _transactional_writes()
@@ -288,9 +311,11 @@ class WebLoginService:
         from django.core.cache import cache
         from django.db import OperationalError
 
-        # Random jitter (10-50ms) masks residual timing differences
-        # between DB hit vs miss, cache hit vs miss, etc.
-        await asyncio.sleep(_secure_random.uniform(0.01, 0.05))
+        # Random jitter (50-200ms by default, configurable via settings)
+        # masks residual timing differences between DB hit vs miss, cache
+        # hit vs miss, etc.  Applied uniformly to all paths to avoid
+        # selective jitter itself becoming a timing side-channel.
+        await asyncio.sleep(_secure_random.uniform(_JITTER_MIN, _JITTER_MAX))
 
         # Always perform both lookups to ensure constant-time work.
         # Do NOT short-circuit — both must execute every time.

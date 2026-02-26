@@ -98,11 +98,13 @@ defineOptions({ layout: null });
 
 // Polling constants — must stay in sync with server's LOGIN_REQUEST_EXPIRY_MINUTES (5 min)
 const POLL_INITIAL_DELAY_MS = 2000; // First poll after 2s
-const POLL_BACKOFF_STEP_MS = 1000; // Add 1s per poll
-const POLL_MAX_DELAY_MS = 5000; // Cap at 5s between polls
+const POLL_BACKOFF_FACTOR = 2; // Exponential backoff multiplier
+const POLL_MAX_DELAY_MS = 30_000; // Cap at 30s between polls
 const LOGIN_EXPIRY_MS = 300_000; // 5 minutes — matches server expiry
 
-// Must match canonical pattern in src/web/utils/validation.py (TELEGRAM_USERNAME_PATTERN)
+// IMPORTANT: Must stay in sync with TELEGRAM_USERNAME_PATTERN in
+// src/web/utils/validation.py. Consider using API-provided validation rules
+// in future to avoid maintaining duplicate patterns.
 const TELEGRAM_USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
 const username = ref("");
@@ -199,7 +201,7 @@ function startPolling() {
     pollTimer = setTimeout(async () => {
       await pollStatus();
       if (state.value === "waiting") {
-        pollDelay = Math.min(pollDelay + POLL_BACKOFF_STEP_MS, POLL_MAX_DELAY_MS);
+        pollDelay = Math.min(pollDelay * POLL_BACKOFF_FACTOR, POLL_MAX_DELAY_MS);
         schedulePoll();
       }
     }, pollDelay);

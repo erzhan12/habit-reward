@@ -743,7 +743,7 @@ class TestAuth:
 
         mock_sleep.assert_called_once()
         jitter = mock_sleep.call_args[0][0]
-        assert 0.01 <= jitter <= 0.05
+        assert 0.05 <= jitter <= 0.2
 
     def test_cache_ttl_derived_from_expires_at(self):
         """Cache timeout is derived from expires_at, not a separate constant."""
@@ -2067,3 +2067,97 @@ class TestUsernameUniquenessConstraint:
 
         assert user_x.telegram_username is None
         assert user_y.telegram_username == "shared_name"
+
+
+class TestConcurrentLoginInvalidation:
+    """Verify that creating a new login request invalidates previous pending ones."""
+
+    def test_concurrent_login_requests_invalidates_previous(self):
+        """Two login requests for the same user: first becomes denied, second stays pending."""
+        from django.core.cache import cache
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+
+        user = User.objects.create_user(
+            username="tg_888888888",
+            telegram_id="888888888",
+            name="Concurrent Inv",
+            language="en",
+            timezone="UTC",
+            telegram_username="concurrentinv",
+        )
+
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        # Create first pending request directly in DB
+        req1 = WebLoginRequest.objects.create(
+            user=user,
+            token="inv_token_first",
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=expires_at,
+        )
+
+        # Create second request through the service's transactional write path
+        svc = WebLoginService()
+
+        with patch.object(svc, "_send_login_notification", new_callable=AsyncMock):
+            call_async(svc._process_login_request(user, "inv_token_second", expires_at, None))
+
+        # First request should now be denied
+        req1.refresh_from_db()
+        assert req1.status == WebLoginRequest.Status.DENIED.value
+
+        # Second request should be pending
+        req2 = WebLoginRequest.objects.get(token="inv_token_second")
+        assert req2.status == WebLoginRequest.Status.PENDING.value
+
+
+class TestCircuitBreakerServiceLevel:
+    """Verify the service-level circuit breaker raises LoginServiceUnavailable."""
+
+    def test_login_request_rejects_when_queue_full(self):
+        """When _queue_slots.acquire returns False, service raises LoginServiceUnavailable."""
+        from django.core.cache import cache
+        import src.web.services.web_login_service as svc_mod
+        from src.web.services.web_login_service import LoginServiceUnavailable, WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+
+        user = User.objects.create_user(
+            username="tg_cb_test",
+            telegram_id="cb_test_id",
+            name="CB Test",
+            language="en",
+            timezone="UTC",
+            telegram_username="cbtestuser",
+        )
+
+        svc = WebLoginService()
+
+        # Mock the semaphore to report the queue is full.
+        original_slots = svc_mod._queue_slots
+        mock_sem = MagicMock()
+        mock_sem.acquire.return_value = False
+        svc_mod._queue_slots = mock_sem
+        try:
+            with pytest.raises(LoginServiceUnavailable):
+                call_async(svc.create_login_request("cbtestuser"))
+        finally:
+            svc_mod._queue_slots = original_slots
+
+        # Verify it also results in 503 from the view
+        svc_mod._queue_slots = mock_sem
+        try:
+            client = Client()
+            response = client.post(
+                "/auth/bot-login/request/",
+                data=json.dumps({"username": "cbtestuser"}),
+                content_type="application/json",
+            )
+            assert response.status_code == 503
+        finally:
+            svc_mod._queue_slots = original_slots
