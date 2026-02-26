@@ -112,14 +112,29 @@ class UserRepository:
         except User.DoesNotExist:
             return None
 
-    async def update_telegram_username(self, telegram_id: str, username: str) -> None:
+    async def update_telegram_username(self, telegram_id: str, username: str | None) -> None:
         """Sync Telegram username from bot interaction.
+
+        Handles username recycling: if another user previously held this
+        username, clears it from the old user before assigning to the new one.
 
         Args:
             telegram_id: User's Telegram ID
-            username: Current Telegram username
+            username: Current Telegram username, or None to clear
         """
+        if not username:
+            await sync_to_async(
+                User.objects.filter(telegram_id=telegram_id).update
+            )(telegram_username=None)
+            return
+
         normalized = username.lstrip('@').lower()
+        # Clear this username from any other user (handles Telegram username recycling)
+        await sync_to_async(
+            User.objects.filter(telegram_username=normalized)
+            .exclude(telegram_id=telegram_id)
+            .update
+        )(telegram_username=None)
         await sync_to_async(
             User.objects.filter(telegram_id=telegram_id).update
         )(telegram_username=normalized)

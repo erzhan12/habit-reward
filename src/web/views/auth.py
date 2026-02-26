@@ -11,7 +11,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import redirect
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 from django_ratelimit.decorators import ratelimit
 
 from inertia import render as inertia_render
@@ -121,6 +121,7 @@ def bot_login_request(request):
     return JsonResponse(result)
 
 
+@require_GET
 @ratelimit(key="ip", rate="30/m", method="GET", block=True)
 def bot_login_status(request, token):
     """Check login request status.
