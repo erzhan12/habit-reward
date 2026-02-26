@@ -65,6 +65,16 @@ class LoginServiceUnavailable(Exception):
     """Raised when the login background queue is full."""
 
 
+def _safe_cache_set(key: str, value, timeout: int) -> None:
+    """Write to cache with failure logging — never raises."""
+    from django.core.cache import cache
+
+    try:
+        cache.set(key, value, timeout=timeout)
+    except Exception:
+        logger.warning("Cache write failed for %s", key[:20])
+
+
 class WebLoginService:
     """Service for bot-based web login flow."""
 
@@ -102,13 +112,10 @@ class WebLoginService:
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
         cache_ttl = max(int((expires_at - now).total_seconds()), 1)
-        try:
-            cache.set(f"wl_pending:{token}", True, timeout=cache_ttl)
-        except Exception:
-            # Cache backend failure — the login flow can still proceed via
-            # DB-only path (check_status will find the DB record once the
-            # background thread writes it).  Log but don't fail the request.
-            logger.warning("Cache write failed for wl_pending:%s", token[:8])
+        # Cache backend failure is non-fatal — the login flow can still
+        # proceed via DB-only path (check_status will find the DB record
+        # once the background thread writes it).
+        _safe_cache_set(f"wl_pending:{token}", True, cache_ttl)
 
         if user and user.telegram_id:
             # Circuit breaker: reject if the background queue is saturated.
@@ -124,9 +131,17 @@ class WebLoginService:
                 )
             # All DB writes + Telegram send happen in the bounded thread pool
             # so the HTTP response time is constant for both paths.
-            _login_executor.submit(
-                self._process_login_background, user, token, expires_at, device_info
-            )
+            try:
+                _login_executor.submit(
+                    self._process_login_background, user, token, expires_at, device_info
+                )
+            except RuntimeError:
+                # Executor is shut down (e.g. during server shutdown).
+                # Release the semaphore to prevent leaks.
+                _queue_slots.release()
+                raise LoginServiceUnavailable(
+                    "Login service shutting down"
+                )
         else:
             # SECURITY: We deliberately do nothing visible here — no error, no
             # different response.  Returning the same {token, expires_at} for
@@ -154,8 +169,12 @@ class WebLoginService:
         Always releases the ``_queue_slots`` semaphore on completion so the
         circuit breaker accurately tracks in-flight work.
         """
-        from django.core.cache import cache
         from src.web.utils.sync import call_async
+
+        def _mark_failed():
+            """Set a failure cache key so check_status can return 'error'."""
+            cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
+            _safe_cache_set(f"wl_failed:{token}", True, cache_ttl)
 
         try:
             call_async(self._process_login_request(user, token, expires_at, device_info))
@@ -166,11 +185,7 @@ class WebLoginService:
                 "Permanent Telegram error during login processing — check bot config",
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
-            cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
-            try:
-                cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
-            except Exception:
-                logger.warning("Cache write failed for wl_failed:%s", token[:8])
+            _mark_failed()
         except TelegramError as e:
             # Temporary Telegram errors (network, rate limit, etc.) —
             # may resolve on next attempt.
@@ -178,33 +193,19 @@ class WebLoginService:
                 "Temporary Telegram error during login processing",
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
-            cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
-            try:
-                cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
-            except Exception:
-                logger.warning("Cache write failed for wl_failed:%s", token[:8])
+            _mark_failed()
         except DatabaseError as e:
             logger.error(
                 "Database error during login processing",
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
-            cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
-            try:
-                cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
-            except Exception:
-                logger.warning("Cache write failed for wl_failed:%s", token[:8])
+            _mark_failed()
         except Exception as e:
             logger.error(
                 "Unexpected error during login processing",
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
-            # Set a failure cache key so check_status can return an error
-            # instead of leaving the user polling "pending" indefinitely.
-            cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
-            try:
-                cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
-            except Exception:
-                logger.warning("Cache write failed for wl_failed:%s", token[:8])
+            _mark_failed()
         finally:
             _queue_slots.release()
 
@@ -250,8 +251,16 @@ class WebLoginService:
         )
 
         # Send Telegram notification
+        try:
+            chat_id = int(user.telegram_id)
+        except (ValueError, TypeError):
+            logger.error(
+                "Invalid telegram_id for user — cannot send notification",
+                extra={"user_id": user.id, "telegram_id": user.telegram_id},
+            )
+            return
         await self._send_login_notification(
-            int(user.telegram_id), login_request.id, token, device_info
+            chat_id, login_request.id, token, device_info
         )
 
     async def _send_login_notification(
@@ -372,9 +381,9 @@ class WebLoginService:
             logger.warning("Complete login attempt with unknown token: %s...", token[:8])
             return None
 
-        # Must be confirmed — compare directly to the TextChoices member,
-        # not .value; Django stores and returns the choice instance.
-        if login_request.status != WebLoginRequest.Status.CONFIRMED:
+        # Must be confirmed — compare to .value for consistency with the
+        # rest of the codebase (handler, repository queries).
+        if login_request.status != WebLoginRequest.Status.CONFIRMED.value:
             logger.warning(
                 "Complete login attempt with status=%s for token=%s...",
                 login_request.status,

@@ -301,6 +301,40 @@ The web interface uses a bot-based Confirm/Deny login — no passwords.
 - **Rate limiting**: All endpoints are rate-limited per IP (`AUTH_RATE_LIMIT`, `AUTH_STATUS_RATE_LIMIT`).
 - **CSP nonce**: Production responses include a per-request CSP nonce for `style-src`.
 
+### Monitoring & Observability
+
+Key metrics to track for the web login flow:
+
+| Metric | How to monitor | Action threshold |
+|---|---|---|
+| Login queue depth | `grep 'Login thread pool queue full' app.log` | Increase `WEB_LOGIN_THREAD_POOL_SIZE` if frequent |
+| Token generation retries | `grep 'Failed to generate unique token' app.log` | Should never appear — investigate if it does |
+| Cache hit/miss rate | Monitor your cache backend (Redis `INFO stats`, memcached stats) | High miss rate may indicate cache eviction pressure |
+| Request-to-confirmation time | Measure time between `POST /request/` and status becoming `confirmed` | If >30s, check Telegram API latency |
+| 503 error rate | `grep 'temporarily unavailable' app.log` or HTTP 503 count | Increase `WEB_LOGIN_MAX_QUEUED` if >1% of requests |
+| Permanent Telegram errors | `grep 'Permanent Telegram error' app.log` (logged at CRITICAL) | Check bot token validity and bot block status |
+
+### Troubleshooting
+
+**Telegram API unreachable:**
+- Status polling returns `"error"` after the background thread fails.
+- Check: `grep 'Telegram.*error' app.log` — temporary errors (network) vs permanent errors (invalid token, bot blocked).
+- Verify bot token: `curl https://api.telegram.org/bot<TOKEN>/getMe`
+
+**Cache backend failure:**
+- The system degrades gracefully to DB-only mode. Status checks are slower but functional.
+- Check: `grep 'Cache write failed' app.log` — frequent entries indicate a cache backend issue.
+- Users may see slightly longer "pending" periods as the DB write completes in the background thread.
+
+**Stuck pending requests:**
+- Check `telegram_message_id` on the `WebLoginRequest` record — if NULL, the Telegram message was never sent.
+- Verify bot token validity and that the user hasn't blocked the bot.
+- Run `python manage.py cleanup_expired_logins` to clear stale records.
+
+**Too many 429 (rate limit) errors:**
+- Increase `AUTH_RATE_LIMIT` (default `10/m`) for login requests, or `AUTH_STATUS_RATE_LIMIT` (default `30/m`) for status polling.
+- If behind a reverse proxy, ensure `TRUST_X_FORWARDED_FOR=True` so rate limiting uses real client IPs instead of the proxy IP.
+
 ## Ethical Considerations
 
 1. **Data Privacy**: Only telegram_id stored, full user control via Django admin

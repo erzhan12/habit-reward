@@ -42,7 +42,7 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     # Verify the user pressing the button is the request owner
-    if str(update.effective_user.id) != login_request.user.telegram_id:
+    if str(update.effective_user.id) != str(login_request.user.telegram_id):
         logger.warning(
             "User %s tried to respond to login request for user %s",
             update.effective_user.id,

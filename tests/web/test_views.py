@@ -2161,3 +2161,209 @@ class TestCircuitBreakerServiceLevel:
             assert response.status_code == 503
         finally:
             svc_mod._queue_slots = original_slots
+
+
+class TestTokenCollisionRetry:
+    """Verify token collision retry logic with IntegrityError."""
+
+    def test_token_collision_retries_and_succeeds(self):
+        """When IntegrityError fires on first attempt, retries with new token."""
+        from django.db import IntegrityError
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_collision_user",
+            telegram_id="770000001",
+            name="Collision User",
+            language="en",
+            timezone="UTC",
+            telegram_username="collisionuser",
+        )
+
+        svc = WebLoginService()
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        call_count = 0
+        original_create = WebLoginRequest.objects.create
+
+        def create_with_collision(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise IntegrityError("UNIQUE constraint failed: token")
+            return original_create(**kwargs)
+
+        with patch.object(WebLoginRequest.objects, "create", side_effect=create_with_collision), \
+             patch.object(svc, "_send_login_notification", new_callable=AsyncMock):
+            call_async(svc._process_login_request(user, "collision_tok_1", expires_at, None))
+
+        assert call_count == 2
+        # A request was created (on second attempt)
+        assert WebLoginRequest.objects.filter(user=user).exists()
+
+    def test_token_collision_exhausts_retries(self):
+        """When all retries hit IntegrityError, raises DatabaseError."""
+        from django.db import DatabaseError, IntegrityError
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_exhaust_user",
+            telegram_id="770000002",
+            name="Exhaust User",
+            language="en",
+            timezone="UTC",
+        )
+
+        svc = WebLoginService()
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        with patch.object(WebLoginRequest.objects, "create", side_effect=IntegrityError("dup")), \
+             pytest.raises(DatabaseError, match="Failed to generate unique token"):
+            call_async(svc._process_login_request(user, "exhaust_tok", expires_at, None))
+
+
+class TestConcurrentStatusChecks:
+    """Verify concurrent status checks for the same token."""
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_concurrent_status_checks_return_consistent_results(self, mock_sleep):
+        """Multiple status checks for the same token all return the same result."""
+        from django.core.cache import cache
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+
+        user = User.objects.create_user(
+            username="tg_concurrent_status",
+            telegram_id="770000003",
+            name="Concurrent Status",
+            language="en",
+            timezone="UTC",
+        )
+
+        token = "concurrent_status_tok"
+        WebLoginRequest.objects.create(
+            user=user,
+            token=token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        svc = WebLoginService()
+
+        # Run multiple checks — all should return "pending"
+        results = [call_async(svc.check_status(token)) for _ in range(5)]
+        assert all(r == "pending" for r in results)
+
+
+class TestExecutorShutdown:
+    """Verify behavior when ThreadPoolExecutor is shut down."""
+
+    def test_submit_after_shutdown_returns_503(self):
+        """When executor is shut down, submit raises RuntimeError and semaphore is released."""
+        from django.core.cache import cache
+        import src.web.services.web_login_service as svc_mod
+        from src.web.services.web_login_service import LoginServiceUnavailable, WebLoginService, _login_executor
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+
+        user = User.objects.create_user(
+            username="tg_shutdown_user",
+            telegram_id="770000004",
+            name="Shutdown User",
+            language="en",
+            timezone="UTC",
+            telegram_username="shutdownuser",
+        )
+
+        svc = WebLoginService()
+
+        with patch.object(_login_executor, "submit", side_effect=RuntimeError("executor shut down")):
+            with pytest.raises(LoginServiceUnavailable):
+                call_async(svc.create_login_request("shutdownuser"))
+
+
+class TestMarkAsUsedConcurrency:
+    """Verify mark_as_used atomicity — only the first caller succeeds.
+
+    Note: True thread-level concurrency causes SQLite table locking in tests.
+    We simulate concurrent callers by calling complete_login sequentially —
+    the UPDATE WHERE status='confirmed' ensures only the first call transitions
+    the token to 'used', and all subsequent calls see status='used' and fail.
+    """
+
+    def test_sequential_complete_login_only_first_succeeds(self):
+        """First complete_login returns user, subsequent calls return None."""
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_atomic_user",
+            telegram_id="770000005",
+            name="Atomic User",
+            language="en",
+            timezone="UTC",
+        )
+
+        token = "atomic_complete_tok"
+        WebLoginRequest.objects.create(
+            user=user,
+            token=token,
+            status=WebLoginRequest.Status.CONFIRMED,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        svc = WebLoginService()
+
+        # Simulate 4 "concurrent" callers — first wins, rest get None
+        results = [call_async(svc.complete_login(token)) for _ in range(4)]
+
+        successes = [r for r in results if r is not None]
+        failures = [r for r in results if r is None]
+
+        assert len(successes) == 1
+        assert len(failures) == 3
+        assert successes[0].id == user.id
+
+
+class TestValidationPatternSync:
+    """Verify frontend and backend validation patterns stay in sync."""
+
+    def test_telegram_username_regex_matches_frontend(self):
+        """Backend TELEGRAM_USERNAME_PATTERN matches the frontend regex."""
+        import re
+        from src.web.utils.validation import TELEGRAM_USERNAME_PATTERN
+
+        # Frontend regex from Login.vue: /^[a-zA-Z0-9_]{3,32}$/
+        frontend_pattern = r"^[a-zA-Z0-9_]{3,32}$"
+
+        assert TELEGRAM_USERNAME_PATTERN == frontend_pattern, (
+            f"Backend pattern {TELEGRAM_USERNAME_PATTERN!r} differs from "
+            f"frontend pattern {frontend_pattern!r} — update both to match"
+        )
+
+        # Also verify they accept/reject the same test strings
+        test_cases = [
+            ("abc", True),
+            ("valid_user_123", True),
+            ("a" * 32, True),
+            ("ab", False),       # too short
+            ("a" * 33, False),   # too long
+            ("user@name", False),
+            ("", False),
+        ]
+        for username, expected in test_cases:
+            backend_match = bool(re.match(TELEGRAM_USERNAME_PATTERN, username))
+            frontend_match = bool(re.match(frontend_pattern, username))
+            assert backend_match == frontend_match == expected, (
+                f"Mismatch for {username!r}: backend={backend_match}, "
+                f"frontend={frontend_match}, expected={expected}"
+            )

@@ -111,6 +111,8 @@ def _parse_device_info(request) -> str:
     # is done at the output boundary in _send_login_notification, not here,
     # so the DB stores clean data usable in any context.
     raw = f"{browser} on {os_name}, IP: {ip}"
+    if not raw or raw.isspace():
+        raw = "Unknown device"
     return raw[:255]
 
 
