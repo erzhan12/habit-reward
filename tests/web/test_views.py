@@ -1803,7 +1803,7 @@ class TestThreadPoolExhaustion:
     """Verify behaviour when the login background thread pool is saturated."""
 
     def test_queue_full_returns_503(self):
-        """When the thread pool queue exceeds the max, the view returns 503."""
+        """When the semaphore is exhausted, the view returns 503."""
         from django.core.cache import cache
         import src.web.services.web_login_service as svc_mod
 
@@ -1819,11 +1819,11 @@ class TestThreadPoolExhaustion:
             telegram_username="queueuser",
         )
 
-        # Replace the real work queue with a mock that reports full.
-        mock_queue = MagicMock()
-        mock_queue.qsize.return_value = 999
-        original_queue = svc_mod._login_executor._work_queue
-        svc_mod._login_executor._work_queue = mock_queue
+        # Mock the semaphore to report the queue is full.
+        original_slots = svc_mod._queue_slots
+        mock_sem = MagicMock()
+        mock_sem.acquire.return_value = False  # non-blocking acquire fails
+        svc_mod._queue_slots = mock_sem
         try:
             client = Client()
             response = client.post(
@@ -1832,10 +1832,43 @@ class TestThreadPoolExhaustion:
                 content_type="application/json",
             )
         finally:
-            svc_mod._login_executor._work_queue = original_queue
+            svc_mod._queue_slots = original_slots
 
         assert response.status_code == 503
         assert "temporarily unavailable" in response.json()["error"].lower()
+
+    def test_semaphore_released_after_background_processing(self):
+        """The semaphore slot is released after background processing completes."""
+        import threading
+        from django.core.cache import cache
+        import src.web.services.web_login_service as svc_mod
+        from src.web.services.web_login_service import WebLoginService
+
+        cache.clear()
+        svc = WebLoginService()
+
+        # Replace with a real semaphore so we can observe acquire/release.
+        test_sem = threading.Semaphore(1)
+        original_slots = svc_mod._queue_slots
+        svc_mod._queue_slots = test_sem
+        try:
+            mock_user = MagicMock()
+            mock_user.id = 1
+            mock_user.telegram_id = "111"
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+            # Acquire the slot (simulating circuit breaker check passing).
+            assert test_sem.acquire(blocking=False) is True
+
+            # After background processing, the slot should be released.
+            with patch.object(svc, "_process_login_request", new_callable=AsyncMock):
+                svc._process_login_background(mock_user, "sem_test_tok", expires_at, None)
+
+            # Semaphore should be available again.
+            assert test_sem.acquire(blocking=False) is True
+            test_sem.release()  # clean up
+        finally:
+            svc_mod._queue_slots = original_slots
 
 
 # ---- Device info parsing edge cases ----
@@ -1862,12 +1895,17 @@ class TestDeviceInfoEdgeCases:
         request = MagicMock()
         request.META = {"HTTP_USER_AGENT": long_ua, "REMOTE_ADDR": "5.6.7.8"}
         info = _parse_device_info(request)
-        # Output must be <= 255 chars (DB limit) and HTML-escaped.
+        # Output must be <= 255 chars (DB field limit).
         assert len(info) <= 255
         assert "5.6.7.8" in info
 
-    def test_malicious_user_agent_html_escaped(self):
-        """HTML/script tags in User-Agent are escaped."""
+    def test_malicious_user_agent_not_in_output(self):
+        """Malicious HTML/script in User-Agent does not appear in output.
+
+        The UA parser extracts named patterns (Chrome/Firefox/etc.), so raw
+        injection strings never make it into the result string.  HTML-escaping
+        for Telegram is done at the output boundary in _send_login_notification.
+        """
         from src.web.views.auth import _parse_device_info
 
         request = MagicMock()
@@ -1876,12 +1914,12 @@ class TestDeviceInfoEdgeCases:
             "REMOTE_ADDR": "9.8.7.6",
         }
         info = _parse_device_info(request)
-        # The raw <script> should be escaped.
+        # Malicious content should not appear — parser defaults to "Unknown".
         assert "<script>" not in info
-        assert "&lt;" in info or "Unknown" in info
+        assert "Unknown" in info
 
     def test_user_agent_with_html_in_browser_name(self):
-        """Browser version containing HTML chars is escaped."""
+        """Browser version containing HTML chars does not leak into output."""
         from src.web.views.auth import _parse_device_info
 
         request = MagicMock()
@@ -1891,3 +1929,141 @@ class TestDeviceInfoEdgeCases:
         }
         info = _parse_device_info(request)
         assert "<img" not in info
+
+
+# ---- Cache backend failure tests ----
+
+
+class TestCacheBackendFailure:
+    """Test graceful degradation when the cache backend is unavailable."""
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_check_status_degrades_on_cache_failure(self, mock_sleep):
+        """check_status falls back to DB-only when cache.get_many() raises."""
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        svc = WebLoginService()
+        user = User.objects.create_user(
+            username="tg_cache_fail", telegram_id="123123123", name="CacheFail",
+            language="en", timezone="UTC",
+        )
+        req = WebLoginRequest.objects.create(
+            user=user,
+            token="cache_fail_tok",
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        with patch("django.core.cache.cache.get_many", side_effect=ConnectionError("Redis down")):
+            status = call_async(svc.check_status("cache_fail_tok"))
+
+        # Should return the DB status, not crash.
+        assert status == WebLoginRequest.Status.PENDING
+
+    def test_create_login_request_degrades_on_cache_set_failure(self):
+        """create_login_request still returns a token when cache.set() fails."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+
+        with patch.object(svc.user_repo, "get_by_telegram_username", return_value=None), \
+             patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis down")):
+            result = call_async(svc.create_login_request("cachefailuser"))
+
+        assert "token" in result
+        assert "expires_at" in result
+
+    def test_background_processing_logs_cache_failure(self):
+        """_process_login_background logs a warning when cache.set fails
+        during error recovery (wl_failed key)."""
+        from src.web.services.web_login_service import WebLoginService
+
+        svc = WebLoginService()
+        mock_user = MagicMock()
+        mock_user.id = 42
+
+        with patch.object(svc, "_process_login_request", new_callable=AsyncMock,
+                         side_effect=Exception("boom")), \
+             patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis down")), \
+             patch("src.web.services.web_login_service.logger") as mock_logger:
+            # Should not raise — all errors caught.
+            svc._process_login_background(
+                mock_user, "bg_cache_fail", datetime.now(timezone.utc) + timedelta(minutes=5), None
+            )
+
+        # Should log the original error AND the cache write failure.
+        assert mock_logger.error.called
+        assert mock_logger.warning.called
+
+
+# ---- Username uniqueness constraint tests ----
+
+
+class TestUsernameUniquenessConstraint:
+    """Test concurrent telegram_username assignment race conditions."""
+
+    def test_concurrent_username_claim_only_one_wins(self):
+        """When two users try to claim the same username, only one should end
+        up with it — the other should have it cleared."""
+        from src.core.repositories import UserRepository
+        from src.web.utils.sync import call_async
+
+        user_a = User.objects.create_user(
+            username="tg_uniq_a", telegram_id="uniq_a", name="Uniq A",
+            language="en", timezone="UTC",
+        )
+        user_b = User.objects.create_user(
+            username="tg_uniq_b", telegram_id="uniq_b", name="Uniq B",
+            language="en", timezone="UTC",
+        )
+
+        repo = UserRepository()
+
+        # Both try to claim "contested_name"
+        call_async(repo.update_telegram_username("uniq_a", "contested_name"))
+        call_async(repo.update_telegram_username("uniq_b", "contested_name"))
+
+        user_a.refresh_from_db()
+        user_b.refresh_from_db()
+
+        # Exactly one should own the username.
+        owners = [u for u in (user_a, user_b) if u.telegram_username == "contested_name"]
+        assert len(owners) == 1, f"Expected exactly 1 owner, got {len(owners)}"
+
+        # The loser should have their username cleared.
+        losers = [u for u in (user_a, user_b) if u.telegram_username is None]
+        assert len(losers) == 1
+
+    def test_sequential_username_reassignment(self):
+        """Assigning the same username to a different user clears the previous owner."""
+        from src.core.repositories import UserRepository
+        from src.web.utils.sync import call_async
+
+        user_x = User.objects.create_user(
+            username="tg_seq_x", telegram_id="seq_x", name="Seq X",
+            language="en", timezone="UTC",
+        )
+        user_y = User.objects.create_user(
+            username="tg_seq_y", telegram_id="seq_y", name="Seq Y",
+            language="en", timezone="UTC",
+        )
+
+        repo = UserRepository()
+
+        # X claims the name first.
+        call_async(repo.update_telegram_username("seq_x", "shared_name"))
+        user_x.refresh_from_db()
+        assert user_x.telegram_username == "shared_name"
+
+        # Y claims the same name — X should lose it.
+        call_async(repo.update_telegram_username("seq_y", "shared_name"))
+        user_x.refresh_from_db()
+        user_y.refresh_from_db()
+
+        assert user_x.telegram_username is None
+        assert user_y.telegram_username == "shared_name"

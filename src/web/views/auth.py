@@ -27,7 +27,6 @@ Security properties
   ``django-ratelimit``.
 """
 
-import html
 import json
 import logging
 import re
@@ -107,10 +106,11 @@ def _parse_device_info(request) -> str:
             ua[:200],
         )
 
-    # Sanitize at the input boundary: truncate to 255 chars (DB field limit)
-    # and HTML-escape to prevent injection in Telegram messages.
+    # Truncate to 255 chars (DB field limit).  HTML-escaping for Telegram
+    # is done at the output boundary in _send_login_notification, not here,
+    # so the DB stores clean data usable in any context.
     raw = f"{browser} on {os_name}, IP: {ip}"
-    return html.escape(raw[:255])
+    return raw[:255]
 
 
 @require_POST

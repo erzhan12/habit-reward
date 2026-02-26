@@ -177,6 +177,26 @@ LLM_API_KEY=your_key_here
 DEFAULT_USER_TELEGRAM_ID=your_telegram_id_here
 ```
 
+### Web Login Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `WEB_LOGIN_THREAD_POOL_SIZE` | `10` | Max concurrent background login workers (DB writes + Telegram send). |
+| `WEB_LOGIN_MAX_QUEUED` | `50` | Max queued login requests before returning HTTP 503. |
+| `WEB_LOGIN_EXPIRY_MINUTES` | `5` | How long users have to confirm a login request in Telegram. |
+| `AUTH_RATE_LIMIT` | `10/m` | Rate limit for login request and complete endpoints (per IP). |
+| `AUTH_STATUS_RATE_LIMIT` | `30/m` | Rate limit for status polling endpoint (per IP). |
+| `TRUST_X_FORWARDED_FOR` | `False` | Trust X-Forwarded-For header for client IP. **Only enable behind a trusted reverse proxy** (nginx/Caddy) that overwrites this header. When exposed directly to the internet, clients can spoof their IP. |
+| `CONN_MAX_AGE` | `600` | Database connection reuse timeout in seconds (reduces overhead in thread pool workers). |
+
+### Scheduled Tasks
+
+The `cleanup_expired_logins` management command deletes expired `WebLoginRequest` records to prevent unbounded table growth. Schedule it hourly via cron:
+
+```cron
+0 * * * * cd /path/to/project && uv run python manage.py cleanup_expired_logins
+```
+
 ## Algorithms
 
 ### Per-Habit Streak Algorithm

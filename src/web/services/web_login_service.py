@@ -4,11 +4,12 @@ import asyncio
 import atexit
 import logging
 import secrets
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 
 from django.conf import settings
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, IntegrityError, transaction
 
 from src.core.models import WebLoginRequest
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
@@ -25,18 +26,30 @@ logger = logging.getLogger(__name__)
 # Mersenne Twister used by the `random` module.
 _secure_random = secrets.SystemRandom()
 
-LOGIN_REQUEST_EXPIRY_MINUTES = 5
+# Configurable via settings.WEB_LOGIN_EXPIRY_MINUTES (default 5).
+# Must stay in sync with frontend LOGIN_EXPIRY_MS in Login.vue.
+LOGIN_REQUEST_EXPIRY_MINUTES = getattr(settings, "WEB_LOGIN_EXPIRY_MINUTES", 5)
 WL_CONFIRM_PREFIX = "wl_c_"
 WL_DENY_PREFIX = "wl_d_"
 
 # Bounded thread pool for background login processing (DB writes + Telegram send).
 # Caps concurrent threads to prevent resource exhaustion under load; excess
 # submissions queue up instead of spawning unbounded threads.
+# NOTE: WEB_LOGIN_THREAD_POOL_SIZE (default 10) means at most 10 concurrent
+# login requests can be processed.  Excess requests queue up to
+# WEB_LOGIN_MAX_QUEUED (default 50) before returning HTTP 503.  If you
+# observe frequent 503s, increase these values or investigate slow Telegram
+# API responses / DB writes.
 _login_executor = ThreadPoolExecutor(max_workers=settings.WEB_LOGIN_THREAD_POOL_SIZE, thread_name_prefix="web_login")
 atexit.register(_login_executor.shutdown, wait=True)
 
 # Maximum number of queued items before rejecting new requests (circuit breaker).
 _MAX_QUEUED_LOGINS = getattr(settings, "WEB_LOGIN_MAX_QUEUED", 50)
+
+# Semaphore-based counter for queue depth — avoids relying on the private
+# ``ThreadPoolExecutor._work_queue`` attribute which is a CPython
+# implementation detail and could break in future Python versions.
+_queue_slots = threading.Semaphore(_MAX_QUEUED_LOGINS)
 
 
 class LoginServiceUnavailable(Exception):
@@ -71,30 +84,31 @@ class WebLoginService:
 
         user = await maybe_await(self.user_repo.get_by_telegram_username(username))
 
-        # Generate token and cache it immediately — identical work for both paths.
-        # Derive cache timeout from the same expires_at timestamp so both
-        # cache eviction and DB expiry use a single source of truth.
-        # Loop guards against astronomically unlikely token collisions.
-        @sync_to_async
-        def _generate_unique_token():
-            t = secrets.token_urlsafe(32)
-            while WebLoginRequest.objects.filter(token=t).exists():
-                t = secrets.token_urlsafe(32)
-            return t
-
-        token = await _generate_unique_token()
+        # Generate a cryptographically random token.  Instead of the old
+        # check-then-insert pattern (which had a TOCTOU race under
+        # concurrency), we just generate one — the 256-bit token space makes
+        # collisions astronomically unlikely, and the unique DB constraint
+        # on ``WebLoginRequest.token`` catches any that do occur.
+        token = secrets.token_urlsafe(32)
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
         cache_ttl = max(int((expires_at - now).total_seconds()), 1)
-        cache.set(f"wl_pending:{token}", True, timeout=cache_ttl)
+        try:
+            cache.set(f"wl_pending:{token}", True, timeout=cache_ttl)
+        except Exception:
+            # Cache backend failure — the login flow can still proceed via
+            # DB-only path (check_status will find the DB record once the
+            # background thread writes it).  Log but don't fail the request.
+            logger.warning("Cache write failed for wl_pending:%s", token[:8])
 
         if user and user.telegram_id:
             # Circuit breaker: reject if the background queue is saturated.
-            queue_size = _login_executor._work_queue.qsize()
-            if queue_size >= _MAX_QUEUED_LOGINS:
+            # Uses a semaphore instead of the private _work_queue to avoid
+            # relying on CPython implementation details.
+            if not _queue_slots.acquire(blocking=False):
                 logger.critical(
-                    "Login thread pool queue full (%d pending), rejecting request",
-                    queue_size,
+                    "Login thread pool queue full (>=%d pending), rejecting request",
+                    _MAX_QUEUED_LOGINS,
                 )
                 raise LoginServiceUnavailable(
                     "Login service temporarily unavailable"
@@ -127,6 +141,9 @@ class WebLoginService:
 
         Uses call_async() (asgiref) instead of asyncio.run() to reuse the
         existing event loop, consistent with the rest of the codebase.
+
+        Always releases the ``_queue_slots`` semaphore on completion so the
+        circuit breaker accurately tracks in-flight work.
         """
         from django.core.cache import cache
         from src.web.utils.sync import call_async
@@ -139,14 +156,20 @@ class WebLoginService:
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
             cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
-            cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
+            try:
+                cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
+            except Exception:
+                logger.warning("Cache write failed for wl_failed:%s", token[:8])
         except DatabaseError as e:
             logger.error(
                 "Database error during login processing",
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
             cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
-            cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
+            try:
+                cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
+            except Exception:
+                logger.warning("Cache write failed for wl_failed:%s", token[:8])
         except Exception as e:
             logger.error(
                 "Unexpected error during login processing",
@@ -155,7 +178,12 @@ class WebLoginService:
             # Set a failure cache key so check_status can return an error
             # instead of leaving the user polling "pending" indefinitely.
             cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
-            cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
+            try:
+                cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
+            except Exception:
+                logger.warning("Cache write failed for wl_failed:%s", token[:8])
+        finally:
+            _queue_slots.release()
 
     async def _process_login_request(
         self, user, token: str, expires_at, device_info: str | None
@@ -164,19 +192,28 @@ class WebLoginService:
 
         # Wrap invalidate + create in a transaction so that if create fails,
         # the invalidation is rolled back and the user's pending request is preserved.
+        # Uses try/except on IntegrityError (unique constraint on token) to
+        # handle the astronomically unlikely collision without a TOCTOU race.
         @sync_to_async
         def _transactional_writes():
-            with transaction.atomic():
-                WebLoginRequest.objects.filter(
-                    user_id=user.id,
-                    status=WebLoginRequest.Status.PENDING,
-                ).update(status=WebLoginRequest.Status.DENIED)
-                return WebLoginRequest.objects.create(
-                    user_id=user.id,
-                    token=token,
-                    expires_at=expires_at,
-                    device_info=device_info,
-                )
+            nonlocal token
+            for _attempt in range(3):
+                try:
+                    with transaction.atomic():
+                        WebLoginRequest.objects.filter(
+                            user_id=user.id,
+                            status=WebLoginRequest.Status.PENDING,
+                        ).update(status=WebLoginRequest.Status.DENIED)
+                        return WebLoginRequest.objects.create(
+                            user_id=user.id,
+                            token=token,
+                            expires_at=expires_at,
+                            device_info=device_info,
+                        )
+                except IntegrityError:
+                    # Token collision — regenerate and retry.
+                    token = secrets.token_urlsafe(32)
+            raise DatabaseError("Failed to generate unique token after retries")
 
         login_request = await _transactional_writes()
 
@@ -198,10 +235,12 @@ class WebLoginService:
         self, chat_id: int, request_id: int, token: str, device_info: str | None
     ) -> None:
         """Send the Telegram message with Confirm/Deny buttons."""
+        import html as html_mod
+
         bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
-        # device_info is already sanitized (HTML-escaped + truncated) at the
-        # input boundary in auth.py:_parse_device_info.
-        device_text = device_info or "Unknown device"
+        # HTML-escape at the output boundary — device_info is truncated in
+        # auth.py but stored unescaped so the DB data is context-neutral.
+        device_text = html_mod.escape(device_info) if device_info else "Unknown device"
         message_text = (
             f"🔐 <b>Web Login Request</b>\n\n"
             f"Someone is trying to log in to your account:\n"
@@ -268,27 +307,29 @@ class WebLoginService:
             )
             login_request = None
 
-        cache_keys = cache.get_many([f"wl_pending:{token}", f"wl_failed:{token}"])
+        try:
+            cache_keys = cache.get_many([f"wl_pending:{token}", f"wl_failed:{token}"])
+        except Exception:
+            logger.warning("Cache read failed during status check for token=%s…", token[:8])
+            cache_keys = {}
         cache_pending = cache_keys.get(f"wl_pending:{token}")
         cache_failed = cache_keys.get(f"wl_failed:{token}")
 
         # Now use the results — logic is the same, but all lookups
         # have already been performed regardless of which path we take.
-        # All return paths produce plain strings; the view serialises them
-        # directly into JSON.  Using string literals (not Status.PENDING.value)
-        # keeps every branch visually consistent.
+        # Return Status enum values consistently; Django's TextChoices
+        # serialise to their string value automatically in JsonResponse.
         if not login_request:
             if cache_failed:
                 return "error"
             if cache_pending:
-                return "pending"
+                return WebLoginRequest.Status.PENDING
             return "expired"
 
         # Check expiry
         if datetime.now(timezone.utc) > login_request.expires_at:
             return "expired"
 
-        # login_request.status is already a string (Django TextChoices).
         return login_request.status
 
     async def complete_login(self, token: str):
@@ -305,8 +346,9 @@ class WebLoginService:
             logger.warning("Complete login attempt with unknown token: %s...", token[:8])
             return None
 
-        # Must be confirmed
-        if login_request.status != WebLoginRequest.Status.CONFIRMED.value:
+        # Must be confirmed — compare directly to the TextChoices member,
+        # not .value; Django stores and returns the choice instance.
+        if login_request.status != WebLoginRequest.Status.CONFIRMED:
             logger.warning(
                 "Complete login attempt with status=%s for token=%s...",
                 login_request.status,

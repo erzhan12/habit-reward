@@ -252,6 +252,10 @@ DASHBOARD_ACTION_RATE_LIMIT = env('DASHBOARD_ACTION_RATE_LIMIT', default='60/m')
 # Thread pool size for background login processing (DB writes + Telegram send)
 WEB_LOGIN_THREAD_POOL_SIZE = env.int('WEB_LOGIN_THREAD_POOL_SIZE', default=10)
 
+# Login request expiry in minutes (how long users have to confirm in Telegram).
+# Must stay in sync with frontend LOGIN_EXPIRY_MS in Login.vue.
+WEB_LOGIN_EXPIRY_MINUTES = env.int('WEB_LOGIN_EXPIRY_MINUTES', default=5)
+
 # Trust X-Forwarded-For header for client IP detection.
 # Only enable when Django is behind a trusted reverse proxy (e.g. nginx/Caddy)
 # that overwrites X-Forwarded-For with the real client IP.
