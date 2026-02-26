@@ -1276,7 +1276,9 @@ class WebLoginRequestRepository:
         """Clear cache keys tied to a login token after terminal DB transitions."""
         from django.core.cache import cache
 
-        cache.delete_many([f"wl_pending:{token}", f"wl_failed:{token}"])
+        from src.web.services.web_login_service import WL_FAILED_KEY, WL_PENDING_KEY
+
+        cache.delete_many([f"{WL_PENDING_KEY}{token}", f"{WL_FAILED_KEY}{token}"])
 
     async def create(
         self,

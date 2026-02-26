@@ -34,13 +34,15 @@ def parse_ip_address(request) -> str:
             if len(parts) > 2:
                 logger.warning(
                     "X-Forwarded-For contains %d IPs — reverse proxy may not "
-                    "be sanitizing the header (possible IP injection)",
+                    "be sanitizing the header (possible IP injection). "
+                    "Falling back to REMOTE_ADDR.",
                     len(parts),
                 )
-            candidate = parts[0]
-            try:
-                ipaddress.ip_address(candidate)
-                return candidate
-            except ValueError:
-                pass
+            else:
+                candidate = parts[0]
+                try:
+                    ipaddress.ip_address(candidate)
+                    return candidate
+                except ValueError:
+                    pass
     return request.META.get("REMOTE_ADDR", "unknown")

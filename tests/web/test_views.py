@@ -8,6 +8,7 @@ import pytest
 from django.test import Client
 
 from src.core.models import User
+from src.web.services.web_login_service import WL_FAILED_KEY, WL_PENDING_KEY
 
 pytestmark = pytest.mark.django_db
 
@@ -668,7 +669,7 @@ class TestAuth:
             from src.web.utils.sync import call_async
             result = call_async(svc.create_login_request("unknownuser"))
         token = result["token"]
-        assert cache.get(f"wl_pending:{token}") is True
+        assert cache.get(f"{WL_PENDING_KEY}{token}") is True
 
     @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
     def test_check_status_falls_back_to_cache_on_db_lock(self, mock_sleep):
@@ -681,7 +682,7 @@ class TestAuth:
         cache.clear()
         svc = WebLoginService()
         token = "locked_token_abc"
-        cache.set(f"wl_pending:{token}", True, timeout=300)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
         with patch.object(
             svc.request_repo, "get_by_token",
@@ -702,7 +703,7 @@ class TestAuth:
         svc = WebLoginService()
         token = "cache_hit_token"
 
-        cache.set(f"wl_pending:{token}", True, timeout=300)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
         with (
             patch.object(svc.request_repo, "get_by_token") as mock_db,
@@ -712,7 +713,7 @@ class TestAuth:
 
         assert status == "pending"
         mock_cache_get_many.assert_called_once_with(
-            [f"wl_pending:{token}", f"wl_failed:{token}"]
+            [f"{WL_PENDING_KEY}{token}", f"{WL_FAILED_KEY}{token}"]
         )
         mock_db.assert_not_called()
 
@@ -726,7 +727,7 @@ class TestAuth:
         cache.clear()
         svc = WebLoginService()
         token = "jitter_test_token"
-        cache.set(f"wl_pending:{token}", True, timeout=300)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
         with patch.object(svc.request_repo, "get_by_token", return_value=None):
             call_async(svc.check_status(token))
@@ -752,7 +753,7 @@ class TestAuth:
         token = result["token"]
         mock_set.assert_called_once()
         call_args = mock_set.call_args
-        assert call_args[0][0] == f"wl_pending:{token}"
+        assert call_args[0][0] == f"{WL_PENDING_KEY}{token}"
         # timeout should be close to 300s but derived from expires_at
         timeout = call_args[1].get("timeout") or call_args[0][2]
         assert 295 <= timeout <= 300
@@ -944,7 +945,7 @@ class TestLoginRaceConditions:
         token = "no_db_yet_token"
 
         # Token is in cache but NOT in DB (background thread hasn't run)
-        cache.set(f"wl_pending:{token}", True, timeout=300)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
         with patch.object(svc.request_repo, "get_by_token", return_value=None):
             status = call_async(svc.check_status(token))
@@ -1003,7 +1004,7 @@ class TestBackgroundProcessingFailures:
 
         token = "tg_fail_token_aaa"
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-        cache.set(f"wl_pending:{token}", True, timeout=300)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
         with patch.object(svc, "_send_login_notification", new_callable=AsyncMock,
                          side_effect=Exception("Telegram API unavailable")):
@@ -1011,7 +1012,7 @@ class TestBackgroundProcessingFailures:
             svc._process_login_background(user, token, expires_at, None)
 
         # Cache entry survives the background failure
-        assert cache.get(f"wl_pending:{token}") is True
+        assert cache.get(f"{WL_PENDING_KEY}{token}") is True
 
     @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
     def test_status_pending_after_telegram_failure(self, mock_sleep):
@@ -1024,7 +1025,7 @@ class TestBackgroundProcessingFailures:
         cache.clear()
         svc = WebLoginService()
         token = "tg_fail_status_token"
-        cache.set(f"wl_pending:{token}", True, timeout=300)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
         # No DB record exists (background thread failed before DB write)
         with patch.object(svc.request_repo, "get_by_token", return_value=None):
@@ -1048,7 +1049,7 @@ class TestBackgroundProcessingFailures:
 
         token = "db_fail_token_bbb"
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-        cache.set(f"wl_pending:{token}", True, timeout=300)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
         # Mock _process_login_request to raise DB error (simulates any DB failure)
         with patch.object(svc, "_process_login_request", new_callable=AsyncMock,
@@ -1056,7 +1057,7 @@ class TestBackgroundProcessingFailures:
             # Should not raise — exception caught in _process_login_background
             svc._process_login_background(mock_user, token, expires_at, None)
 
-        assert cache.get(f"wl_pending:{token}") is True
+        assert cache.get(f"{WL_PENDING_KEY}{token}") is True
 
     @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
     def test_cache_expiry_transitions_to_expired_after_failure(self, mock_sleep):
@@ -1203,7 +1204,7 @@ class TestIPAddressParsing:
 
     @patch("src.web.utils.ip.settings")
     def test_xff_injection_attack(self, mock_settings):
-        """X-Forwarded-For with multiple IPs: code uses leftmost, but logs a warning."""
+        """X-Forwarded-For with >2 IPs: falls back to REMOTE_ADDR and logs a warning."""
         from src.web.utils.ip import parse_ip_address
 
         mock_settings.TRUST_X_FORWARDED_FOR = True
@@ -1215,8 +1216,8 @@ class TestIPAddressParsing:
         }
         with patch("src.web.utils.ip.logger") as mock_logger:
             result = parse_ip_address(request)
-        # Still returns leftmost (proxy responsibility to sanitize), but warns
-        assert result == "10.0.0.1"
+        # Falls back to REMOTE_ADDR when IP injection is detected
+        assert result == "127.0.0.1"
         mock_logger.warning.assert_called_once()
         assert "3 IPs" in mock_logger.warning.call_args[0][0] % mock_logger.warning.call_args[0][1:]
 
@@ -1503,7 +1504,7 @@ class TestFullLoginFlow:
         # so we create the DB record directly to simulate what it does)
         token = "full_flow_test_token"
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-        cache.set(f"wl_pending:{token}", True, timeout=300)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
         login_request = WebLoginRequest.objects.create(
             user=login_user,
@@ -1552,6 +1553,79 @@ class TestFullLoginFlow:
             content_type="application/json",
         )
         assert response.status_code == 403
+
+    def test_full_http_login_flow(self, login_user):
+        """End-to-end via HTTP endpoints: POST /request/ → GET /status/ → POST /complete/.
+
+        Exercises the real view layer (not just service) to verify JSON
+        contracts, session creation, and replay protection via HTTP.
+        """
+        from django.core.cache import cache
+        from src.core.models import WebLoginRequest
+        from src.core.repositories import WebLoginRequestRepository
+
+        cache.clear()
+        repo = WebLoginRequestRepository()
+        client = Client()
+
+        # 1) POST /request/ — returns token
+        with patch("src.web.views.auth.call_async") as mock_async:
+            mock_async.side_effect = _call_async_mock({
+                "token": "http_flow_token",
+                "expires_at": "2099-01-01T00:00:00+00:00",
+            })
+            resp = client.post(
+                "/auth/bot-login/request/",
+                data=json.dumps({"username": "flowuser"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        token = body["token"]
+        assert "If this username is registered" in body["message"]
+
+        # Create a confirmed DB record to simulate the bot callback
+        WebLoginRequest.objects.create(
+            user=login_user,
+            token=token,
+            status=WebLoginRequest.Status.CONFIRMED,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        # 2) GET /status/ — returns confirmed
+        with patch("src.web.views.auth.call_async", side_effect=_call_async_mock("confirmed")):
+            resp = client.get(f"/auth/bot-login/status/{token}/")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "confirmed"
+
+        # 3) POST /complete/ — creates session
+        resp = client.post(
+            "/auth/bot-login/complete/",
+            data=json.dumps({"token": token}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+        # 4) Session exists — authenticated request succeeds
+        with (
+            patch("src.web.views.dashboard.habit_service") as mock_hs,
+            patch("src.web.views.dashboard.habit_log_repository") as mock_repo,
+            patch("src.web.views.dashboard.streak_service") as mock_ss,
+        ):
+            mock_hs.get_all_active_habits.return_value = []
+            mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
+            mock_ss.get_validated_streak_map.return_value = {}
+            resp = client.get("/")
+        assert resp.status_code == 200
+
+        # 5) Replay attempt fails
+        resp = client.post(
+            "/auth/bot-login/complete/",
+            data=json.dumps({"token": token}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 403
 
 
 # ---- Concurrent login request test ----
@@ -1647,7 +1721,7 @@ class TestConcurrentLoginRequests:
             status=WebLoginRequest.Status.PENDING,
             expires_at=expires_at,
         )
-        cache.set("wl_pending:svc_concurrent_1", True, timeout=300)
+        cache.set(f"{WL_PENDING_KEY}svc_concurrent_1", True, timeout=300)
 
         # Call _process_login_request which does the transactional
         # invalidate + create. Mock the Telegram send.
@@ -1694,7 +1768,7 @@ class TestLoginRaceConditionsPolling(TestLoginRaceConditions):
             status=WebLoginRequest.Status.PENDING,
             expires_at=expires_at,
         )
-        cache.set("wl_pending:race_poll_token", True, timeout=300)
+        cache.set(f"{WL_PENDING_KEY}race_poll_token", True, timeout=300)
 
         # Poll status — should be pending
         with patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock):
@@ -1750,7 +1824,7 @@ class TestBackgroundProcessingFailure:
         svc = WebLoginService()
         token = "failure_test_token"
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-        cache.set(f"wl_pending:{token}", True, timeout=300)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
         # Mock _send_login_notification to raise TelegramError
         with patch(
@@ -1762,7 +1836,7 @@ class TestBackgroundProcessingFailure:
             svc._process_login_background(failure_user, token, expires_at, "Test device")
 
         # The failure cache key should be set
-        assert cache.get(f"wl_failed:{token}") is True
+        assert cache.get(f"{WL_FAILED_KEY}{token}") is True
 
         # Status polling should return 'error' (no DB record was created
         # because _process_login_request raises before DB write completes
@@ -1865,8 +1939,9 @@ class TestThreadPoolExhaustion:
         assert "temporarily unavailable" in response.json()["error"].lower()
 
     def test_semaphore_released_after_background_processing(self):
-        """The semaphore slot is released after background processing completes."""
+        """The semaphore slot is released via done_callback after executor completes."""
         import threading
+        from concurrent.futures import Future
         from django.core.cache import cache
         import src.web.services.web_login_service as svc_mod
         from src.web.services.web_login_service import WebLoginService
@@ -1887,9 +1962,15 @@ class TestThreadPoolExhaustion:
             # Acquire the slot (simulating circuit breaker check passing).
             assert test_sem.acquire(blocking=False) is True
 
-            # After background processing, the slot should be released.
+            # Simulate executor submit + done_callback (the real release path).
+            future = Future()
+            future.add_done_callback(lambda f: test_sem.release())
+
             with patch.object(svc, "_process_login_request", new_callable=AsyncMock):
                 svc._process_login_background(mock_user, "sem_test_tok", expires_at, None)
+
+            # Simulate the future completing (triggers done_callback).
+            future.set_result(None)
 
             # Semaphore should be available again.
             assert test_sem.acquire(blocking=False) is True

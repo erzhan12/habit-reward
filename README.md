@@ -222,7 +222,13 @@ grep 'Login thread pool queue full' /path/to/logs/app.log
 The `cleanup_expired_logins` management command deletes expired `WebLoginRequest` records to prevent unbounded table growth. Schedule it hourly via cron:
 
 ```cron
-0 * * * * cd /path/to/project && uv run python manage.py cleanup_expired_logins
+0 * * * * cd /path/to/project && /path/to/venv/bin/python manage.py cleanup_expired_logins >> /var/log/cleanup.log 2>&1
+```
+
+Or with `uv`:
+
+```cron
+0 * * * * cd /path/to/project && uv run python manage.py cleanup_expired_logins >> /var/log/cleanup.log 2>&1
 ```
 
 ## Algorithms

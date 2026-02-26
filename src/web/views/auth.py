@@ -54,6 +54,8 @@ logger = logging.getLogger(__name__)
 MAX_USER_AGENT_LENGTH = 1024
 # Maximum device_info length (DB field constraint)
 MAX_DEVICE_INFO_LENGTH = 255
+# URL-safe base64 token format (secrets.token_urlsafe output)
+_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 # Re-export for backward compatibility with existing tests.
 _parse_ip_address = parse_ip_address
@@ -253,6 +255,9 @@ def bot_login_complete(request):
     token = str(data.get("token", "")).strip()
     if not token:
         return JsonResponse({"error": "Token is required"}, status=400)
+
+    if not _TOKEN_PATTERN.match(token):
+        return JsonResponse({"error": "Invalid token format"}, status=400)
 
     user = call_async(web_login_service.complete_login(token))
     if not user:

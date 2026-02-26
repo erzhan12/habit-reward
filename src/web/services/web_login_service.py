@@ -32,6 +32,11 @@ LOGIN_REQUEST_EXPIRY_MINUTES = getattr(settings, "WEB_LOGIN_EXPIRY_MINUTES", 5)
 WL_CONFIRM_PREFIX = "wl_c_"
 WL_DENY_PREFIX = "wl_d_"
 
+# Cache key prefix to avoid collisions in shared cache backends.
+_CACHE_PREFIX = "habit_reward:"
+WL_PENDING_KEY = f"{_CACHE_PREFIX}wl_pending:"
+WL_FAILED_KEY = f"{_CACHE_PREFIX}wl_failed:"
+
 # Token generation parameters.
 TOKEN_BYTES = 32  # 256 bits of entropy for secrets.token_urlsafe
 TOKEN_GENERATION_MAX_RETRIES = 3  # Max attempts to generate a unique token
@@ -93,7 +98,7 @@ def _safe_cache_set(key: str, value, timeout: int) -> None:
         cache.set(key, value, timeout=timeout)
         with _cache_failure_lock:
             _cache_failure_count = 0
-    except Exception:
+    except (ConnectionError, TimeoutError, OSError):
         with _cache_failure_lock:
             _cache_failure_count += 1
             failure_count = _cache_failure_count
@@ -147,7 +152,7 @@ class WebLoginService:
         # proceed via DB-only path (check_status will find the DB record
         # once the background thread writes it).
         try:
-            _safe_cache_set(f"wl_pending:{token}", True, cache_ttl)
+            _safe_cache_set(f"{WL_PENDING_KEY}{token}", True, cache_ttl)
         except CacheWriteError as exc:
             logger.critical(
                 "Cache backend unhealthy during login request creation",
@@ -173,9 +178,10 @@ class WebLoginService:
                 future = _login_executor.submit(
                     self._process_login_background, user, token, expires_at, device_info
                 )
-                future.add_done_callback(
-                    lambda f: _queue_slots.release() if f.cancelled() else None
-                )
+                # Release the semaphore when the future completes (success,
+                # exception, or cancellation).  This is the single release
+                # point — _process_login_background must NOT release it.
+                future.add_done_callback(lambda f: _queue_slots.release())
             except RuntimeError:
                 # Executor is shut down (e.g. during server shutdown).
                 # Release the semaphore to prevent leaks.
@@ -207,15 +213,15 @@ class WebLoginService:
         Uses call_async() (asgiref) instead of asyncio.run() to reuse the
         existing event loop, consistent with the rest of the codebase.
 
-        Always releases the ``_queue_slots`` semaphore on completion so the
-        circuit breaker accurately tracks in-flight work.
+        The ``_queue_slots`` semaphore is released by the done_callback on
+        the Future, not here — this avoids double-release on cancellation.
         """
         from src.web.utils.sync import call_async
 
         def _mark_failed():
             """Set a failure cache key so check_status can return 'error'."""
             cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
-            _safe_cache_set(f"wl_failed:{token}", True, cache_ttl)
+            _safe_cache_set(f"{WL_FAILED_KEY}{token}", True, cache_ttl)
 
         def _mark_failed_safely():
             """Best-effort cache write; failures are logged but non-fatal here."""
@@ -261,8 +267,6 @@ class WebLoginService:
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
             _mark_failed_safely()
-        finally:
-            _queue_slots.release()
 
     @staticmethod
     def _create_login_request_with_retry(user_id, token, expires_at, device_info):
@@ -289,7 +293,7 @@ class WebLoginService:
                 # Token collision — regenerate and retry.
                 token = secrets.token_urlsafe(TOKEN_BYTES)
         from django.core.cache import cache
-        cache.delete(f"wl_pending:{token}")
+        cache.delete(f"{WL_PENDING_KEY}{token}")
         raise DatabaseError("Failed to generate unique token after retries")
 
     async def _process_login_request(
@@ -382,16 +386,8 @@ class WebLoginService:
         from django.core.cache import cache
         from django.db import OperationalError
 
-        # Random jitter (50-200ms by default, configurable via settings)
-        # masks residual timing differences between DB hit vs miss, cache
-        # hit vs miss, etc.  Applied BEFORE the DB query so that variable
-        # DB latency (index hit vs miss) is obscured by the jitter offset.
-        # Applied uniformly to all paths to avoid selective jitter itself
-        # becoming a timing side-channel.
-        await asyncio.sleep(_secure_random.uniform(_JITTER_MIN, _JITTER_MAX))
-
-        pending_key = f"wl_pending:{token}"
-        failed_key = f"wl_failed:{token}"
+        pending_key = f"{WL_PENDING_KEY}{token}"
+        failed_key = f"{WL_FAILED_KEY}{token}"
         try:
             cache_keys = cache.get_many([pending_key, failed_key])
         except Exception:
@@ -401,35 +397,41 @@ class WebLoginService:
         cache_failed = cache_keys.get(failed_key)
 
         if cache_failed:
-            return "error"
-        if cache_pending:
-            return "pending"
+            status = "error"
+        elif cache_pending:
+            status = "pending"
+        else:
+            # Cache is empty; fall back to DB lookup.
+            db_unavailable = False
+            try:
+                login_request = await maybe_await(self.request_repo.get_by_token(token))
+            except OperationalError:
+                logger.warning(
+                    "DB lock during status check for token=%s…, and cache is empty",
+                    token[:8],
+                )
+                login_request = None
+                db_unavailable = True
 
-        # Cache is empty; fall back to DB lookup.
-        db_unavailable = False
-        try:
-            login_request = await maybe_await(self.request_repo.get_by_token(token))
-        except OperationalError:
-            logger.warning(
-                "DB lock during status check for token=%s…, and cache is empty",
-                token[:8],
-            )
-            login_request = None
-            db_unavailable = True
+            # Return string status values consistently for JSON serialization.
+            # Django's TextChoices members must be converted to their .value
+            # (string) for JSON responses.
+            if not login_request:
+                status = "error" if db_unavailable else "expired"
+            elif datetime.now(timezone.utc) > login_request.expires_at:
+                status = "expired"
+            else:
+                status = str(login_request.status)
 
-        # Return string status values consistently for JSON serialization.
-        # Django's TextChoices members must be converted to their .value
-        # (string) for JSON responses.
-        if not login_request:
-            if db_unavailable:
-                return "error"
-            return "expired"
+        # Random jitter (50-200ms by default, configurable via settings)
+        # masks residual timing differences between DB hit vs miss, cache
+        # hit vs miss, etc.  Applied AFTER all lookups so that variable
+        # work time (DB index hit vs miss, cache hit vs miss) is obscured
+        # by the jitter.  Applied uniformly to all paths to avoid selective
+        # jitter itself becoming a timing side-channel.
+        await asyncio.sleep(_secure_random.uniform(_JITTER_MIN, _JITTER_MAX))
 
-        # Check expiry
-        if datetime.now(timezone.utc) > login_request.expires_at:
-            return "expired"
-
-        return str(login_request.status)
+        return status
 
     async def complete_login(self, token: str):
         """Complete the login after confirmation.
