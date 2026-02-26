@@ -65,19 +65,19 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         updated = await maybe_await(
             web_login_request_repository.update_status(token, WebLoginRequest.Status.CONFIRMED.value)
         )
-        if updated:
+        if updated == 1:
             await query.edit_message_text("✅ Login confirmed. You can close this message.")
             logger.info("Web login confirmed for user %s", login_request.user_id)
-        else:
+        elif updated == 0:
             await query.edit_message_text("⚠️ This login request has already been processed.")
     else:
         updated = await maybe_await(
             web_login_request_repository.update_status(token, WebLoginRequest.Status.DENIED.value)
         )
-        if updated:
+        if updated == 1:
             await query.edit_message_text("❌ Login denied. The request has been rejected.")
             logger.info("Web login denied for user %s", login_request.user_id)
-        else:
+        elif updated == 0:
             await query.edit_message_text("⚠️ This login request has already been processed.")
 
 

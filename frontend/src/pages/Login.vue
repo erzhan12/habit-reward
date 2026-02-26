@@ -102,7 +102,7 @@ const POLL_BACKOFF_STEP_MS = 1000; // Add 1s per poll
 const POLL_MAX_DELAY_MS = 5000; // Cap at 5s between polls
 const LOGIN_EXPIRY_MS = 300_000; // 5 minutes — matches server expiry
 
-// Must match backend regex in auth.py: ^[a-zA-Z0-9_]{3,32}$
+// Must match backend regex in src/web/views/auth.py line 121
 const TELEGRAM_USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
 const username = ref("");
@@ -122,6 +122,12 @@ function getCsrfToken() {
   return meta.content;
 }
 
+/**
+ * Validate the username and send a login request to the backend.
+ * On success, stores the returned token and transitions state from
+ * "idle" → "waiting", then starts polling. On failure (rate limit,
+ * validation, network), transitions to "error" with a user message.
+ */
 async function submitLogin() {
   if (!username.value.trim() || submitting.value) return;
 
@@ -179,6 +185,12 @@ async function submitLogin() {
   }
 }
 
+/**
+ * Begin polling the backend for login request status changes.
+ * Uses exponential backoff (2s initial → 5s max) to reduce server
+ * load. Sets a hard 5-minute expiry timer matching the server-side
+ * token TTL, after which polling stops and state becomes "expired".
+ */
 function startPolling() {
   stopPolling();
   pollDelay = POLL_INITIAL_DELAY_MS;
@@ -212,6 +224,13 @@ function stopPolling() {
   }
 }
 
+/**
+ * Fetch the current status of the login token from the backend.
+ * Handles state transitions: "confirmed" → completeLogin(),
+ * "denied" → stop polling with denied state, "expired"/"not_found" →
+ * stop with expired state, "used" → redirect (login completed in
+ * another tab). On network error, backs off to max delay.
+ */
 async function pollStatus() {
   if (!loginToken.value) return;
 
@@ -240,6 +259,13 @@ async function pollStatus() {
   }
 }
 
+/**
+ * Finalize the login by sending the confirmed token to the backend.
+ * The backend creates a Django session and returns a redirect URL.
+ * On success, navigates to the redirect target via Inertia router.
+ * On failure (rate limit, server error, invalid token), transitions
+ * to "error" state with an appropriate message.
+ */
 async function completeLogin() {
   try {
     const response = await fetch("/auth/bot-login/complete/", {

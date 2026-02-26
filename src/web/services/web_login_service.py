@@ -29,7 +29,7 @@ WL_DENY_PREFIX = "wl_d_"
 # Bounded thread pool for background login processing (DB writes + Telegram send).
 # Caps concurrent threads to prevent resource exhaustion under load; excess
 # submissions queue up instead of spawning unbounded threads.
-_login_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="web_login")
+_login_executor = ThreadPoolExecutor(max_workers=settings.WEB_LOGIN_THREAD_POOL_SIZE, thread_name_prefix="web_login")
 atexit.register(_login_executor.shutdown, wait=True)
 
 
@@ -67,7 +67,7 @@ class WebLoginService:
         token = secrets.token_urlsafe(32)
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
-        cache_ttl = int((expires_at - now).total_seconds())
+        cache_ttl = max(int((expires_at - now).total_seconds()), 1)
         cache.set(f"wl_pending:{token}", True, timeout=cache_ttl)
 
         if user and user.telegram_id:
@@ -103,7 +103,8 @@ class WebLoginService:
             # Set a failure cache key so check_status can return an error
             # instead of leaving the user polling "pending" indefinitely.
             from django.core.cache import cache
-            cache.set(f"wl_failed:{token}", True, timeout=int((expires_at - datetime.now(timezone.utc)).total_seconds()))
+            cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
+            cache.set(f"wl_failed:{token}", True, timeout=cache_ttl)
 
     async def _process_login_request(
         self, user, token: str, expires_at, device_info: str | None

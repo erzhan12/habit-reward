@@ -1196,6 +1196,16 @@ class TestIPAddressParsing:
         assert "10.0.0.5" in info
         assert "not-an-ip" not in info
 
+    def test_parse_ip_with_malicious_xforwardedfor(self):
+        """Verify that malicious X-Forwarded-For values fall back to REMOTE_ADDR."""
+        from django.test import RequestFactory
+        from src.web.views.auth import _parse_ip_address
+
+        factory = RequestFactory()
+        request = factory.get('/', HTTP_X_FORWARDED_FOR='<script>alert(1)</script>', REMOTE_ADDR='1.2.3.4')
+        ip = _parse_ip_address(request)
+        assert ip == '1.2.3.4'
+
 
 # ---- Prop structure tests (Inertia JSON mode) ----
 

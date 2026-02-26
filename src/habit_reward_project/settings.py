@@ -238,8 +238,13 @@ HABIT_WEIGHT_MAX = 100
 
 # Web auth rate limit (django-ratelimit format, e.g. '10/m', '5/m')
 AUTH_RATE_LIMIT = env('AUTH_RATE_LIMIT', default='10/m')
+# Status polling rate limit (higher than auth because polling is frequent)
+AUTH_STATUS_RATE_LIMIT = env('AUTH_STATUS_RATE_LIMIT', default='30/m')
 # Dashboard actions (complete/revert habit) rate limit per user
 DASHBOARD_ACTION_RATE_LIMIT = env('DASHBOARD_ACTION_RATE_LIMIT', default='60/m')
+
+# Thread pool size for background login processing (DB writes + Telegram send)
+WEB_LOGIN_THREAD_POOL_SIZE = env.int('WEB_LOGIN_THREAD_POOL_SIZE', default=10)
 
 
 # =============================================================================

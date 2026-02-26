@@ -117,6 +117,7 @@ def bot_login_request(request):
     username = username.lstrip("@")
 
     # Basic validation
+    # Must match frontend regex in frontend/src/pages/Login.vue line 106
     if not re.match(r"^[a-zA-Z0-9_]{3,32}$", username):
         return JsonResponse({"error": "Invalid Telegram username"}, status=400)
 
@@ -135,7 +136,7 @@ def bot_login_request(request):
 
 
 @require_GET
-@ratelimit(key="ip", rate="30/m", method="GET", block=True)
+@ratelimit(key="ip", rate=settings.AUTH_STATUS_RATE_LIMIT, method="GET", block=True)
 def bot_login_status(request, token):
     """Check login request status.
 
@@ -169,7 +170,7 @@ def bot_login_complete(request):
 
     user = call_async(web_login_service.complete_login(token))
     if not user:
-        return JsonResponse({"error": "Login failed. Request may have expired or been denied."}, status=403)
+        return JsonResponse({"error": "Login request expired or invalid. Please try again."}, status=403)
 
     # Create Django session
     login(request, user)
