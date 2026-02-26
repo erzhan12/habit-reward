@@ -349,6 +349,19 @@ Key metrics to track for the web login flow:
   ```
   Without this, rate limiting will see all requests coming from the proxy IP instead of real client IPs, making rate limits ineffective.
 
+## Monitoring Web Login in Production
+
+1. **503 errors (thread pool exhaustion)**: Monitor HTTP 503 responses or `grep 'Login thread pool queue full' app.log`. If frequent, increase `WEB_LOGIN_THREAD_POOL_SIZE` (PostgreSQL: 50-100, SQLite: max 10) and `WEB_LOGIN_MAX_QUEUED`.
+
+2. **Cache hit rate**: Monitor your cache backend for `wl_pending:*` key hit/miss rates. A high miss rate indicates cache eviction pressure or misconfiguration. Check with Redis `INFO stats` or memcached `stats`.
+
+3. **Telegram API failures**: Watch for `wl_failed:*` cache keys — these indicate background Telegram send failures. `grep 'Permanent Telegram error' app.log` (CRITICAL level) means the bot token is invalid or the bot was blocked. `grep 'Temporary Telegram error' app.log` means transient network issues.
+
+4. **Recommended thread pool sizes**:
+   - Low traffic (<10 concurrent logins): `WEB_LOGIN_THREAD_POOL_SIZE=10`, `WEB_LOGIN_MAX_QUEUED=50`
+   - Medium traffic (10-50 concurrent): `WEB_LOGIN_THREAD_POOL_SIZE=25`, `WEB_LOGIN_MAX_QUEUED=100`
+   - High traffic (50+ concurrent): `WEB_LOGIN_THREAD_POOL_SIZE=50-100`, `WEB_LOGIN_MAX_QUEUED=200` (requires PostgreSQL)
+
 ## Ethical Considerations
 
 1. **Data Privacy**: Only telegram_id stored, full user control via Django admin

@@ -68,14 +68,39 @@ class LoginServiceUnavailable(Exception):
     """Raised when the login background queue is full."""
 
 
+class CacheWriteError(Exception):
+    """Raised when cache writes fail repeatedly, indicating misconfiguration."""
+
+
+# Consecutive cache write failure counter.
+_cache_failure_count = 0
+_CACHE_FAILURE_THRESHOLD = 3
+
+
 def _safe_cache_set(key: str, value, timeout: int) -> None:
-    """Write to cache with failure logging — never raises."""
+    """Write to cache with failure tracking.
+
+    Logs warnings on individual failures.  Raises ``CacheWriteError``
+    after ``_CACHE_FAILURE_THRESHOLD`` (3) consecutive failures to
+    surface likely cache misconfiguration instead of silently degrading.
+    """
+    global _cache_failure_count
     from django.core.cache import cache
 
     try:
         cache.set(key, value, timeout=timeout)
+        _cache_failure_count = 0
     except Exception:
-        logger.warning("Cache write failed for %s", key[:20])
+        _cache_failure_count += 1
+        logger.warning(
+            "Cache write failed for %s (consecutive failures: %d)",
+            key[:20], _cache_failure_count,
+        )
+        if _cache_failure_count >= _CACHE_FAILURE_THRESHOLD:
+            raise CacheWriteError(
+                f"Cache writes have failed {_cache_failure_count} times consecutively "
+                "— check cache backend configuration"
+            )
 
 
 class WebLoginService:
@@ -212,37 +237,40 @@ class WebLoginService:
         finally:
             _queue_slots.release()
 
+    @staticmethod
+    def _create_login_request_with_retry(user_id, token, expires_at, device_info):
+        """Invalidate pending requests and create a new one in a transaction.
+
+        Retries on token collision (IntegrityError on unique constraint).
+        Returns (login_request, final_token) since the token may change on retry.
+        """
+        for _attempt in range(TOKEN_GENERATION_MAX_RETRIES):
+            try:
+                with transaction.atomic():
+                    WebLoginRequest.objects.filter(
+                        user_id=user_id,
+                        status=WebLoginRequest.Status.PENDING,
+                    ).update(status=WebLoginRequest.Status.DENIED)
+                    login_request = WebLoginRequest.objects.create(
+                        user_id=user_id,
+                        token=token,
+                        expires_at=expires_at,
+                        device_info=device_info,
+                    )
+                    return login_request, token
+            except IntegrityError:
+                # Token collision — regenerate and retry.
+                token = secrets.token_urlsafe(TOKEN_BYTES)
+        raise DatabaseError("Failed to generate unique token after retries")
+
     async def _process_login_request(
         self, user, token: str, expires_at, device_info: str | None
     ) -> None:
         """Perform DB writes and send Telegram notification."""
 
-        # Wrap invalidate + create in a transaction so that if create fails,
-        # the invalidation is rolled back and the user's pending request is preserved.
-        # Uses try/except on IntegrityError (unique constraint on token) to
-        # handle the astronomically unlikely collision without a TOCTOU race.
-        @sync_to_async
-        def _transactional_writes():
-            nonlocal token
-            for _attempt in range(TOKEN_GENERATION_MAX_RETRIES):
-                try:
-                    with transaction.atomic():
-                        WebLoginRequest.objects.filter(
-                            user_id=user.id,
-                            status=WebLoginRequest.Status.PENDING,
-                        ).update(status=WebLoginRequest.Status.DENIED)
-                        return WebLoginRequest.objects.create(
-                            user_id=user.id,
-                            token=token,
-                            expires_at=expires_at,
-                            device_info=device_info,
-                        )
-                except IntegrityError:
-                    # Token collision — regenerate and retry.
-                    token = secrets.token_urlsafe(TOKEN_BYTES)
-            raise DatabaseError("Failed to generate unique token after retries")
-
-        login_request = await _transactional_writes()
+        login_request, token = await sync_to_async(
+            self._create_login_request_with_retry
+        )(user.id, token, expires_at, device_info)
 
         logger.info(
             "Web login request created",
@@ -269,24 +297,24 @@ class WebLoginService:
     async def _send_login_notification(
         self, chat_id: int, request_id: int, token: str, device_info: str | None
     ) -> None:
-        """Send the Telegram message with Confirm/Deny buttons."""
-        import html as html_mod
+        """Send the Telegram message with Confirm/Deny buttons.
 
+        Uses plain text (no parse_mode) as defense-in-depth — eliminates
+        any risk from HTML parser bugs processing user-controlled device_info.
+        """
         bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
-        # HTML-escape at the output boundary — device_info is truncated in
-        # auth.py but stored unescaped so the DB data is context-neutral.
-        device_text = html_mod.escape(device_info) if device_info else "Unknown device"
+        device_text = device_info or "Unknown device"
         message_text = (
-            f"🔐 <b>Web Login Request</b>\n\n"
-            f"Someone is trying to log in to your account:\n"
-            f"📱 {device_text}\n\n"
-            f"If this was you, tap <b>Confirm</b>. Otherwise, tap <b>Deny</b>."
+            "Web Login Request\n\n"
+            "Someone is trying to log in to your account:\n"
+            f"{device_text}\n\n"
+            "If this was you, tap Confirm. Otherwise, tap Deny."
         )
 
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✅ Confirm", callback_data=f"{WL_CONFIRM_PREFIX}{token}"),
-                InlineKeyboardButton("❌ Deny", callback_data=f"{WL_DENY_PREFIX}{token}"),
+                InlineKeyboardButton("Confirm", callback_data=f"{WL_CONFIRM_PREFIX}{token}"),
+                InlineKeyboardButton("Deny", callback_data=f"{WL_DENY_PREFIX}{token}"),
             ]
         ])
 
@@ -295,7 +323,6 @@ class WebLoginService:
                 chat_id=chat_id,
                 text=message_text,
                 reply_markup=keyboard,
-                parse_mode="HTML",
             )
 
         # Save telegram message ID for later editing
@@ -325,8 +352,10 @@ class WebLoginService:
 
         # Random jitter (50-200ms by default, configurable via settings)
         # masks residual timing differences between DB hit vs miss, cache
-        # hit vs miss, etc.  Applied uniformly to all paths to avoid
-        # selective jitter itself becoming a timing side-channel.
+        # hit vs miss, etc.  Applied BEFORE the DB query so that variable
+        # DB latency (index hit vs miss) is obscured by the jitter offset.
+        # Applied uniformly to all paths to avoid selective jitter itself
+        # becoming a timing side-channel.
         await asyncio.sleep(_secure_random.uniform(_JITTER_MIN, _JITTER_MAX))
 
         # Always perform both lookups to ensure constant-time work.

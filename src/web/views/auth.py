@@ -32,6 +32,8 @@ import json
 import logging
 import re
 
+from user_agents import parse as parse_ua
+
 from django.contrib.auth import login, logout
 from django.conf import settings
 from django.http import JsonResponse
@@ -70,42 +72,22 @@ def _parse_device_info(request) -> str:
 
     Parses the User-Agent header for browser and OS information.
     Logs unrecognised User-Agent strings at DEBUG level for monitoring.
-    Output is HTML-escaped and truncated to 255 characters (DB field limit)
-    at this input boundary.
+    Output is truncated to 255 characters (DB field limit) at this input
+    boundary.  No IP address is included (GDPR).
     """
     # Truncate extremely long UA strings immediately to avoid keeping
     # potentially multi-MB strings in memory before parsing.
     ua = request.META.get("HTTP_USER_AGENT", "")[:MAX_USER_AGENT_LENGTH]
     ua = ''.join(c for c in ua if c.isprintable() or c.isspace())
-    ip = parse_ip_address(request)
 
-    # Extract browser name
-    browser = "Unknown browser"
-    if "Firefox/" in ua:
-        match = re.search(r"Firefox/([\d.]+)", ua)
-        browser = f"Firefox {match.group(1)}" if match else "Firefox"
-    elif "Edg/" in ua:
-        match = re.search(r"Edg/([\d.]+)", ua)
-        browser = f"Edge {match.group(1)}" if match else "Edge"
-    elif "Chrome/" in ua:
-        match = re.search(r"Chrome/([\d.]+)", ua)
-        browser = f"Chrome {match.group(1)}" if match else "Chrome"
-    elif "Safari/" in ua and "Chrome" not in ua:
-        match = re.search(r"Version/([\d.]+)", ua)
-        browser = f"Safari {match.group(1)}" if match else "Safari"
+    ua_parsed = parse_ua(ua)
+    browser = f"{ua_parsed.browser.family} {ua_parsed.browser.version_string}".strip()
+    os_name = f"{ua_parsed.os.family} {ua_parsed.os.version_string}".strip()
 
-    # Extract OS
-    os_name = "Unknown OS"
-    if "Windows" in ua:
-        os_name = "Windows"
-    elif "Macintosh" in ua or "Mac OS" in ua:
-        os_name = "macOS"
-    elif "Linux" in ua:
-        os_name = "Linux"
-    elif "iPhone" in ua or "iPad" in ua:
-        os_name = "iOS"
-    elif "Android" in ua:
-        os_name = "Android"
+    if not browser or browser == "Other":
+        browser = "Unknown browser"
+    if not os_name or os_name == "Other":
+        os_name = "Unknown OS"
 
     if browser == "Unknown browser" or os_name == "Unknown OS":
         logger.debug(
@@ -113,10 +95,9 @@ def _parse_device_info(request) -> str:
             ua[:200],
         )
 
-    # Truncate to 255 chars (DB field limit).  HTML-escaping for Telegram
-    # is done at the output boundary in _send_login_notification, not here,
-    # so the DB stores clean data usable in any context.
-    raw = f"{browser} on {os_name}, IP: {ip}"
+    # Truncate to 255 chars (DB field limit).  Telegram messages use
+    # plain text (no parse_mode) so no escaping is needed.
+    raw = f"{browser} on {os_name}"
     if not raw or raw.isspace():
         raw = "Unknown device"
     return raw[:MAX_DEVICE_INFO_LENGTH]
@@ -317,8 +298,14 @@ def dev_login(request):
 def _anonymize_ip(ip: str) -> str:
     """Hash an IP address for GDPR-safe logging.
 
-    Returns a short SHA-256 prefix that's sufficient for correlating
-    log entries without storing the raw IP.
+    Returns a 12-character SHA-256 prefix that is sufficient for correlating
+    log entries (e.g. rate-limit events) without storing the raw IP address,
+    which is PII under GDPR.
+
+    The 12-hex-char prefix (48 bits) provides enough uniqueness for
+    operational correlation while being irreversible.  This is the
+    standard pattern used throughout the web layer — prefer this over
+    logging raw IPs.
     """
     return hashlib.sha256(ip.encode()).hexdigest()[:12]
 

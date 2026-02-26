@@ -1186,19 +1186,20 @@ class TestIPAddressParsing:
         request.META = {}
         assert _parse_ip_address(request) == "unknown"
 
-    def test_device_info_uses_validated_ip(self):
-        """_parse_device_info delegates to _parse_ip_address for the IP."""
+    def test_device_info_does_not_contain_ip(self):
+        """_parse_device_info must not include IP addresses (GDPR)."""
         from src.web.views.auth import _parse_device_info
 
         request = MagicMock()
         request.META = {
             "HTTP_USER_AGENT": "Mozilla/5.0 Chrome/120.0",
-            "HTTP_X_FORWARDED_FOR": "not-an-ip",
+            "HTTP_X_FORWARDED_FOR": "203.0.113.50",
             "REMOTE_ADDR": "10.0.0.5",
         }
         info = _parse_device_info(request)
-        assert "10.0.0.5" in info
-        assert "not-an-ip" not in info
+        assert "10.0.0.5" not in info
+        assert "203.0.113.50" not in info
+        assert "IP" not in info
 
     def test_parse_ip_with_malicious_xforwardedfor(self):
         """Verify that malicious X-Forwarded-For values fall back to REMOTE_ADDR."""
@@ -1209,6 +1210,42 @@ class TestIPAddressParsing:
         request = factory.get('/', HTTP_X_FORWARDED_FOR='<script>alert(1)</script>', REMOTE_ADDR='1.2.3.4')
         ip = _parse_ip_address(request)
         assert ip == '1.2.3.4'
+
+    @patch("src.web.utils.ip.settings")
+    def test_xff_injection_attack(self, mock_settings):
+        """X-Forwarded-For with multiple IPs: code uses leftmost, but logs a warning."""
+        from src.web.utils.ip import parse_ip_address
+
+        mock_settings.TRUST_X_FORWARDED_FOR = True
+        request = MagicMock()
+        # Attacker prepends their IP; real proxy appends the actual client IP.
+        request.META = {
+            "HTTP_X_FORWARDED_FOR": "10.0.0.1, 192.168.1.1, 172.16.0.1",
+            "REMOTE_ADDR": "127.0.0.1",
+        }
+        with patch("src.web.utils.ip.logger") as mock_logger:
+            result = parse_ip_address(request)
+        # Still returns leftmost (proxy responsibility to sanitize), but warns
+        assert result == "10.0.0.1"
+        mock_logger.warning.assert_called_once()
+        assert "3 IPs" in mock_logger.warning.call_args[0][0] % mock_logger.warning.call_args[0][1:]
+
+    def test_device_info_html_escaping(self):
+        """device_info containing HTML tags is safe — Telegram uses plain text."""
+        from src.web.views.auth import _parse_device_info
+
+        request = MagicMock()
+        request.META = {
+            "HTTP_USER_AGENT": '<script>alert("xss")</script>',
+            "REMOTE_ADDR": "127.0.0.1",
+        }
+        info = _parse_device_info(request)
+        # The malicious script tag should not appear verbatim (UA parser
+        # won't recognise it, so it falls back to "Unknown browser/OS").
+        # Even if it did, Telegram messages use parse_mode=None (plain text),
+        # so no HTML is interpreted.
+        assert "<script>" not in info
+        assert "Unknown" in info
 
 
 # ---- Prop structure tests (Inertia JSON mode) ----
@@ -1885,7 +1922,7 @@ class TestDeviceInfoEdgeCases:
         info = _parse_device_info(request)
         assert "Unknown browser" in info
         assert "Unknown OS" in info
-        assert "1.2.3.4" in info
+        assert "1.2.3.4" not in info  # IP removed for GDPR
 
     def test_extremely_long_user_agent(self):
         """User-Agent > 10KB is safely truncated."""
@@ -1897,7 +1934,7 @@ class TestDeviceInfoEdgeCases:
         info = _parse_device_info(request)
         # Output must be <= 255 chars (DB field limit).
         assert len(info) <= 255
-        assert "5.6.7.8" in info
+        assert "5.6.7.8" not in info  # IP removed for GDPR
 
     def test_malicious_user_agent_not_in_output(self):
         """Malicious HTML/script in User-Agent does not appear in output.

@@ -1,8 +1,11 @@
 """IP address parsing and validation utilities."""
 
 import ipaddress
+import logging
 
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 def parse_ip_address(request) -> str:
@@ -27,7 +30,14 @@ def parse_ip_address(request) -> str:
     if getattr(settings, "TRUST_X_FORWARDED_FOR", False):
         forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
         if forwarded:
-            candidate = forwarded.split(",")[0].strip()
+            parts = [p.strip() for p in forwarded.split(",")]
+            if len(parts) > 2:
+                logger.warning(
+                    "X-Forwarded-For contains %d IPs — reverse proxy may not "
+                    "be sanitizing the header (possible IP injection)",
+                    len(parts),
+                )
+            candidate = parts[0]
             try:
                 ipaddress.ip_address(candidate)
                 return candidate

@@ -249,7 +249,10 @@ AUTH_STATUS_RATE_LIMIT = env('AUTH_STATUS_RATE_LIMIT', default='30/m')
 # Dashboard actions (complete/revert habit) rate limit per user
 DASHBOARD_ACTION_RATE_LIMIT = env('DASHBOARD_ACTION_RATE_LIMIT', default='60/m')
 
-# Thread pool size for background login processing (DB writes + Telegram send)
+# Thread pool size for background login processing (DB writes + Telegram send).
+# For PostgreSQL: can increase to 50-100.
+# For SQLite: keep at 10 max due to write lock contention.
+# Monitor 503 errors to detect if this needs tuning.
 WEB_LOGIN_THREAD_POOL_SIZE = env.int('WEB_LOGIN_THREAD_POOL_SIZE', default=10)
 
 # Login request expiry in minutes (how long users have to confirm in Telegram).
