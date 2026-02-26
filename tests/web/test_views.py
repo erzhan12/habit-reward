@@ -530,12 +530,12 @@ class TestAuth:
         data = response.json()
         assert "token" in data
         assert "expires_at" in data
-        assert data["sent"] is False
+        assert "sent" not in data
         assert "If this username is registered" in data["message"]
 
     @patch("src.web.views.auth.call_async", side_effect=_call_async_mock({"token": "test_token_123", "expires_at": "2026-01-01T00:00:00+00:00"}))
     def test_bot_login_request_success(self, mock_async, user):
-        """Valid username returns token, expires_at, sent=True, and generic message."""
+        """Valid username returns token, expires_at, and generic message — no sent field."""
         response = Client().post(
             "/auth/bot-login/request/",
             data={"username": "testuser"},
@@ -545,7 +545,7 @@ class TestAuth:
         data = response.json()
         assert "token" in data
         assert "expires_at" in data
-        assert data["sent"] is True
+        assert "sent" not in data
         assert "If this username is registered" in data["message"]
 
     @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("pending"))
@@ -624,6 +624,26 @@ class TestAuth:
             content_type="application/json",
         )
         assert response.status_code == 400
+
+    def test_bot_login_request_non_string_username(self):
+        """Non-string username (e.g. integer) is coerced to str, not 500."""
+        response = Client().post(
+            "/auth/bot-login/request/",
+            data=json.dumps({"username": 123}),
+            content_type="application/json",
+        )
+        # "123" passes regex but user won't exist — anti-enumeration returns 200
+        assert response.status_code == 200
+
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock(None))
+    def test_bot_login_complete_non_string_token(self, mock_async):
+        """Non-string token (e.g. integer) returns 403/400, not 500."""
+        response = Client().post(
+            "/auth/bot-login/complete/",
+            data=json.dumps({"token": 12345}),
+            content_type="application/json",
+        )
+        assert response.status_code in (400, 403)
 
     @patch("src.web.views.auth.call_async", side_effect=_call_async_mock(None))
     def test_fake_token_cached_for_status_polling(self, mock_async):

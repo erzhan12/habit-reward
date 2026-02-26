@@ -87,7 +87,7 @@ def bot_login_request(request):
     if not isinstance(data, dict):
         return JsonResponse({"error": "Invalid request body"}, status=400)
 
-    username = data.get("username", "").strip()
+    username = str(data.get("username", "")).strip()
     if not username:
         return JsonResponse({"error": "Username is required"}, status=400)
 
@@ -115,11 +115,9 @@ def bot_login_request(request):
             "message": "If this username is registered, a login confirmation has been sent.",
             "token": fake_token,
             "expires_at": fake_expires,
-            "sent": False,
         })
 
     result["message"] = "If this username is registered, a login confirmation has been sent."
-    result["sent"] = True
     return JsonResponse(result)
 
 
@@ -151,7 +149,7 @@ def bot_login_complete(request):
     if not isinstance(data, dict):
         return JsonResponse({"error": "Invalid request body"}, status=400)
 
-    token = data.get("token", "").strip()
+    token = str(data.get("token", "")).strip()
     if not token:
         return JsonResponse({"error": "Token is required"}, status=400)
 
