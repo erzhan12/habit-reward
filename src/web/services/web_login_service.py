@@ -1,8 +1,10 @@
 """Web login service for bot-based Confirm/Deny authentication."""
 
+import asyncio
 import html
 import logging
 import secrets
+import threading
 from datetime import datetime, timezone, timedelta
 
 from django.conf import settings
@@ -26,7 +28,11 @@ class WebLoginService:
     async def create_login_request(
         self, username: str, device_info: str | None = None
     ) -> dict | None:
-        """Create a login request and send Confirm/Deny to user via bot.
+        """Create a login request and dispatch Confirm/Deny to user via bot.
+
+        The Telegram notification is sent in a background thread so the
+        HTTP response returns in constant time regardless of whether the
+        user exists (prevents timing side-channel enumeration).
 
         Args:
             username: Telegram @username (with or without @)
@@ -34,9 +40,6 @@ class WebLoginService:
 
         Returns:
             Dict with {token, expires_at} on success, None if user not found
-
-        Raises:
-            ValueError: If rate limited or other validation error
         """
         user = await maybe_await(self.user_repo.get_by_telegram_username(username))
         if not user:
@@ -63,54 +66,71 @@ class WebLoginService:
             )
         )
 
-        # Send Telegram message with Confirm/Deny buttons
-        try:
-            bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
-            device_text = html.escape(device_info or "Unknown device")
-            message_text = (
-                f"🔐 <b>Web Login Request</b>\n\n"
-                f"Someone is trying to log in to your account:\n"
-                f"📱 {device_text}\n\n"
-                f"If this was you, tap <b>Confirm</b>. Otherwise, tap <b>Deny</b>."
-            )
+        logger.info(
+            "Web login request created for user %s (token=%s...)",
+            user.id,
+            token[:8],
+        )
 
-            keyboard = InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton("✅ Confirm", callback_data=f"wl_c_{token}"),
-                    InlineKeyboardButton("❌ Deny", callback_data=f"wl_d_{token}"),
-                ]
-            ])
-
-            async with bot:
-                sent_message = await bot.send_message(
-                    chat_id=int(user.telegram_id),
-                    text=message_text,
-                    reply_markup=keyboard,
-                    parse_mode="HTML",
-                )
-
-            # Save telegram message ID for later editing
-            await maybe_await(
-                self.request_repo.update_telegram_message_id(
-                    login_request.id, sent_message.message_id
-                )
-            )
-
-            logger.info(
-                "Web login request created for user %s (token=%s...)",
-                user.id,
-                token[:8],
-            )
-
-        except Exception as e:
-            logger.error("Failed to send Telegram login message: %s", e)
-            # Failed to send — return None so view returns generic message
-            return None
+        # Send Telegram notification in background thread to avoid
+        # timing side-channel (Telegram API adds 100-500ms only for
+        # known users, which would leak account existence).
+        threading.Thread(
+            target=self._send_notification_background,
+            args=(int(user.telegram_id), login_request.id, token, device_info),
+            daemon=True,
+        ).start()
 
         return {
             "token": token,
             "expires_at": expires_at.isoformat(),
         }
+
+    def _send_notification_background(
+        self, chat_id: int, request_id: int, token: str, device_info: str | None
+    ) -> None:
+        """Send Telegram login notification in a background thread."""
+        try:
+            asyncio.run(self._send_login_notification(chat_id, request_id, token, device_info))
+        except Exception as e:
+            logger.error("Background login notification failed: %s", e)
+
+    async def _send_login_notification(
+        self, chat_id: int, request_id: int, token: str, device_info: str | None
+    ) -> None:
+        """Send the Telegram message with Confirm/Deny buttons."""
+        bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
+        device_text = html.escape(device_info or "Unknown device")
+        message_text = (
+            f"🔐 <b>Web Login Request</b>\n\n"
+            f"Someone is trying to log in to your account:\n"
+            f"📱 {device_text}\n\n"
+            f"If this was you, tap <b>Confirm</b>. Otherwise, tap <b>Deny</b>."
+        )
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Confirm", callback_data=f"wl_c_{token}"),
+                InlineKeyboardButton("❌ Deny", callback_data=f"wl_d_{token}"),
+            ]
+        ])
+
+        async with bot:
+            sent_message = await bot.send_message(
+                chat_id=chat_id,
+                text=message_text,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+
+        # Save telegram message ID for later editing
+        await maybe_await(
+            self.request_repo.update_telegram_message_id(
+                request_id, sent_message.message_id
+            )
+        )
+
+        logger.info("Login notification sent for request %s", request_id)
 
     async def check_status(self, token: str) -> str:
         """Check the status of a login request.
