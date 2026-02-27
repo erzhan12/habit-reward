@@ -10,11 +10,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from django.test import Client
 
-from src.core.models import User
+from src.core.models import LoginTokenIpBinding, User
 from src.web.services.web_login_service import WL_FAILED_KEY, WL_PENDING_KEY
 from tests.web.conftest import _call_async_mock
 
 pytestmark = pytest.mark.django_db
+
+# Default test token (40-50 chars, URL-safe base64)
+_TEST_TOKEN = "abcdefghij0123456789_ABCDEFGHIJ0123456789_ab"
+# Default test client IP (Django test Client sends 127.0.0.1)
+_TEST_IP = "127.0.0.1"
+
+
+def _create_ip_binding(token=_TEST_TOKEN, ip=_TEST_IP, minutes=5):
+    """Create a LoginTokenIpBinding in the DB for test tokens."""
+    return LoginTokenIpBinding.objects.create(
+        token=token,
+        ip_address=ip,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=minutes),
+    )
 
 
 class TestAuth:
@@ -90,28 +104,32 @@ class TestAuth:
     @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("pending"))
     def test_bot_login_status_pending(self, mock_async):
         """Status endpoint returns pending."""
-        response = Client().get("/auth/bot-login/status/abcdefghij0123456789_ABCDEFGHIJ0123456789_ab/")
+        _create_ip_binding()
+        response = Client().get(f"/auth/bot-login/status/{_TEST_TOKEN}/")
         assert response.status_code == 200
         assert response.json()["status"] == "pending"
 
     @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("confirmed"))
     def test_bot_login_status_confirmed(self, mock_async):
         """Status endpoint returns confirmed."""
-        response = Client().get("/auth/bot-login/status/abcdefghij0123456789_ABCDEFGHIJ0123456789_ab/")
+        _create_ip_binding()
+        response = Client().get(f"/auth/bot-login/status/{_TEST_TOKEN}/")
         assert response.status_code == 200
         assert response.json()["status"] == "confirmed"
 
     @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("denied"))
     def test_bot_login_status_denied(self, mock_async):
         """Status endpoint returns denied."""
-        response = Client().get("/auth/bot-login/status/abcdefghij0123456789_ABCDEFGHIJ0123456789_ab/")
+        _create_ip_binding()
+        response = Client().get(f"/auth/bot-login/status/{_TEST_TOKEN}/")
         assert response.status_code == 200
         assert response.json()["status"] == "denied"
 
     @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("expired"))
     def test_bot_login_status_expired(self, mock_async):
         """Status endpoint returns expired."""
-        response = Client().get("/auth/bot-login/status/abcdefghij0123456789_ABCDEFGHIJ0123456789_ab/")
+        _create_ip_binding()
+        response = Client().get(f"/auth/bot-login/status/{_TEST_TOKEN}/")
         assert response.status_code == 200
         assert response.json()["status"] == "expired"
 
@@ -122,13 +140,12 @@ class TestAuth:
 
     def test_bot_login_complete_success(self, user):
         """Confirmed login creates Django session."""
-        # Token must be 40-50 chars (matching secrets.token_urlsafe(32) output)
-        valid_token = "abcdefghij0123456789_ABCDEFGHIJ0123456789_ab"
+        _create_ip_binding()
         with patch("src.web.views.auth.call_async", side_effect=_call_async_mock(user)):
             client = Client()
             response = client.post(
                 "/auth/bot-login/complete/",
-                data={"token": valid_token},
+                data={"token": _TEST_TOKEN},
                 content_type="application/json",
             )
             assert response.status_code == 200
@@ -140,6 +157,7 @@ class TestAuth:
         """Invalid/expired token returns 403."""
         # Token must pass length validation (40-50 chars) to reach the service
         bad_token = "bad_token_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        _create_ip_binding(token=bad_token)
         response = Client().post(
             "/auth/bot-login/complete/",
             data={"token": bad_token},
@@ -1120,6 +1138,7 @@ class TestFullLoginFlow:
         token = "full_flow_test_token_aaaaaaaaaaaaaaaaaaaaaaaa"
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
         cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
+        _create_ip_binding(token=token)
 
         login_request = WebLoginRequest.objects.create(
             user=login_user,
@@ -2494,6 +2513,7 @@ class TestStatusEndpointTokenValidation:
     def test_valid_length_token_passes_validation(self, mock_async):
         """Token with valid length (40-50 chars) passes to the service."""
         valid_token = "a" * 43
+        _create_ip_binding(token=valid_token)
         response = Client().get(f"/auth/bot-login/status/{valid_token}/")
         assert response.status_code == 200
         assert response.json()["status"] == "pending"
@@ -3097,6 +3117,10 @@ class TestConcurrentCompleteLoginThreading:
                 current = call_count
             return user if current == 1 else None
 
+        # Mock IP binding to avoid SQLite table locks from concurrent reads
+        mock_binding = MagicMock()
+        mock_binding.ip_address = "127.0.0.1"
+
         results = []
         errors = []
         lock = threading.Lock()
@@ -3121,6 +3145,7 @@ class TestConcurrentCompleteLoginThreading:
         with (
             patch("src.web.views.auth.call_async", side_effect=_mock_complete),
             patch("src.web.views.auth.login"),  # Avoid session DB access
+            patch("src.web.views.auth.web_login_request_repository.get_ip_binding", return_value=mock_binding),
         ):
             threads = [threading.Thread(target=_worker) for _ in range(2)]
             for t in threads:
@@ -3134,3 +3159,88 @@ class TestConcurrentCompleteLoginThreading:
         assert sorted(results) == [200, 403], (
             f"Expected one 200 and one 403, got {results}"
         )
+
+
+# ---- IP binding enforcement tests ----
+
+
+class TestIPBindingEnforcement:
+    """Verify database-backed IP binding prevents cross-IP attacks."""
+
+    def test_bot_login_complete_rejects_mismatched_ip(self, user):
+        """Create token from IP A, confirm, then complete from IP B → 403.
+
+        Simulates an attacker who intercepts a confirmed token and tries
+        to complete the login from a different IP address.
+        """
+        token = _TEST_TOKEN
+        # Bind to IP A
+        _create_ip_binding(token=token, ip="10.0.0.1")
+
+        with patch("src.web.views.auth.call_async", side_effect=_call_async_mock(user)):
+            # Complete from IP B (Django Client sends 127.0.0.1 by default)
+            response = Client().post(
+                "/auth/bot-login/complete/",
+                data=json.dumps({"token": token}),
+                content_type="application/json",
+            )
+        assert response.status_code == 403
+        assert "expired or invalid" in response.json()["error"]
+
+    def test_bot_login_complete_accepts_matching_ip(self, user):
+        """Complete from same IP as token creator → 200 success."""
+        token = _TEST_TOKEN
+        _create_ip_binding(token=token, ip=_TEST_IP)
+
+        with patch("src.web.views.auth.call_async", side_effect=_call_async_mock(user)):
+            client = Client()
+            response = client.post(
+                "/auth/bot-login/complete/",
+                data=json.dumps({"token": token}),
+                content_type="application/json",
+            )
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("pending"))
+    def test_bot_login_status_ip_binding_enforced_even_without_session(self, mock_async):
+        """When no IP binding exists in the DB, status returns 'expired'.
+
+        Prevents attackers from polling tokens from different IPs when
+        the binding is missing (e.g. expired or never created).
+        """
+        # Do NOT create an IP binding — token has no binding in DB
+        token = _TEST_TOKEN
+        response = Client().get(f"/auth/bot-login/status/{token}/")
+        assert response.status_code == 200
+        assert response.json()["status"] == "expired"
+
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("pending"))
+    def test_bot_login_status_rejects_mismatched_ip(self, mock_async):
+        """Status poll from different IP than token creator → expired."""
+        token = _TEST_TOKEN
+        _create_ip_binding(token=token, ip="10.0.0.1")  # Bind to IP A
+        # Poll from IP B (127.0.0.1 default)
+        response = Client().get(f"/auth/bot-login/status/{token}/")
+        assert response.status_code == 200
+        assert response.json()["status"] == "expired"
+
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("confirmed"))
+    def test_bot_login_status_accepts_matching_ip(self, mock_async):
+        """Status poll from same IP as token creator → actual status."""
+        token = _TEST_TOKEN
+        _create_ip_binding(token=token, ip=_TEST_IP)
+        response = Client().get(f"/auth/bot-login/status/{token}/")
+        assert response.status_code == 200
+        assert response.json()["status"] == "confirmed"
+
+    def test_bot_login_complete_no_binding_returns_403(self):
+        """Complete with no IP binding record → 403."""
+        token = _TEST_TOKEN
+        # No binding created
+        response = Client().post(
+            "/auth/bot-login/complete/",
+            data=json.dumps({"token": token}),
+            content_type="application/json",
+        )
+        assert response.status_code == 403

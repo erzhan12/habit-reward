@@ -9,9 +9,18 @@ import pytest
 from asgiref.sync import sync_to_async
 from django.test import Client
 
-from src.core.models import User, WebLoginRequest
+from src.core.models import LoginTokenIpBinding, User, WebLoginRequest
 from src.core.repositories import WebLoginRequestRepository, web_login_request_repository
 from src.web.services.web_login_service import WL_PENDING_KEY
+
+
+def _create_ip_binding(token, ip="127.0.0.1", minutes=5):
+    """Create a LoginTokenIpBinding in the DB for test tokens."""
+    return LoginTokenIpBinding.objects.create(
+        token=token,
+        ip_address=ip,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=minutes),
+    )
 
 pytestmark = pytest.mark.django_db
 
@@ -332,6 +341,9 @@ class TestEndToEndLoginFlowWithBotHandler:
         token = "e2e_flow_token_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
 
+        # Create IP binding (simulates what bot_login_request view does)
+        await sync_to_async(_create_ip_binding)(token)
+
         # 1. Create login request in DB + cache (simulating background thread)
         cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
         login_request = await sync_to_async(WebLoginRequest.objects.create)(
@@ -398,6 +410,9 @@ class TestEndToEndLoginFlowWithBotHandler:
 
         token = "e2e_deny_token_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        # Create IP binding (simulates what bot_login_request view does)
+        await sync_to_async(_create_ip_binding)(token)
 
         cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
         await sync_to_async(WebLoginRequest.objects.create)(

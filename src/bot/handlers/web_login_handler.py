@@ -22,6 +22,22 @@ from src.web.services.web_login_service import (
 
 logger = logging.getLogger(__name__)
 
+# User-facing Telegram message strings.  Centralised here to eliminate
+# duplicates (e.g. the "expired or not found" string used in two places)
+# and make copy changes easier.
+MESSAGES = {
+    "EXPIRED_NOT_FOUND": "⚠️ This login request has expired or was not found.",
+    "EXPIRED": "⚠️ This login request has expired.",
+    "INVALID_STATE": "⚠️ Invalid state. Please try logging in again.",
+    "INVALID_STATUS": "⚠️ This login request is in an invalid state.",
+    "CONFIRMED": "✅ Login confirmed. You can close this message.",
+    "DENIED": "❌ Login denied. The request has been rejected.",
+    "ALREADY_COMPLETED": "✅ This login request was already completed.",
+    "ALREADY_CONFIRMED": "This login request was already confirmed.",
+    "ALREADY_DENIED": "This login request was already denied.",
+    "ALREADY_PROCESSED": "⚠️ This login request has already been processed.",
+}
+
 # Derive pattern from shared constants so button creation and matching stay in sync.
 _c = re.escape(WL_CONFIRM_PREFIX)
 _d = re.escape(WL_DENY_PREFIX)
@@ -43,23 +59,35 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Validate token format before DB query to reject obviously invalid
     # tokens without touching the database (defense-in-depth).
     if not (TOKEN_MIN_LENGTH <= len(token) <= TOKEN_MAX_LENGTH):
-        await query.edit_message_text("⚠️ This login request has expired or was not found.")
+        await query.edit_message_text(MESSAGES["EXPIRED_NOT_FOUND"])
         return
 
-    # Get the login request
+    # Get the login request (includes user via select_related for telegram_id
+    # comparison below).
     login_request = await maybe_await(
         web_login_request_repository.get_by_token(token)
     )
 
     if not login_request:
-        await query.edit_message_text("⚠️ This login request has expired or was not found.")
+        await query.edit_message_text(MESSAGES["EXPIRED_NOT_FOUND"])
+        return
+
+    # Guard against orphaned records where the user FK or telegram_id is
+    # missing/invalid.  This can happen if the user record was deleted or
+    # created via a non-bot method without a telegram_id.
+    if not login_request.user or not login_request.user.telegram_id:
+        logger.error(
+            "Orphaned login request: user or telegram_id is missing (request_id=%s)",
+            login_request.id,
+        )
+        await query.edit_message_text(MESSAGES["INVALID_STATE"])
         return
 
     # Convert both IDs to strings for comparison (telegram_id is CharField,
     # effective_user.id is int).
-    request_owner_id = str(login_request.user.telegram_id).strip() if login_request.user and login_request.user.telegram_id else ""
+    request_owner_id = str(login_request.user.telegram_id).strip()
     callback_user_id = str(update.effective_user.id).strip()
-    if not request_owner_id or callback_user_id != request_owner_id:
+    if callback_user_id != request_owner_id:
         logger.warning(
             "User %s tried to respond to login request for user %s",
             update.effective_user.id,
@@ -70,7 +98,7 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Check expiry before processing — use _ensure_utc() to handle naive
     # datetimes when USE_TZ=False (matches the pattern in check_status).
     if login_request.expires_at is None or datetime.now(timezone.utc) > _ensure_utc(login_request.expires_at):
-        await query.edit_message_text("⚠️ This login request has expired.")
+        await query.edit_message_text(MESSAGES["EXPIRED"])
         return
 
     # Validate status is a known value
@@ -81,7 +109,7 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             login_request.status,
             login_request.id,
         )
-        await query.edit_message_text("⚠️ This login request is in an invalid state.")
+        await query.edit_message_text(MESSAGES["INVALID_STATUS"])
         return
 
     # Atomically check status and update inside a transaction with a row
@@ -117,21 +145,21 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             web_login_request_repository.clear_login_cache_keys(token)
         )
         if action == 'c':
-            await query.edit_message_text("✅ Login confirmed. You can close this message.")
+            await query.edit_message_text(MESSAGES["CONFIRMED"])
             logger.info("Web login confirmed for user %s", login_request.user_id)
         else:
-            await query.edit_message_text("❌ Login denied. The request has been rejected.")
+            await query.edit_message_text(MESSAGES["DENIED"])
             logger.info("Web login denied for user %s", login_request.user_id)
     else:
         # Already handled — show appropriate message based on current status.
         if current_status == WebLoginRequest.Status.USED.value:
-            await query.edit_message_text("✅ This login request was already completed.")
+            await query.edit_message_text(MESSAGES["ALREADY_COMPLETED"])
         elif current_status == WebLoginRequest.Status.CONFIRMED.value:
-            await query.edit_message_text("This login request was already confirmed.")
+            await query.edit_message_text(MESSAGES["ALREADY_CONFIRMED"])
         elif current_status == WebLoginRequest.Status.DENIED.value:
-            await query.edit_message_text("This login request was already denied.")
+            await query.edit_message_text(MESSAGES["ALREADY_DENIED"])
         else:
-            await query.edit_message_text("⚠️ This login request has already been processed.")
+            await query.edit_message_text(MESSAGES["ALREADY_PROCESSED"])
 
 
 # Handler instance for registration

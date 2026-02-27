@@ -669,6 +669,39 @@ class WebLoginRequest(models.Model):
         return f"WebLoginRequest for {self.user.name} ({self.status})"
 
 
+class LoginTokenIpBinding(models.Model):
+    """Binds a login token to the originating IP address.
+
+    Database-backed storage replaces session-based IP binding to prevent
+    session fixation, CSRF, and cookie exposure attacks.  Each row ties
+    a login token to the IP that created it; status polling and login
+    completion endpoints verify the caller's IP against this record.
+    """
+
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="Login token (matches WebLoginRequest.token)"
+    )
+    ip_address = models.CharField(
+        max_length=45,
+        help_text="IPv4 or IPv6 address that created the token"
+    )
+    expires_at = models.DateTimeField(
+        help_text="When this binding expires (same as the login request)"
+    )
+
+    class Meta:
+        db_table = 'login_token_ip_bindings'
+        indexes = [
+            models.Index(fields=['expires_at'], name='ltib_expires_idx'),
+        ]
+
+    def __str__(self):
+        return f"IPBinding {self.token[:8]}… → {self.ip_address}"
+
+
 class APIKey(models.Model):
     """API key for automated integrations.
 

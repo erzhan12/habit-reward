@@ -68,6 +68,32 @@ All authentication endpoints are rate-limited per IP via `django-ratelimit`:
 - **No sensitive data in cache**: Cache stores only boolean status flags (`True`), never tokens, user IDs, or session data. Token values appear only in cache *keys*, not values.
 - **TTL enforcement**: All cache entries use a TTL derived from the login request's `expires_at` (max 5 minutes), limiting the window for cache poisoning attacks. Stale entries are automatically evicted.
 
+## IP Binding Protection
+
+Login tokens are bound to the originating client's IP address to prevent cross-IP token theft via CSRF, XSS, or network sniffing.
+
+### How it works
+
+When a user initiates a login request (`POST /auth/bot-login/request/`), the server creates a `LoginTokenIpBinding` record in the database tying the returned token to the client's IP address. All subsequent interactions with that token — status polling (`GET /auth/bot-login/status/<token>/`) and login completion (`POST /auth/bot-login/complete/`) — verify that the caller's IP matches the stored binding. Mismatched IPs receive a generic "expired" or 403 response.
+
+### What it protects against
+
+- **Cross-IP token reuse**: An attacker who steals a token (via XSS, CSRF, or network interception) cannot use it from a different IP address.
+- **Session fixation via IP spoofing**: Since bindings are stored in the database (not in Django sessions), they are immune to session fixation, cookie exposure, and XSS attacks against session cookies.
+- **Race conditions**: The IP binding is persisted to the database **before** the token is returned to the client, preventing a window where an attacker could poll the token before the binding exists.
+
+### What it does NOT protect against
+
+- **Same-IP MITM**: An attacker on the same network (shared IP via NAT) can still intercept and reuse tokens. HTTPS enforcement is required to mitigate this.
+- **Session fixation at the Django session level**: The IP binding only protects the login token flow, not the post-login Django session.
+- **IP spoofing behind misconfigured proxies**: If `TRUST_X_FORWARDED_FOR` is enabled without a trusted reverse proxy, attackers can spoof their IP via the `X-Forwarded-For` header.
+
+### Recommendations
+
+- **Always enforce HTTPS** in production to prevent token interception.
+- Only enable `TRUST_X_FORWARDED_FOR` behind a trusted reverse proxy that overwrites the header.
+- Expired `LoginTokenIpBinding` records are cleaned up via the same housekeeping process as expired `WebLoginRequest` records.
+
 ## Circuit Breakers
 
 - **Thread pool queue**: When `WEB_LOGIN_MAX_QUEUED` is exceeded, new requests return HTTP 503 (prevents unbounded resource consumption).

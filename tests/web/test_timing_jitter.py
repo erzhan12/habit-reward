@@ -112,11 +112,13 @@ class TestTimingJitter:
         mock_sleep.assert_called_once()
 
     @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
-    def test_no_jitter_for_confirmed_status(self, mock_sleep):
-        """Confirmed status (terminal) should NOT have jitter applied.
+    def test_jitter_applied_for_confirmed_status(self, mock_sleep):
+        """Confirmed status also receives jitter to prevent timing analysis.
 
-        Terminal statuses are excluded from jitter because they can only
-        occur after a valid DB write — see SECURITY.md.
+        All status paths receive jitter — cache hits (confirmed/denied/used)
+        are measurably faster than DB lookups, so without universal jitter
+        an attacker could use statistical timing analysis to distinguish
+        code paths.
         """
         from src.core.models import WebLoginRequest
         from src.web.services.web_login_service import WebLoginService
@@ -142,4 +144,4 @@ class TestTimingJitter:
         status = call_async(svc.check_status(token))
 
         assert status == "confirmed"
-        mock_sleep.assert_not_called()
+        mock_sleep.assert_called_once()

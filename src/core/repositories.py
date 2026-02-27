@@ -12,7 +12,7 @@ from asgiref.sync import sync_to_async
 from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 
-from src.core.models import User, Habit, HabitLog, Reward, RewardProgress, AuthCode, APIKey, WebLoginRequest
+from src.core.models import User, Habit, HabitLog, Reward, RewardProgress, AuthCode, APIKey, WebLoginRequest, LoginTokenIpBinding
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -1429,6 +1429,51 @@ class WebLoginRequestRepository:
         deleted, _ = await sync_to_async(
             WebLoginRequest.objects.filter(expires_at__lt=now).delete
         )()
+        return deleted
+
+    async def get_by_token_lightweight(self, token: str) -> WebLoginRequest | None:
+        """Get a web login request by token WITHOUT select_related('user').
+
+        Suitable for bot callback handling where the user object is only
+        needed later for telegram_id comparison (accessed via the cached
+        FK from select_related on the full fetch path).
+        """
+        try:
+            return await sync_to_async(WebLoginRequest.objects.get)(token=token)
+        except WebLoginRequest.DoesNotExist:
+            return None
+
+    @staticmethod
+    def create_ip_binding(token: str, ip_address: str, expires_at) -> LoginTokenIpBinding:
+        """Create a DB-backed IP binding for a login token.
+
+        Called synchronously from the Django view (via call_async or directly).
+        """
+        return LoginTokenIpBinding.objects.create(
+            token=token,
+            ip_address=ip_address,
+            expires_at=expires_at,
+        )
+
+    @staticmethod
+    def get_ip_binding(token: str) -> LoginTokenIpBinding | None:
+        """Look up the IP binding for a login token.
+
+        Returns None if no binding exists (e.g. token unknown or expired
+        binding was cleaned up).
+        """
+        try:
+            return LoginTokenIpBinding.objects.get(token=token)
+        except LoginTokenIpBinding.DoesNotExist:
+            return None
+
+    @staticmethod
+    def delete_expired_ip_bindings() -> int:
+        """Delete expired IP bindings (housekeeping)."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        deleted, _ = LoginTokenIpBinding.objects.filter(expires_at__lt=now).delete()
         return deleted
 
 

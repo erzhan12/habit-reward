@@ -2007,7 +2007,10 @@ A pre-commit hook (`scripts/check_validation_sync.sh`) verifies they stay in syn
 `src/web/utils/ip.py` takes the leftmost IP from X-Forwarded-For regardless of chain length. Multi-proxy chains (CDN -> LB -> app) are legitimate and should not be rejected. Only the leftmost IP is validated with `ipaddress.ip_address()`.
 
 ### Timing Jitter
-Status polling jitter (`src/web/services/web_login_service.py`) is applied to `"pending"`, `"expired"`, and `"error"` statuses — these have cache-dependent code paths with different timing that could leak information. Terminal statuses `"confirmed"`, `"denied"`, and `"used"` are excluded. Named constants `_JITTER_MIN`/`_JITTER_MAX` are configurable via Django settings.
+Status polling jitter (`src/web/services/web_login_service/__init__.py`) is applied to **ALL** status check paths — including `"confirmed"`, `"denied"`, and `"used"`. Cache hits are measurably faster than DB lookups; without universal jitter, statistical timing analysis can distinguish code paths. Named constants `_JITTER_MIN`/`_JITTER_MAX` are configurable via Django settings (`WEB_LOGIN_JITTER_MIN` / `WEB_LOGIN_JITTER_MAX`).
+
+### IP Binding Protection
+Login tokens are bound to the originating IP via `LoginTokenIpBinding` (DB model, not sessions). The binding is created in `bot_login_request` BEFORE the JSON response. Both `bot_login_status` and `bot_login_complete` enforce IP matching — if no binding exists or IP mismatches, the request is rejected. See `SECURITY.md` § "IP Binding Protection" for the full threat model. Tests that hit status/complete endpoints must create a `_create_ip_binding()` record (see `tests/web/test_auth_views.py`).
 
 ### UA Parsing Cache
 `_parse_ua_cached` in `src/web/views/auth.py` uses Django's cache framework (not `lru_cache`) with `hash()` (masked to 64-bit hex) for cache keys and 1-hour TTL. `MAX_USER_AGENT_LENGTH` is configurable via `settings.MAX_USER_AGENT_LENGTH` (default 1024). Both `cache.get()` and `cache.set()` are wrapped in try-except to gracefully degrade if the cache backend fails — the function falls back to direct UA parsing. Tests: `TestParseUaCachedCacheFailure` in `tests/web/test_auth_views.py`.

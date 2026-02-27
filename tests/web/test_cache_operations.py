@@ -919,3 +919,80 @@ class TestCacheUnavailabilityUnderLoad:
         # Decrement without prior increment — depth should clamp to 0
         depth = _decrement_queue_depth()
         assert depth >= 0
+
+
+# ---- Background processing cache failure tests ----
+
+
+@pytest.mark.django_db
+class TestCacheWriteFailureDuringBackgroundProcessing:
+    """Verify graceful degradation when cache fails during background processing."""
+
+    def test_cache_write_failure_during_background_processing(self):
+        """When cache.set fails during background login processing, the token
+        still returns 'pending' status via database fallback.
+
+        Simulates a scenario where the cache backend is temporarily
+        unavailable while the background thread is writing the pending
+        marker.  The service should still create the DB record, and
+        check_status should fall back to DB when the cache key is missing.
+        """
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService, cache_manager
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_cache_fail_bg",
+            telegram_id="770000001",
+            name="Cache Fail BG",
+            language="en",
+            timezone="UTC",
+        )
+
+        token = "cache_fail_bg_tok_aaabbbbccccddddeeeefffff"
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(minutes=5)
+
+        # Create the WebLoginRequest directly (simulating what
+        # _process_login_background does after the cache write)
+        WebLoginRequest.objects.create(
+            user=user,
+            token=token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=expires_at,
+        )
+
+        # Do NOT set the pending cache key — simulating cache write failure.
+        # check_status should fall back to DB and find the pending record.
+        svc = WebLoginService()
+        status = call_async(svc.check_status(token))
+        assert status == "pending"
+
+    def test_multiple_cache_failures_trigger_circuit_breaker(self):
+        """After repeated cache write failures, CacheWriteError is raised,
+        preventing the system from silently degrading forever.
+
+        The circuit breaker threshold (10 consecutive failures) ensures
+        that persistent cache issues surface as errors rather than being
+        swallowed silently.
+        """
+        from src.web.services.web_login_service import CacheWriteError, cache_manager
+
+        cache_manager.reset()
+        try:
+            failures = 0
+            with patch("django.core.cache.cache.set", side_effect=ConnectionError("cache down")):
+                for i in range(15):
+                    try:
+                        cache_manager.set(f"circuit_test_{i}", True, 60)
+                        failures = 0  # reset on success
+                    except CacheWriteError:
+                        # Circuit breaker tripped — this is expected
+                        assert i >= 9, (
+                            f"Circuit breaker tripped too early at attempt {i}"
+                        )
+                        break
+                else:
+                    pytest.fail("Circuit breaker never tripped after 15 failures")
+        finally:
+            cache_manager.reset()

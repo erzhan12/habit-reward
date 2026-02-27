@@ -101,6 +101,8 @@ LOGIN_REQUEST_EXPIRY_MINUTES = getattr(settings, "WEB_LOGIN_EXPIRY_MINUTES", 5)
 # samples.  The upper bound (200ms) keeps UX responsive — users polling
 # every 2-3s won't notice the added latency.
 # See also: SECURITY.md § "Timing Attack Resistance" for the full threat model.
+# Adjust WEB_LOGIN_JITTER_MIN / WEB_LOGIN_JITTER_MAX in settings if your
+# infrastructure changes the cache/DB delta (e.g. remote Redis vs local memcached).
 _JITTER_MIN = getattr(settings, "WEB_LOGIN_JITTER_MIN", 0.05)
 _JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
 
@@ -570,13 +572,15 @@ class WebLoginService:
         try:
             chat_id = int(user.telegram_id)
         except (ValueError, TypeError):
+            # SECURITY: Do NOT mark as "failed" — that would let an attacker
+            # distinguish users with invalid/NULL telegram_id (sees "error")
+            # from completely unknown users (sees "pending" until TTL expiry).
+            # Instead, leave the token in "pending" state so it expires
+            # silently via cache TTL, matching the unknown-user path.
             logger.error(
-                "Invalid telegram_id for user — cannot send notification",
+                "Invalid telegram_id for user — cannot send notification; "
+                "leaving token in pending state to prevent enumeration",
                 extra={"user_id": user.id, "telegram_id": user.telegram_id},
-            )
-            self._mark_failed_safely_with_logging(
-                token, expires_at,
-                {"user_id": user.id, "token_prefix": token[:8]},
             )
             return
         await self._send_login_notification(
@@ -651,8 +655,11 @@ class WebLoginService:
             else:
                 status = str(login_request.status)
 
-        if status in ("pending", "expired", "error"):
-            await asyncio.sleep(_secure_random.uniform(_JITTER_MIN, _JITTER_MAX))
+        # Apply jitter to ALL status paths — not just pending/expired/error.
+        # Cache hits (confirmed/denied/used) are measurably faster than DB
+        # lookups; without universal jitter, an attacker could use statistical
+        # timing analysis to distinguish code paths.
+        await asyncio.sleep(_secure_random.uniform(_JITTER_MIN, _JITTER_MAX))
 
         return status
 

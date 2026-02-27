@@ -31,6 +31,7 @@ import hashlib
 import json
 import logging
 import re
+from datetime import datetime
 
 from user_agents import parse as parse_ua
 
@@ -43,6 +44,7 @@ from django_ratelimit.decorators import ratelimit
 
 from inertia import render as inertia_render
 
+from src.core.repositories import web_login_request_repository
 from src.web.services.web_login_service import (
     LoginServiceUnavailable,
     TOKEN_MIN_LENGTH,
@@ -259,16 +261,27 @@ def bot_login_request(request):
             status=503,
         )
 
+    # SECURITY: Bind this token to the requesting IP so only the originator
+    # can poll its status.  The DB entry is automatically cleaned up when the
+    # token is used or expires (after 5 minutes).
+    #
+    # Written BEFORE the JSON response to prevent a race condition where an
+    # attacker could poll the token's status before the IP binding is
+    # persisted.  Database-backed storage (not session) prevents session
+    # fixation, CSRF, and cookie exposure attacks, and aligns binding
+    # lifetime with token expiry.
+    client_ip = parse_ip_address(request)
+    expires_at_str = result["expires_at"]
+    expires_at_dt = datetime.fromisoformat(expires_at_str)
+    web_login_request_repository.create_ip_binding(
+        result["token"], client_ip, expires_at_dt
+    )
+
     # SECURITY: Always return 200 with a generic message and the token.
     # The service returns {token, expires_at} for BOTH known and unknown
     # users — no branching here prevents username enumeration via response
     # body or status code differences.
     result["message"] = "If this username is registered, a login confirmation has been sent."
-
-    # Bind this token to the requesting IP so only the originator can poll
-    # its status.  Stored in the Django session (server-side, not cookie).
-    client_ip = parse_ip_address(request)
-    request.session[f"wl_origin_ip:{result['token']}"] = client_ip
 
     return JsonResponse(result)
 
@@ -326,17 +339,21 @@ def bot_login_status(request, token):
 
     # Verify the requesting IP matches the one that created this token.
     # This prevents an attacker who intercepts a token from polling its
-    # status from a different machine.
-    origin_ip = request.session.get(f"wl_origin_ip:{token}")
-    if origin_ip is not None:
-        client_ip = parse_ip_address(request)
-        if client_ip != origin_ip:
-            logger.warning(
-                "Status poll IP mismatch: origin=%s, poller=%s",
-                _anonymize_ip(origin_ip),
-                _anonymize_ip(client_ip),
-            )
-            return JsonResponse({"status": "expired"})
+    # status from a different machine.  Uses database-backed binding
+    # instead of sessions to prevent session fixation / cookie exposure.
+    # When no binding exists (cleared, expired, or never set), treat the
+    # token as expired rather than silently bypassing the check.
+    ip_binding = web_login_request_repository.get_ip_binding(token)
+    if ip_binding is None:
+        return JsonResponse({"status": "expired"})
+    client_ip = parse_ip_address(request)
+    if client_ip != ip_binding.ip_address:
+        logger.warning(
+            "Status poll IP mismatch: origin=%s, poller=%s",
+            _anonymize_ip(ip_binding.ip_address),
+            _anonymize_ip(client_ip),
+        )
+        return JsonResponse({"status": "expired"})
 
     status = call_async(web_login_service.check_status(token))
     return JsonResponse({"status": status})
@@ -393,6 +410,22 @@ def bot_login_complete(request):
     error = _validate_token_or_400(token)
     if error:
         return error
+
+    # Verify the completing IP matches the one that created this token.
+    # Without this check, an attacker could create a request from IP A,
+    # wait for user confirmation, then complete from IP B to hijack the
+    # account.
+    ip_binding = web_login_request_repository.get_ip_binding(token)
+    if ip_binding is None:
+        return JsonResponse({"error": "Login request expired or invalid. Please try again."}, status=403)
+    client_ip = parse_ip_address(request)
+    if client_ip != ip_binding.ip_address:
+        logger.warning(
+            "Complete login IP mismatch: origin=%s, completer=%s",
+            _anonymize_ip(ip_binding.ip_address),
+            _anonymize_ip(client_ip),
+        )
+        return JsonResponse({"error": "Login request expired or invalid. Please try again."}, status=403)
 
     user = call_async(web_login_service.complete_login(token))
     if not user:
