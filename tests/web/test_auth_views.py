@@ -1708,6 +1708,49 @@ class TestDeviceInfoEdgeCases:
         assert len(info) <= 255
         assert "unknown" in info.lower()  # Should fail to parse
 
+    def test_user_agent_only_non_printable_chars(self):
+        """UA consisting entirely of non-printable characters produces Unknown."""
+        from src.web.views.auth import _parse_device_info
+
+        request = MagicMock()
+        request.META = {
+            "HTTP_USER_AGENT": "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0e\x0f\x10",
+            "REMOTE_ADDR": "10.0.0.2",
+        }
+        info = _parse_device_info(request)
+        assert "Unknown" in info
+        # No non-printable chars in output
+        for ch in info:
+            assert ch == '\n' or ch == '\t' or '\x20' <= ch <= '\x7e'
+
+    def test_user_agent_over_1024_chars_with_valid_prefix(self):
+        """UA >1024 chars that starts with a valid browser string is truncated
+        to MAX_USER_AGENT_LENGTH before parsing, and final output <= 255 chars."""
+        from src.web.views.auth import MAX_USER_AGENT_LENGTH, _parse_device_info
+
+        valid_prefix = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
+        long_ua = valid_prefix + " " + "X" * 2000
+        assert len(long_ua) > MAX_USER_AGENT_LENGTH
+
+        request = MagicMock()
+        request.META = {"HTTP_USER_AGENT": long_ua, "REMOTE_ADDR": "10.0.0.3"}
+        info = _parse_device_info(request)
+        assert len(info) <= 255
+        # Should still parse the valid prefix correctly
+        assert "Chrome" in info
+
+    def test_user_agent_crafted_long_parsed_output(self):
+        """UA crafted to produce a long browser + OS string is truncated to 255."""
+        from src.web.views.auth import MAX_DEVICE_INFO_LENGTH, _parse_device_info
+
+        # Craft a UA with very long version strings that the parser might echo.
+        long_version = "1." + "9" * 300
+        crafted_ua = f"Mozilla/5.0 (Windows NT {long_version}) Chrome/{long_version}"
+        request = MagicMock()
+        request.META = {"HTTP_USER_AGENT": crafted_ua, "REMOTE_ADDR": "10.0.0.4"}
+        info = _parse_device_info(request)
+        assert len(info) <= MAX_DEVICE_INFO_LENGTH
+
 
 # ---- Username uniqueness constraint tests ----
 

@@ -92,6 +92,9 @@ def _sanitize_user_agent(ua: str) -> str:
     return _NON_PRINTABLE_RE.sub('', ua)
 
 
+# UA parse cache — bounded by Django cache backend eviction (TTL + LRU).
+# Unlike functools.lru_cache, Django's cache is shared across processes and
+# automatically evicts entries, so no per-process unbounded growth occurs.
 _UA_CACHE_KEY_PREFIX = "ua_parse:"
 _UA_CACHE_TTL = 3600  # 1 hour
 

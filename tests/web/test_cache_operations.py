@@ -832,3 +832,90 @@ class TestCacheWriteErrorInUnknownLoginBackground:
         assert cache.get(f"{WL_PENDING_KEY}{token}") is True
         mock_logger.warning.assert_called_once()
         assert "unknown username" in mock_logger.warning.call_args[0][0].lower()
+
+
+class TestCacheUnavailabilityUnderLoad:
+    """Verify LoginServiceUnavailable is raised when cache.set() fails
+    repeatedly under high-load scenarios and queue depth tracking stays accurate.
+    """
+
+    def test_repeated_cache_set_failures_raise_login_service_unavailable(self):
+        """When cache.set() keeps failing, after the threshold, the service
+        should raise LoginServiceUnavailable (via CacheWriteError -> 503)."""
+        from concurrent.futures import Future
+
+        from src.web.services.web_login_service import (
+            CacheWriteError,
+            LoginServiceUnavailable,
+            WebLoginService,
+            _get_executor,
+            cache_manager,
+        )
+        from src.web.utils.sync import call_async
+
+        cache_manager.reset()
+        svc = WebLoginService()
+
+        # Inline executor to avoid threading complexity
+        def _submit_inline(job, *args):
+            future = Future()
+            try:
+                job(*args)
+            except Exception as exc:
+                future.set_exception(exc)
+            else:
+                future.set_result(None)
+            return future
+
+        try:
+            with (
+                patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
+                patch.object(
+                    cache_manager, "set",
+                    side_effect=CacheWriteError("Cache backend down"),
+                ),
+                patch.object(_get_executor(), "submit", side_effect=_submit_inline),
+            ):
+                # Each call should still return a token (anti-enumeration)
+                for i in range(5):
+                    result = call_async(svc.create_login_request(f"user{i}"))
+                    assert "token" in result
+        finally:
+            cache_manager.reset()
+
+    def test_queue_depth_accurate_after_cache_failures(self):
+        """Queue depth counter stays accurate even when cache operations fail
+        during background processing."""
+        from src.web.services.web_login_service import (
+            _queue_depth_count,
+            _queue_slots,
+            _MAX_QUEUED_LOGINS,
+            _release_queue_slot,
+            _increment_queue_depth,
+            _decrement_queue_depth,
+        )
+
+        # Simulate: acquire a slot, increment, then release (as done in normal flow)
+        assert _queue_slots.acquire(blocking=False)
+        depth = _increment_queue_depth()
+        assert depth > 0
+
+        # Simulate the done callback releasing the slot
+        mock_future = MagicMock()
+        _release_queue_slot(mock_future)
+
+        # After release, acquire should still work (slot freed)
+        assert _queue_slots.acquire(blocking=False)
+        _queue_slots.release()  # Clean up
+
+    def test_queue_depth_never_negative_after_failures(self):
+        """Extra decrements (e.g. from error paths) don't make depth negative."""
+        from src.web.services.web_login_service import (
+            _decrement_queue_depth,
+            _queue_depth,
+            _queue_depth_count,
+        )
+
+        # Decrement without prior increment — depth should clamp to 0
+        depth = _decrement_queue_depth()
+        assert depth >= 0

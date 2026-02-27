@@ -13,7 +13,6 @@ import asyncio
 import atexit
 import logging
 import os
-import queue
 import secrets
 import signal
 import threading
@@ -177,11 +176,12 @@ def _install_signal_handlers() -> None:
 def _get_executor() -> ThreadPoolExecutor:
     """Return the shared ThreadPoolExecutor, creating it on first use.
 
-    Uses a bounded ``queue.Queue(maxsize=_MAX_QUEUED_LOGINS)`` to cap the
-    internal work queue, preventing unbounded memory growth when Telegram
-    API calls are slow.  This complements the semaphore-based circuit
-    breaker: the semaphore rejects new submissions quickly, while the
-    bounded queue provides a hard memory ceiling inside the executor.
+    Queue bounding is handled by the semaphore-based circuit breaker
+    (``_queue_slots``): it rejects new submissions before they reach the
+    executor's internal queue, preventing unbounded memory growth when
+    Telegram API calls are slow.  We intentionally do **not** replace the
+    executor's private ``_work_queue`` — that attribute is a CPython
+    implementation detail that could break in future Python versions.
     """
     global _login_executor
     with _executor_lock:
@@ -189,11 +189,6 @@ def _get_executor() -> ThreadPoolExecutor:
             _login_executor = ThreadPoolExecutor(
                 max_workers=settings.WEB_LOGIN_THREAD_POOL_SIZE,
                 thread_name_prefix="web_login",
-            )
-            # Replace the default unbounded SimpleQueue with a bounded Queue
-            # to enforce a hard memory ceiling on queued work items.
-            _login_executor._work_queue = queue.Queue(
-                maxsize=_MAX_QUEUED_LOGINS
             )
             # atexit is best-effort (skipped on SIGKILL).  Signal handlers
             # provide more reliable shutdown for SIGTERM/SIGINT.
