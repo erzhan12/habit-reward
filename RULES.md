@@ -1180,6 +1180,7 @@ When logging IP addresses (e.g., rate limiting), use `_anonymize_ip()` from `src
 - **Cache writes**: Use `cache_manager.set(key, value, timeout)` from `web_login_service/cache_operations.py` — never raw `cache.set()` with manual try/except. The `CacheManager` tracks consecutive failures and raises `CacheWriteError` after `CACHE_FAILURE_THRESHOLD` (default 10, configurable in settings.py).
 - **telegram_id**: Always validate with `try: int(user.telegram_id)` before passing to Telegram API — non-numeric values cause `ValueError`.
 - **ThreadPoolExecutor.submit()**: Wrap in try/except RuntimeError to release the semaphore if the executor is shut down.
+- **ThreadPoolExecutor queue bounding**: Do NOT replace `_work_queue` on the executor — it's a CPython private attribute that can break across Python versions. Use the semaphore-based circuit breaker (`_queue_slots`) for queue bounding instead. See `_get_executor()` in `src/web/services/web_login_service/__init__.py`.
 - **Timing jitter**: Always apply uniformly to ALL status check paths — selective jitter is itself a timing side-channel.
 - **Bot login handler race condition**: The handler in `web_login_handler.py` uses `transaction.atomic()` + `select_for_update()` for the status check+update to prevent TOCTOU races on concurrent button presses.
 - **Django system checks**: `web.E001`/`web.E002` (XFF trust errors) and `web.E004` (SQLite regex constraint) are **errors** that block startup. They were previously warnings.
