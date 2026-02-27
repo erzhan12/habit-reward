@@ -112,6 +112,21 @@ def check_sqlite_thread_pool_conflict(app_configs, **kwargs):
 
 
 @register()
+def check_thread_pool_size_valid(app_configs, **kwargs):
+    """Error when WEB_LOGIN_THREAD_POOL_SIZE is not a positive integer."""
+    errors = []
+    pool_size = getattr(settings, "WEB_LOGIN_THREAD_POOL_SIZE", 10)
+    if pool_size <= 0:
+        msg = (
+            "WEB_LOGIN_THREAD_POOL_SIZE must be a positive integer "
+            f"(recommended: 10 for production, 1 for SQLite). Current value: {pool_size}"
+        )
+        logger.warning("CONFIG: %s", msg)
+        errors.append(Error(msg, id="web.E005"))
+    return errors
+
+
+@register()
 def check_thread_pool_vs_db_connections(app_configs, **kwargs):
     """Warn when thread pool size risks exceeding database max_connections.
 
@@ -194,13 +209,38 @@ def check_sqlite_username_constraint(app_configs, **kwargs):
     errors = []
     engine = settings.DATABASES.get("default", {}).get("ENGINE", "")
     if "sqlite" in engine:
+        if settings.DEBUG:
+            msg = (
+                "SQLite detected with User.telegram_username CHECK constraint. "
+                "This is acceptable for local development, but you MUST use "
+                "PostgreSQL in production."
+            )
+            errors.append(Warning(msg, id="web.W008"))
+        else:
+            msg = (
+                "CRITICAL: SQLite backend detected. User.telegram_username CHECK "
+                "constraint uses PostgreSQL regex syntax (__regex) which behaves "
+                "differently on SQLite. DO NOT USE SQLite IN PRODUCTION. "
+                "For local development, you can disable this check by setting "
+                "SILENCED_SYSTEM_CHECKS=['web.E004'] in settings, but you MUST "
+                "migrate to PostgreSQL before deploying."
+            )
+            errors.append(Error(msg, id="web.E004"))
+    return errors
+
+
+@register()
+def check_use_tz_enabled(app_configs, **kwargs):
+    """Error when USE_TZ is not True.
+
+    Timezone-aware datetime handling in web_login_service requires USE_TZ=True
+    to avoid naive datetime comparison errors.
+    """
+    errors = []
+    if not getattr(settings, "USE_TZ", False):
         msg = (
-            "CRITICAL: SQLite backend detected. User.telegram_username CHECK "
-            "constraint uses PostgreSQL regex syntax (__regex) which behaves "
-            "differently on SQLite. DO NOT USE SQLite IN PRODUCTION. "
-            "For local development, you can disable this check by setting "
-            "SILENCED_SYSTEM_CHECKS=['web.E004'] in settings, but you MUST "
-            "migrate to PostgreSQL before deploying."
+            "USE_TZ=True is required for timezone-aware datetime handling "
+            "in web_login_service. Set USE_TZ=True in settings.py."
         )
-        errors.append(Error(msg, id="web.E004"))
+        errors.append(Error(msg, id="web.E006"))
     return errors

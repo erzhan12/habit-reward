@@ -60,12 +60,10 @@ logger = logging.getLogger(__name__)
 
 
 def _ensure_utc(dt: datetime) -> datetime:
-    """Ensure a datetime is timezone-aware (UTC).
+    """Django's DateTimeField returns timezone-aware datetimes when USE_TZ=True (recommended).
 
-    Django's DateTimeField may return naive datetimes when USE_TZ=False.
-    This prevents ``TypeError: can't compare offset-naive and offset-aware
-    datetimes`` when comparing with ``datetime.now(timezone.utc)``.
-    Consider enabling ``USE_TZ=True`` to avoid naive datetimes at the source.
+    This function handles the edge case where USE_TZ=False by adding UTC
+    timezone info. If you see this error, verify USE_TZ=True in settings.
 
     Raises:
         ValueError: If *dt* is None (prevents confusing downstream errors).

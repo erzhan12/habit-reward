@@ -105,7 +105,7 @@ const LOGIN_EXPIRY_MS = 300_000; // 5 minutes — matches server expiry
 const POLL_MAX_CONSECUTIVE_ERRORS = 5; // Stop polling after this many consecutive network failures
 
 // IMPORTANT: Must stay in sync with TELEGRAM_USERNAME_PATTERN in
-// src/web/utils/validation.py. A pre-commit hook verifies both patterns match.
+// src/web/utils/validation.py. The .github/workflows/check-pattern-sync.yml workflow verifies both patterns match on every PR.
 // Lowercase only — the input is lowercased before validation (see submitLogin),
 // matching the backend which stores usernames in lowercase.
 const TELEGRAM_USERNAME_RE = /^[a-z0-9_]{3,32}$/;

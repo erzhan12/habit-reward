@@ -563,6 +563,13 @@ All authentication endpoints are rate-limited per IP via `django-ratelimit`:
 - **User-Agent sanitization**: UA strings are truncated, filtered for non-printable characters, and parsed via the `user-agents` library (never used as raw HTML).
 - **Database-level constraints**: The `telegram_username` field has a DB-level `CHECK` constraint ensuring format validity even for bulk operations that bypass `save()`.
 
+## CI/CD Workflows
+
+The project uses GitHub Actions for automated checks:
+
+- **`.github/workflows/check-pattern-sync.yml`** — Verifies that the frontend and backend Telegram username regex patterns stay in sync on every PR. Prevents silent divergence between `TELEGRAM_USERNAME_RE` in `Login.vue` and `TELEGRAM_USERNAME_PATTERN` in `src/web/utils/validation.py`.
+- **`.github/workflows/claude-code-review.yml`** — Automated code review on PRs using Claude Code. Provides AI-assisted feedback on code changes.
+
 ## Ethical Considerations
 
 1. **Data Privacy**: Only telegram_id stored, full user control via Django admin
