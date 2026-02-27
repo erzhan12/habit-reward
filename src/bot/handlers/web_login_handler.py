@@ -10,7 +10,13 @@ from telegram.ext import CallbackQueryHandler, ContextTypes
 from src.core.models import WebLoginRequest
 from src.core.repositories import web_login_request_repository
 from src.utils.async_compat import maybe_await
-from src.web.services.web_login_service import WL_CONFIRM_PREFIX, WL_DENY_PREFIX, _ensure_utc
+from src.web.services.web_login_service import (
+    TOKEN_MIN_LENGTH,
+    TOKEN_MAX_LENGTH,
+    WL_CONFIRM_PREFIX,
+    WL_DENY_PREFIX,
+    _ensure_utc,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +37,12 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     action = 'c' if query.data.startswith(WL_CONFIRM_PREFIX) else 'd'
     token = match.group(1)
+
+    # Validate token format before DB query to reject obviously invalid
+    # tokens without touching the database (defense-in-depth).
+    if not (TOKEN_MIN_LENGTH <= len(token) <= TOKEN_MAX_LENGTH):
+        await query.edit_message_text("⚠️ This login request has expired or was not found.")
+        return
 
     # Get the login request
     login_request = await maybe_await(

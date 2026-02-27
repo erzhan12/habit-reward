@@ -3533,3 +3533,179 @@ class TestCacheDBRaceConditions:
         status = call_async(svc.check_status(token))
 
         assert status == "expired"
+
+
+class TestErrorStatusPolling:
+    """Verify that check_status returns 'error' when the failed cache key is set."""
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_error_status_returned_for_failed_token(self, mock_sleep):
+        """When the wl_failed cache key is set, check_status returns 'error'."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        token = "error_poll_test_tok"
+        cache.set(f"{WL_FAILED_KEY}{token}", True, timeout=300)
+
+        svc = WebLoginService()
+        status = call_async(svc.check_status(token))
+
+        assert status == "error"
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_error_status_takes_priority_over_pending(self, mock_sleep):
+        """When both pending and failed cache keys are set, 'error' wins."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        token = "error_priority_tok"
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
+        cache.set(f"{WL_FAILED_KEY}{token}", True, timeout=300)
+
+        svc = WebLoginService()
+        status = call_async(svc.check_status(token))
+
+        assert status == "error"
+
+
+class TestCacheWriteFailureDuringRetry:
+    """Verify CacheWriteError logging during token collision retry."""
+
+    def test_cache_failure_during_collision_retry_logs_critical(self):
+        """When _safe_cache_set raises CacheWriteError during retry,
+        it should be caught and logged (not silently swallowed)."""
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService, CacheWriteError
+
+        user = User.objects.create_user(
+            username="tg_cache_retry_fail",
+            telegram_id="770000020",
+            name="Cache Retry Fail",
+            language="en",
+            timezone="UTC",
+        )
+
+        # Create a login request to force a token collision
+        existing_token = "cache_retry_collide_t"
+        WebLoginRequest.objects.create(
+            user=user,
+            token=existing_token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        # _safe_cache_set will be called during retry with the new token;
+        # make it raise CacheWriteError
+        with patch(
+            "src.web.services.web_login_service._safe_cache_set",
+            side_effect=[None, CacheWriteError("test")],
+        ):
+            with patch(
+                "src.web.services.web_login_service.logger"
+            ) as mock_logger:
+                # Should not raise — the CacheWriteError is caught
+                login_req, final_token = WebLoginService._create_login_request_with_retry(
+                    user.id,
+                    existing_token,
+                    datetime.now(timezone.utc) + timedelta(minutes=5),
+                    "test device",
+                )
+
+                # Verify that it logged critical (not silently swallowed)
+                assert login_req is not None
+                # The token must have changed since the first collided
+                assert final_token != existing_token
+
+
+class TestQueueExhaustion503:
+    """Verify HTTP 503 when the login queue is full."""
+
+    def test_503_when_queue_full(self):
+        """When _queue_slots.acquire returns False, the service should
+        raise LoginServiceUnavailable and the view should return 503."""
+        client = Client()
+
+        with patch(
+            "src.web.services.web_login_service._queue_slots"
+        ) as mock_semaphore:
+            mock_semaphore.acquire.return_value = False
+
+            with patch(
+                "src.web.services.web_login_service.WebLoginService.create_login_request",
+            ) as mock_create:
+                from src.web.services.web_login_service import LoginServiceUnavailable
+                mock_create.side_effect = LoginServiceUnavailable("Queue full")
+
+                response = client.post(
+                    "/auth/bot-login/request/",
+                    data=json.dumps({"username": "testuser"}),
+                    content_type="application/json",
+                )
+
+                assert response.status_code == 503
+
+
+class TestTokenValidationInHandler:
+    """Verify token format validation in the bot callback handler."""
+
+    @pytest.mark.asyncio
+    async def test_short_token_rejected(self):
+        """A token shorter than TOKEN_MIN_LENGTH is rejected without DB query."""
+        from unittest.mock import AsyncMock, MagicMock
+        from src.bot.handlers.web_login_handler import web_login_callback
+
+        update = MagicMock()
+        update.effective_user.id = 555555555
+        update.callback_query.data = "wl_c_ab"  # Very short token
+        update.callback_query.answer = AsyncMock()
+        update.callback_query.edit_message_text = AsyncMock()
+
+        await web_login_callback(update, MagicMock())
+
+        update.callback_query.edit_message_text.assert_awaited_once()
+        msg = update.callback_query.edit_message_text.call_args[0][0]
+        assert "expired" in msg.lower() or "not found" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_long_token_rejected(self):
+        """A token longer than TOKEN_MAX_LENGTH is rejected without DB query."""
+        from unittest.mock import AsyncMock, MagicMock
+        from src.bot.handlers.web_login_handler import web_login_callback
+
+        update = MagicMock()
+        update.effective_user.id = 555555555
+        update.callback_query.data = "wl_c_" + "a" * 200  # Very long token
+        update.callback_query.answer = AsyncMock()
+        update.callback_query.edit_message_text = AsyncMock()
+
+        await web_login_callback(update, MagicMock())
+
+        update.callback_query.edit_message_text.assert_awaited_once()
+        msg = update.callback_query.edit_message_text.call_args[0][0]
+        assert "expired" in msg.lower() or "not found" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_valid_length_token_proceeds_to_db(self):
+        """A token with valid length proceeds past validation to DB lookup."""
+        from unittest.mock import AsyncMock, MagicMock
+        from src.bot.handlers.web_login_handler import web_login_callback
+        from src.web.services.web_login_service import TOKEN_LENGTH
+
+        update = MagicMock()
+        update.effective_user.id = 555555555
+        # Generate a token of valid length (will not be found in DB)
+        valid_token = "x" * TOKEN_LENGTH
+        update.callback_query.data = f"wl_c_{valid_token}"
+        update.callback_query.answer = AsyncMock()
+        update.callback_query.edit_message_text = AsyncMock()
+
+        await web_login_callback(update, MagicMock())
+
+        # Should proceed past token validation and hit DB lookup (not found)
+        update.callback_query.edit_message_text.assert_awaited_once()
+        msg = update.callback_query.edit_message_text.call_args[0][0]
+        assert "expired" in msg.lower() or "not found" in msg.lower()

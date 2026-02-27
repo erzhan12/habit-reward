@@ -262,6 +262,11 @@ async function pollStatus() {
     } else if (data.status === "expired") {
       stopPolling();
       state.value = "expired";
+    } else if (data.status === "error") {
+      // Backend processing failed (e.g. Telegram send error, DB error)
+      stopPolling();
+      error.value = "Something went wrong. Please try again.";
+      state.value = "error";
     } else if (data.status === "used") {
       // Login completed in another tab — session already exists
       stopPolling();

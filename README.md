@@ -221,6 +221,9 @@ WEB_LOGIN_MAX_QUEUED=10
 | `AUTH_RATE_LIMIT` | `10/m` | Rate limit for login request and complete endpoints (per IP). |
 | `AUTH_STATUS_RATE_LIMIT` | `30/m` | Rate limit for status polling endpoint (per IP). |
 | `TRUST_X_FORWARDED_FOR` | `False` | Trust X-Forwarded-For header for client IP. **Only enable behind a trusted reverse proxy** (nginx/Caddy) that overwrites this header. When exposed directly to the internet, clients can spoof their IP. **WARNING:** In production (`DEBUG=False`), enabling this without a reverse proxy is a security risk — attackers can forge their IP to bypass rate limiting and IP-based access controls. |
+| `CONN_MAX_AGE` | `600` | Database connection reuse timeout in seconds (reduces overhead in thread pool workers). Set the database connection pool size (via `DATABASE_URL` for PostgreSQL: `?pool_size=N`) to at least match `WEB_LOGIN_THREAD_POOL_SIZE` to avoid connection exhaustion under load. |
+| `WEB_LOGIN_JITTER_MIN` | `0.05` | Minimum timing jitter (seconds) added to status polling responses. |
+| `WEB_LOGIN_JITTER_MAX` | `0.2` | Maximum timing jitter (seconds) added to status polling responses. |
 
 #### Bot Login Endpoint Rate Limits
 
@@ -236,9 +239,6 @@ The bot login flow implements several security properties:
 - **Timing resistance**: All status checks include 50-200ms random jitter from a CSPRNG to mask timing differences between cache hits, DB lookups, and different code paths.
 - **Atomic replay prevention**: Tokens are marked as "used" atomically via SQL UPDATE with a WHERE clause, preventing race conditions where the same token could be used twice.
 - **Rate limiting**: All endpoints are rate-limited per IP address to prevent brute force attacks and abuse.
-| `CONN_MAX_AGE` | `600` | Database connection reuse timeout in seconds (reduces overhead in thread pool workers). Set the database connection pool size (via `DATABASE_URL` for PostgreSQL: `?pool_size=N`) to at least match `WEB_LOGIN_THREAD_POOL_SIZE` to avoid connection exhaustion under load. |
-| `WEB_LOGIN_JITTER_MIN` | `0.05` | Minimum timing jitter (seconds) added to status polling responses. |
-| `WEB_LOGIN_JITTER_MAX` | `0.2` | Maximum timing jitter (seconds) added to status polling responses. |
 
 #### Queue Overflow Handling
 

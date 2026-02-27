@@ -110,6 +110,11 @@ def _parse_ua_cached(ua: str) -> str:
     single-process deployment.  This is acceptable because UA diversity is
     low (most users share a handful of browser/OS combos) and the per-process
     cache still prevents redundant parsing within each worker.
+
+    Thread-safety: ``functools.lru_cache`` is thread-safe in CPython — the
+    lookup and insertion are protected by a C-level lock.  However,
+    ``.cache_info()`` returns a snapshot that may be slightly stale under
+    concurrent access; this is fine for monitoring/debugging purposes.
     """
     ua_parsed = parse_ua(ua)
     browser = f"{ua_parsed.browser.family} {ua_parsed.browser.version_string}".strip()

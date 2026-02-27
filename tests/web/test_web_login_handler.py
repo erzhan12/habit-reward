@@ -29,7 +29,7 @@ def pending_login(handler_user):
     """Create a pending WebLoginRequest."""
     return WebLoginRequest.objects.create(
         user=handler_user,
-        token="handler_test_token_aaa",
+        token="handler_test_token_aaa_padded_to_43chars_x",
         status="pending",
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
     )
@@ -40,7 +40,7 @@ def expired_login(handler_user):
     """Create an expired WebLoginRequest."""
     return WebLoginRequest.objects.create(
         user=handler_user,
-        token="handler_expired_token",
+        token="handler_expired_token_padded_to_43chars_xx",
         status="pending",
         expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
     )
@@ -51,7 +51,7 @@ def confirmed_login(handler_user):
     """Create a confirmed (already processed) WebLoginRequest."""
     return WebLoginRequest.objects.create(
         user=handler_user,
-        token="handler_confirmed_tkn",
+        token="handler_confirmed_tkn_padded_to_43chars_xx",
         status="confirmed",
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
     )
@@ -162,7 +162,7 @@ class TestWebLoginCallback:
 
         update = _make_update(
             int(handler_user.telegram_id),
-            "wl_c_nonexistent_token_xyz",
+            "wl_c_nonexistent_token_xyz_padded_to_43chars_x",
         )
         await web_login_callback(update, MagicMock())
 
@@ -176,7 +176,7 @@ class TestWebLoginCallback:
 
         login_req = await sync_to_async(WebLoginRequest.objects.create)(
             user=handler_user,
-            token="handler_invalid_status",
+            token="handler_invalid_status_padded_to_43char_xx",
             status="pending",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
         )

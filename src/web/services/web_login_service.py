@@ -13,7 +13,7 @@ from django.db import DatabaseError, IntegrityError, transaction
 
 from src.core.models import WebLoginRequest
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import Forbidden, InvalidToken, TelegramError
+from telegram.error import Forbidden, InvalidToken, RetryAfter, TelegramError
 
 from asgiref.sync import sync_to_async
 
@@ -335,9 +335,15 @@ class WebLoginService:
             # usernames by observing response body, timing, or status polling
             # differences.  The cache-only token expires silently after TTL.
             if not user:
-                logger.warning("Web login request for unknown username: @%s", username)
+                logger.warning(
+                    "Web login request for unknown username",
+                    extra={"username": username},
+                )
             else:
-                logger.warning("User @%s has no telegram_id", username)
+                logger.warning(
+                    "User has no telegram_id",
+                    extra={"username": username, "user_id": user.id},
+                )
 
         return {
             "token": token,
@@ -381,8 +387,21 @@ class WebLoginService:
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
             _mark_failed_safely()
+        except RetryAfter as e:
+            # Telegram rate limit — log the specific retry-after delay.
+            # Do NOT mark as failed; the cache-pending entry expires via
+            # TTL, allowing the user to retry after the rate limit lifts.
+            logger.warning(
+                "Telegram rate limit during login processing (retry after %ds)",
+                e.retry_after,
+                extra={
+                    "user_id": user.id,
+                    "token_prefix": token[:8],
+                    "retry_after": e.retry_after,
+                },
+            )
         except TelegramError as e:
-            # Temporary Telegram errors (network, rate limit, etc.) —
+            # Other temporary Telegram errors (network, server-side, etc.) —
             # may resolve on next attempt.  Do NOT mark as failed — the
             # cache-pending entry will expire via TTL, allowing the user
             # to retry after the transient issue resolves.
@@ -437,7 +456,11 @@ class WebLoginService:
                 try:
                     _safe_cache_set(f"{WL_PENDING_KEY}{token}", True, cache_ttl)
                 except CacheWriteError:
-                    pass  # Best-effort — cache may be unhealthy
+                    logger.critical(
+                        "Cache write failed during token collision retry — "
+                        "new token's pending marker not cached",
+                        extra={"token_prefix": token[:8]},
+                    )
         # All retries exhausted.  Don't delete the original cache entry —
         # it could belong to a concurrent request that won the collision.
         # The cache entry will expire naturally via its TTL.
@@ -536,6 +559,7 @@ class WebLoginService:
         from django.core.cache import cache
         from django.db import OperationalError
 
+        now = datetime.now(timezone.utc)
         pending_key = f"{WL_PENDING_KEY}{token}"
         failed_key = f"{WL_FAILED_KEY}{token}"
         try:
@@ -545,7 +569,10 @@ class WebLoginService:
             # failed key could be set between two separate get() calls.
             cache_keys = cache.get_many([pending_key, failed_key])
         except Exception:
-            logger.warning("Cache read failed during status check for token=%s…", token[:8])
+            logger.warning(
+                "Cache read failed during status check",
+                extra={"token_prefix": token[:8]},
+            )
             cache_keys = {}
         cache_pending = cache_keys.get(pending_key)
         cache_failed = cache_keys.get(failed_key)
@@ -561,8 +588,8 @@ class WebLoginService:
                 login_request = await maybe_await(self.request_repo.get_status_fields(token))
             except OperationalError:
                 logger.warning(
-                    "DB lock during status check for token=%s…, and cache is empty",
-                    token[:8],
+                    "DB lock during status check, cache is empty",
+                    extra={"token_prefix": token[:8]},
                 )
                 login_request = None
                 db_unavailable = True
@@ -581,7 +608,7 @@ class WebLoginService:
                     except Exception:
                         pass
                     status = "expired"
-            elif login_request.expires_at is None or datetime.now(timezone.utc) > _ensure_utc(login_request.expires_at):
+            elif login_request.expires_at is None or now > _ensure_utc(login_request.expires_at):
                 status = "expired"
             else:
                 status = str(login_request.status)
@@ -609,26 +636,36 @@ class WebLoginService:
         Returns:
             User instance if login is valid, None otherwise
         """
+        now = datetime.now(timezone.utc)
         login_request = await maybe_await(self.request_repo.get_by_token(token))
         if not login_request:
-            logger.warning("Complete login attempt with unknown token: %s...", token[:8])
+            logger.warning(
+                "Complete login attempt with unknown token",
+                extra={"token_prefix": token[:8]},
+            )
             return None
 
         # Must be confirmed — compare to .value for consistency with the
         # rest of the codebase (handler, repository queries).
         if login_request.status != WebLoginRequest.Status.CONFIRMED.value:
             logger.warning(
-                "Complete login attempt with status=%s for token=%s...",
-                login_request.status,
-                token[:8],
+                "Complete login attempt with unexpected status",
+                extra={
+                    "token_prefix": token[:8],
+                    "status": login_request.status,
+                    "user_id": login_request.user_id,
+                },
             )
             return None
 
         # Must not be expired — use _ensure_utc() to handle naive datetimes
         # when USE_TZ=False (matches the pattern in check_status).
         # Guard against None expires_at (corrupt DB row) — treat as expired.
-        if login_request.expires_at is None or datetime.now(timezone.utc) > _ensure_utc(login_request.expires_at):
-            logger.warning("Complete login attempt with expired token: %s...", token[:8])
+        if login_request.expires_at is None or now > _ensure_utc(login_request.expires_at):
+            logger.warning(
+                "Complete login attempt with expired token",
+                extra={"token_prefix": token[:8], "user_id": login_request.user_id},
+            )
             return None
 
         # Atomically mark as used to prevent token replay
