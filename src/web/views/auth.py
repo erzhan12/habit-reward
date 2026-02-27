@@ -27,7 +27,6 @@ Security properties
   ``django-ratelimit``.
 """
 
-import functools
 import hashlib
 import json
 import logging
@@ -78,44 +77,37 @@ def login_page(request):
     return inertia_render(request, "Login")
 
 
+_NON_PRINTABLE_RE = re.compile(r'[^\x20-\x7E\s]')
+
+
 def _sanitize_user_agent(ua: str) -> str:
     """Truncate and filter a raw User-Agent string.
 
     Removes non-printable characters and caps length at
     ``MAX_USER_AGENT_LENGTH`` to bound downstream processing.
     """
-    ua = ua[:MAX_USER_AGENT_LENGTH]
-    return ''.join(c for c in ua if c.isprintable() or c.isspace())
+    return _NON_PRINTABLE_RE.sub('', ua[:MAX_USER_AGENT_LENGTH])
 
 
-# Default max entries for the User-Agent LRU parse cache.
-# Used as the fallback when settings.UA_CACHE_MAX_SIZE is not set.
-_UA_CACHE_DEFAULT_SIZE = 1024
-_UA_CACHE_MAX_SIZE = getattr(settings, "UA_CACHE_MAX_SIZE", _UA_CACHE_DEFAULT_SIZE)
+_UA_CACHE_KEY_PREFIX = "ua_parse:"
+_UA_CACHE_TTL = 3600  # 1 hour
 
 
-@functools.lru_cache(maxsize=_UA_CACHE_MAX_SIZE)
 def _parse_ua_cached(ua: str) -> str:
     """Parse a sanitized User-Agent string into a human-readable description.
 
-    LRU-cached because UA parsing (via ``user_agents`` library) is
-    CPU-intensive and the same UA string repeats across requests from
-    the same browser.  Cache is bounded to ``UA_CACHE_MAX_SIZE`` entries
-    (default ``_UA_CACHE_DEFAULT_SIZE``) to limit memory usage while still
-    providing excellent hit rates.  Configurable via ``settings.UA_CACHE_MAX_SIZE``.
-
-    NOTE: This LRU cache is **per-process**.  In production with multiple
-    workers (e.g. gunicorn with ``--workers 4``), each process maintains
-    its own independent cache, reducing the overall hit rate compared to a
-    single-process deployment.  This is acceptable because UA diversity is
-    low (most users share a handful of browser/OS combos) and the per-process
-    cache still prevents redundant parsing within each worker.
-
-    Thread-safety: ``functools.lru_cache`` is thread-safe in CPython — the
-    lookup and insertion are protected by a C-level lock.  However,
-    ``.cache_info()`` returns a snapshot that may be slightly stale under
-    concurrent access; this is fine for monitoring/debugging purposes.
+    Uses Django's cache framework (shared across processes, auto-evicted by
+    TTL) instead of ``functools.lru_cache`` to avoid per-process memory
+    buildup and test pollution.  Cache key is a truncated SHA-256 hash of
+    the UA string with a 1-hour TTL.
     """
+    from django.core.cache import cache
+
+    cache_key = f"{_UA_CACHE_KEY_PREFIX}{hashlib.sha256(ua.encode()).hexdigest()[:16]}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     ua_parsed = parse_ua(ua)
     browser = f"{ua_parsed.browser.family} {ua_parsed.browser.version_string}".strip()
     os_name = f"{ua_parsed.os.family} {ua_parsed.os.version_string}".strip()
@@ -128,7 +120,10 @@ def _parse_ua_cached(ua: str) -> str:
     raw = f"{browser} on {os_name}"
     if not raw or raw.isspace():
         raw = "Unknown device"
-    return raw[:MAX_DEVICE_INFO_LENGTH]
+    result = raw[:MAX_DEVICE_INFO_LENGTH]
+
+    cache.set(cache_key, result, timeout=_UA_CACHE_TTL)
+    return result
 
 
 def _parse_device_info(request) -> str:

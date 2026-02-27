@@ -274,6 +274,14 @@ Before deploying to production, verify:
 - [ ] **Cache backend**: Ensure Redis/Memcached is running and accessible. The login flow degrades gracefully without cache but with higher DB load.
 - [ ] **Telegram bot token**: Verify `TELEGRAM_BOT_TOKEN` is set and the bot is not blocked by target users.
 
+### Migration from Telegram Widget
+
+If migrating from the old Telegram Login Widget to the new bot-based Confirm/Deny login:
+
+1. **Update environment variables**: Remove `TELEGRAM_BOT_USERNAME` (no longer used). Ensure `TELEGRAM_BOT_TOKEN` is set instead.
+2. **Verify user data**: Ensure existing users have `telegram_username` set in the database. The new login flow looks up users by `@username`, not by `telegram_id`. Run: `python manage.py shell -c "from src.core.models import User; print(User.objects.filter(telegram_username__isnull=True).count())"` to check for users missing a username.
+3. **Clear browser storage**: Users should clear their browser's local storage / cookies to force re-authentication with the new flow. Alternatively, log out all existing sessions by rotating `SECRET_KEY`.
+
 ### Scheduled Tasks
 
 The `cleanup_expired_logins` management command deletes expired `WebLoginRequest` records to prevent unbounded table growth. Schedule it hourly via cron:

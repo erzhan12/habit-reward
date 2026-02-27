@@ -117,7 +117,15 @@ class User(AbstractUser):
         return f"{self.name} ({self.telegram_id})"
 
     def save(self, *args, **kwargs):
-        """Override save to auto-generate username from telegram_id if not set."""
+        """Override save to auto-generate username from telegram_id if not set.
+
+        LIMITATION: This validation only runs on individual ``save()`` calls.
+        It is bypassed by ``bulk_create()``, ``bulk_update()``, and
+        ``QuerySet.update()`` which skip the model's ``save()`` method
+        entirely.  The database-level CHECK constraint on
+        ``telegram_username`` (see Meta.constraints) provides a safety net
+        for those code paths.
+        """
         if not self.username and self.telegram_id:
             self.username = f"tg_{self.telegram_id}"
 

@@ -51,7 +51,7 @@ All authentication endpoints are rate-limited per IP via `django-ratelimit`:
 
 ### Input Validation
 
-- **Username**: Validated against `^[a-zA-Z0-9_]{3,32}$` — shared between frontend and backend. A pre-commit hook verifies both stay in sync.
+- **Username**: Validated against `^[a-z0-9_]{3,32}$` (lowercase only — input is lowercased before validation on both frontend and backend). A pre-commit hook verifies both patterns stay in sync.
 - **User-Agent**: Truncated to 1024 chars, filtered for non-printable characters, parsed via `user-agents` library (never used as raw HTML).
 - **Telegram messages**: Sent with `parse_mode=None` (plain text) as defense-in-depth against injection.
 - **DB constraints**: `telegram_username` has a database-level `CHECK` constraint ensuring format validity.

@@ -1476,59 +1476,57 @@ class TestCacheFailureThreshold:
     """Tests for cache write failure tracking and CacheWriteError threshold."""
 
     def test_cache_write_error_after_threshold(self):
-        """CacheWriteError is raised after _CACHE_FAILURE_THRESHOLD consecutive failures."""
-        import src.web.services.web_login_service as svc_module
-        from src.web.services.web_login_service import CacheWriteError, _safe_cache_set
+        """CacheWriteError is raised after threshold consecutive failures."""
+        from src.web.services.web_login_service import CacheWriteError, cache_manager
 
-        original_count = svc_module._cache_failure_count
+        cache_manager.reset()
         try:
-            svc_module._cache_failure_count = 0
-
             with patch("django.core.cache.cache.set", side_effect=ConnectionError("cache down")):
                 # First 9 should just warn
                 for i in range(9):
-                    _safe_cache_set(f"test_key_{i}", True, 60)
+                    cache_manager.set(f"test_key_{i}", True, 60)
 
                 # 10th should raise
                 with pytest.raises(CacheWriteError, match="10 times consecutively"):
-                    _safe_cache_set("test_key_10", True, 60)
+                    cache_manager.set("test_key_10", True, 60)
         finally:
-            svc_module._cache_failure_count = original_count
+            cache_manager.reset()
 
     def test_counter_resets_on_success(self):
         """A successful cache write resets the failure counter."""
-        import src.web.services.web_login_service as svc_module
-        from src.web.services.web_login_service import _safe_cache_set
+        from src.web.services.web_login_service import cache_manager
 
-        original_count = svc_module._cache_failure_count
+        cache_manager.reset()
         try:
-            svc_module._cache_failure_count = 8  # Close to threshold
-            _safe_cache_set("reset_key", True, 60)
-            assert svc_module._cache_failure_count == 0
+            # Simulate 8 failures
+            with patch("django.core.cache.cache.set", side_effect=ConnectionError("blip")):
+                for i in range(8):
+                    cache_manager.set(f"fail_key_{i}", True, 60)
+            assert cache_manager.failure_count == 8
+            # One success resets
+            cache_manager.set("reset_key", True, 60)
+            assert cache_manager.failure_count == 0
         finally:
-            svc_module._cache_failure_count = original_count
+            cache_manager.reset()
 
     def test_intermittent_failures_dont_trigger_threshold(self):
         """Alternating success/failure never reaches threshold."""
-        import src.web.services.web_login_service as svc_module
-        from src.web.services.web_login_service import _safe_cache_set
+        from src.web.services.web_login_service import cache_manager
 
-        original_count = svc_module._cache_failure_count
+        cache_manager.reset()
         try:
-            svc_module._cache_failure_count = 0
-
             for i in range(20):
                 if i % 2 == 0:
                     with patch("django.core.cache.cache.set",
                                side_effect=ConnectionError("blip")):
-                        _safe_cache_set(f"intermittent_{i}", True, 60)
+                        cache_manager.set(f"intermittent_{i}", True, 60)
                 else:
-                    _safe_cache_set(f"intermittent_{i}", True, 60)
+                    cache_manager.set(f"intermittent_{i}", True, 60)
 
             # Should never have raised — counter resets on each success
-            assert svc_module._cache_failure_count == 0
+            assert cache_manager.failure_count == 0
         finally:
-            svc_module._cache_failure_count = original_count
+            cache_manager.reset()
 
 
 # ---- Username recycling concurrency tests ----
@@ -2423,16 +2421,16 @@ class TestCacheBackendFailure:
     def test_create_login_request_raises_after_threshold_cache_write_failures(self):
         """Consecutive cache write failures reaching threshold should raise service unavailable."""
         from django.core.cache import cache
-        import src.web.services.web_login_service as svc_mod
-        from src.web.services.web_login_service import LoginServiceUnavailable, WebLoginService
+        from src.web.services.web_login_service import (
+            LoginServiceUnavailable, WebLoginService, cache_manager,
+        )
         from src.web.utils.sync import call_async
 
-        threshold = svc_mod._CACHE_FAILURE_THRESHOLD  # 10
+        threshold = cache_manager._failure_threshold  # 10
 
         cache.clear()
         svc = WebLoginService()
-        with svc_mod._cache_failure_lock:
-            svc_mod._cache_failure_count = 0
+        cache_manager.reset()
 
         try:
             with patch.object(svc.user_repo, "get_by_telegram_username", return_value=None), \
@@ -2448,8 +2446,7 @@ class TestCacheBackendFailure:
                 ):
                     call_async(svc.create_login_request("cachefail_final"))
         finally:
-            with svc_mod._cache_failure_lock:
-                svc_mod._cache_failure_count = 0
+            cache_manager.reset()
 
     def test_background_processing_logs_cache_failure(self):
         """_process_login_background logs a warning when cache.set fails
@@ -2463,15 +2460,17 @@ class TestCacheBackendFailure:
         with patch.object(svc, "_process_login_request", new_callable=AsyncMock,
                          side_effect=Exception("boom")), \
              patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis down")), \
-             patch("src.web.services.web_login_service.logger") as mock_logger:
+             patch("src.web.services.web_login_service.logger") as mock_svc_logger, \
+             patch("src.web.services.web_login_service.cache_operations.logger") as mock_cache_logger:
             # Should not raise — all errors caught.
             svc._process_login_background(
                 mock_user, "bg_cache_fail", datetime.now(timezone.utc) + timedelta(minutes=5), None
             )
 
-        # Should log the original error AND the cache write failure.
-        assert mock_logger.error.called
-        assert mock_logger.warning.called
+        # Service logger gets the original error from the exception handler.
+        assert mock_svc_logger.error.called
+        # Cache operations logger gets the warning from failed cache writes.
+        assert mock_cache_logger.warning.called
 
 
 # ---- Username uniqueness constraint tests ----
@@ -3121,29 +3120,23 @@ class TestCacheFailureThresholdRaisesError:
 
     def test_cache_failure_threshold_raises_error(self):
         """10 consecutive cache.set failures raise CacheWriteError."""
-        import src.web.services.web_login_service as svc_mod
-        from src.web.services.web_login_service import CacheWriteError, _safe_cache_set
+        from src.web.services.web_login_service import CacheWriteError, cache_manager
 
-        threshold = svc_mod._CACHE_FAILURE_THRESHOLD  # 10
-
-        # Reset the failure counter
-        original_count = svc_mod._cache_failure_count
-        svc_mod._cache_failure_count = 0
-
+        cache_manager.reset()
         try:
             with patch("django.core.cache.cache.set", side_effect=ConnectionError("down")):
-                # First (threshold - 1) should just warn
-                for i in range(threshold - 1):
+                # First 9 should just warn
+                for i in range(9):
                     try:
-                        _safe_cache_set(f"test_key_{i}", True, 60)
+                        cache_manager.set(f"test_key_{i}", True, 60)
                     except CacheWriteError:
                         pytest.fail(f"CacheWriteError raised too early on attempt {i + 1}")
 
-                # The threshold-th failure should raise
+                # The 10th failure should raise
                 with pytest.raises(CacheWriteError):
-                    _safe_cache_set("test_key_final", True, 60)
+                    cache_manager.set("test_key_final", True, 60)
         finally:
-            svc_mod._cache_failure_count = original_count
+            cache_manager.reset()
 
 
 # ---- Cache failure scenarios ----
@@ -3159,6 +3152,7 @@ class TestCacheFailureScenarios:
             CacheWriteError,
             LoginServiceUnavailable,
             WebLoginService,
+            cache_manager,
         )
         from src.web.utils.sync import call_async
 
@@ -3166,8 +3160,8 @@ class TestCacheFailureScenarios:
 
         with (
             patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
-            patch(
-                "src.web.services.web_login_service._safe_cache_set",
+            patch.object(
+                cache_manager, "set",
                 side_effect=CacheWriteError("Cache down"),
             ),
         ):
@@ -3598,10 +3592,11 @@ class TestCacheWriteFailureDuringRetry:
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
         )
 
-        # _safe_cache_set will be called during retry with the new token;
-        # make it raise CacheWriteError
-        with patch(
-            "src.web.services.web_login_service._safe_cache_set",
+        # cache_manager.set will be called during retry with the new token;
+        # make it raise CacheWriteError on the second call
+        from src.web.services.web_login_service import cache_manager
+        with patch.object(
+            cache_manager, "set",
             side_effect=[None, CacheWriteError("test")],
         ):
             with patch(
@@ -3709,3 +3704,129 @@ class TestTokenValidationInHandler:
         update.callback_query.edit_message_text.assert_awaited_once()
         msg = update.callback_query.edit_message_text.call_args[0][0]
         assert "expired" in msg.lower() or "not found" in msg.lower()
+
+
+class TestConcurrentTokenCollisions:
+    """Verify token collision retry via IntegrityError simulation."""
+
+    def test_integrity_error_triggers_retry_with_new_token(self):
+        """When IntegrityError occurs on create, a new token is generated."""
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+
+        user = User.objects.create_user(
+            username="tg_collision_test",
+            telegram_id="770000030",
+            name="Collision Test",
+            language="en",
+            timezone="UTC",
+        )
+
+        call_count = 0
+        original_create = WebLoginRequest.objects.create
+
+        def create_side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                from django.db import IntegrityError
+                raise IntegrityError("UNIQUE constraint failed: token")
+            return original_create(**kwargs)
+
+        with patch.object(
+            WebLoginRequest.objects, "create", side_effect=create_side_effect
+        ):
+            login_req, final_token = WebLoginService._create_login_request_with_retry(
+                user.id,
+                "first_token_will_collide_padded_to_43ch_x",
+                datetime.now(timezone.utc) + timedelta(minutes=5),
+                "test device",
+            )
+
+        assert login_req is not None
+        assert final_token != "first_token_will_collide_padded_to_43ch_x"
+        assert call_count == 2
+
+    def test_all_retries_exhausted_raises_database_error(self):
+        """When all 3 retries fail with IntegrityError, DatabaseError is raised."""
+        from django.db import DatabaseError, IntegrityError
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+
+        user = User.objects.create_user(
+            username="tg_exhaust_retry",
+            telegram_id="770000031",
+            name="Exhaust Retry",
+            language="en",
+            timezone="UTC",
+        )
+
+        with patch.object(
+            WebLoginRequest.objects, "create",
+            side_effect=IntegrityError("UNIQUE constraint failed"),
+        ):
+            with pytest.raises(DatabaseError, match="unique token after retries"):
+                WebLoginService._create_login_request_with_retry(
+                    user.id,
+                    "exhaust_token_padded_to_43_characters_xxxxx",
+                    datetime.now(timezone.utc) + timedelta(minutes=5),
+                    "test device",
+                )
+
+
+class TestCacheManagerThresholdEdgeCases:
+    """Edge cases for CacheManager failure threshold."""
+
+    def test_exact_threshold_raises(self):
+        """Exactly threshold failures raises CacheWriteError."""
+        from src.web.services.web_login_service import CacheWriteError, CacheManager
+
+        mgr = CacheManager(failure_threshold=3)
+        with patch("django.core.cache.cache.set", side_effect=ConnectionError("down")):
+            mgr.set("k1", True, 60)
+            mgr.set("k2", True, 60)
+            with pytest.raises(CacheWriteError):
+                mgr.set("k3", True, 60)
+
+    def test_reset_prevents_threshold(self):
+        """Calling reset() after failures prevents threshold from being reached."""
+        from src.web.services.web_login_service import CacheManager
+
+        mgr = CacheManager(failure_threshold=3)
+        with patch("django.core.cache.cache.set", side_effect=ConnectionError("down")):
+            mgr.set("k1", True, 60)
+            mgr.set("k2", True, 60)
+        mgr.reset()
+        assert mgr.failure_count == 0
+
+
+class TestThreadPoolQueueExhaustionDirect:
+    """Verify queue exhaustion at the service level."""
+
+    def test_queue_full_raises_login_service_unavailable(self):
+        """When all queue slots are taken, create_login_request raises."""
+        from src.web.services.web_login_service import (
+            LoginServiceUnavailable,
+            WebLoginService,
+        )
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_queue_full",
+            telegram_id="770000032",
+            name="Queue Full",
+            language="en",
+            timezone="UTC",
+        )
+
+        svc = WebLoginService()
+
+        with (
+            patch.object(svc.user_repo, "get_by_telegram_username", return_value=user),
+            patch(
+                "src.web.services.web_login_service._queue_slots"
+            ) as mock_sem,
+        ):
+            mock_sem.acquire.return_value = False
+            with pytest.raises(LoginServiceUnavailable):
+                call_async(svc.create_login_request("queue_full_user"))

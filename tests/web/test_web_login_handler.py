@@ -1,5 +1,6 @@
 """Tests for bot web login callback handler."""
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -7,7 +8,7 @@ import pytest
 from asgiref.sync import sync_to_async
 
 from src.core.models import User, WebLoginRequest
-from src.core.repositories import WebLoginRequestRepository
+from src.core.repositories import WebLoginRequestRepository, web_login_request_repository
 
 pytestmark = pytest.mark.django_db
 
@@ -227,3 +228,45 @@ class TestWebLoginCallback:
 
         msg = update2.callback_query.edit_message_text.call_args[0][0]
         assert "already" in msg.lower()
+
+
+class TestSimultaneousButtonPress:
+    """Verify the atomic WHERE clause prevents double-confirm/deny races.
+
+    The ``update_status`` repository method uses
+    ``WebLoginRequest.objects.filter(token=..., status='pending').update(...)``
+    which is atomic at the DB level.  When two handlers call it concurrently,
+    exactly one gets ``updated == 1`` and the other gets ``updated == 0``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_concurrent_confirm_only_one_succeeds(self, handler_user, pending_login):
+        """Two concurrent confirm calls — only one succeeds at the DB level."""
+        token = pending_login.token
+
+        # Call update_status concurrently from two tasks
+        results = await asyncio.gather(
+            web_login_request_repository.update_status(token, "confirmed"),
+            web_login_request_repository.update_status(token, "confirmed"),
+        )
+
+        # Exactly one should return 1 (success), the other 0 (already handled)
+        assert sorted(results) == [0, 1]
+
+        await _refresh(pending_login)
+        assert pending_login.status == "confirmed"
+
+    @pytest.mark.asyncio
+    async def test_concurrent_confirm_and_deny_only_one_wins(self, handler_user, pending_login):
+        """Concurrent confirm + deny — only one wins, the other gets 0."""
+        token = pending_login.token
+
+        results = await asyncio.gather(
+            web_login_request_repository.update_status(token, "confirmed"),
+            web_login_request_repository.update_status(token, "denied"),
+        )
+
+        assert sorted(results) == [0, 1]
+
+        await _refresh(pending_login)
+        assert pending_login.status in ("confirmed", "denied")
