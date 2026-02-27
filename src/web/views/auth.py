@@ -59,9 +59,9 @@ logger = logging.getLogger(__name__)
 
 # Maximum length for User-Agent string before parsing.  Prevents memory
 # exhaustion from maliciously large UA strings while accommodating typical
-# browser UAs (usually 100-300 chars).  HTTP spec has no hard limit on
-# header values, but 1024 is a safe ceiling for UA parsing purposes.
-MAX_USER_AGENT_LENGTH: int = getattr(settings, "MAX_USER_AGENT_LENGTH", 1024)
+# browser UAs (usually 100-300 chars).  512 is a generous ceiling — the
+# longest common browser UAs are ~300 chars.
+MAX_USER_AGENT_LENGTH: int = getattr(settings, "MAX_USER_AGENT_LENGTH", 512)
 # Maximum device_info length (DB field constraint)
 MAX_DEVICE_INFO_LENGTH: int = 255
 # URL-safe base64 token format (secrets.token_urlsafe output)
@@ -106,9 +106,9 @@ def _parse_ua_cached(ua: str) -> str:
 
     Uses Django's cache framework (shared across processes, auto-evicted by
     TTL) instead of ``functools.lru_cache`` to avoid per-process memory
-    buildup and test pollution. Cache key uses Python's built-in ``hash()``
-    masked to 64 bits for speed — sufficient for cache key uniqueness
-    (not security-critical).
+    buildup and test pollution. Cache key uses ``hashlib.blake2b`` with an
+    8-byte digest — deterministic across process restarts (unlike Python's
+    built-in ``hash()``, which is randomized per PEP 456).
 
     Performance note: UA truncation is computed once (``ua_truncated``) and
     reused for both cache key generation and sanitization.  UA sanitization
@@ -117,12 +117,13 @@ def _parse_ua_cached(ua: str) -> str:
     """
     from django.core.cache import cache
 
-    # Truncate once — used for both cache key and parsing.
+    # Explicit length check — log oversized UAs before truncating.
+    if len(ua) > MAX_USER_AGENT_LENGTH:
+        logger.warning("Oversized UA truncated (len=%d, max=%d)", len(ua), MAX_USER_AGENT_LENGTH)
     ua_truncated = ua[:MAX_USER_AGENT_LENGTH]
-    # Built-in hash() is faster than BLAKE2b and sufficient for cache key
-    # uniqueness (not security-critical). Masked to 64 bits for consistent
-    # key length across platforms.
-    cache_key = f"{_UA_CACHE_KEY_PREFIX}{hash(ua_truncated) & 0xFFFFFFFFFFFFFFFF:016x}"
+    # BLAKE2b with 8-byte digest is deterministic across process restarts
+    # (PEP 456 randomizes built-in hash()), so cache keys survive deployments.
+    cache_key = f"{_UA_CACHE_KEY_PREFIX}{hashlib.blake2b(ua_truncated.encode(), digest_size=8).hexdigest()}"
     try:
         cached = cache.get(cache_key)
     except (ConnectionError, TimeoutError, OSError):
@@ -146,7 +147,7 @@ def _parse_ua_cached(ua: str) -> str:
         raw = "Unknown device"
     # Truncate to DB field limit (255 chars) BEFORE caching.
     # Defense-in-depth: even though parse_ua usually produces short strings,
-    # a crafted UA between 255-1024 chars could yield a longer parsed result.
+    # a crafted UA between 255-512 chars could yield a longer parsed result.
     result = raw[:MAX_DEVICE_INFO_LENGTH]
 
     try:
@@ -348,11 +349,7 @@ def bot_login_status(request, token):
         return JsonResponse({"status": "expired"})
     client_ip = parse_ip_address(request)
     if client_ip != ip_binding.ip_address:
-        logger.warning(
-            "Status poll IP mismatch: origin=%s, poller=%s",
-            _anonymize_ip(ip_binding.ip_address),
-            _anonymize_ip(client_ip),
-        )
+        logger.warning("Status poll IP mismatch detected")
         return JsonResponse({"status": "expired"})
 
     status = call_async(web_login_service.check_status(token))
@@ -420,11 +417,7 @@ def bot_login_complete(request):
         return JsonResponse({"error": "Login request expired or invalid. Please try again."}, status=403)
     client_ip = parse_ip_address(request)
     if client_ip != ip_binding.ip_address:
-        logger.warning(
-            "Complete login IP mismatch: origin=%s, completer=%s",
-            _anonymize_ip(ip_binding.ip_address),
-            _anonymize_ip(client_ip),
-        )
+        logger.warning("Complete login IP mismatch detected")
         return JsonResponse({"error": "Login request expired or invalid. Please try again."}, status=403)
 
     user = call_async(web_login_service.complete_login(token))

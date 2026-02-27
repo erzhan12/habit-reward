@@ -41,7 +41,7 @@ class CacheManager:
 
     Args:
         failure_threshold: Number of consecutive failures before raising.
-            Default 10 — high enough to tolerate transient cache blips
+            Default 5 — high enough to tolerate transient cache blips
             (e.g. Redis failover ≈ 1-5s), low enough to surface genuine
             misconfiguration quickly.
     """
@@ -54,7 +54,7 @@ class CacheManager:
         self._failure_threshold = (
             failure_threshold
             if failure_threshold is not None
-            else getattr(settings, "CACHE_FAILURE_THRESHOLD", 10)
+            else getattr(settings, "CACHE_FAILURE_THRESHOLD", 5)
         )
 
     def set(self, key: str, value, timeout: int) -> None:

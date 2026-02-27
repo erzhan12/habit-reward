@@ -2013,7 +2013,7 @@ Status polling jitter (`src/web/services/web_login_service/__init__.py`) is appl
 Login tokens are bound to the originating IP via `LoginTokenIpBinding` (DB model, not sessions). The binding is created in `bot_login_request` BEFORE the JSON response. Both `bot_login_status` and `bot_login_complete` enforce IP matching — if no binding exists or IP mismatches, the request is rejected. See `SECURITY.md` § "IP Binding Protection" for the full threat model. Tests that hit status/complete endpoints must create a `_create_ip_binding()` record (see `tests/web/test_auth_views.py`).
 
 ### UA Parsing Cache
-`_parse_ua_cached` in `src/web/views/auth.py` uses Django's cache framework (not `lru_cache`) with `hash()` (masked to 64-bit hex) for cache keys and 1-hour TTL. `MAX_USER_AGENT_LENGTH` is configurable via `settings.MAX_USER_AGENT_LENGTH` (default 1024). Both `cache.get()` and `cache.set()` are wrapped in try-except to gracefully degrade if the cache backend fails — the function falls back to direct UA parsing. Tests: `TestParseUaCachedCacheFailure` in `tests/web/test_auth_views.py`.
+`_parse_ua_cached` in `src/web/views/auth.py` uses Django's cache framework (not `lru_cache`) with `hashlib.blake2b` (8-byte digest) for deterministic cache keys across process restarts and 1-hour TTL. `MAX_USER_AGENT_LENGTH` is configurable via `settings.MAX_USER_AGENT_LENGTH` (default 512). Oversized UAs are logged at WARNING before truncation. Both `cache.get()` and `cache.set()` are wrapped in try-except to gracefully degrade if the cache backend fails — the function falls back to direct UA parsing. Tests: `TestParseUaCachedCacheFailure` in `tests/web/test_auth_views.py`.
 
 ### Timezone-Aware Comparisons
 Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB datetime fields with `datetime.now(timezone.utc)`. Django may return naive datetimes when `USE_TZ=False`. Always guard against `None` at call sites (e.g. `if login_request.expires_at is None or ...`) to handle corrupt DB rows gracefully. The handler in `web_login_handler.py` also imports and uses `_ensure_utc` for consistency.
@@ -2022,7 +2022,7 @@ Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB
 `_queue_slots` (Semaphore) tracks background queue depth. The done callback `_release_queue_slot` (a named function, not a lambda) releases the slot when the future completes. This ensures testability and avoids closure pitfalls. When `executor.submit` raises `RuntimeError`, the caller releases the slot manually.
 
 ### Cache Failure Race Condition
-In `_safe_cache_set`, the threshold check (`should_raise`) MUST be inside the `_cache_failure_lock` to prevent multiple threads from simultaneously reading the same count and all raising `CacheWriteError`. The threshold is 10 (not 3) — set high to tolerate transient cache blips during peak traffic without blocking all logins globally.
+In `CacheManager.set`, the threshold check (`should_raise`) MUST be inside the `_lock` to prevent multiple threads from simultaneously reading the same count and all raising `CacheWriteError`. The threshold is 5 (configurable via `CACHE_FAILURE_THRESHOLD`) — high enough to tolerate transient cache blips during peak traffic without blocking all logins globally, low enough to surface issues faster.
 
 ### Web Test File Organization
 `tests/web/test_views.py` was split into feature-area files:

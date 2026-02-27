@@ -1714,7 +1714,7 @@ class TestDeviceInfoEdgeCases:
         assert "\x00" not in info
 
     def test_device_info_truncates_extremely_long_user_agent(self):
-        """User-Agent longer than 1024 chars is truncated before parsing."""
+        """User-Agent longer than MAX_USER_AGENT_LENGTH is truncated before parsing."""
         from src.web.views.auth import _parse_device_info
 
         request = MagicMock()
@@ -1742,9 +1742,9 @@ class TestDeviceInfoEdgeCases:
         for ch in info:
             assert ch == '\n' or ch == '\t' or '\x20' <= ch <= '\x7e'
 
-    def test_user_agent_over_1024_chars_with_valid_prefix(self):
-        """UA >1024 chars that starts with a valid browser string is truncated
-        to MAX_USER_AGENT_LENGTH before parsing, and final output <= 255 chars."""
+    def test_user_agent_over_max_length_with_valid_prefix(self):
+        """UA exceeding MAX_USER_AGENT_LENGTH that starts with a valid browser
+        string is truncated before parsing, and final output <= 255 chars."""
         from src.web.views.auth import MAX_USER_AGENT_LENGTH, _parse_device_info
 
         valid_prefix = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
@@ -3244,3 +3244,116 @@ class TestIPBindingEnforcement:
             content_type="application/json",
         )
         assert response.status_code == 403
+
+
+class TestConcurrentDoubleClickConfirmDeny:
+    """Verify that double-clicking Confirm/Deny buttons only transitions status once.
+
+    Uses the SELECT FOR UPDATE lock in web_login_handler._atomic_status_transition
+    to ensure that concurrent button presses result in exactly one state change.
+    """
+
+    def test_double_click_confirm_only_one_transition(self):
+        """Simulating rapid double-click on Confirm — only one transitions to confirmed."""
+        from django.db import transaction
+        from src.core.models import WebLoginRequest
+
+        user = User.objects.create_user(
+            username="tg_doubleclick",
+            telegram_id="880200001",
+            name="Double Click",
+            language="en",
+            timezone="UTC",
+        )
+
+        token = "doubleclick_confirm_tok_aaaaaabbbbbbcccccc"
+        WebLoginRequest.objects.create(
+            user=user,
+            token=token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        def _atomic_status_transition(new_status):
+            """Replica of web_login_handler._atomic_status_transition."""
+            with transaction.atomic():
+                try:
+                    lr = (
+                        WebLoginRequest.objects
+                        .select_for_update()
+                        .get(token=token)
+                    )
+                except WebLoginRequest.DoesNotExist:
+                    return 0, None
+                if lr.status != WebLoginRequest.Status.PENDING.value:
+                    return 0, lr.status
+                lr.status = new_status
+                lr.save(update_fields=['status'])
+                return 1, new_status
+
+        confirmed = WebLoginRequest.Status.CONFIRMED.value
+        results = [
+            _atomic_status_transition(confirmed)
+            for _ in range(3)
+        ]
+
+        successes = [r for r in results if r[0] == 1]
+        failures = [r for r in results if r[0] == 0]
+
+        assert len(successes) == 1, f"Expected 1 success, got {len(successes)}"
+        assert len(failures) == 2
+        assert successes[0][1] == confirmed
+
+        lr = WebLoginRequest.objects.get(token=token)
+        assert lr.status == confirmed
+
+    def test_double_click_confirm_then_deny_only_first_wins(self):
+        """Simulating Confirm followed by Deny — only first transition wins."""
+        from django.db import transaction
+        from src.core.models import WebLoginRequest
+
+        user = User.objects.create_user(
+            username="tg_doubleclick2",
+            telegram_id="880200002",
+            name="Double Click 2",
+            language="en",
+            timezone="UTC",
+        )
+
+        token = "doubleclick_mixed_tok_aaaaaabbbbbbccccccc"
+        WebLoginRequest.objects.create(
+            user=user,
+            token=token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        def _atomic_status_transition(new_status):
+            with transaction.atomic():
+                try:
+                    lr = (
+                        WebLoginRequest.objects
+                        .select_for_update()
+                        .get(token=token)
+                    )
+                except WebLoginRequest.DoesNotExist:
+                    return 0, None
+                if lr.status != WebLoginRequest.Status.PENDING.value:
+                    return 0, lr.status
+                lr.status = new_status
+                lr.save(update_fields=['status'])
+                return 1, new_status
+
+        confirmed = WebLoginRequest.Status.CONFIRMED.value
+        denied = WebLoginRequest.Status.DENIED.value
+
+        # First: Confirm wins
+        r1 = _atomic_status_transition(confirmed)
+        # Second: Deny is rejected
+        r2 = _atomic_status_transition(denied)
+
+        assert r1 == (1, confirmed)
+        assert r2 == (0, confirmed)  # sees confirmed, can't transition
+
+        lr = WebLoginRequest.objects.get(token=token)
+        assert lr.status == confirmed

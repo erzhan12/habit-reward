@@ -268,6 +268,9 @@ AUTH_STATUS_RATE_LIMIT = env('AUTH_STATUS_RATE_LIMIT', default='30/m')
 DASHBOARD_ACTION_RATE_LIMIT = env('DASHBOARD_ACTION_RATE_LIMIT', default='60/m')
 
 # Thread pool size for background login processing (DB writes + Telegram send).
+# Default 10: balances concurrency with SQLite's file-level write lock.
+# Each worker blocks for a Telegram API round-trip (~200ms-2s).  10 workers
+# can handle ~5-50 concurrent logins depending on API latency.
 # For PostgreSQL: can increase to 50-100.
 # For SQLite: keep at 10 max due to write lock contention.
 # Monitor 503 errors to detect if this needs tuning.
@@ -286,7 +289,7 @@ TRUST_X_FORWARDED_FOR = env.bool('TRUST_X_FORWARDED_FOR', default=False)
 # CacheWriteError (circuit breaker).  High enough to tolerate transient blips
 # (e.g. Redis failover ~1-5s), low enough to surface genuine misconfiguration.
 # See src/web/services/web_login_service/cache_operations.py.
-CACHE_FAILURE_THRESHOLD = env.int('CACHE_FAILURE_THRESHOLD', default=10)
+CACHE_FAILURE_THRESHOLD = env.int('CACHE_FAILURE_THRESHOLD', default=5)
 
 
 # =============================================================================

@@ -5,6 +5,7 @@ import logging
 from django.conf import settings
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import InvalidToken
+from telegram.request import HTTPXRequest
 
 from src.utils.async_compat import maybe_await
 
@@ -29,7 +30,13 @@ async def send_login_notification(
     if not settings.TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN is not configured")
         raise InvalidToken("Bot token is not configured")
-    bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
+    # Explicit timeouts prevent indefinite hangs when the Telegram API is
+    # unreachable.  Defaults: 10s connect, 15s read.
+    request = HTTPXRequest(
+        connect_timeout=getattr(settings, "TELEGRAM_CONNECT_TIMEOUT", 10.0),
+        read_timeout=getattr(settings, "TELEGRAM_READ_TIMEOUT", 15.0),
+    )
+    bot = Bot(token=settings.TELEGRAM_BOT_TOKEN, request=request)
     device_text = device_info or "Unknown device"
     message_text = (
         "Web Login Request\n\n"

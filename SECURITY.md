@@ -11,6 +11,16 @@ The Habit Reward system uses Telegram-based authentication (Confirm/Deny buttons
 5. **Rate-limit bypass** — Circumventing per-IP rate limits via IP spoofing (X-Forwarded-For).
 6. **Cross-site attacks** — CSRF, XSS, and injection via user-controlled inputs (username, User-Agent).
 
+### OWASP Top 10 Coverage
+
+The following OWASP Top 10 (2021) vulnerabilities are explicitly mitigated:
+
+| OWASP ID | Vulnerability | Mitigation |
+|---|---|---|
+| **A01:2021** | Broken Access Control | IP binding on login tokens, atomic `SELECT FOR UPDATE` preventing replay, per-IP rate limiting on all auth endpoints. |
+| **A03:2021** | Injection | User-Agent sanitization (non-printable chars stripped), Telegram messages sent as plain text (no parse_mode), Django ORM parameterized queries, DB-level `CHECK` constraint on `telegram_username`. |
+| **A07:2021** | Identification and Authentication Failures | Anti-enumeration (identical responses for known/unknown users), 256-bit token entropy, timing jitter (50-200ms CSPRNG), rate limiting, single-use tokens with atomic mark-as-used. |
+
 ## Security Properties
 
 ### Anti-Enumeration
@@ -52,7 +62,7 @@ All authentication endpoints are rate-limited per IP via `django-ratelimit`:
 ### Input Validation
 
 - **Username**: Validated against `^[a-z0-9_]{3,32}$` (lowercase only — input is lowercased before validation on both frontend and backend). A pre-commit hook verifies both patterns stay in sync.
-- **User-Agent**: Truncated to 1024 chars, filtered for non-printable characters, parsed via `user-agents` library (never used as raw HTML).
+- **User-Agent**: Truncated to 512 chars (typical UAs are 100-300 chars), filtered for non-printable characters, parsed via `user-agents` library (never used as raw HTML). Oversized UAs are logged at WARNING before truncation.
 - **Telegram messages**: Sent with `parse_mode=None` (plain text) as defense-in-depth against injection.
 - **DB constraints**: `telegram_username` has a database-level `CHECK` constraint ensuring format validity.
 
@@ -97,7 +107,7 @@ When a user initiates a login request (`POST /auth/bot-login/request/`), the ser
 ## Circuit Breakers
 
 - **Thread pool queue**: When `WEB_LOGIN_MAX_QUEUED` is exceeded, new requests return HTTP 503 (prevents unbounded resource consumption).
-- **Cache failure threshold**: After 10 consecutive cache write failures, `CacheWriteError` is raised and the login request returns 503 (surfaces cache misconfiguration instead of silently degrading).
+- **Cache failure threshold**: After 5 consecutive cache write failures, `CacheWriteError` is raised and the login request returns 503 (surfaces cache misconfiguration instead of silently degrading).
 
 ## Reporting Vulnerabilities
 

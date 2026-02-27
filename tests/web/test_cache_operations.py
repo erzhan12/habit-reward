@@ -20,13 +20,13 @@ class TestCacheFailureThreshold:
         cache_manager.reset()
         try:
             with patch("django.core.cache.cache.set", side_effect=ConnectionError("cache down")):
-                # First 9 should just warn
-                for i in range(9):
+                # First 4 should just warn
+                for i in range(4):
                     cache_manager.set(f"test_key_{i}", True, 60)
 
-                # 10th should raise
-                with pytest.raises(CacheWriteError, match="10 times consecutively"):
-                    cache_manager.set("test_key_10", True, 60)
+                # 5th should raise
+                with pytest.raises(CacheWriteError, match="5 times consecutively"):
+                    cache_manager.set("test_key_5", True, 60)
         finally:
             cache_manager.reset()
 
@@ -36,11 +36,11 @@ class TestCacheFailureThreshold:
 
         cache_manager.reset()
         try:
-            # Simulate 8 failures
+            # Simulate 3 failures (below threshold of 5)
             with patch("django.core.cache.cache.set", side_effect=ConnectionError("blip")):
-                for i in range(8):
+                for i in range(3):
                     cache_manager.set(f"fail_key_{i}", True, 60)
-            assert cache_manager.failure_count == 8
+            assert cache_manager.failure_count == 3
             # One success resets
             cache_manager.set("reset_key", True, 60)
             assert cache_manager.failure_count == 0
@@ -119,7 +119,7 @@ class TestCacheBackendFailure:
         )
         from src.web.utils.sync import call_async
 
-        threshold = cache_manager._failure_threshold  # 10
+        threshold = cache_manager._failure_threshold  # 5
 
         cache.clear()
         svc = WebLoginService()
@@ -172,23 +172,23 @@ class TestCacheBackendFailure:
 
 
 class TestCacheFailureThresholdRaisesError:
-    """Verify that 10 consecutive cache write failures raise CacheWriteError."""
+    """Verify that 5 consecutive cache write failures raise CacheWriteError."""
 
     def test_cache_failure_threshold_raises_error(self):
-        """10 consecutive cache.set failures raise CacheWriteError."""
+        """5 consecutive cache.set failures raise CacheWriteError."""
         from src.web.services.web_login_service import CacheWriteError, cache_manager
 
         cache_manager.reset()
         try:
             with patch("django.core.cache.cache.set", side_effect=ConnectionError("down")):
-                # First 9 should just warn
-                for i in range(9):
+                # First 4 should just warn
+                for i in range(4):
                     try:
                         cache_manager.set(f"test_key_{i}", True, 60)
                     except CacheWriteError:
                         pytest.fail(f"CacheWriteError raised too early on attempt {i + 1}")
 
-                # The 10th failure should raise
+                # The 5th failure should raise
                 with pytest.raises(CacheWriteError):
                     cache_manager.set("test_key_final", True, 60)
         finally:
@@ -972,7 +972,7 @@ class TestCacheWriteFailureDuringBackgroundProcessing:
         """After repeated cache write failures, CacheWriteError is raised,
         preventing the system from silently degrading forever.
 
-        The circuit breaker threshold (10 consecutive failures) ensures
+        The circuit breaker threshold (5 consecutive failures) ensures
         that persistent cache issues surface as errors rather than being
         swallowed silently.
         """
@@ -988,7 +988,7 @@ class TestCacheWriteFailureDuringBackgroundProcessing:
                         failures = 0  # reset on success
                     except CacheWriteError:
                         # Circuit breaker tripped — this is expected
-                        assert i >= 9, (
+                        assert i >= 4, (
                             f"Circuit breaker tripped too early at attempt {i}"
                         )
                         break

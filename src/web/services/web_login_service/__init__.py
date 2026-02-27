@@ -119,14 +119,12 @@ _login_executor: ThreadPoolExecutor | None = None
 _executor_lock = threading.Lock()
 
 
-_EXECUTOR_SHUTDOWN_TIMEOUT = 30  # seconds
-
-
 def _shutdown_executor(signum=None, frame=None) -> None:
     """Gracefully shut down the login executor.
 
-    Called by SIGTERM/SIGINT handlers and atexit.  Uses a 30-second timeout
-    to prevent hanging if threads are stuck (e.g. waiting on Telegram API).
+    Called by SIGTERM/SIGINT handlers and atexit.  Waits for running threads
+    to complete (bounded by Telegram API timeouts configured in
+    ``telegram_operations.py``).
     """
     global _login_executor
     with _executor_lock:
@@ -143,9 +141,8 @@ def _shutdown_executor(signum=None, frame=None) -> None:
     else:
         sig_name = signal.Signals(signum).name
         logger.info(
-            "Shutting down login executor (%s), timeout=%ds",
+            "Shutting down login executor (%s), waiting for running tasks",
             sig_name,
-            _EXECUTOR_SHUTDOWN_TIMEOUT,
         )
     executor.shutdown(wait=True, cancel_futures=False)
 
