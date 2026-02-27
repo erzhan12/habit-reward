@@ -10,6 +10,7 @@ A gamified habit-reward system that tracks habits with per-habit streaks, uses v
 - **Telegram Bot Interface**: Easy-to-use bot for logging habits and managing rewards
 - **OpenAI NLP Integration**: Natural language processing for habit classification
 - **Streamlit Dashboard**: Visual analytics and progress tracking
+- **Web Login Interface**: Secure bot-based authentication via Telegram Confirm/Deny buttons
 - **Django Backend**: SQLite (production default) via Django ORM (PostgreSQL optional)
 
 ## Architecture
@@ -105,6 +106,16 @@ The dashboard will open in your browser at `http://localhost:8501`
 - Actionable rewards section with claim buttons
 - Reward value overview (total earned, claimed, pending)
 - Per-habit streak chart
+
+### Web Login
+
+Access the web interface at `http://localhost:8000/auth/login/` and enter your Telegram username. The bot will send Confirm/Deny buttons to your Telegram account. Tap Confirm to complete the login.
+
+**Security Features:**
+- Anti-enumeration (unknown usernames receive identical responses)
+- Timing attack resistance (CSPRNG jitter on status polling)
+- Atomic replay prevention (tokens are single-use)
+- Rate limiting (10 requests/minute for login, 30/minute for status)
 
 ## How It Works
 

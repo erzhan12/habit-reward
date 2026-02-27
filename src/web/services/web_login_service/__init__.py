@@ -123,6 +123,8 @@ def _get_executor() -> ThreadPoolExecutor:
 
 
 # Maximum number of queued items before rejecting new requests (circuit breaker).
+# 50 = 5x normal thread pool size (10 workers), allowing burst capacity
+# while preventing unbounded queuing.
 _MAX_QUEUED_LOGINS = getattr(settings, "WEB_LOGIN_MAX_QUEUED", 50)
 
 # Semaphore-based counter for queue depth — avoids relying on the private

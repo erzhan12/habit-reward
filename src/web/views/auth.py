@@ -56,9 +56,9 @@ from src.web.utils.validation import TELEGRAM_USERNAME_PATTERN
 logger = logging.getLogger(__name__)
 
 # Maximum length for User-Agent string before parsing (prevent memory issues)
-MAX_USER_AGENT_LENGTH = 1024
+MAX_USER_AGENT_LENGTH: int = 1024
 # Maximum device_info length (DB field constraint)
-MAX_DEVICE_INFO_LENGTH = 255
+MAX_DEVICE_INFO_LENGTH: int = 255
 # URL-safe base64 token format (secrets.token_urlsafe output)
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 # TOKEN_MIN_LENGTH and TOKEN_MAX_LENGTH are imported from

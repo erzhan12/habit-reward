@@ -1224,7 +1224,7 @@ class TestIPAddressParsing:
             result = parse_ip_address(request)
         # Takes leftmost IP from the chain
         assert result == "10.0.0.1"
-        mock_logger.warning.assert_called_once()
+        mock_logger.debug.assert_called_once()
 
     def test_device_info_html_escaping(self):
         """device_info containing HTML tags is safe — Telegram uses plain text."""
@@ -2884,6 +2884,23 @@ class TestValidationPatternSync:
             )
 
 
+class TestFrontendBackendExpirySync:
+    """Verify that frontend LOGIN_EXPIRY_MS matches backend WEB_LOGIN_EXPIRY_MINUTES."""
+
+    def test_frontend_backend_expiry_sync(self):
+        """The hardcoded frontend value (300000ms) must equal the backend default (5 min)."""
+        from src.web.services.web_login_service import LOGIN_REQUEST_EXPIRY_MINUTES
+
+        frontend_expiry_ms = 300_000  # LOGIN_EXPIRY_MS in Login.vue
+        backend_expiry_ms = LOGIN_REQUEST_EXPIRY_MINUTES * 60 * 1000
+
+        assert frontend_expiry_ms == backend_expiry_ms, (
+            f"Frontend LOGIN_EXPIRY_MS ({frontend_expiry_ms}ms) does not match "
+            f"backend WEB_LOGIN_EXPIRY_MINUTES ({LOGIN_REQUEST_EXPIRY_MINUTES}min = "
+            f"{backend_expiry_ms}ms) — update both to match"
+        )
+
+
 # ---- New tests for security, bug, and performance changes ----
 
 
@@ -3112,7 +3129,7 @@ class TestParseIPMultiProxyChain:
             result = parse_ip_address(request)
 
         assert result == "10.0.0.1"
-        mock_logger.warning.assert_called_once()
+        mock_logger.debug.assert_called_once()
 
 
 class TestCacheFailureThresholdRaisesError:

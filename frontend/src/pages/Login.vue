@@ -99,6 +99,7 @@ defineOptions({ layout: null });
 // Polling constants — must stay in sync with server's LOGIN_REQUEST_EXPIRY_MINUTES (5 min)
 const POLL_INITIAL_DELAY_MS = 2000; // First poll after 2s
 const POLL_BACKOFF_FACTOR = 2; // Exponential backoff multiplier
+// Ensure polling can happen at least 5 times before expiry: 30s * 5 = 150s < 300s
 const POLL_MAX_DELAY_MS = 30_000; // Cap for exponential backoff between polls
 const LOGIN_EXPIRY_MS = 300_000; // 5 minutes — matches server expiry
 const POLL_MAX_CONSECUTIVE_ERRORS = 5; // Stop polling after this many consecutive network failures
@@ -222,6 +223,8 @@ function startPolling() {
 
   schedulePoll();
 
+  // NOTE: Uses client time — may drift from server. Consider using
+  // expires_at from the server response for higher accuracy.
   expiryTimer = setTimeout(() => {
     stopPolling();
     state.value = "expired";

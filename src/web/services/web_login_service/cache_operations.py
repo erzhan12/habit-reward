@@ -45,10 +45,16 @@ class CacheManager:
             misconfiguration quickly.
     """
 
-    def __init__(self, failure_threshold: int = 10):
+    def __init__(self, failure_threshold: int | None = None):
+        from django.conf import settings
+
         self._failure_count = 0
         self._lock = threading.Lock()
-        self._failure_threshold = failure_threshold
+        self._failure_threshold = (
+            failure_threshold
+            if failure_threshold is not None
+            else getattr(settings, "CACHE_FAILURE_THRESHOLD", 10)
+        )
 
     def set(self, key: str, value, timeout: int) -> None:
         """Write to cache with failure tracking."""
