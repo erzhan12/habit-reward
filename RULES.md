@@ -2007,7 +2007,16 @@ A pre-commit hook (`scripts/check_validation_sync.sh`) verifies they stay in syn
 Status polling jitter (`src/web/services/web_login_service.py`) is only applied to "pending" status to avoid unnecessary latency on terminal states. Named constants `_JITTER_MIN`/`_JITTER_MAX` are configurable via Django settings.
 
 ### UA Parsing Cache
-`_parse_ua_cached` in `src/web/views/auth.py` uses `functools.lru_cache(maxsize=256)` to avoid repeated CPU-intensive User-Agent parsing. The cache key is the sanitized UA string.
+`_parse_ua_cached` in `src/web/views/auth.py` uses `functools.lru_cache(maxsize=1024)` to avoid repeated CPU-intensive User-Agent parsing. The cache key is the sanitized UA string.
 
 ### Timezone-Aware Comparisons
 Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB datetime fields with `datetime.now(timezone.utc)`. Django may return naive datetimes when `USE_TZ=False`.
+
+### Thread Pool Semaphore Pattern
+`_queue_slots` (Semaphore) tracks background queue depth. The done callback `_release_queue_slot` (a named function, not a lambda) releases the slot when the future completes. This ensures testability and avoids closure pitfalls. When `executor.submit` raises `RuntimeError`, the caller releases the slot manually.
+
+### Cache Failure Race Condition
+In `_safe_cache_set`, the threshold check (`should_raise`) MUST be inside the `_cache_failure_lock` to prevent multiple threads from simultaneously reading the same count and all raising `CacheWriteError`.
+
+### Login.vue Polling Retry Limit
+Frontend polling (`pollStatus`) stops after `POLL_MAX_CONSECUTIVE_ERRORS` (5) consecutive network failures and transitions to error state. The counter resets on any successful poll. `submitLogin` catch also logs to `console.error`.

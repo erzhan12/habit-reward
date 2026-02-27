@@ -101,6 +101,7 @@ const POLL_INITIAL_DELAY_MS = 2000; // First poll after 2s
 const POLL_BACKOFF_FACTOR = 2; // Exponential backoff multiplier
 const POLL_MAX_DELAY_MS = 30_000; // Cap for exponential backoff between polls
 const LOGIN_EXPIRY_MS = 300_000; // 5 minutes — matches server expiry
+const POLL_MAX_CONSECUTIVE_ERRORS = 5; // Stop polling after this many consecutive network failures
 
 // IMPORTANT: Must stay in sync with TELEGRAM_USERNAME_PATTERN in
 // src/web/utils/validation.py. A pre-commit hook verifies both patterns match.
@@ -117,6 +118,7 @@ const loginToken = ref(null);
 let pollTimer = null;
 let expiryTimer = null;
 let pollDelay = 0;
+let pollErrorCount = 0;
 
 let _csrfToken = null;
 function getCsrfToken() {
@@ -190,7 +192,8 @@ async function submitLogin() {
     state.value = "waiting";
     submitting.value = false;
     startPolling();
-  } catch {
+  } catch (err) {
+    console.error("Login request failed:", err);
     error.value = "Network error. Please try again.";
     state.value = "error";
     submitting.value = false;
@@ -206,6 +209,7 @@ async function submitLogin() {
 function startPolling() {
   stopPolling();
   pollDelay = POLL_INITIAL_DELAY_MS;
+  pollErrorCount = 0;
 
   function schedulePoll() {
     pollTimer = setTimeout(async () => {
@@ -264,9 +268,19 @@ async function pollStatus() {
       stopPolling();
       router.visit("/");
     }
-    // 'pending' — keep polling
-  } catch {
-    // Network error during poll — back off to max delay before retrying
+    // 'pending' — reset error counter on successful poll
+    pollErrorCount = 0;
+  } catch (err) {
+    console.error("Status poll failed:", err);
+    pollErrorCount++;
+    if (pollErrorCount >= POLL_MAX_CONSECUTIVE_ERRORS) {
+      // Persistent network failure — stop polling to avoid infinite retries
+      stopPolling();
+      error.value = "Connection lost. Please refresh and try again.";
+      state.value = "error";
+      return;
+    }
+    // Back off to max delay before retrying
     pollDelay = POLL_MAX_DELAY_MS;
   }
 }

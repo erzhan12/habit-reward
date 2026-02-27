@@ -1,6 +1,7 @@
 """Tests for web interface views."""
 
 import json
+import threading
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -2671,6 +2672,120 @@ class TestQueueFullReturns503:
         try:
             with pytest.raises(LoginServiceUnavailable):
                 call_async(svc.create_login_request("queuefulluser"))
+        finally:
+            svc_mod._queue_slots = original_slots
+
+
+class TestQueueSaturationIntegration:
+    """Integration tests for thread pool queue saturation via HTTP endpoints."""
+
+    def test_503_response_body_on_queue_full(self):
+        """POST /auth/bot-login/request/ returns 503 with correct error message
+        when the background queue is saturated."""
+        import src.web.services.web_login_service as svc_mod
+
+        User.objects.create_user(
+            username="tg_sat_user",
+            telegram_id="990000001",
+            name="Sat User",
+            language="en",
+            timezone="UTC",
+            telegram_username="satuser",
+        )
+
+        original_slots = svc_mod._queue_slots
+        mock_sem = MagicMock()
+        mock_sem.acquire.return_value = False
+        svc_mod._queue_slots = mock_sem
+        try:
+            response = Client().post(
+                "/auth/bot-login/request/",
+                data=json.dumps({"username": "satuser"}),
+                content_type="application/json",
+            )
+            assert response.status_code == 503
+            body = response.json()
+            assert "error" in body
+            assert "temporarily unavailable" in body["error"].lower()
+        finally:
+            svc_mod._queue_slots = original_slots
+
+    def test_semaphore_released_after_successful_submit(self):
+        """Semaphore slot is released after background task completes,
+        allowing subsequent requests to proceed."""
+        import src.web.services.web_login_service as svc_mod
+        from src.web.services.web_login_service import WebLoginService, _release_queue_slot
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_sem_release",
+            telegram_id="990000002",
+            name="Sem Release",
+            language="en",
+            timezone="UTC",
+            telegram_username="semreleaseuser",
+        )
+
+        svc = WebLoginService()
+
+        # Replace with a real semaphore of capacity 1 to test release behavior
+        original_slots = svc_mod._queue_slots
+        test_sem = threading.Semaphore(1)
+        svc_mod._queue_slots = test_sem
+        try:
+            # Mock executor to capture the done_callback
+            captured_callbacks = []
+            mock_future = MagicMock()
+            mock_future.add_done_callback.side_effect = lambda cb: captured_callbacks.append(cb)
+
+            with patch.object(svc_mod._get_executor(), "submit", return_value=mock_future):
+                call_async(svc.create_login_request("semreleaseuser"))
+
+            # Semaphore should be acquired (0 remaining)
+            assert not test_sem.acquire(blocking=False), "Semaphore should be exhausted"
+
+            # Trigger the done callback — simulates task completion
+            assert len(captured_callbacks) == 1
+            captured_callbacks[0](mock_future)
+
+            # Semaphore should now be released
+            assert test_sem.acquire(blocking=False), "Semaphore should be available after callback"
+            test_sem.release()  # Clean up
+        finally:
+            svc_mod._queue_slots = original_slots
+
+    def test_semaphore_released_on_executor_runtime_error(self):
+        """When executor.submit raises RuntimeError (shutdown), the semaphore
+        slot is still released to prevent leaks."""
+        import src.web.services.web_login_service as svc_mod
+        from src.web.services.web_login_service import LoginServiceUnavailable, WebLoginService
+        from src.web.utils.sync import call_async
+
+        User.objects.create_user(
+            username="tg_sem_err",
+            telegram_id="990000003",
+            name="Sem Error",
+            language="en",
+            timezone="UTC",
+            telegram_username="semerroruser",
+        )
+
+        svc = WebLoginService()
+
+        original_slots = svc_mod._queue_slots
+        test_sem = threading.Semaphore(1)
+        svc_mod._queue_slots = test_sem
+        try:
+            with patch.object(
+                svc_mod._get_executor(), "submit",
+                side_effect=RuntimeError("executor shut down"),
+            ):
+                with pytest.raises(LoginServiceUnavailable):
+                    call_async(svc.create_login_request("semerroruser"))
+
+            # Semaphore should still be available (released on error)
+            assert test_sem.acquire(blocking=False), "Semaphore should be released after error"
+            test_sem.release()
         finally:
             svc_mod._queue_slots = original_slots
 

@@ -66,10 +66,12 @@ _JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
 # WEB_LOGIN_MAX_QUEUED (default 50) before returning HTTP 503.  If you
 # observe frequent 503s, increase these values or investigate slow Telegram
 # API responses / DB writes.
-# IMPORTANT: SQLite doesn't handle concurrent writes well. Under high load,
-# you may see "database is locked" errors. For production with significant
-# traffic, use PostgreSQL instead of SQLite. Also tune CONN_MAX_AGE so the
-# DB connection pool can keep up with WEB_LOGIN_THREAD_POOL_SIZE workers.
+# IMPORTANT: SQLite doesn't handle concurrent writes well — its file-level
+# locking means only one writer at a time.  Under high load with multiple
+# background threads, you WILL see "database is locked" OperationalErrors.
+# For production with concurrent users, use PostgreSQL which has row-level
+# locking and proper connection pooling.  Also tune CONN_MAX_AGE so the DB
+# connection pool can sustain WEB_LOGIN_THREAD_POOL_SIZE concurrent workers.
 # Lazy-initialized thread pool — avoids spawning WEB_LOGIN_THREAD_POOL_SIZE
 # threads at import time.  Created on first use via _get_executor().
 _login_executor: ThreadPoolExecutor | None = None
@@ -96,6 +98,15 @@ _MAX_QUEUED_LOGINS = getattr(settings, "WEB_LOGIN_MAX_QUEUED", 50)
 # ``ThreadPoolExecutor._work_queue`` attribute which is a CPython
 # implementation detail and could break in future Python versions.
 _queue_slots = threading.Semaphore(_MAX_QUEUED_LOGINS)
+
+
+def _release_queue_slot(future) -> None:
+    """Release a semaphore slot when a background login task completes.
+
+    Attached as a ``Future.add_done_callback`` to ensure the slot is
+    released regardless of outcome (success, exception, or cancellation).
+    """
+    _queue_slots.release()
 
 
 class LoginServiceUnavailable(Exception):
@@ -133,11 +144,15 @@ def _safe_cache_set(key: str, value, timeout: int) -> None:
         with _cache_failure_lock:
             _cache_failure_count += 1
             failure_count = _cache_failure_count
+            # Threshold check MUST be inside the lock to prevent a race
+            # where multiple threads read the same failure_count and all
+            # simultaneously decide to raise CacheWriteError.
+            should_raise = failure_count >= _CACHE_FAILURE_THRESHOLD
         logger.warning(
             "Cache write failed for %s (consecutive failures: %d)",
             key[:20], failure_count,
         )
-        if failure_count >= _CACHE_FAILURE_THRESHOLD:
+        if should_raise:
             raise CacheWriteError(
                 f"Cache writes have failed {failure_count} times consecutively "
                 "— check cache backend configuration"
@@ -226,7 +241,7 @@ class WebLoginService:
                 # Release the semaphore when the future completes (success,
                 # exception, or cancellation).  This is the single release
                 # point — _process_login_background must NOT release it.
-                future.add_done_callback(lambda f: _queue_slots.release())
+                future.add_done_callback(_release_queue_slot)
             except RuntimeError:
                 # Executor is shut down (e.g. during server shutdown).
                 # Release the semaphore to prevent leaks.
@@ -516,8 +531,9 @@ class WebLoginService:
             )
             return None
 
-        # Must not be expired
-        if datetime.now(timezone.utc) > login_request.expires_at:
+        # Must not be expired — use _ensure_utc() to handle naive datetimes
+        # when USE_TZ=False (matches the pattern in check_status).
+        if datetime.now(timezone.utc) > _ensure_utc(login_request.expires_at):
             logger.warning("Complete login attempt with expired token: %s...", token[:8])
             return None
 

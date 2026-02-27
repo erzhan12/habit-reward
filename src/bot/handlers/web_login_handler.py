@@ -44,7 +44,7 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Verify the user pressing the button is the request owner.
     # Normalize both sides to str explicitly — telegram_id is stored as
     # CharField but update.effective_user.id is an int from Telegram API.
-    request_owner_id = str(login_request.user.telegram_id).strip() if login_request.user.telegram_id else ""
+    request_owner_id = str(login_request.user.telegram_id).strip() if login_request.user and login_request.user.telegram_id else ""
     callback_user_id = str(update.effective_user.id).strip()
     if not request_owner_id or callback_user_id != request_owner_id:
         logger.warning(

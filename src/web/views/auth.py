@@ -80,14 +80,14 @@ def _sanitize_user_agent(ua: str) -> str:
     return ''.join(c for c in ua if c.isprintable() or c.isspace())
 
 
-@functools.lru_cache(maxsize=256)
+@functools.lru_cache(maxsize=1024)
 def _parse_ua_cached(ua: str) -> str:
     """Parse a sanitized User-Agent string into a human-readable description.
 
     LRU-cached because UA parsing (via ``user_agents`` library) is
     CPU-intensive and the same UA string repeats across requests from
-    the same browser.  Cache is bounded to 256 entries (~typical UA
-    diversity for a small-to-medium site).
+    the same browser.  Cache is bounded to 1024 entries to accommodate
+    higher traffic and diverse UA strings without frequent evictions.
     """
     ua_parsed = parse_ua(ua)
     browser = f"{ua_parsed.browser.family} {ua_parsed.browser.version_string}".strip()
