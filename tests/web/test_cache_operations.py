@@ -286,7 +286,7 @@ class TestCacheFailureScenarios:
         )
 
         svc = WebLoginService()
-        with patch("django.core.cache.cache.get_many", side_effect=Exception("Redis down")):
+        with patch("django.core.cache.cache.get_many", side_effect=ConnectionError("Redis down")):
             status = call_async(svc.check_status("cache_fail_db_token"))
 
         assert status == "confirmed"

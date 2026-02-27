@@ -659,6 +659,9 @@ class WebLoginRequest(models.Model):
                 fields=['user', 'expires_at'],
                 name='wlr_user_expires_idx',
             ),
+            # Standalone index for queries filtering only by user
+            # (composite indexes above all pair user with other fields).
+            models.Index(fields=['user'], name='wlr_user_idx'),
         ]
         ordering = ['-created_at']
 

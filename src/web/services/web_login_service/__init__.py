@@ -200,8 +200,11 @@ def _get_executor() -> ThreadPoolExecutor:
 # while preventing unbounded queuing.
 _MAX_QUEUED_LOGINS = getattr(settings, "WEB_LOGIN_MAX_QUEUED", 50)
 
-# Warn when queue depth reaches this fraction of the max (default 80%).
-_QUEUE_WARN_THRESHOLD = int(_MAX_QUEUED_LOGINS * 0.8)
+# Fraction of _MAX_QUEUED_LOGINS at which a warning is emitted (80%).
+_QUEUE_WARN_THRESHOLD_FRACTION = 0.8
+
+# Warn when queue depth reaches this absolute count.
+_QUEUE_WARN_THRESHOLD = int(_MAX_QUEUED_LOGINS * _QUEUE_WARN_THRESHOLD_FRACTION)
 
 # Semaphore-based counter for queue depth — avoids relying on the private
 # ``ThreadPoolExecutor._work_queue`` attribute which is a CPython
@@ -495,8 +498,29 @@ class WebLoginService:
     def _create_login_request_with_retry(user_id, token, expires_at: datetime, device_info):
         """Invalidate pending requests and create a new one in a transaction.
 
-        Retries on token collision (IntegrityError on unique constraint).
-        Returns (login_request, final_token) since the token may change on retry.
+        This method handles the full lifecycle of creating a ``WebLoginRequest``:
+
+        1. **Invalidate existing requests** — Any pending requests for the same
+           user that have not yet expired are marked as DENIED inside the same
+           atomic transaction, ensuring only one active request exists per user.
+
+        2. **Create the new request** — A new ``WebLoginRequest`` row is inserted
+           with the provided token, expiry, and device info.
+
+        3. **Retry on token collision** — If the ``INSERT`` fails with an
+           ``IntegrityError`` (unique constraint on ``token``), a fresh token is
+           generated and the cache pending marker is updated so that the
+           ``check_login_status`` fast-path remains consistent.  Up to
+           ``TOKEN_GENERATION_MAX_RETRIES`` attempts are made before raising
+           ``DatabaseError``.
+
+        Returns:
+            tuple[WebLoginRequest, str]: The created login request and the final
+            token (which may differ from the input if a collision occurred).
+
+        Raises:
+            DatabaseError: If a unique token cannot be generated within the
+            retry limit.
         """
         for _attempt in range(TOKEN_GENERATION_MAX_RETRIES):
             try:
@@ -585,7 +609,7 @@ class WebLoginService:
         failed_key = f"{WL_FAILED_KEY}{token}"
         try:
             cache_keys = cache.get_many([pending_key, failed_key])
-        except Exception:
+        except (ConnectionError, TimeoutError, OSError):
             logger.warning(
                 "Cache read failed during status check",
                 extra={"token_prefix": token[:8]},
@@ -619,7 +643,7 @@ class WebLoginService:
                 else:
                     try:
                         cache.set(f"{WL_FAILED_KEY}{token}", True, timeout=300)
-                    except Exception:
+                    except (ConnectionError, TimeoutError, OSError):
                         pass
                     status = "expired"
             elif login_request.expires_at is None or now > _ensure_utc(login_request.expires_at):

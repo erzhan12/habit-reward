@@ -123,7 +123,7 @@ def _parse_ua_cached(ua: str) -> str:
     cache_key = f"{_UA_CACHE_KEY_PREFIX}{hash(ua_truncated) & 0xFFFFFFFFFFFFFFFF:016x}"
     try:
         cached = cache.get(cache_key)
-    except Exception:
+    except (ConnectionError, TimeoutError, OSError):
         logger.warning("Cache read failed for UA parsing; falling back to direct parse")
         cached = None
     if cached is not None:
@@ -149,7 +149,7 @@ def _parse_ua_cached(ua: str) -> str:
 
     try:
         cache.set(cache_key, result, timeout=_UA_CACHE_TTL)
-    except Exception:
+    except (ConnectionError, TimeoutError, OSError):
         logger.warning("Cache write failed for UA parsing; result not cached")
     return result
 

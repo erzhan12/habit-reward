@@ -117,6 +117,21 @@ Access the web interface at `http://localhost:8000/auth/login/` and enter your T
 - Atomic replay prevention (tokens are single-use)
 - Rate limiting (10 requests/minute for login, 30/minute for status)
 
+### Web Login Architecture
+
+The web login flow uses a bot-based Confirm/Deny mechanism instead of passwords:
+
+1. **Request initiation** — The user submits their Telegram username via the web form. A `WebLoginRequest` is created with a cryptographically random token and a 5-minute expiry.
+2. **Telegram notification** — The bot sends an inline-keyboard message (Confirm / Deny) to the user's Telegram account.
+3. **Status polling** — The browser polls `GET /auth/status/<token>/` with CSPRNG timing jitter to prevent timing-based enumeration.
+4. **Confirmation** — When the user taps Confirm, the request status is updated and the browser receives a session cookie.
+
+**Background thread pool** — Database writes and Telegram API calls are offloaded to a `ThreadPoolExecutor` (default 10 workers, max 50 queued) so the HTTP response returns immediately. A semaphore-based circuit breaker rejects new requests when the queue is full.
+
+**Cache-based anti-enumeration** — A pending marker is written to the cache for every login request (valid or not). The status endpoint checks the cache first, so responses for unknown usernames are indistinguishable from real ones.
+
+**Cleanup scheduling** — Expired `WebLoginRequest` rows are purged by the `cleanup_expired_web_logins` management command, which should be scheduled via cron or a task runner.
+
 ## How It Works
 
 ### Streak Calculation
