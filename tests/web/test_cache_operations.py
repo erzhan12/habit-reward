@@ -111,11 +111,11 @@ class TestCacheBackendFailure:
         assert "token" in result
         assert "expires_at" in result
 
-    def test_create_login_request_raises_after_threshold_cache_write_failures(self):
-        """Consecutive cache write failures reaching threshold should raise service unavailable."""
+    def test_create_login_request_still_returns_token_after_threshold_failures(self):
+        """Unknown-user path should keep returning tokens even when cache writes fail repeatedly."""
         from django.core.cache import cache
         from src.web.services.web_login_service import (
-            LoginServiceUnavailable, WebLoginService, cache_manager,
+            WebLoginService, _get_executor, cache_manager,
         )
         from src.web.utils.sync import call_async
 
@@ -125,19 +125,24 @@ class TestCacheBackendFailure:
         svc = WebLoginService()
         cache_manager.reset()
 
+        def _submit_inline(job, *args):
+            from concurrent.futures import Future
+
+            future = Future()
+            job(*args)
+            future.set_result(None)
+            return future
+
         try:
-            with patch.object(svc.user_repo, "get_by_telegram_username", return_value=None), \
-                 patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis down")):
-                # First (threshold - 1) requests should succeed despite cache errors
-                for i in range(threshold - 1):
+            with (
+                patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
+                patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis down")),
+                patch.object(_get_executor(), "submit", side_effect=_submit_inline),
+            ):
+                for i in range(threshold):
                     result = call_async(svc.create_login_request(f"cachefail{i}"))
                     assert "token" in result
-
-                # The threshold-th request should raise
-                with pytest.raises(
-                    LoginServiceUnavailable, match="Login service temporarily unavailable"
-                ):
-                    call_async(svc.create_login_request("cachefail_final"))
+                assert cache_manager.failure_count >= threshold
         finally:
             cache_manager.reset()
 
@@ -191,14 +196,14 @@ class TestCacheFailureThresholdRaisesError:
 
 
 class TestCacheConnectionErrorThreshold:
-    """Verify LoginServiceUnavailable is raised after 10 consecutive ConnectionError from cache.set()."""
+    """Verify repeated cache ConnectionError does not fail request creation."""
 
-    def test_connection_error_threshold_triggers_service_unavailable(self):
-        """Mock cache.set() to raise ConnectionError; after 10 failures LoginServiceUnavailable is raised."""
+    def test_connection_error_threshold_does_not_raise(self):
+        """Even after many cache failures, unknown-user create_login_request still returns tokens."""
         from django.core.cache import cache
         from src.web.services.web_login_service import (
-            LoginServiceUnavailable,
             WebLoginService,
+            _get_executor,
             cache_manager,
         )
         from src.web.utils.sync import call_async
@@ -207,19 +212,24 @@ class TestCacheConnectionErrorThreshold:
         cache_manager.reset()
         svc = WebLoginService()
 
+        def _submit_inline(job, *args):
+            from concurrent.futures import Future
+
+            future = Future()
+            job(*args)
+            future.set_result(None)
+            return future
+
         try:
             with (
                 patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
                 patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis connection refused")),
+                patch.object(_get_executor(), "submit", side_effect=_submit_inline),
             ):
-                # First 9 requests succeed (cache failures are tolerated)
-                for i in range(9):
+                for i in range(10):
                     result = call_async(svc.create_login_request(f"cache_err_user_{i}"))
                     assert "token" in result
-
-                # The 10th request should trigger LoginServiceUnavailable
-                with pytest.raises(LoginServiceUnavailable):
-                    call_async(svc.create_login_request("cache_err_user_final"))
+                assert cache_manager.failure_count >= 10
         finally:
             cache_manager.reset()
 
@@ -227,18 +237,25 @@ class TestCacheConnectionErrorThreshold:
 class TestCacheFailureScenarios:
     """Verify the login flow works via DB-only path when cache writes fail."""
 
-    def test_login_request_raises_when_cache_critically_fails(self):
-        """create_login_request raises LoginServiceUnavailable when cache backend
-        is unhealthy (3+ consecutive failures)."""
+    def test_login_request_returns_token_when_cache_critically_fails(self):
+        """create_login_request still returns token when cache writes fail in background."""
         from src.web.services.web_login_service import (
             CacheWriteError,
-            LoginServiceUnavailable,
             WebLoginService,
+            _get_executor,
             cache_manager,
         )
         from src.web.utils.sync import call_async
 
         svc = WebLoginService()
+
+        def _submit_inline(job, *args):
+            from concurrent.futures import Future
+
+            future = Future()
+            job(*args)
+            future.set_result(None)
+            return future
 
         with (
             patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
@@ -246,9 +263,10 @@ class TestCacheFailureScenarios:
                 cache_manager, "set",
                 side_effect=CacheWriteError("Cache down"),
             ),
+            patch.object(_get_executor(), "submit", side_effect=_submit_inline),
         ):
-            with pytest.raises(LoginServiceUnavailable):
-                call_async(svc.create_login_request("testuser"))
+            result = call_async(svc.create_login_request("testuser"))
+            assert "token" in result
 
     @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
     def test_check_status_db_fallback_when_cache_read_fails(self, mock_sleep):

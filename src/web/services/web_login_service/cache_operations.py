@@ -1,9 +1,10 @@
 """Cache operations for web login service.
 
 Provides a ``CacheManager`` class that wraps Django's cache backend with
-consecutive failure tracking.  Raises ``CacheWriteError`` after a
-configurable threshold of consecutive failures to surface likely cache
-misconfiguration instead of silently degrading.
+consecutive failure tracking. Raises ``CacheWriteError`` after a configurable
+threshold of consecutive failures to surface likely cache misconfiguration.
+Emits structured log fields (``metric=...``) so external monitoring can alert
+on repeated cache write failures.
 """
 
 import logging
@@ -63,7 +64,17 @@ class CacheManager:
         try:
             cache.set(key, value, timeout=timeout)
             with self._lock:
+                previous_failures = self._failure_count
                 self._failure_count = 0
+            if previous_failures:
+                logger.info(
+                    "Cache write recovered after %d consecutive failures",
+                    previous_failures,
+                    extra={
+                        "metric": "web_login.cache_write.recovered",
+                        "consecutive_failures": previous_failures,
+                    },
+                )
         except (ConnectionError, TimeoutError, OSError):
             with self._lock:
                 self._failure_count += 1
@@ -72,8 +83,20 @@ class CacheManager:
             logger.warning(
                 "Cache write failed for %s (consecutive failures: %d)",
                 key[:20], failure_count,
+                extra={
+                    "metric": "web_login.cache_write.failure",
+                    "consecutive_failures": failure_count,
+                },
             )
             if should_raise:
+                logger.error(
+                    "Cache write failure threshold reached",
+                    extra={
+                        "metric": "web_login.cache_write.threshold_exceeded",
+                        "consecutive_failures": failure_count,
+                        "failure_threshold": self._failure_threshold,
+                    },
+                )
                 raise CacheWriteError(
                     f"Cache writes have failed {failure_count} times consecutively "
                     "— check cache backend configuration"

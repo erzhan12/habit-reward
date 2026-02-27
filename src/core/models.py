@@ -643,6 +643,10 @@ class WebLoginRequest(models.Model):
             models.Index(fields=['user', 'status']),
             models.Index(fields=['expires_at']),
             models.Index(fields=['token', 'status'], name='web_login_r_token_status_idx'),
+            models.Index(
+                fields=['token', 'status', 'expires_at'],
+                name='wlr_status_check_idx',
+            ),
             # Composite index for the invalidation query in
             # _create_login_request_with_retry (filters on user + status + created_at).
             models.Index(

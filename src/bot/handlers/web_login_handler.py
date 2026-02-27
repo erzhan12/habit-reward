@@ -53,12 +53,8 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("⚠️ This login request has expired or was not found.")
         return
 
-    # Verify the user pressing the button is the request owner.
-    # Both telegram_id values must be compared as strings because:
-    #   - login_request.user.telegram_id is a Django CharField (str)
-    #   - update.effective_user.id is an int from the Telegram API
-    # Without str() conversion, the comparison would always fail due to
-    # type mismatch (e.g. "123456" != 123456).
+    # Convert both IDs to strings for comparison (telegram_id is CharField,
+    # effective_user.id is int).
     request_owner_id = str(login_request.user.telegram_id).strip() if login_request.user and login_request.user.telegram_id else ""
     callback_user_id = str(update.effective_user.id).strip()
     if not request_owner_id or callback_user_id != request_owner_id:

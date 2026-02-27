@@ -63,6 +63,7 @@ def _ensure_utc(dt: datetime) -> datetime:
     Django's DateTimeField may return naive datetimes when USE_TZ=False.
     This prevents ``TypeError: can't compare offset-naive and offset-aware
     datetimes`` when comparing with ``datetime.now(timezone.utc)``.
+    Consider enabling ``USE_TZ=True`` to avoid naive datetimes at the source.
 
     Raises:
         ValueError: If *dt* is None (prevents confusing downstream errors).
@@ -108,6 +109,9 @@ _JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
 # IMPORTANT: SQLite doesn't handle concurrent writes well — its file-level
 # locking means only one writer at a time.  For production with concurrent
 # users, use PostgreSQL which has row-level locking.
+#
+# TODO: Consider replacing this custom thread-pool orchestration with Django
+# async views + sync_to_async for simpler concurrency management.
 _login_executor: ThreadPoolExecutor | None = None
 _executor_lock = threading.Lock()
 
@@ -165,10 +169,20 @@ def _decrement_queue_depth() -> int:
 
 def _release_queue_slot(future) -> None:
     """Release a semaphore slot when a background login task completes."""
-    depth = _decrement_queue_depth()
-    _queue_slots.release()
-    if depth > 0:
-        logger.debug("Login queue depth after completion: %d", depth)
+    try:
+        depth = _decrement_queue_depth()
+        if depth > 0:
+            logger.debug("Login queue depth after completion: %d", depth)
+    finally:
+        _queue_slots.release()
+
+
+def _release_acquired_queue_slot() -> None:
+    """Release queue accounting for a slot that was acquired but not submitted."""
+    try:
+        _decrement_queue_depth()
+    finally:
+        _queue_slots.release()
 
 
 class LoginServiceUnavailable(Exception):
@@ -187,11 +201,9 @@ class WebLoginService:
     ) -> dict:
         """Create a login request and dispatch Confirm/Deny to user via bot.
 
-        For known users, the pending cache key is set inside the background
-        thread (not here) to avoid blocking the main request thread with a
-        cache write that could introduce a timing side-channel.  For unknown
-        users, the cache key is set synchronously since there is no background
-        thread to defer to.
+        Both known and unknown usernames are handled via background workers so
+        cache writes happen off the request thread on both paths. This keeps
+        response timing and failure behavior aligned to reduce enumeration risk.
 
         Args:
             username: Telegram @username (with or without @)
@@ -211,75 +223,89 @@ class WebLoginService:
         expires_at = now + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
 
         if user and user.telegram_id:
-            # Circuit breaker: reject if the background queue is saturated.
-            if not _queue_slots.acquire(blocking=False):
-                logger.critical(
-                    "Login thread pool queue full (>=%d pending), rejecting request",
-                    _MAX_QUEUED_LOGINS,
-                )
-                raise LoginServiceUnavailable(
-                    "Login service temporarily unavailable"
-                )
-            depth = _increment_queue_depth()
-            if depth >= _QUEUE_WARN_THRESHOLD:
-                logger.warning(
-                    "Login queue depth %d approaching limit %d",
-                    depth,
-                    _MAX_QUEUED_LOGINS,
-                )
-            # The pending cache key is set as the first action inside the
-            # background thread — not here — to avoid blocking the main
-            # request thread.  The frontend's 2-second initial poll delay
-            # ensures the background thread has time to write the cache
-            # entry before the first status check.
-            try:
-                future = _get_executor().submit(
-                    self._process_login_background, user, token, expires_at, device_info
-                )
-                future.add_done_callback(_release_queue_slot)
-            except RuntimeError:
-                _queue_slots.release()
-                raise LoginServiceUnavailable(
-                    "Login service shutting down"
-                )
-            except Exception:
-                _queue_slots.release()
-                logger.error(
-                    "Unexpected error during executor submit",
-                    exc_info=True,
-                    extra={"user_id": user.id},
-                )
-                raise
+            self._submit_background_login_job(
+                self._process_login_background,
+                user,
+                token,
+                expires_at,
+                device_info,
+                log_extra={"user_id": user.id},
+            )
         else:
-            # Unknown user or user without telegram_id — set cache marker
-            # synchronously since there is no background thread.  Accept
-            # a slight timing difference vs the known-user path; the jitter
-            # in check_status masks it.
-            cache_ttl = _cache_ttl_seconds(expires_at)
-            try:
-                cache_manager.set(f"{WL_PENDING_KEY}{token}", True, cache_ttl)
-            except CacheWriteError as exc:
-                logger.critical(
-                    "Cache backend unhealthy during login request creation",
-                    extra={"username": username},
-                )
-                raise LoginServiceUnavailable("Login service temporarily unavailable") from exc
-
-            if not user:
-                logger.warning(
-                    "Web login request for unknown username",
-                    extra={"username": username},
-                )
-            else:
-                logger.warning(
-                    "User exists but has no telegram_id (account created via non-bot method)",
-                    extra={"username": username, "user_id": user.id},
-                )
+            self._submit_background_login_job(
+                self._process_unknown_login_background,
+                user,
+                username,
+                token,
+                expires_at,
+                log_extra={"username": username, "user_id": getattr(user, "id", None)},
+            )
 
         return {
             "token": token,
             "expires_at": expires_at.isoformat(),
         }
+
+    def _submit_background_login_job(self, job, *args, log_extra: dict | None = None) -> None:
+        """Submit a background login job with queue-slot accounting."""
+        if not _queue_slots.acquire(blocking=False):
+            logger.critical(
+                "Login thread pool queue full (>=%d pending), rejecting request",
+                _MAX_QUEUED_LOGINS,
+            )
+            raise LoginServiceUnavailable(
+                "Login service temporarily unavailable"
+            )
+
+        depth = _increment_queue_depth()
+        if depth >= _QUEUE_WARN_THRESHOLD:
+            logger.warning(
+                "Login queue depth %d approaching limit %d",
+                depth,
+                _MAX_QUEUED_LOGINS,
+            )
+
+        try:
+            future = _get_executor().submit(job, *args)
+            future.add_done_callback(_release_queue_slot)
+        except RuntimeError as exc:
+            _release_acquired_queue_slot()
+            raise LoginServiceUnavailable(
+                "Login service shutting down"
+            ) from exc
+        except Exception:
+            _release_acquired_queue_slot()
+            logger.error(
+                "Unexpected error during executor submit",
+                exc_info=True,
+                extra=log_extra or {},
+            )
+            raise
+
+    def _process_unknown_login_background(
+        self, user, username: str, token: str, expires_at
+    ) -> None:
+        """Background path for unknown users or users without telegram_id."""
+        cache_ttl = _cache_ttl_seconds(expires_at)
+        try:
+            cache_manager.set(f"{WL_PENDING_KEY}{token}", True, cache_ttl)
+        except CacheWriteError:
+            logger.critical(
+                "Cache backend unhealthy during unknown-user login processing",
+                extra={"username": username, "token_prefix": token[:8]},
+            )
+            return
+
+        if not user:
+            logger.warning(
+                "Web login request for unknown username",
+                extra={"username": username},
+            )
+        else:
+            logger.warning(
+                "User exists but has no telegram_id (account created via non-bot method)",
+                extra={"username": username, "user_id": user.id},
+            )
 
     def _process_login_background(
         self, user, token: str, expires_at, device_info: str | None

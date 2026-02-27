@@ -150,6 +150,25 @@ def check_thread_pool_vs_db_connections(app_configs, **kwargs):
 
 
 @register()
+def check_sqlite_conn_max_age(app_configs, **kwargs):
+    """Warn when CONN_MAX_AGE is set on SQLite (no pooling effect)."""
+    errors = []
+    db_config = settings.DATABASES.get("default", {})
+    engine = db_config.get("ENGINE", "")
+    conn_max_age = int(db_config.get("CONN_MAX_AGE", 0) or 0)
+    if "sqlite" in engine and conn_max_age > 0:
+        msg = (
+            f"CONN_MAX_AGE={conn_max_age} is set for SQLite backend ({engine}), "
+            "but SQLite does not benefit from persistent connection pooling. "
+            "Use CONN_MAX_AGE=0 for SQLite, or switch to PostgreSQL/MySQL to "
+            "benefit from connection reuse."
+        )
+        logger.warning("CONFIG: %s", msg)
+        errors.append(Warning(msg, id="web.W007"))
+    return errors
+
+
+@register()
 def check_sqlite_username_constraint(app_configs, **kwargs):
     """Warn when SQLite is used with the User.telegram_username regex constraint.
 

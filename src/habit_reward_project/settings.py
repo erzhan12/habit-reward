@@ -121,10 +121,11 @@ DATABASES = {
 }
 
 # Reuse database connections for 10 minutes instead of closing after each
-# request.  Reduces connection overhead in the ThreadPoolExecutor workers
-# that handle background login processing under high traffic.
+# request. This reduces connection overhead in ThreadPoolExecutor workers
+# for PostgreSQL/MySQL.
+# NOTE: SQLite ignores CONN_MAX_AGE (no connection pooling benefit).
 # NOTE: Tune based on thread pool size - with 10 workers, you need at least
-# 10 DB connections available.
+# 10 DB connections available on PostgreSQL/MySQL.
 DATABASES['default']['CONN_MAX_AGE'] = env.int('CONN_MAX_AGE', default=600)
 
 

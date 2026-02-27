@@ -222,6 +222,9 @@ WEB_LOGIN_THREAD_POOL_SIZE=1
 WEB_LOGIN_MAX_QUEUED=10
 ```
 
+**Warning:** SQLite is **NOT** recommended for production with concurrent users due to
+write lock contention.
+
 ### Web Login Configuration
 
 | Variable | Default | Description |
@@ -232,9 +235,18 @@ WEB_LOGIN_MAX_QUEUED=10
 | `AUTH_RATE_LIMIT` | `10/m` | Rate limit for login request and complete endpoints (per IP). |
 | `AUTH_STATUS_RATE_LIMIT` | `30/m` | Rate limit for status polling endpoint (per IP). |
 | `TRUST_X_FORWARDED_FOR` | `False` | Trust X-Forwarded-For header for client IP. **Only enable behind a trusted reverse proxy** (nginx/Caddy) that overwrites this header. When exposed directly to the internet, clients can spoof their IP. **WARNING:** In production (`DEBUG=False`), enabling this without a reverse proxy is a security risk — attackers can forge their IP to bypass rate limiting and IP-based access controls. |
-| `CONN_MAX_AGE` | `600` | Database connection reuse timeout in seconds (reduces overhead in thread pool workers). Set the database connection pool size (via `DATABASE_URL` for PostgreSQL: `?pool_size=N`) to at least match `WEB_LOGIN_THREAD_POOL_SIZE` to avoid connection exhaustion under load. |
+| `CONN_MAX_AGE` | `600` | Database connection reuse timeout in seconds for PostgreSQL/MySQL (reduces overhead in thread pool workers). SQLite does not benefit from this setting. Set the database connection pool size (via `DATABASE_URL` for PostgreSQL: `?pool_size=N`) to at least match `WEB_LOGIN_THREAD_POOL_SIZE` to avoid connection exhaustion under load. |
 | `WEB_LOGIN_JITTER_MIN` | `0.05` | Minimum timing jitter (seconds) added to status polling responses. |
 | `WEB_LOGIN_JITTER_MAX` | `0.2` | Maximum timing jitter (seconds) added to status polling responses. |
+
+**Cleanup scheduling:** Schedule `cleanup_expired_logins` hourly (cron or systemd timer),
+otherwise expired login records accumulate indefinitely.
+
+Cron example:
+
+```cron
+0 * * * * cd /path && python manage.py cleanup_expired_logins
+```
 
 #### Bot Login Endpoint Rate Limits
 

@@ -161,6 +161,7 @@ class TestAuth:
             "/auth/bot-login/request/",
             data=json.dumps(["not", "an", "object"]),
             content_type="application/json",
+            REMOTE_ADDR="198.51.100.41",
         )
         assert response.status_code == 400
 
@@ -179,6 +180,7 @@ class TestAuth:
             "/auth/bot-login/request/",
             data=json.dumps({"username": 123}),
             content_type="application/json",
+            REMOTE_ADDR="198.51.100.42",
         )
         # "123" passes regex but user won't exist — anti-enumeration returns 200
         assert response.status_code == 200
@@ -196,12 +198,20 @@ class TestAuth:
     def test_token_cached_for_status_polling(self):
         """Service caches every token (wl_pending:) so status returns 'pending'."""
         from django.core.cache import cache
-        from src.web.services.web_login_service import WebLoginService
+        from src.web.services.web_login_service import WebLoginService, _get_executor
 
         cache.clear()
         svc = WebLoginService()
+
+        def _submit_inline(job, *args):
+            future = Future()
+            job(*args)
+            future.set_result(None)
+            return future
+
         with (
             patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
+            patch.object(_get_executor(), "submit", side_effect=_submit_inline),
         ):
             from src.web.utils.sync import call_async
             result = call_async(svc.create_login_request("unknownuser"))
@@ -276,14 +286,21 @@ class TestAuth:
     def test_cache_ttl_derived_from_expires_at(self):
         """Cache timeout is derived from expires_at, not a separate constant."""
         from django.core.cache import cache
-        from src.web.services.web_login_service import WebLoginService
+        from src.web.services.web_login_service import WebLoginService, _get_executor
         from src.web.utils.sync import call_async
 
         svc = WebLoginService()
 
+        def _submit_inline(job, *args):
+            future = Future()
+            job(*args)
+            future.set_result(None)
+            return future
+
         with (
             patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
             patch.object(cache, "set", wraps=cache.set) as mock_set,
+            patch.object(_get_executor(), "submit", side_effect=_submit_inline),
         ):
             result = call_async(svc.create_login_request("unknownuser"))
 
@@ -316,7 +333,7 @@ class TestAuth:
     def test_bot_login_rate_limit_http_level(self):
         """Sending requests over the limit triggers rate limiting and returns 429 JSON.
 
-        Uses settings.AUTH_RATE_LIMIT (default 10/m).
+        Uses the stricter user_or_ip limiter on bot_login_request (5/m).
         """
         from django.core.cache import cache
 
@@ -325,8 +342,8 @@ class TestAuth:
         payload = json.dumps({"username": "nonexistent_user_test"})
         client = Client()
 
-        # Send requests up to the limit (default 10/m)
-        for _ in range(10):
+        # Send requests up to the user_or_ip limit (5/m)
+        for _ in range(5):
             client.post(
                 "/auth/bot-login/request/",
                 data=payload,
@@ -2693,3 +2710,149 @@ class TestParseUaCachedCacheFailure:
         mock_logger.warning.assert_any_call(
             "Cache write failed for UA parsing; result not cached"
         )
+
+
+class TestCriticalPathIntegrations:
+    """Integration coverage for critical login flow edge cases."""
+
+    def test_collision_retry_integration_path(self):
+        """_process_login_request retries on token collision and persists the retried token."""
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_int_collision",
+            telegram_id="771111111",
+            name="Int Collision",
+            language="en",
+            timezone="UTC",
+            telegram_username="intcollision",
+        )
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        collision_token = "integration_collision_token"
+
+        WebLoginRequest.objects.create(
+            user=user,
+            token=collision_token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=expires_at,
+        )
+
+        svc = WebLoginService()
+        with (
+            patch(
+                "src.web.services.web_login_service.secrets.token_urlsafe",
+                return_value="integration_collision_retry_token",
+            ),
+            patch.object(svc, "_send_login_notification", new_callable=AsyncMock),
+        ):
+            call_async(svc._process_login_request(user, collision_token, expires_at, None))
+
+        assert WebLoginRequest.objects.filter(
+            user=user,
+            token="integration_collision_retry_token",
+        ).exists()
+
+    def test_concurrent_status_checks_same_token(self):
+        """Concurrent status polling on one token returns consistent status values."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        from django.core.cache import cache
+        import src.web.services.web_login_service as svc_mod
+        from src.web.services.web_login_service import WebLoginService, WL_PENDING_KEY
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+        token = "integration_concurrent_status_token"
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
+
+        def _check():
+            return call_async(svc.check_status(token))
+
+        with (
+            patch.object(svc_mod, "_JITTER_MIN", 0.0),
+            patch.object(svc_mod, "_JITTER_MAX", 0.0),
+            ThreadPoolExecutor(max_workers=8) as executor,
+        ):
+            results = list(executor.map(lambda _: _check(), range(8)))
+
+        assert all(result == "pending" for result in results)
+
+    def test_cache_write_error_paths_return_tokens(self):
+        """Known and unknown user paths both return tokens when cache writes fail."""
+        from django.core.cache import cache
+        import src.web.services.web_login_service as svc_mod
+        from src.web.services.web_login_service import CacheWriteError, WebLoginService, _get_executor
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+
+        User.objects.create_user(
+            username="tg_cache_fail_known",
+            telegram_id="772222222",
+            name="Cache Fail Known",
+            language="en",
+            timezone="UTC",
+            telegram_username="cachefailknown",
+        )
+
+        def _submit_inline(job, *args):
+            future = Future()
+            try:
+                job(*args)
+                future.set_result(None)
+            except Exception as exc:  # pragma: no cover - defensive in test helper
+                future.set_exception(exc)
+            return future
+
+        with (
+            patch.object(_get_executor(), "submit", side_effect=_submit_inline),
+            patch(
+                "src.web.services.web_login_service.cache_manager.set",
+                side_effect=CacheWriteError("cache backend down"),
+            ),
+        ):
+            known_result = call_async(svc.create_login_request("cachefailknown"))
+            unknown_result = call_async(svc.create_login_request("cachefailunknown"))
+
+        assert "token" in known_result
+        assert "token" in unknown_result
+
+        with (
+            patch.object(svc_mod, "_JITTER_MIN", 0.0),
+            patch.object(svc_mod, "_JITTER_MAX", 0.0),
+        ):
+            assert call_async(svc.check_status(known_result["token"])) == "expired"
+            assert call_async(svc.check_status(unknown_result["token"])) == "expired"
+
+    def test_queue_saturation_returns_503(self):
+        """HTTP endpoint returns 503 when queue slots cannot be acquired."""
+        import src.web.services.web_login_service as svc_mod
+
+        User.objects.create_user(
+            username="tg_queue_sat",
+            telegram_id="773333333",
+            name="Queue Sat",
+            language="en",
+            timezone="UTC",
+            telegram_username="queuesat",
+        )
+
+        original_slots = svc_mod._queue_slots
+        mock_sem = MagicMock()
+        mock_sem.acquire.return_value = False
+        svc_mod._queue_slots = mock_sem
+        try:
+            response = Client().post(
+                "/auth/bot-login/request/",
+                data=json.dumps({"username": "queuesat"}),
+                content_type="application/json",
+            )
+        finally:
+            svc_mod._queue_slots = original_slots
+
+        assert response.status_code == 503
+        assert "temporarily unavailable" in response.json()["error"].lower()

@@ -94,19 +94,26 @@ _UA_CACHE_TTL = 3600  # 1 hour
 
 
 def _parse_ua_cached(ua: str) -> str:
-    """Parse a sanitized User-Agent string into a human-readable description.
+    """Parse a User-Agent string into a human-readable device description.
 
     Uses Django's cache framework (shared across processes, auto-evicted by
     TTL) instead of ``functools.lru_cache`` to avoid per-process memory
-    buildup and test pollution.  Cache key is a truncated SHA-256 hash of
-    the UA string with a 1-hour TTL.
+    buildup and test pollution. Cache key is a truncated BLAKE2b hash of
+    the raw UA string (truncated to ``MAX_USER_AGENT_LENGTH``) with a 1-hour TTL.
+
+    Performance note: UA sanitization is intentionally deferred until after
+    cache lookup, so cache hits avoid extra string processing.
     """
     from django.core.cache import cache
 
+    ua_for_key = ua[:MAX_USER_AGENT_LENGTH]
     # blake2b with digest_size=8 produces an 8-byte digest, which
     # hexdigest() encodes as a 16-character hex string.
     # Faster than SHA-256 and sufficient for cache key uniqueness.
-    cache_key = f"{_UA_CACHE_KEY_PREFIX}{hashlib.blake2b(ua.encode(), digest_size=8).hexdigest()}"
+    cache_key = (
+        f"{_UA_CACHE_KEY_PREFIX}"
+        f"{hashlib.blake2b(ua_for_key.encode(errors='ignore'), digest_size=8).hexdigest()}"
+    )
     try:
         cached = cache.get(cache_key)
     except Exception:
@@ -115,7 +122,8 @@ def _parse_ua_cached(ua: str) -> str:
     if cached is not None:
         return cached
 
-    ua_parsed = parse_ua(ua)
+    sanitized_ua = _sanitize_user_agent(ua_for_key)
+    ua_parsed = parse_ua(sanitized_ua)
     browser = f"{ua_parsed.browser.family} {ua_parsed.browser.version_string}".strip()
     os_name = f"{ua_parsed.os.family} {ua_parsed.os.version_string}".strip()
 
@@ -131,9 +139,8 @@ def _parse_ua_cached(ua: str) -> str:
     # Defense-in-depth: even though parse_ua usually produces short strings,
     # a crafted UA between 255-1024 chars could yield a longer parsed result.
     result = raw[:MAX_DEVICE_INFO_LENGTH]
-    assert len(result) <= MAX_DEVICE_INFO_LENGTH, (
-        f"device_info exceeds DB field limit: {len(result)} > {MAX_DEVICE_INFO_LENGTH}"
-    )
+    if len(result) > MAX_DEVICE_INFO_LENGTH:
+        raise ValueError(f"device_info exceeds DB field limit: {len(result)}")
 
     try:
         cache.set(cache_key, result, timeout=_UA_CACHE_TTL)
@@ -149,21 +156,30 @@ def _parse_device_info(request) -> str:
     Output is truncated to 255 characters (DB field limit) at this input
     boundary.  No IP address is included (GDPR).
     """
-    ua = _sanitize_user_agent(request.META.get("HTTP_USER_AGENT", ""))
+    ua = request.META.get("HTTP_USER_AGENT", "")
 
     result = _parse_ua_cached(ua)
 
     if "Unknown browser" in result or "Unknown OS" in result:
         logger.debug(
             "Unrecognised User-Agent during device_info parsing: %s",
-            ua[:200],
+            _sanitize_user_agent(ua)[:200],
         )
 
     return result
 
 
+def validate_login_token(token: str) -> bool:
+    """Validate web login token format and length."""
+    return (
+        TOKEN_MIN_LENGTH <= len(token) <= TOKEN_MAX_LENGTH
+        and _TOKEN_PATTERN.match(token) is not None
+    )
+
+
 @require_POST
 @ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True, group="bot_login_request")
+@ratelimit(key="user_or_ip", rate="5/m", method="POST", block=True)
 def bot_login_request(request):
     """Initiate a bot-based login request.
 
@@ -267,7 +283,7 @@ def bot_login_status(request, token):
         curl http://localhost:8000/auth/bot-login/status/abc123def456/
     """
     token = str(token).strip()
-    if not (TOKEN_MIN_LENGTH <= len(token) <= TOKEN_MAX_LENGTH) or not _TOKEN_PATTERN.match(token):
+    if not validate_login_token(token):
         return JsonResponse({"error": "Invalid token format"}, status=400)
 
     status = call_async(web_login_service.check_status(token))
@@ -317,10 +333,7 @@ def bot_login_complete(request):
     if not token:
         return JsonResponse({"error": "Token is required"}, status=400)
 
-    if not (TOKEN_MIN_LENGTH <= len(token) <= TOKEN_MAX_LENGTH):
-        return JsonResponse({"error": "Invalid token format"}, status=400)
-
-    if not _TOKEN_PATTERN.match(token):
+    if not validate_login_token(token):
         return JsonResponse({"error": "Invalid token format"}, status=400)
 
     user = call_async(web_login_service.complete_login(token))
@@ -372,10 +385,9 @@ def _anonymize_ip(ip: str) -> str:
     log entries (e.g. rate-limit events) without storing the raw IP address,
     which is PII under GDPR.
 
-    The 16-hex-char prefix (64 bits) provides ~4 billion unique buckets,
-    virtually eliminating collision risk even across large IP pools while
-    remaining irreversible.  This is the standard pattern used throughout
-    the web layer — prefer this over logging raw IPs.
+    The 16-hex-char prefix (64 bits) gives 2^64 buckets. Collisions are still
+    possible (birthday bound reaches ~50% around 77k distinct IPs), so this
+    is for coarse correlation only, not uniqueness guarantees.
     """
     return hashlib.sha256(ip.encode()).hexdigest()[:16]
 
