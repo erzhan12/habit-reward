@@ -55,17 +55,26 @@ WL_PENDING_KEY = f"{_CACHE_PREFIX}wl_pending:"
 WL_FAILED_KEY = f"{_CACHE_PREFIX}wl_failed:"
 
 # Token generation parameters.
-TOKEN_BYTES = 32  # 256 bits of entropy for secrets.token_urlsafe
-TOKEN_GENERATION_MAX_RETRIES = 3  # Max attempts to generate a unique token
+# 32 bytes = 256 bits of entropy.  secrets.token_urlsafe(32) produces a
+# 43-char URL-safe base64 string.  256 bits makes brute-force guessing
+# infeasible (~2^256 possible tokens).
+TOKEN_BYTES = 32
+# 3 retries is sufficient because the 256-bit token space makes collisions
+# astronomically unlikely (~1 in 2^128 for birthday paradox with 2^128
+# existing tokens).  3 retries means we tolerate 3 back-to-back collisions,
+# which should never happen in practice.
+TOKEN_GENERATION_MAX_RETRIES = 3
 
 # Configurable timing jitter range (seconds) for status polling.
 # Masks residual timing differences between DB hit/miss, cache hit/miss.
 _JITTER_MIN = getattr(settings, "WEB_LOGIN_JITTER_MIN", 0.05)
 _JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
 
-# Minimum TTL (seconds) for the wl_failed cache marker.  Ensures the
-# marker persists even when background processing is delayed and
-# ``expires_at`` is close to (or past) the current time.
+# Minimum TTL (seconds) for the wl_failed cache marker.  60 seconds is
+# chosen to outlast the longest expected polling interval (30s max backoff
+# + network delay) so the client sees the "error" status at least once.
+# Ensures the marker persists even when ``expires_at`` is close to (or
+# past) the current time.
 _MIN_FAILED_MARKER_TTL_SECONDS = 60
 
 # Bounded thread pool for background login processing (DB writes + Telegram send).
@@ -119,6 +128,15 @@ def _release_queue_slot(future) -> None:
     _queue_slots.release()
 
 
+def _cache_ttl_seconds(expires_at, min_ttl: int = 1) -> int:
+    """Calculate cache TTL in seconds from an expiry datetime.
+
+    Returns at least ``min_ttl`` seconds so the cache entry doesn't
+    expire prematurely or get a zero/negative timeout.
+    """
+    return max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), min_ttl)
+
+
 class LoginServiceUnavailable(Exception):
     """Raised when the login background queue is full."""
 
@@ -130,6 +148,10 @@ class CacheWriteError(Exception):
 # Consecutive cache write failure counter.
 _cache_failure_count = 0
 _cache_failure_lock = threading.Lock()
+# 10 consecutive failures before raising CacheWriteError.  High enough to
+# tolerate transient cache blips (e.g. Redis failover takes 1-5s ≈ a few
+# requests) without blocking all logins, but low enough to surface genuine
+# misconfiguration quickly.
 _CACHE_FAILURE_THRESHOLD = 10
 
 
@@ -141,6 +163,14 @@ def _safe_cache_set(key: str, value, timeout: int) -> None:
     surface likely cache misconfiguration instead of silently degrading.
     The threshold is intentionally high to tolerate transient cache
     blips during peak traffic without blocking all logins globally.
+
+    Thread-safety: The global ``_cache_failure_count`` is guarded by
+    ``_cache_failure_lock``.  Both the increment and the threshold
+    check happen inside the same ``with _cache_failure_lock:`` block,
+    preventing a TOCTOU race where multiple threads read the same
+    count and all decide to raise.  ``cache.set()`` itself is called
+    **outside** the lock — Django's cache backends are already
+    thread-safe (Memcached/Redis) or serialized (LocMem).
     """
     global _cache_failure_count
     from django.core.cache import cache
@@ -180,10 +210,7 @@ def _mark_failed_token(token: str, expires_at) -> None:
     persists even when processing is delayed and ``expires_at`` is close
     to (or past) the current time.
     """
-    cache_ttl = max(
-        int((expires_at - datetime.now(timezone.utc)).total_seconds()),
-        _MIN_FAILED_MARKER_TTL_SECONDS,
-    )
+    cache_ttl = _cache_ttl_seconds(expires_at, min_ttl=_MIN_FAILED_MARKER_TTL_SECONDS)
     _safe_cache_set(f"{WL_FAILED_KEY}{token}", True, cache_ttl)
 
 
@@ -224,7 +251,7 @@ class WebLoginService:
         token = secrets.token_urlsafe(TOKEN_BYTES)
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
-        cache_ttl = max(int((expires_at - now).total_seconds()), 1)
+        cache_ttl = _cache_ttl_seconds(expires_at)
         # DESIGN NOTE: The pending cache key is set HERE (before the
         # background thread runs) intentionally.  If the background thread
         # fails before writing to DB, the cache key remains until TTL
@@ -277,6 +304,11 @@ class WebLoginService:
                 # Any other failure during future submission — release
                 # the semaphore to prevent leaks.
                 _queue_slots.release()
+                logger.error(
+                    "Unexpected error during executor submit",
+                    exc_info=True,
+                    extra={"user_id": user.id},
+                )
                 raise
         else:
             # SECURITY: We deliberately do nothing visible here — no error, no
@@ -348,8 +380,11 @@ class WebLoginService:
             _mark_failed_safely()
         except Exception as e:
             logger.error(
-                "Unexpected error during login processing",
-                extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
+                "Unexpected error during login processing: %s: %s",
+                type(e).__name__,
+                e,
+                exc_info=True,
+                extra={"user_id": user.id, "token_prefix": token[:8]},
             )
             _mark_failed_safely()
 
@@ -376,8 +411,15 @@ class WebLoginService:
                     )
                     return login_request, token
             except IntegrityError:
-                # Token collision — regenerate and retry.
+                # Token collision — regenerate and retry.  Update the cache
+                # with the new token so check_status can find it.  The old
+                # token's cache entry will expire via TTL.
                 token = secrets.token_urlsafe(TOKEN_BYTES)
+                cache_ttl = _cache_ttl_seconds(expires_at)
+                try:
+                    _safe_cache_set(f"{WL_PENDING_KEY}{token}", True, cache_ttl)
+                except CacheWriteError:
+                    pass  # Best-effort — cache may be unhealthy
         # All retries exhausted.  Don't delete the original cache entry —
         # it could belong to a concurrent request that won the collision.
         # The cache entry will expire naturally via its TTL.
@@ -516,7 +558,7 @@ class WebLoginService:
                     except Exception:
                         pass
                     status = "expired"
-            elif datetime.now(timezone.utc) > _ensure_utc(login_request.expires_at):
+            elif login_request.expires_at is None or datetime.now(timezone.utc) > _ensure_utc(login_request.expires_at):
                 status = "expired"
             else:
                 status = str(login_request.status)
@@ -561,7 +603,8 @@ class WebLoginService:
 
         # Must not be expired — use _ensure_utc() to handle naive datetimes
         # when USE_TZ=False (matches the pattern in check_status).
-        if datetime.now(timezone.utc) > _ensure_utc(login_request.expires_at):
+        # Guard against None expires_at (corrupt DB row) — treat as expired.
+        if login_request.expires_at is None or datetime.now(timezone.utc) > _ensure_utc(login_request.expires_at):
             logger.warning("Complete login attempt with expired token: %s...", token[:8])
             return None
 

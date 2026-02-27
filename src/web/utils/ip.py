@@ -35,7 +35,7 @@ def parse_ip_address(request) -> str:
             # Log at DEBUG for visibility without rejecting valid requests.
             parts = [p.strip() for p in forwarded.split(",")]
             if len(parts) > 2:
-                logger.debug(
+                logger.warning(
                     "X-Forwarded-For contains %d IPs (multi-proxy chain): %s",
                     len(parts),
                     forwarded[:100],

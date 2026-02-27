@@ -10,7 +10,7 @@ from telegram.ext import CallbackQueryHandler, ContextTypes
 from src.core.models import WebLoginRequest
 from src.core.repositories import web_login_request_repository
 from src.utils.async_compat import maybe_await
-from src.web.services.web_login_service import WL_CONFIRM_PREFIX, WL_DENY_PREFIX
+from src.web.services.web_login_service import WL_CONFIRM_PREFIX, WL_DENY_PREFIX, _ensure_utc
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +54,9 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # Check expiry before processing
-    if datetime.now(timezone.utc) > login_request.expires_at:
+    # Check expiry before processing — use _ensure_utc() to handle naive
+    # datetimes when USE_TZ=False (matches the pattern in check_status).
+    if login_request.expires_at is None or datetime.now(timezone.utc) > _ensure_utc(login_request.expires_at):
         await query.edit_message_text("⚠️ This login request has expired.")
         return
 

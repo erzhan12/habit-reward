@@ -85,15 +85,18 @@ def _sanitize_user_agent(ua: str) -> str:
     return ''.join(c for c in ua if c.isprintable() or c.isspace())
 
 
-@functools.lru_cache(maxsize=256)
+_UA_CACHE_MAX_SIZE = getattr(settings, "UA_CACHE_MAX_SIZE", 1024)
+
+
+@functools.lru_cache(maxsize=_UA_CACHE_MAX_SIZE)
 def _parse_ua_cached(ua: str) -> str:
     """Parse a sanitized User-Agent string into a human-readable description.
 
     LRU-cached because UA parsing (via ``user_agents`` library) is
     CPU-intensive and the same UA string repeats across requests from
-    the same browser.  Cache is bounded to 256 entries (~typical UA
-    diversity for a small-to-medium site) to limit memory usage while
-    still providing excellent hit rates.
+    the same browser.  Cache is bounded to ``UA_CACHE_MAX_SIZE`` entries
+    (default 1024) to limit memory usage while still providing excellent
+    hit rates.  Configurable via ``settings.UA_CACHE_MAX_SIZE``.
     """
     ua_parsed = parse_ua(ua)
     browser = f"{ua_parsed.browser.family} {ua_parsed.browser.version_string}".strip()
@@ -336,16 +339,16 @@ def dev_login(request):
 def _anonymize_ip(ip: str) -> str:
     """Hash an IP address for GDPR-safe logging.
 
-    Returns a 12-character SHA-256 prefix that is sufficient for correlating
+    Returns a 16-character SHA-256 prefix that is sufficient for correlating
     log entries (e.g. rate-limit events) without storing the raw IP address,
     which is PII under GDPR.
 
-    The 12-hex-char prefix (48 bits) provides enough uniqueness for
-    operational correlation while being irreversible.  This is the
-    standard pattern used throughout the web layer — prefer this over
-    logging raw IPs.
+    The 16-hex-char prefix (64 bits) provides ~4 billion unique buckets,
+    virtually eliminating collision risk even across large IP pools while
+    remaining irreversible.  This is the standard pattern used throughout
+    the web layer — prefer this over logging raw IPs.
     """
-    return hashlib.sha256(ip.encode()).hexdigest()[:12]
+    return hashlib.sha256(ip.encode()).hexdigest()[:16]
 
 
 def rate_limited_view(request, exception=None):

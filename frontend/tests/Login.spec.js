@@ -368,4 +368,54 @@ describe("Login.vue", () => {
     expect(router.visit).toHaveBeenCalledWith("/");
     vi.useRealTimers();
   });
+
+  // --- Consecutive poll failures (POLL_MAX_CONSECUTIVE_ERRORS) ---
+
+  it("stops polling and shows error after 5 consecutive poll failures", async () => {
+    vi.useFakeTimers();
+    wrapper = createWrapper();
+
+    // submitLogin succeeds
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            token: "consec_fail_tok",
+            expires_at: "2099-01-01T00:00:00Z",
+            message: "ok",
+          }),
+      });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Check your Telegram");
+
+    // All subsequent polls fail (5 consecutive failures)
+    global.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
+
+    // Advance through 5 poll cycles with max backoff (30s each after first)
+    // First poll at 2s
+    await vi.advanceTimersByTimeAsync(2000);
+    await flushPromises();
+    // Polls 2-5 at max backoff (30s)
+    for (let i = 0; i < 4; i++) {
+      await vi.advanceTimersByTimeAsync(30000);
+      await flushPromises();
+    }
+
+    // After 5 consecutive failures, should show error and stop polling
+    expect(wrapper.text()).toContain("Connection lost");
+
+    // Verify polling stopped — no more fetch calls after the error
+    const callCount = global.fetch.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60000);
+    await flushPromises();
+    expect(global.fetch).toHaveBeenCalledTimes(callCount);
+
+    vi.useRealTimers();
+  });
 });

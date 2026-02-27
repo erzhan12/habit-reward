@@ -1224,7 +1224,7 @@ class TestIPAddressParsing:
             result = parse_ip_address(request)
         # Takes leftmost IP from the chain
         assert result == "10.0.0.1"
-        mock_logger.debug.assert_called_once()
+        mock_logger.warning.assert_called_once()
 
     def test_device_info_html_escaping(self):
         """device_info containing HTML tags is safe — Telegram uses plain text."""
@@ -2837,7 +2837,7 @@ class TestParseIPMultiProxyChain:
             result = parse_ip_address(request)
 
         assert result == "10.0.0.1"
-        mock_logger.debug.assert_called_once()
+        mock_logger.warning.assert_called_once()
 
 
 class TestCacheFailureThresholdRaisesError:
@@ -3095,3 +3095,165 @@ class TestBackgroundFailureCacheCleanup:
             f"Expected 'expired' after cache TTL expiry with no DB record, "
             f"got '{status}'"
         )
+
+
+# ---- Token collision cache update tests ----
+
+
+class TestTokenCollisionCacheUpdate:
+    """Verify that token collision retry writes the new token to cache."""
+
+    def test_token_collision_updates_cache_with_new_token(self):
+        """When IntegrityError triggers token regeneration, the new token
+        should be written to cache so check_status can find it."""
+        from django.core.cache import cache
+        from django.db import IntegrityError
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService, WL_PENDING_KEY
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+
+        user = User.objects.create_user(
+            username="tg_collision_cache",
+            telegram_id="770000010",
+            name="Collision Cache User",
+            language="en",
+            timezone="UTC",
+            telegram_username="collisioncacheuser",
+        )
+
+        svc = WebLoginService()
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        call_count = 0
+        original_create = WebLoginRequest.objects.create
+        new_tokens = []
+
+        def create_with_collision(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise IntegrityError("UNIQUE constraint failed: token")
+            new_tokens.append(kwargs.get("token"))
+            return original_create(**kwargs)
+
+        with patch.object(WebLoginRequest.objects, "create", side_effect=create_with_collision), \
+             patch.object(svc, "_send_login_notification", new_callable=AsyncMock):
+            call_async(svc._process_login_request(user, "collision_cache_tok", expires_at, None))
+
+        assert call_count == 2
+        # The new token (used on the second attempt) should be in cache
+        assert len(new_tokens) == 1
+        assert cache.get(f"{WL_PENDING_KEY}{new_tokens[0]}") is True
+
+
+# ---- Cache/DB race condition tests ----
+
+
+class TestCacheDBRaceConditions:
+    """Verify behavior when cache and DB are in inconsistent states."""
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_cache_pending_but_db_confirmed(self, mock_sleep):
+        """When cache still says pending but DB shows confirmed,
+        check_status should return 'pending' (cache takes priority)."""
+        from django.core.cache import cache
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+
+        user = User.objects.create_user(
+            username="tg_race_cache_db",
+            telegram_id="770000011",
+            name="Race Cache DB",
+            language="en",
+            timezone="UTC",
+        )
+
+        token = "race_cache_db_tok"
+        WebLoginRequest.objects.create(
+            user=user,
+            token=token,
+            status=WebLoginRequest.Status.CONFIRMED,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        # Cache still shows pending (hasn't been cleared)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
+
+        svc = WebLoginService()
+        status = call_async(svc.check_status(token))
+
+        # Cache takes priority — pending
+        assert status == "pending"
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_cache_failed_overrides_db_pending(self, mock_sleep):
+        """When cache says failed but DB shows pending,
+        check_status should return 'error' (failed takes priority)."""
+        from django.core.cache import cache
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+
+        user = User.objects.create_user(
+            username="tg_race_fail_pend",
+            telegram_id="770000012",
+            name="Race Fail Pend",
+            language="en",
+            timezone="UTC",
+        )
+
+        token = "race_fail_pend_tok"
+        WebLoginRequest.objects.create(
+            user=user,
+            token=token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        # Cache shows failed
+        cache.set(f"{WL_FAILED_KEY}{token}", True, timeout=300)
+
+        svc = WebLoginService()
+        status = call_async(svc.check_status(token))
+
+        # Failed cache key takes priority
+        assert status == "error"
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_no_cache_db_expired_returns_expired(self, mock_sleep):
+        """When cache is empty and DB record is past expires_at,
+        check_status should return 'expired'."""
+        from django.core.cache import cache
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+
+        user = User.objects.create_user(
+            username="tg_race_expired",
+            telegram_id="770000013",
+            name="Race Expired",
+            language="en",
+            timezone="UTC",
+        )
+
+        token = "race_expired_tok"
+        WebLoginRequest.objects.create(
+            user=user,
+            token=token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),  # Already expired
+        )
+
+        svc = WebLoginService()
+        status = call_async(svc.check_status(token))
+
+        assert status == "expired"

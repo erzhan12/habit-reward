@@ -177,6 +177,40 @@ LLM_API_KEY=your_key_here
 DEFAULT_USER_TELEGRAM_ID=your_telegram_id_here
 ```
 
+### Configuration Examples
+
+**Minimal (development):**
+
+```env
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF
+DEBUG=True
+WEB_LOGIN_THREAD_POOL_SIZE=2
+```
+
+**Production with PostgreSQL:**
+
+```env
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF
+DEBUG=False
+DATABASE_URL=postgres://user:pass@db:5432/habitreward?pool_size=25
+WEB_LOGIN_THREAD_POOL_SIZE=25
+WEB_LOGIN_MAX_QUEUED=100
+CONN_MAX_AGE=600
+TRUST_X_FORWARDED_FOR=True
+SECURE_PROXY_SSL_HEADER=HTTP_X_FORWARDED_PROTO,https
+AUTH_RATE_LIMIT=20/m
+AUTH_STATUS_RATE_LIMIT=60/m
+```
+
+**Production with SQLite (low traffic only):**
+
+```env
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF
+DEBUG=False
+WEB_LOGIN_THREAD_POOL_SIZE=1
+WEB_LOGIN_MAX_QUEUED=10
+```
+
 ### Web Login Configuration
 
 | Variable | Default | Description |

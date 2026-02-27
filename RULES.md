@@ -2007,10 +2007,10 @@ A pre-commit hook (`scripts/check_validation_sync.sh`) verifies they stay in syn
 Status polling jitter (`src/web/services/web_login_service.py`) is applied to `"pending"`, `"expired"`, and `"error"` statuses — these have cache-dependent code paths with different timing that could leak information. Terminal statuses `"confirmed"`, `"denied"`, and `"used"` are excluded. Named constants `_JITTER_MIN`/`_JITTER_MAX` are configurable via Django settings.
 
 ### UA Parsing Cache
-`_parse_ua_cached` in `src/web/views/auth.py` uses `functools.lru_cache(maxsize=256)` to avoid repeated CPU-intensive User-Agent parsing. The cache key is the sanitized UA string.
+`_parse_ua_cached` in `src/web/views/auth.py` uses `functools.lru_cache(maxsize=_UA_CACHE_MAX_SIZE)` (default 1024, configurable via `settings.UA_CACHE_MAX_SIZE`) to avoid repeated CPU-intensive User-Agent parsing. The cache key is the sanitized UA string.
 
 ### Timezone-Aware Comparisons
-Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB datetime fields with `datetime.now(timezone.utc)`. Django may return naive datetimes when `USE_TZ=False`.
+Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB datetime fields with `datetime.now(timezone.utc)`. Django may return naive datetimes when `USE_TZ=False`. Always guard against `None` at call sites (e.g. `if login_request.expires_at is None or ...`) to handle corrupt DB rows gracefully. The handler in `web_login_handler.py` also imports and uses `_ensure_utc` for consistency.
 
 ### Thread Pool Semaphore Pattern
 `_queue_slots` (Semaphore) tracks background queue depth. The done callback `_release_queue_slot` (a named function, not a lambda) releases the slot when the future completes. This ensures testability and avoids closure pitfalls. When `executor.submit` raises `RuntimeError`, the caller releases the slot manually.
@@ -2037,3 +2037,24 @@ The `wl_pending` cache key is set eagerly (before background thread) by design. 
 - `_MIN_FAILED_MARKER_TTL_SECONDS = 60` — floor TTL for `wl_failed` cache marker
 - `TOKEN_MIN_LENGTH = 40` / `TOKEN_MAX_LENGTH = 50` — token length bounds in `auth.py`
 - `_CACHE_FAILURE_THRESHOLD = 10` — consecutive cache failures before `CacheWriteError`
+- `TOKEN_BYTES = 32` — 256 bits of entropy for `secrets.token_urlsafe`
+- `TOKEN_GENERATION_MAX_RETRIES = 3` — collision retry limit
+- All constants have inline comments documenting their rationale in `web_login_service.py`
+
+### Cache TTL Helper
+`_cache_ttl_seconds(expires_at, min_ttl=1)` in `web_login_service.py` calculates cache TTL from an expiry datetime. Used by `create_login_request`, `_mark_failed_token`, and token collision retry. Always use this instead of inline `max(int(...), N)`.
+
+### IP Anonymization
+`_anonymize_ip()` in `auth.py` uses a 16-hex-char SHA-256 prefix (64 bits) for GDPR-safe logging. This provides ~4 billion unique buckets, virtually eliminating collision risk.
+
+### X-Forwarded-For Logging Level
+`ip.py` logs multi-proxy chains (>2 IPs) at WARNING level (not DEBUG) since they may indicate spoofing or misconfiguration in environments without a trusted proxy.
+
+### Exception Chaining
+`validate_iana_timezone` in `src/core/models.py` chains the original exception (`from e`) so the ValidationError includes the root cause for debugging.
+
+### SECURITY.md
+`SECURITY.md` documents the threat model and security properties. Keep it in sync with changes to the login flow.
+
+### Token Collision Cache Update
+When `_create_login_request_with_retry` handles an IntegrityError, it writes a pending cache entry for the new token via `_safe_cache_set`. This ensures the retried token is trackable via `check_status`.

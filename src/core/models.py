@@ -13,8 +13,10 @@ def validate_iana_timezone(value: str) -> None:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
     try:
         ZoneInfo(value)
-    except (KeyError, ZoneInfoNotFoundError, ValueError):
-        raise ValidationError(f"'{value}' is not a valid IANA timezone.")
+    except (KeyError, ZoneInfoNotFoundError, ValueError) as e:
+        raise ValidationError(
+            f"'{value}' is not a valid IANA timezone: {e}"
+        ) from e
 
 
 class User(AbstractUser):
