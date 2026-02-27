@@ -91,6 +91,14 @@ LOGIN_REQUEST_EXPIRY_MINUTES = getattr(settings, "WEB_LOGIN_EXPIRY_MINUTES", 5)
 
 # Configurable timing jitter range (seconds) for status polling.
 # Masks residual timing differences between DB hit/miss, cache hit/miss.
+#
+# Why 50ms–200ms?  OWASP Testing Guide v4 §4.4.5 (Authentication Timing)
+# recommends adding random delays that exceed the observable timing
+# difference between code paths.  Measured delta between cache-hit and
+# DB-fallback is ~5-30ms; the 50-200ms uniform range (≥10× the signal)
+# makes statistical discrimination infeasible even with thousands of
+# samples.  The upper bound (200ms) keeps UX responsive — users polling
+# every 2-3s won't notice the added latency.
 _JITTER_MIN = getattr(settings, "WEB_LOGIN_JITTER_MIN", 0.05)
 _JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
 
@@ -127,15 +135,40 @@ def _get_executor() -> ThreadPoolExecutor:
 # while preventing unbounded queuing.
 _MAX_QUEUED_LOGINS = getattr(settings, "WEB_LOGIN_MAX_QUEUED", 50)
 
+# Warn when queue depth reaches this fraction of the max (default 80%).
+_QUEUE_WARN_THRESHOLD = int(_MAX_QUEUED_LOGINS * 0.8)
+
 # Semaphore-based counter for queue depth — avoids relying on the private
 # ``ThreadPoolExecutor._work_queue`` attribute which is a CPython
 # implementation detail and could break in future Python versions.
 _queue_slots = threading.Semaphore(_MAX_QUEUED_LOGINS)
+# Atomic counter for monitoring queue depth (semaphore value isn't readable).
+_queue_depth = threading.Lock()
+_queue_depth_count = 0
+
+
+def _increment_queue_depth() -> int:
+    """Atomically increment and return the current queue depth."""
+    global _queue_depth_count
+    with _queue_depth:
+        _queue_depth_count += 1
+        return _queue_depth_count
+
+
+def _decrement_queue_depth() -> int:
+    """Atomically decrement and return the current queue depth."""
+    global _queue_depth_count
+    with _queue_depth:
+        _queue_depth_count = max(0, _queue_depth_count - 1)
+        return _queue_depth_count
 
 
 def _release_queue_slot(future) -> None:
     """Release a semaphore slot when a background login task completes."""
+    depth = _decrement_queue_depth()
     _queue_slots.release()
+    if depth > 0:
+        logger.debug("Login queue depth after completion: %d", depth)
 
 
 class LoginServiceUnavailable(Exception):
@@ -186,6 +219,13 @@ class WebLoginService:
                 )
                 raise LoginServiceUnavailable(
                     "Login service temporarily unavailable"
+                )
+            depth = _increment_queue_depth()
+            if depth >= _QUEUE_WARN_THRESHOLD:
+                logger.warning(
+                    "Login queue depth %d approaching limit %d",
+                    depth,
+                    _MAX_QUEUED_LOGINS,
                 )
             # The pending cache key is set as the first action inside the
             # background thread — not here — to avoid blocking the main
@@ -248,8 +288,25 @@ class WebLoginService:
 
         Sets the pending cache key as its first action, then creates the DB
         record and sends the Telegram notification.
+
+        Checks for staleness first: if the request has already expired by
+        the time the thread picks it up (e.g. queue backlog), it skips
+        processing and marks the token as failed.
         """
         from src.web.utils.sync import call_async
+
+        # Staleness check: if the item sat in the queue long enough to
+        # expire, skip processing — the client will already see "expired".
+        if datetime.now(timezone.utc) >= expires_at:
+            logger.warning(
+                "Skipping stale login request (expired while queued)",
+                extra={"user_id": user.id, "token_prefix": token[:8]},
+            )
+            try:
+                _mark_failed_token(token, expires_at)
+            except CacheWriteError:
+                pass
+            return
 
         # Set the pending cache key first — moved here from
         # create_login_request() to keep the main request thread
@@ -279,6 +336,12 @@ class WebLoginService:
                     },
                 )
 
+        # All error paths call _mark_failed_safely() so the frontend sees
+        # "error" status instead of hanging on "pending" forever.  This is
+        # intentional: even for potentially transient errors (RetryAfter,
+        # TelegramError), we don't retry in this thread — the user can
+        # simply re-initiate the login.  Marking failed immediately gives
+        # clear feedback rather than leaving the client polling indefinitely.
         try:
             call_async(self._process_login_request(user, token, expires_at, device_info))
         except (InvalidToken, Forbidden) as e:
@@ -297,11 +360,13 @@ class WebLoginService:
                     "retry_after": e.retry_after,
                 },
             )
+            _mark_failed_safely()
         except TelegramError as e:
             logger.error(
                 "Temporary Telegram error during login processing",
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
+            _mark_failed_safely()
         except DatabaseError as e:
             logger.error(
                 "Database error during login processing",

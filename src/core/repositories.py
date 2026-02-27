@@ -147,7 +147,11 @@ class UserRepository:
             for attempt in range(2):
                 try:
                     with transaction.atomic():
-                        User.objects.filter(
+                        # SELECT FOR UPDATE locks matching rows until the
+                        # transaction commits, preventing two concurrent
+                        # transactions from both passing the EXCLUDE check
+                        # before either commits (lost-update race).
+                        User.objects.select_for_update().filter(
                             telegram_username=normalized
                         ).exclude(
                             telegram_id=telegram_id

@@ -1,14 +1,17 @@
 """Tests for bot web login callback handler."""
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from asgiref.sync import sync_to_async
+from django.test import Client
 
 from src.core.models import User, WebLoginRequest
 from src.core.repositories import WebLoginRequestRepository, web_login_request_repository
+from src.web.services.web_login_service import WL_PENDING_KEY
 
 pytestmark = pytest.mark.django_db
 
@@ -293,3 +296,130 @@ class TestSimultaneousButtonPress:
 
         await _refresh(pending_login)
         assert pending_login.status in ("confirmed", "denied")
+
+
+class TestEndToEndLoginFlowWithBotHandler:
+    """Integration test: create request → poll pending → bot confirms → poll confirmed → complete → session.
+
+    Exercises the real bot handler callback (web_login_callback) as the
+    confirmation step, verifying the complete login flow end-to-end.
+    """
+
+    @pytest.fixture
+    def e2e_user(self):
+        """Create a user for end-to-end flow tests."""
+        return User.objects.create_user(
+            username="tg_e2e_flow",
+            telegram_id="888888888",
+            name="E2E Flow User",
+            language="en",
+            timezone="UTC",
+            telegram_username="e2eflowuser",
+        )
+
+    @pytest.mark.asyncio
+    async def test_full_flow_create_poll_confirm_complete(self, e2e_user):
+        """End-to-end: create DB record → poll pending → bot confirm → poll confirmed → complete → session."""
+        from django.core.cache import cache
+        from src.bot.handlers.web_login_handler import web_login_callback
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+        client = Client()
+
+        token = "e2e_flow_token_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        # 1. Create login request in DB + cache (simulating background thread)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
+        login_request = await sync_to_async(WebLoginRequest.objects.create)(
+            user=e2e_user,
+            token=token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=expires_at,
+        )
+
+        # 2. Poll status — should be "pending"
+        with patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock):
+            status = await svc.check_status(token)
+        assert status == "pending"
+
+        # 3. Bot handler: user presses Confirm button
+        update = _make_update(int(e2e_user.telegram_id), f"wl_c_{token}")
+        await web_login_callback(update, MagicMock())
+
+        await _refresh(login_request)
+        assert login_request.status == "confirmed"
+
+        # 4. Poll status — should be "confirmed"
+        with patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock):
+            status = await svc.check_status(token)
+        assert status == "confirmed"
+
+        # 5. Complete login via HTTP endpoint
+        response = await sync_to_async(client.post)(
+            "/auth/bot-login/complete/",
+            data=json.dumps({"token": token}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        data = json.loads(response.content)
+        assert data["success"] is True
+
+        # 6. Verify session — user is authenticated
+        response = await sync_to_async(client.get)("/auth/login/")
+        # Authenticated users get redirected away from login page
+        assert response.status_code == 302
+
+        # 7. Verify token is marked as "used" (replay protection)
+        await _refresh(login_request)
+        assert login_request.status == "used"
+
+        # 8. Replay attempt — should fail with 403
+        response = await sync_to_async(client.post)(
+            "/auth/bot-login/complete/",
+            data=json.dumps({"token": token}),
+            content_type="application/json",
+        )
+        assert response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_full_flow_deny_prevents_completion(self, e2e_user):
+        """End-to-end: create → bot denies → complete fails."""
+        from django.core.cache import cache
+        from src.bot.handlers.web_login_handler import web_login_callback
+        from src.web.services.web_login_service import WebLoginService
+
+        cache.clear()
+        svc = WebLoginService()
+        client = Client()
+
+        token = "e2e_deny_token_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
+        await sync_to_async(WebLoginRequest.objects.create)(
+            user=e2e_user,
+            token=token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=expires_at,
+        )
+
+        # Bot handler: user presses Deny button
+        update = _make_update(int(e2e_user.telegram_id), f"wl_d_{token}")
+        await web_login_callback(update, MagicMock())
+
+        # Poll status — should be "denied"
+        with patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock):
+            status = await svc.check_status(token)
+        assert status == "denied"
+
+        # Complete login — should fail (not confirmed)
+        response = await sync_to_async(client.post)(
+            "/auth/bot-login/complete/",
+            data=json.dumps({"token": token}),
+            content_type="application/json",
+        )
+        assert response.status_code == 403

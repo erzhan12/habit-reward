@@ -103,6 +103,53 @@ def check_sqlite_thread_pool_conflict(app_configs, **kwargs):
 
 
 @register()
+def check_thread_pool_vs_db_connections(app_configs, **kwargs):
+    """Warn when thread pool size risks exceeding database max_connections.
+
+    Each background login thread may hold a persistent DB connection
+    (CONN_MAX_AGE > 0).  With Django's main thread, management commands,
+    and potential multiple workers, the total connection demand can exceed
+    the database's max_connections limit.  We use a 2x safety margin.
+
+    For PostgreSQL, we attempt to read the actual max_connections setting.
+    For other backends, we use a conservative default of 100.
+    """
+    errors = []
+    pool_size = getattr(settings, "WEB_LOGIN_THREAD_POOL_SIZE", 10)
+    engine = settings.DATABASES.get("default", {}).get("ENGINE", "")
+
+    # Skip for SQLite — it doesn't have a connection limit.
+    if "sqlite" in engine:
+        return errors
+
+    max_connections = None
+    if "postgresql" in engine or "postgis" in engine:
+        try:
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute("SHOW max_connections")
+                max_connections = int(cursor.fetchone()[0])
+        except Exception:
+            pass
+
+    if max_connections is None:
+        # Conservative default for unknown backends.
+        max_connections = 100
+
+    required = pool_size * 2  # safety margin for main thread + workers
+    if required > max_connections:
+        msg = (
+            f"WEB_LOGIN_THREAD_POOL_SIZE={pool_size} (×2 safety margin = "
+            f"{required} connections) may exceed the database "
+            f"max_connections={max_connections}. Reduce the thread pool size "
+            "or increase max_connections to avoid connection exhaustion."
+        )
+        logger.warning("CONFIG: %s", msg)
+        errors.append(Warning(msg, id="web.W006"))
+    return errors
+
+
+@register()
 def check_sqlite_username_constraint(app_configs, **kwargs):
     """Warn when SQLite is used with the User.telegram_username regex constraint.
 

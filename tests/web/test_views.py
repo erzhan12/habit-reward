@@ -2089,13 +2089,13 @@ class TestBackgroundProcessingFailure:
             telegram_username="failureuser",
         )
 
-    def test_temporary_telegram_error_does_not_mark_failed(self, failure_user):
-        """Temporary TelegramError should NOT set wl_failed cache key.
+    def test_temporary_telegram_error_marks_failed(self, failure_user):
+        """All Telegram errors (including temporary) now mark the token as failed.
 
-        Temporary errors (network, rate limit) may resolve on retry, so
-        the request stays in "pending" state — allowing the user to retry
-        after the transient issue resolves.  Only permanent errors
-        (InvalidToken, Forbidden) mark the request as failed.
+        The error handling was unified so that ALL error types call
+        _mark_failed_safely().  Even for transient errors, the user gets
+        immediate "error" feedback and can re-initiate the login, rather
+        than hanging on "pending" indefinitely while the client polls.
         """
         from django.core.cache import cache
         from src.web.services.web_login_service import WebLoginService
@@ -2116,13 +2116,13 @@ class TestBackgroundProcessingFailure:
         ):
             svc._process_login_background(failure_user, token, expires_at, "Test device")
 
-        # Temporary error should NOT set the failed cache key
-        assert cache.get(f"{WL_FAILED_KEY}{token}") is None
+        # All errors now set the failed cache key for consistent feedback
+        assert cache.get(f"{WL_FAILED_KEY}{token}") is True
 
-        # Status should still be "pending" (cache-pending key is still set)
+        # Status should be "error" since failed marker is set
         with patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock):
             status = call_async(svc.check_status(token))
-        assert status == "pending"
+        assert status == "error"
 
     def test_permanent_telegram_error_marks_failed(self, failure_user):
         """Permanent Telegram errors (InvalidToken, Forbidden) DO mark failed."""
@@ -2737,6 +2737,66 @@ class TestConcurrentTokenGeneration:
         assert len(set(tokens)) == token_count
 
 
+class TestConcurrentTokenCollisionThreading:
+    """Threading-based concurrency test for token collision handling.
+
+    Simulates multiple simultaneous create_login_request calls using real
+    threads to verify no IntegrityError escapes and all tokens are unique.
+    """
+
+    def test_concurrent_create_requests_no_integrity_error_escapes(self):
+        """Multiple threads create login requests concurrently — no unhandled IntegrityError."""
+        import threading
+
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+
+        user = User.objects.create_user(
+            username="tg_thread_collision",
+            telegram_id="770000050",
+            name="Thread Collision",
+            language="en",
+            timezone="UTC",
+            telegram_username="threadcollision",
+        )
+
+        thread_count = 10
+        tokens = []
+        errors = []
+        result_lock = threading.Lock()
+
+        def _worker():
+            try:
+                # Mock the background processing to avoid actual Telegram calls
+                with patch.object(
+                    svc, "_process_login_background",
+                ):
+                    result = call_async(svc.create_login_request("threadcollision"))
+                    with result_lock:
+                        tokens.append(result["token"])
+            except Exception as exc:
+                with result_lock:
+                    errors.append(exc)
+
+        with patch.object(svc.user_repo, "get_by_telegram_username", return_value=user):
+            threads = [threading.Thread(target=_worker) for _ in range(thread_count)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=10)
+
+        # All threads should complete without errors
+        assert all(not t.is_alive() for t in threads), "Some threads timed out"
+        assert not errors, f"Unexpected errors: {errors}"
+        assert len(tokens) == thread_count
+        # All tokens should be unique
+        assert len(set(tokens)) == thread_count
+
+
 class TestConcurrentStatusChecks:
     """Verify concurrent status checks for the same token."""
 
@@ -3152,6 +3212,40 @@ class TestCacheFailureThresholdRaisesError:
                 # The 10th failure should raise
                 with pytest.raises(CacheWriteError):
                     cache_manager.set("test_key_final", True, 60)
+        finally:
+            cache_manager.reset()
+
+
+class TestCacheConnectionErrorThreshold:
+    """Verify LoginServiceUnavailable is raised after 10 consecutive ConnectionError from cache.set()."""
+
+    def test_connection_error_threshold_triggers_service_unavailable(self):
+        """Mock cache.set() to raise ConnectionError; after 10 failures LoginServiceUnavailable is raised."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import (
+            LoginServiceUnavailable,
+            WebLoginService,
+            cache_manager,
+        )
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        cache_manager.reset()
+        svc = WebLoginService()
+
+        try:
+            with (
+                patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
+                patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis connection refused")),
+            ):
+                # First 9 requests succeed (cache failures are tolerated)
+                for i in range(9):
+                    result = call_async(svc.create_login_request(f"cache_err_user_{i}"))
+                    assert "token" in result
+
+                # The 10th request should trigger LoginServiceUnavailable
+                with pytest.raises(LoginServiceUnavailable):
+                    call_async(svc.create_login_request("cache_err_user_final"))
         finally:
             cache_manager.reset()
 
