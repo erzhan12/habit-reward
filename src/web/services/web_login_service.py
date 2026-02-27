@@ -22,6 +22,18 @@ from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
 
+
+def _ensure_utc(dt: datetime) -> datetime:
+    """Ensure a datetime is timezone-aware (UTC).
+
+    Django's DateTimeField may return naive datetimes when USE_TZ=False.
+    This prevents ``TypeError: can't compare offset-naive and offset-aware
+    datetimes`` when comparing with ``datetime.now(timezone.utc)``.
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
 # Cryptographically secure RNG for timing jitter — thread-safe and avoids
 # the predictable Mersenne Twister used by the `random` module.
 _secure_random = secrets.SystemRandom()
@@ -167,6 +179,9 @@ class WebLoginService:
         Returns:
             Dict with {token, expires_at} — always returned for both paths.
         """
+        if not username or not username.strip():
+            raise ValueError("Username cannot be empty")
+
         user = await maybe_await(self.user_repo.get_by_telegram_username(username))
 
         # Generate a cryptographically random token.  Instead of the old
@@ -305,6 +320,10 @@ class WebLoginService:
         Retries on token collision (IntegrityError on unique constraint).
         Returns (login_request, final_token) since the token may change on retry.
         """
+        # Store the original token so we can clean up its cache entry on
+        # failure — after retries, ``token`` may have been regenerated
+        # and deleting it would remove a different request's cache entry.
+        original_token = token
         for _attempt in range(TOKEN_GENERATION_MAX_RETRIES):
             try:
                 with transaction.atomic():
@@ -324,17 +343,13 @@ class WebLoginService:
                 # Token collision — regenerate and retry.
                 token = secrets.token_urlsafe(TOKEN_BYTES)
         from django.core.cache import cache
-        cache.delete(f"{WL_PENDING_KEY}{token}")
+        cache.delete(f"{WL_PENDING_KEY}{original_token}")
         raise DatabaseError("Failed to generate unique token after retries")
 
     async def _process_login_request(
         self, user, token: str, expires_at, device_info: str | None
     ) -> None:
         """Perform DB writes and send Telegram notification."""
-
-        if not token or not token.strip():
-            raise ValueError("Token cannot be empty")
-
         login_request, token = await sync_to_async(
             self._create_login_request_with_retry
         )(user.id, token, expires_at, device_info)
@@ -461,18 +476,19 @@ class WebLoginService:
                     except Exception:
                         pass
                     status = "expired"
-            elif datetime.now(timezone.utc) > login_request.expires_at:
+            elif datetime.now(timezone.utc) > _ensure_utc(login_request.expires_at):
                 status = "expired"
             else:
                 status = str(login_request.status)
 
         # Random jitter (50-200ms by default, configurable via settings)
         # masks residual timing differences between DB hit vs miss, cache
-        # hit vs miss, etc.  Applied AFTER all lookups so that variable
-        # work time (DB index hit vs miss, cache hit vs miss) is obscured
-        # by the jitter.  Applied uniformly to all paths to avoid selective
-        # jitter itself becoming a timing side-channel.
-        await asyncio.sleep(_secure_random.uniform(_JITTER_MIN, _JITTER_MAX))
+        # hit vs miss, etc.  Only applied to "pending" status — confirmed,
+        # denied, expired, and error are terminal states where timing
+        # differences don't leak information, and adding latency to
+        # terminal responses unnecessarily delays the user.
+        if status == "pending":
+            await asyncio.sleep(_secure_random.uniform(_JITTER_MIN, _JITTER_MAX))
 
         return status
 

@@ -395,6 +395,42 @@ Key metrics to track for the web login flow:
    - Medium traffic (10-50 concurrent): `WEB_LOGIN_THREAD_POOL_SIZE=25`, `WEB_LOGIN_MAX_QUEUED=100`
    - High traffic (50+ concurrent): `WEB_LOGIN_THREAD_POOL_SIZE=50-100`, `WEB_LOGIN_MAX_QUEUED=200` (requires PostgreSQL)
 
+## Security Considerations
+
+### Anti-Enumeration Protection
+
+The bot login flow is designed to prevent username enumeration attacks:
+
+- **Identical responses**: Both known and unknown usernames receive the same HTTP 200 response with a token and generic message. No branching in the response path reveals user existence.
+- **Constant-time responses**: All DB writes and Telegram API calls are deferred to a background thread pool, so the HTTP response time is identical regardless of whether the user exists. An attacker cannot distinguish valid from invalid usernames by measuring response latency.
+- **Cache-only tokens for unknown users**: Unknown usernames get a cache-only token that expires silently after TTL, indistinguishable from a real pending request during status polling.
+
+### Timing Attack Protections
+
+- **Status polling jitter**: The `check_status` endpoint adds random jitter (50-200ms, configurable via `WEB_LOGIN_JITTER_MIN`/`WEB_LOGIN_JITTER_MAX`) from a CSPRNG (`secrets.SystemRandom()`) to mask timing differences between cache hits, DB lookups, and different code paths.
+- **Background processing**: Token generation, cache writes, and HTTP response happen synchronously. DB writes and Telegram sends happen asynchronously in a bounded thread pool, ensuring the response path is constant-time.
+
+### Token Security
+
+- **256-bit entropy**: Login tokens use `secrets.token_urlsafe(32)` (256 bits of entropy), making brute-force guessing infeasible.
+- **Atomic replay prevention**: Confirmed tokens are atomically marked `used` via `UPDATE ... WHERE status='confirmed'`, preventing race conditions where the same token could be consumed twice.
+- **Single-use guarantee**: The `mark_as_used` repository method returns the count of updated rows — if 0, the token was already consumed.
+
+### Rate Limiting
+
+All authentication endpoints are rate-limited per IP via `django-ratelimit`:
+
+- `POST /auth/bot-login/request/` — `AUTH_RATE_LIMIT` (default `10/m`)
+- `GET /auth/bot-login/status/<token>/` — `AUTH_STATUS_RATE_LIMIT` (default `30/m`)
+- `POST /auth/bot-login/complete/` — `AUTH_RATE_LIMIT` (default `10/m`)
+
+### Input Validation
+
+- **Username validation**: Telegram usernames are validated against a canonical regex pattern (`^[a-zA-Z0-9_]{3,32}$`) shared between frontend and backend. A pre-commit hook (`scripts/check_validation_sync.sh`) verifies both patterns stay in sync.
+- **Token format validation**: Tokens are validated for expected length and character set before processing.
+- **User-Agent sanitization**: UA strings are truncated, filtered for non-printable characters, and parsed via the `user-agents` library (never used as raw HTML).
+- **Database-level constraints**: The `telegram_username` field has a DB-level `CHECK` constraint ensuring format validity even for bulk operations that bypass `save()`.
+
 ## Ethical Considerations
 
 1. **Data Privacy**: Only telegram_id stored, full user control via Django admin

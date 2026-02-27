@@ -103,8 +103,10 @@ const POLL_MAX_DELAY_MS = 30_000; // Cap for exponential backoff between polls
 const LOGIN_EXPIRY_MS = 300_000; // 5 minutes — matches server expiry
 
 // IMPORTANT: Must stay in sync with TELEGRAM_USERNAME_PATTERN in
-// src/web/utils/validation.py. Consider using API-provided validation rules
-// in future to avoid maintaining duplicate patterns.
+// src/web/utils/validation.py. A pre-commit hook verifies both patterns match.
+// Case handling: regex accepts uppercase for UX (users can type naturally),
+// but the value is lowercased before sending to the backend which stores
+// usernames in lowercase.
 const TELEGRAM_USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
 const username = ref("");
@@ -134,7 +136,7 @@ function getCsrfToken() {
 async function submitLogin() {
   if (!username.value.trim() || submitting.value) return;
 
-  const cleaned = username.value.trim().replace(/^@/, "");
+  const cleaned = username.value.trim().replace(/^@/, "").toLowerCase();
   if (!TELEGRAM_USERNAME_RE.test(cleaned)) {
     error.value = "Invalid Telegram username (3-32 characters, letters/numbers/underscores)";
     state.value = "error";

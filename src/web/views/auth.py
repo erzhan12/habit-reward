@@ -27,6 +27,7 @@ Security properties
   ``django-ratelimit``.
 """
 
+import functools
 import hashlib
 import json
 import logging
@@ -79,16 +80,15 @@ def _sanitize_user_agent(ua: str) -> str:
     return ''.join(c for c in ua if c.isprintable() or c.isspace())
 
 
-def _parse_device_info(request) -> str:
-    """Extract a human-readable device description from the request.
+@functools.lru_cache(maxsize=256)
+def _parse_ua_cached(ua: str) -> str:
+    """Parse a sanitized User-Agent string into a human-readable description.
 
-    Parses the User-Agent header for browser and OS information.
-    Logs unrecognised User-Agent strings at DEBUG level for monitoring.
-    Output is truncated to 255 characters (DB field limit) at this input
-    boundary.  No IP address is included (GDPR).
+    LRU-cached because UA parsing (via ``user_agents`` library) is
+    CPU-intensive and the same UA string repeats across requests from
+    the same browser.  Cache is bounded to 256 entries (~typical UA
+    diversity for a small-to-medium site).
     """
-    ua = _sanitize_user_agent(request.META.get("HTTP_USER_AGENT", ""))
-
     ua_parsed = parse_ua(ua)
     browser = f"{ua_parsed.browser.family} {ua_parsed.browser.version_string}".strip()
     os_name = f"{ua_parsed.os.family} {ua_parsed.os.version_string}".strip()
@@ -98,18 +98,30 @@ def _parse_device_info(request) -> str:
     if not os_name or os_name == "Other":
         os_name = "Unknown OS"
 
-    if browser == "Unknown browser" or os_name == "Unknown OS":
+    raw = f"{browser} on {os_name}"
+    if not raw or raw.isspace():
+        raw = "Unknown device"
+    return raw[:MAX_DEVICE_INFO_LENGTH]
+
+
+def _parse_device_info(request) -> str:
+    """Extract a human-readable device description from the request.
+
+    Delegates to ``_parse_ua_cached`` for the CPU-intensive UA parsing.
+    Output is truncated to 255 characters (DB field limit) at this input
+    boundary.  No IP address is included (GDPR).
+    """
+    ua = _sanitize_user_agent(request.META.get("HTTP_USER_AGENT", ""))
+
+    result = _parse_ua_cached(ua)
+
+    if "Unknown browser" in result or "Unknown OS" in result:
         logger.debug(
             "Unrecognised User-Agent during device_info parsing: %s",
             ua[:200],
         )
 
-    # Truncate to 255 chars (DB field limit).  Telegram messages use
-    # plain text (no parse_mode) so no escaping is needed.
-    raw = f"{browser} on {os_name}"
-    if not raw or raw.isspace():
-        raw = "Unknown device"
-    return raw[:MAX_DEVICE_INFO_LENGTH]
+    return result
 
 
 @require_POST
@@ -262,7 +274,10 @@ def bot_login_complete(request):
     if not token:
         return JsonResponse({"error": "Token is required"}, status=400)
 
-    if len(token) > 64:
+    # secrets.token_urlsafe(TOKEN_BYTES=32) produces exactly 43 characters.
+    # Allow a small range (40-50) to tolerate future TOKEN_BYTES changes
+    # while rejecting clearly invalid lengths.
+    if not (40 <= len(token) <= 50):
         return JsonResponse({"error": "Invalid token format"}, status=400)
 
     if not _TOKEN_PATTERN.match(token):

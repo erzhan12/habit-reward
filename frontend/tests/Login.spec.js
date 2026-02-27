@@ -273,6 +273,53 @@ describe("Login.vue", () => {
     vi.useRealTimers();
   });
 
+  // --- Concurrent tab detection ---
+
+  it("redirects to / when status returns 'used' (login completed in another tab)", async () => {
+    vi.useFakeTimers();
+    wrapper = createWrapper();
+    global.fetch = vi
+      .fn()
+      // submitLogin()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            token: "concurrent_tok",
+            expires_at: "2099-01-01T00:00:00Z",
+            message: "ok",
+          }),
+      })
+      // first pollStatus() → "used" (login completed in another tab)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ status: "used" }),
+      });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Check your Telegram");
+
+    // First poll after 2s returns "used"
+    await vi.advanceTimersByTimeAsync(2000);
+    await flushPromises();
+
+    // Should redirect to "/" via Inertia router (session already exists)
+    expect(router.visit).toHaveBeenCalledWith("/");
+
+    // Polling should have stopped (no further fetch calls)
+    const callCount = global.fetch.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(30000);
+    await flushPromises();
+    expect(global.fetch).toHaveBeenCalledTimes(callCount);
+
+    vi.useRealTimers();
+  });
+
   it("recovers from polling network error and retries successfully", async () => {
     vi.useFakeTimers();
     wrapper = createWrapper();

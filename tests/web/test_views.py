@@ -589,11 +589,13 @@ class TestAuth:
 
     def test_bot_login_complete_success(self, user):
         """Confirmed login creates Django session."""
+        # Token must be 40-50 chars (matching secrets.token_urlsafe(32) output)
+        valid_token = "abcdefghij0123456789_ABCDEFGHIJ0123456789_ab"
         with patch("src.web.views.auth.call_async", side_effect=_call_async_mock(user)):
             client = Client()
             response = client.post(
                 "/auth/bot-login/complete/",
-                data={"token": "confirmed_token"},
+                data={"token": valid_token},
                 content_type="application/json",
             )
             assert response.status_code == 200
@@ -603,9 +605,11 @@ class TestAuth:
     @patch("src.web.views.auth.call_async", side_effect=_call_async_mock(None))
     def test_bot_login_complete_fails_for_invalid_token(self, mock_async):
         """Invalid/expired token returns 403."""
+        # Token must pass length validation (40-50 chars) to reach the service
+        bad_token = "bad_token_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         response = Client().post(
             "/auth/bot-login/complete/",
-            data={"token": "bad_token"},
+            data={"token": bad_token},
             content_type="application/json",
         )
         assert response.status_code == 403
@@ -1204,23 +1208,22 @@ class TestIPAddressParsing:
         assert ip == '1.2.3.4'
 
     @patch("src.web.utils.ip.settings")
-    def test_xff_injection_attack(self, mock_settings):
-        """X-Forwarded-For with >2 IPs: returns 'invalid' and logs a warning."""
+    def test_xff_multi_proxy_chain_takes_leftmost(self, mock_settings):
+        """X-Forwarded-For with >2 IPs (multi-proxy chain): takes leftmost IP."""
         from src.web.utils.ip import parse_ip_address
 
         mock_settings.TRUST_X_FORWARDED_FOR = True
         request = MagicMock()
-        # Attacker prepends their IP; real proxy appends the actual client IP.
+        # Multi-proxy chain: CDN → LB → app.  Leftmost is the original client.
         request.META = {
             "HTTP_X_FORWARDED_FOR": "10.0.0.1, 192.168.1.1, 172.16.0.1",
             "REMOTE_ADDR": "127.0.0.1",
         }
         with patch("src.web.utils.ip.logger") as mock_logger:
             result = parse_ip_address(request)
-        # Returns "invalid" when IP injection is detected
-        assert result == "invalid"
-        mock_logger.warning.assert_called_once()
-        assert "3 IPs" in mock_logger.warning.call_args[0][0] % mock_logger.warning.call_args[0][1:]
+        # Takes leftmost IP from the chain
+        assert result == "10.0.0.1"
+        mock_logger.debug.assert_called_once()
 
     def test_device_info_html_escaping(self):
         """device_info containing HTML tags is safe — Telegram uses plain text."""
@@ -1503,7 +1506,8 @@ class TestFullLoginFlow:
 
         # Step 1: Create login request via HTTP (background thread is async,
         # so we create the DB record directly to simulate what it does)
-        token = "full_flow_test_token"
+        # Token must be 40-50 chars to pass length validation
+        token = "full_flow_test_token_aaaaaaaaaaaaaaaaaaaaaaaa"
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
         cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
@@ -1572,7 +1576,7 @@ class TestFullLoginFlow:
         # 1) POST /request/ — returns token
         with patch("src.web.views.auth.call_async") as mock_async:
             mock_async.side_effect = _call_async_mock({
-                "token": "http_flow_token",
+                "token": "http_flow_token_aaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "expires_at": "2099-01-01T00:00:00+00:00",
             })
             resp = client.post(
@@ -2671,12 +2675,12 @@ class TestQueueFullReturns503:
             svc_mod._queue_slots = original_slots
 
 
-class TestParseIPRejectsMultipleForwardedIPs:
-    """Verify that X-Forwarded-For with >2 IPs returns 'invalid'."""
+class TestParseIPMultiProxyChain:
+    """Verify that X-Forwarded-For with >2 IPs takes the leftmost IP."""
 
     @patch("src.web.utils.ip.settings")
-    def test_parse_ip_rejects_multiple_forwarded_ips(self, mock_settings):
-        """X-Forwarded-For with >2 IPs logs a warning and returns 'invalid'."""
+    def test_parse_ip_takes_leftmost_from_multi_proxy_chain(self, mock_settings):
+        """X-Forwarded-For with >2 IPs takes the leftmost (original client) IP."""
         from src.web.utils.ip import parse_ip_address
 
         mock_settings.TRUST_X_FORWARDED_FOR = True
@@ -2688,8 +2692,8 @@ class TestParseIPRejectsMultipleForwardedIPs:
         with patch("src.web.utils.ip.logger") as mock_logger:
             result = parse_ip_address(request)
 
-        assert result == "invalid"
-        mock_logger.warning.assert_called_once()
+        assert result == "10.0.0.1"
+        mock_logger.debug.assert_called_once()
 
 
 class TestCacheFailureThresholdRaisesError:
@@ -2718,3 +2722,76 @@ class TestCacheFailureThresholdRaisesError:
                     _safe_cache_set("test_key_3", True, 60)
         finally:
             svc_mod._cache_failure_count = original_count
+
+
+# ---- Cache failure scenarios ----
+
+
+class TestCacheFailureScenarios:
+    """Verify the login flow works via DB-only path when cache writes fail."""
+
+    def test_login_request_raises_when_cache_critically_fails(self):
+        """create_login_request raises LoginServiceUnavailable when cache backend
+        is unhealthy (3+ consecutive failures)."""
+        from src.web.services.web_login_service import (
+            CacheWriteError,
+            LoginServiceUnavailable,
+            WebLoginService,
+        )
+        from src.web.utils.sync import call_async
+
+        svc = WebLoginService()
+
+        with (
+            patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
+            patch(
+                "src.web.services.web_login_service._safe_cache_set",
+                side_effect=CacheWriteError("Cache down"),
+            ),
+        ):
+            with pytest.raises(LoginServiceUnavailable):
+                call_async(svc.create_login_request("testuser"))
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_check_status_db_fallback_when_cache_read_fails(self, mock_sleep):
+        """check_status falls back to DB when cache.get_many raises."""
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_cachefail1", telegram_id="555555555",
+            name="Cache Fail User", language="en", timezone="UTC",
+        )
+        login_req = WebLoginRequest.objects.create(
+            user=user, token="cache_fail_db_token",
+            status="confirmed",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        svc = WebLoginService()
+        with patch("django.core.cache.cache.get_many", side_effect=Exception("Redis down")):
+            status = call_async(svc.check_status("cache_fail_db_token"))
+
+        assert status == "confirmed"
+
+    def test_login_endpoint_returns_503_on_cache_failure(self):
+        """POST /auth/bot-login/request/ returns 503 when cache is critically broken."""
+        from src.web.services.web_login_service import (
+            CacheWriteError,
+            LoginServiceUnavailable,
+        )
+
+        def _raise_unavailable(coro):
+            if hasattr(coro, 'close'):
+                coro.close()
+            raise LoginServiceUnavailable("Cache down")
+
+        with patch("src.web.views.auth.call_async", side_effect=_raise_unavailable):
+            response = Client().post(
+                "/auth/bot-login/request/",
+                data=json.dumps({"username": "testuser"}),
+                content_type="application/json",
+            )
+        assert response.status_code == 503
+        assert "temporarily unavailable" in response.json()["error"]

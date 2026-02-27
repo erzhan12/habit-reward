@@ -1984,3 +1984,30 @@ for habit in all_habits:
 ```
 
 `get_latest_streak_counts()` uses Django `Subquery` to fetch latest streak per habit in one query. See `src/core/repositories.py`.
+
+## Web Login Security Patterns
+
+### Token Length Validation
+`secrets.token_urlsafe(32)` always produces exactly 43 characters. The token validation in `src/web/views/auth.py` enforces `40 <= len(token) <= 50`. When updating `TOKEN_BYTES`, ensure the length range still covers the output. Tests that send tokens through `POST /auth/bot-login/complete/` must use 40-50 char tokens.
+
+### Validation Pattern Sync (Frontend/Backend)
+The username regex pattern is duplicated in:
+- **Backend**: `src/web/utils/validation.py` (`TELEGRAM_USERNAME_PATTERN`)
+- **Frontend**: `frontend/src/pages/Login.vue` (`TELEGRAM_USERNAME_RE`)
+
+A pre-commit hook (`scripts/check_validation_sync.sh`) verifies they stay in sync. The frontend accepts uppercase for UX but lowercases before sending to the backend.
+
+### CheckConstraint vs save() Validation
+`User.save()` validates `telegram_username` format, but `bulk_create`/`bulk_update`/`QuerySet.update()` bypass `save()`. The DB-level `CheckConstraint` (`user_telegram_username_format`) in `src/core/models.py` enforces the format at the DB layer. Use `condition=` (not deprecated `check=`) for Django 6.0 compatibility.
+
+### X-Forwarded-For Multi-Proxy Chains
+`src/web/utils/ip.py` takes the leftmost IP from X-Forwarded-For regardless of chain length. Multi-proxy chains (CDN -> LB -> app) are legitimate and should not be rejected. Only the leftmost IP is validated with `ipaddress.ip_address()`.
+
+### Timing Jitter
+Status polling jitter (`src/web/services/web_login_service.py`) is only applied to "pending" status to avoid unnecessary latency on terminal states. Named constants `_JITTER_MIN`/`_JITTER_MAX` are configurable via Django settings.
+
+### UA Parsing Cache
+`_parse_ua_cached` in `src/web/views/auth.py` uses `functools.lru_cache(maxsize=256)` to avoid repeated CPU-intensive User-Agent parsing. The cache key is the sanitized UA string.
+
+### Timezone-Aware Comparisons
+Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB datetime fields with `datetime.now(timezone.utc)`. Django may return naive datetimes when `USE_TZ=False`.

@@ -91,6 +91,19 @@ class User(AbstractUser):
             models.Index(fields=['is_active']),
             models.Index(fields=['telegram_username']),
         ]
+        constraints = [
+            # DB-level enforcement: save() validation is bypassed by
+            # bulk_create/bulk_update/QuerySet.update(), so this constraint
+            # ensures telegram_username is always lowercase alnum/underscore
+            # 3-32 chars when set (NULL is allowed).
+            models.CheckConstraint(
+                condition=(
+                    models.Q(telegram_username__isnull=True)
+                    | models.Q(telegram_username__regex=r'^[a-z0-9_]{3,32}$')
+                ),
+                name='user_telegram_username_format',
+            ),
+        ]
         ordering = ['-date_joined']
 
     def __str__(self):
@@ -615,6 +628,12 @@ class WebLoginRequest(models.Model):
             models.Index(fields=['user', 'status']),
             models.Index(fields=['expires_at']),
             models.Index(fields=['token', 'status'], name='web_login_r_token_status_idx'),
+            # Composite index for the invalidation query in
+            # _create_login_request_with_retry (filters on user + status + created_at).
+            models.Index(
+                fields=['user', 'status', 'created_at'],
+                name='wlr_user_status_created_idx',
+            ),
         ]
         ordering = ['-created_at']
 

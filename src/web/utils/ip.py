@@ -30,20 +30,19 @@ def parse_ip_address(request) -> str:
     if getattr(settings, "TRUST_X_FORWARDED_FOR", False):
         forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
         if forwarded:
+            # Take the leftmost IP (original client) regardless of chain
+            # length. Multi-proxy chains (CDN → LB → app) are legitimate.
+            # Log at DEBUG for visibility without rejecting valid requests.
             parts = [p.strip() for p in forwarded.split(",")]
             if len(parts) > 2:
-                logger.warning(
-                    "X-Forwarded-For contains %d IPs — reverse proxy may not "
-                    "be sanitizing the header (possible IP injection). "
-                    "Rejecting request IP.",
+                logger.debug(
+                    "X-Forwarded-For contains %d IPs (multi-proxy chain)",
                     len(parts),
                 )
-                return "invalid"
-            else:
-                candidate = parts[0]
-                try:
-                    ipaddress.ip_address(candidate)
-                    return candidate
-                except ValueError:
-                    pass
+            candidate = parts[0]
+            try:
+                ipaddress.ip_address(candidate)
+                return candidate
+            except ValueError:
+                pass
     return request.META.get("REMOTE_ADDR", "unknown")

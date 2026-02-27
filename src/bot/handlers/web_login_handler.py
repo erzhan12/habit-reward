@@ -41,8 +41,12 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("⚠️ This login request has expired or was not found.")
         return
 
-    # Verify the user pressing the button is the request owner
-    if not login_request.user.telegram_id or str(update.effective_user.id) != str(login_request.user.telegram_id):
+    # Verify the user pressing the button is the request owner.
+    # Normalize both sides to str explicitly — telegram_id is stored as
+    # CharField but update.effective_user.id is an int from Telegram API.
+    request_owner_id = str(login_request.user.telegram_id).strip() if login_request.user.telegram_id else ""
+    callback_user_id = str(update.effective_user.id).strip()
+    if not request_owner_id or callback_user_id != request_owner_id:
         logger.warning(
             "User %s tried to respond to login request for user %s",
             update.effective_user.id,
@@ -66,7 +70,9 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("⚠️ This login request is in an invalid state.")
         return
 
-    # Check if already handled
+    # Check if already handled.
+    # login_request.status is a plain string from the DB (e.g. "pending"),
+    # so we compare against .value (also a string), NOT the enum member.
     if login_request.status != WebLoginRequest.Status.PENDING.value:
         status_text = "confirmed" if login_request.status == WebLoginRequest.Status.CONFIRMED.value else "denied"
         await query.edit_message_text(f"This login request was already {status_text}.")
