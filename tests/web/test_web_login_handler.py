@@ -10,7 +10,7 @@ from asgiref.sync import sync_to_async
 from django.test import Client
 
 from src.core.models import LoginTokenIpBinding, User, WebLoginRequest
-from src.core.repositories import WebLoginRequestRepository, web_login_request_repository
+from src.core.repositories import web_login_request_repository
 from src.web.services.web_login_service import WL_PENDING_KEY
 
 
@@ -332,7 +332,6 @@ class TestEndToEndLoginFlowWithBotHandler:
         from django.core.cache import cache
         from src.bot.handlers.web_login_handler import web_login_callback
         from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
 
         cache.clear()
         svc = WebLoginService()

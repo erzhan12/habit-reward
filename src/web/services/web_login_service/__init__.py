@@ -37,6 +37,7 @@ from .cache_operations import (  # noqa: F401
     CacheManager,
     WL_PENDING_KEY,
     WL_FAILED_KEY,
+    WL_ALIAS_KEY,
     _CACHE_PREFIX,
     _MIN_FAILED_MARKER_TTL_SECONDS,
     _cache_ttl_seconds,
@@ -260,6 +261,37 @@ class WebLoginService:
     def __init__(self):
         self.user_repo = user_repository
         self.request_repo = web_login_request_repository
+
+    @staticmethod
+    def _resolve_token_alias(
+        token: str,
+        max_hops: int = TOKEN_GENERATION_MAX_RETRIES + 1,
+    ) -> str:
+        """Resolve a token through cache alias keys (if any).
+
+        Alias keys are created when a very rare token collision forces a
+        background retry with a newly generated DB token.
+        """
+        from django.core.cache import cache
+
+        resolved = token
+        for _ in range(max_hops):
+            try:
+                alias = cache.get(f"{WL_ALIAS_KEY}{resolved}")
+            except (ConnectionError, TimeoutError, OSError):
+                logger.warning(
+                    "Cache read failed during token alias resolution",
+                    extra={"token_prefix": resolved[:8]},
+                )
+                return resolved
+            if not alias or not isinstance(alias, str) or alias == resolved:
+                return resolved
+            resolved = alias
+        logger.warning(
+            "Token alias chain exceeded max hops",
+            extra={"token_prefix": token[:8], "max_hops": max_hops},
+        )
+        return resolved
 
     @staticmethod
     def _mark_failed_safely_with_logging(
@@ -510,8 +542,11 @@ class WebLoginService:
 
         3. **Retry on token collision** — If the ``INSERT`` fails with an
            ``IntegrityError`` (unique constraint on ``token``), a fresh token is
-           generated and the cache pending marker is updated so that the
-           ``check_login_status`` fast-path remains consistent.  Up to
+           generated.  A cache alias is written from the previous token to the
+           new one so clients that already received the previous token continue
+           to resolve the correct status and completion path.  The previous
+           token's pending marker is removed to avoid stale ``pending`` responses
+           if the alias key is later unavailable.  Up to
            ``TOKEN_GENERATION_MAX_RETRIES`` attempts are made before raising
            ``DatabaseError``.
 
@@ -539,15 +574,43 @@ class WebLoginService:
                     )
                     return login_request, token
             except IntegrityError:
+                previous_token = token
                 token = secrets.token_urlsafe(TOKEN_BYTES)
                 cache_ttl = _cache_ttl_seconds(expires_at)
+                alias_written = False
                 try:
                     cache_manager.set(f"{WL_PENDING_KEY}{token}", True, cache_ttl)
+                    cache_manager.set(f"{WL_ALIAS_KEY}{previous_token}", token, cache_ttl)
+                    alias_written = True
                 except CacheWriteError:
                     logger.critical(
                         "Cache write failed during token collision retry — "
-                        "new token's pending marker not cached",
-                        extra={"token_prefix": token[:8]},
+                        "pending marker/alias may be missing",
+                        extra={
+                            "token_prefix": token[:8],
+                            "previous_token_prefix": previous_token[:8],
+                        },
+                    )
+                # Best-effort cleanup of the original token's pending marker.
+                # Without this, old tokens can look permanently pending if the
+                # alias key is unavailable (evicted/write failure).
+                from django.core.cache import cache
+
+                try:
+                    cache.delete(f"{WL_PENDING_KEY}{previous_token}")
+                    if not alias_written:
+                        cache.set(
+                            f"{WL_FAILED_KEY}{previous_token}",
+                            True,
+                            timeout=max(_MIN_FAILED_MARKER_TTL_SECONDS, cache_ttl),
+                        )
+                except (ConnectionError, TimeoutError, OSError):
+                    logger.warning(
+                        "Cache cleanup failed during token collision retry",
+                        extra={
+                            "token_prefix": token[:8],
+                            "previous_token_prefix": previous_token[:8],
+                        },
                     )
         raise DatabaseError("Failed to generate unique token after retries")
 
@@ -607,9 +670,10 @@ class WebLoginService:
         from django.core.cache import cache
         from django.db import OperationalError
 
+        resolved_token = self._resolve_token_alias(token)
         now = datetime.now(timezone.utc)
-        pending_key = f"{WL_PENDING_KEY}{token}"
-        failed_key = f"{WL_FAILED_KEY}{token}"
+        pending_key = f"{WL_PENDING_KEY}{resolved_token}"
+        failed_key = f"{WL_FAILED_KEY}{resolved_token}"
         try:
             cache_keys = cache.get_many([pending_key, failed_key])
         except (ConnectionError, TimeoutError, OSError):
@@ -631,7 +695,9 @@ class WebLoginService:
         else:
             db_unavailable = False
             try:
-                login_request = await maybe_await(self.request_repo.get_status_fields(token))
+                login_request = await maybe_await(
+                    self.request_repo.get_status_fields(resolved_token)
+                )
             except OperationalError:
                 logger.warning(
                     "DB lock during status check, cache is empty",
@@ -645,7 +711,7 @@ class WebLoginService:
                     status = "error"
                 else:
                     try:
-                        cache.set(f"{WL_FAILED_KEY}{token}", True, timeout=300)
+                        cache.set(f"{WL_FAILED_KEY}{resolved_token}", True, timeout=300)
                     except (ConnectionError, TimeoutError, OSError):
                         pass
                     status = "expired"
@@ -671,8 +737,9 @@ class WebLoginService:
         Returns:
             User instance if login is valid, None otherwise
         """
+        resolved_token = self._resolve_token_alias(token)
         now = datetime.now(timezone.utc)
-        login_request = await maybe_await(self.request_repo.get_by_token(token))
+        login_request = await maybe_await(self.request_repo.get_by_token(resolved_token))
         if not login_request:
             logger.warning(
                 "Complete login attempt with unknown token",
@@ -698,11 +765,11 @@ class WebLoginService:
             )
             return None
 
-        updated = await maybe_await(self.request_repo.mark_as_used(token))
+        updated = await maybe_await(self.request_repo.mark_as_used(resolved_token))
         if not updated:
             logger.warning(
                 "Token replay attempt — already used: %s...",
-                token[:8],
+                resolved_token[:8],
                 extra={
                     "user_id": login_request.user_id,
                     "operation": "complete_login_replay",
@@ -714,7 +781,7 @@ class WebLoginService:
             "Web login completed",
             extra={
                 "user_id": login_request.user_id,
-                "token_prefix": token[:8],
+                "token_prefix": resolved_token[:8],
                 "operation": "complete_login",
             },
         )

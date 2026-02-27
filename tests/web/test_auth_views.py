@@ -480,7 +480,6 @@ class TestLoginRaceConditions:
 
     def test_new_login_request_invalidates_previous(self, login_user):
         """Creating a second login request for the same user sets the first to 'denied'."""
-        from src.core.models import WebLoginRequest
         from src.core.repositories import WebLoginRequestRepository
         from src.web.utils.sync import call_async
 
@@ -1196,10 +1195,8 @@ class TestFullLoginFlow:
         """
         from django.core.cache import cache
         from src.core.models import WebLoginRequest
-        from src.core.repositories import WebLoginRequestRepository
 
         cache.clear()
-        repo = WebLoginRequestRepository()
         client = Client()
 
         # 1) POST /request/ — returns token
@@ -1713,6 +1710,15 @@ class TestDeviceInfoEdgeCases:
         assert "\n" not in info
         assert "\x00" not in info
 
+    def test_sanitize_user_agent_removes_control_whitespace(self):
+        """UA sanitization strips CR/LF/TAB to prevent log/content injection."""
+        from src.web.views.auth import _sanitize_user_agent
+
+        sanitized = _sanitize_user_agent("Mozilla/5.0\r\n\tChrome/120.0")
+        assert "\r" not in sanitized
+        assert "\n" not in sanitized
+        assert "\t" not in sanitized
+
     def test_device_info_truncates_extremely_long_user_agent(self):
         """User-Agent longer than MAX_USER_AGENT_LENGTH is truncated before parsing."""
         from src.web.views.auth import _parse_device_info
@@ -1897,7 +1903,7 @@ class TestCircuitBreakerServiceLevel:
 
         cache.clear()
 
-        user = User.objects.create_user(
+        User.objects.create_user(
             username="tg_cb_test",
             telegram_id="cb_test_id",
             name="CB Test",
@@ -2137,13 +2143,12 @@ class TestExecutorShutdown:
     def test_submit_after_shutdown_returns_503(self):
         """When executor is shut down, submit raises RuntimeError and semaphore is released."""
         from django.core.cache import cache
-        import src.web.services.web_login_service as svc_mod
         from src.web.services.web_login_service import LoginServiceUnavailable, WebLoginService, _get_executor
         from src.web.utils.sync import call_async
 
         cache.clear()
 
-        user = User.objects.create_user(
+        User.objects.create_user(
             username="tg_shutdown_user",
             telegram_id="770000004",
             name="Shutdown User",
@@ -2334,7 +2339,7 @@ class TestQueueFullReturns503:
 
         cache.clear()
 
-        user = User.objects.create_user(
+        User.objects.create_user(
             username="tg_queue_full",
             telegram_id="880000002",
             name="Queue Full",
@@ -2393,10 +2398,10 @@ class TestQueueSaturationIntegration:
         """Semaphore slot is released after background task completes,
         allowing subsequent requests to proceed."""
         import src.web.services.web_login_service as svc_mod
-        from src.web.services.web_login_service import WebLoginService, _release_queue_slot
+        from src.web.services.web_login_service import WebLoginService
         from src.web.utils.sync import call_async
 
-        user = User.objects.create_user(
+        User.objects.create_user(
             username="tg_sem_release",
             telegram_id="990000002",
             name="Sem Release",
@@ -2778,8 +2783,8 @@ class TestParseUaCachedCacheFailure:
 class TestCriticalPathIntegrations:
     """Integration coverage for critical login flow edge cases."""
 
-    def test_collision_retry_integration_path(self):
-        """_process_login_request retries on token collision and persists the retried token."""
+    def test_collision_retry_preserves_client_token_via_alias(self):
+        """Original client token still resolves when collision retry rotates DB token."""
         from src.core.models import WebLoginRequest
         from src.web.services.web_login_service import WebLoginService
         from src.web.utils.sync import call_async
@@ -2812,10 +2817,77 @@ class TestCriticalPathIntegrations:
         ):
             call_async(svc._process_login_request(user, collision_token, expires_at, None))
 
-        assert WebLoginRequest.objects.filter(
+        login_req = WebLoginRequest.objects.get(
             user=user,
             token="integration_collision_retry_token",
-        ).exists()
+        )
+        assert login_req.status == WebLoginRequest.Status.PENDING
+
+        # Simulate Telegram confirmation on the rotated DB token.
+        WebLoginRequest.objects.filter(pk=login_req.pk).update(
+            status=WebLoginRequest.Status.CONFIRMED.value
+        )
+        from src.core.repositories import web_login_request_repository
+        web_login_request_repository.clear_login_cache_keys("integration_collision_retry_token")
+
+        # The browser still holds the original token, so status/complete must
+        # resolve via cache alias rather than the rotated DB token.
+        assert call_async(svc.check_status(collision_token)) == WebLoginRequest.Status.CONFIRMED.value
+        completed_user = call_async(svc.complete_login(collision_token))
+        assert completed_user is not None
+        assert completed_user.id == user.id
+
+        login_req.refresh_from_db()
+        assert login_req.status == WebLoginRequest.Status.USED.value
+
+    def test_collision_retry_alias_missing_does_not_leave_old_token_pending(self):
+        """If alias is missing after retry, original token should not stay pending forever."""
+        from django.core.cache import cache
+        import src.web.services.web_login_service as svc_mod
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService, WL_ALIAS_KEY
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        user = User.objects.create_user(
+            username="tg_int_collision_alias_miss",
+            telegram_id="771111112",
+            name="Int Collision Alias Miss",
+            language="en",
+            timezone="UTC",
+            telegram_username="intcollisionaliasmiss",
+        )
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        collision_token = "integration_collision_alias_miss_token"
+
+        WebLoginRequest.objects.create(
+            user=user,
+            token=collision_token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=expires_at,
+        )
+
+        svc = WebLoginService()
+        with (
+            patch(
+                "src.web.services.web_login_service.secrets.token_urlsafe",
+                return_value="integration_collision_alias_retry_token",
+            ),
+            patch.object(svc, "_send_login_notification", new_callable=AsyncMock),
+        ):
+            call_async(svc._process_login_request(user, collision_token, expires_at, None))
+
+        # Simulate alias eviction/unavailability. Old token should no longer
+        # look permanently pending.
+        cache.delete(f"{WL_ALIAS_KEY}{collision_token}")
+        with (
+            patch.object(svc_mod, "_JITTER_MIN", 0.0),
+            patch.object(svc_mod, "_JITTER_MAX", 0.0),
+        ):
+            status = call_async(svc.check_status(collision_token))
+        assert status in {"denied", "expired", "error"}
+        assert status != "pending"
+        assert call_async(svc.complete_login(collision_token)) is None
 
     def test_concurrent_status_checks_same_token(self):
         """Concurrent status polling on one token returns consistent status values."""

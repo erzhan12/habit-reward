@@ -25,6 +25,11 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -50,6 +55,20 @@ jobs:
           TELEGRAM_BOT_TOKEN: test-token-not-real
           DEBUG: "True"
           CI: "true"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend login tests
+        working-directory: frontend
+        # Pin tool versions to keep CI deterministic even when executed via npx.
+        run: >
+          npx --yes
+          --package vitest@3.0.7
+          --package @vue/test-utils@2.4.6
+          --package happy-dom@15.11.7
+          vitest run tests/Login.spec.js --environment happy-dom
 
   build:
     name: Build Docker Image

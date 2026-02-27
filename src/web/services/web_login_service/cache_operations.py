@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 _CACHE_PREFIX = "habit_reward:"
 WL_PENDING_KEY = f"{_CACHE_PREFIX}wl_pending:"
 WL_FAILED_KEY = f"{_CACHE_PREFIX}wl_failed:"
+# Maps an originally issued client token to a rotated DB token when a rare
+# token-collision retry happens in background processing.
+WL_ALIAS_KEY = f"{_CACHE_PREFIX}wl_alias:"
 
 # Minimum TTL (seconds) for the wl_failed cache marker.  60 seconds is
 # chosen to outlast the longest expected polling interval (30s max backoff

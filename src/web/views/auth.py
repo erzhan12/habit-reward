@@ -82,7 +82,9 @@ def login_page(request):
     return inertia_render(request, "Login")
 
 
-_NON_PRINTABLE_RE = re.compile(r'[^\x20-\x7E\s]')
+# Keep visible ASCII only (space through tilde) so control whitespace like
+# CR/LF/TAB is removed and cannot appear in logs or parsed UA output.
+_NON_PRINTABLE_RE = re.compile(r'[^\x20-\x7E]')
 
 
 def _sanitize_user_agent(ua: str) -> str:
@@ -473,8 +475,8 @@ def _anonymize_ip(ip: str) -> str:
     which is PII under GDPR.
 
     The 16-hex-char prefix (64 bits) gives 2^64 buckets. Collisions are still
-    possible (birthday bound reaches ~50% around 77k distinct IPs), so this
-    is for coarse correlation only, not uniqueness guarantees.
+    possible (birthday bound reaches ~50% around 5.1 billion distinct IPs), so
+    this is for coarse correlation only, not uniqueness guarantees.
     """
     return hashlib.sha256(ip.encode()).hexdigest()[:16]
 

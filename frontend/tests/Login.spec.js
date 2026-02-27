@@ -38,6 +38,11 @@ function createWrapper({ withCsrf = true } = {}) {
 describe("Login.vue", () => {
   let wrapper;
 
+  beforeEach(() => {
+    // Keep backoff+jitter timers deterministic in fake-timer tests.
+    vi.spyOn(Math, "random").mockReturnValue(0);
+  });
+
   afterEach(() => {
     if (wrapper) wrapper.unmount();
     // Clean up meta tags.

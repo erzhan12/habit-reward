@@ -1605,7 +1605,7 @@ class TestClaimRewardHandlerRouting:
         context.user_data = {}
 
         # Execute
-        result = await claim_reward_callback(mock_callback_update, context)
+        await claim_reward_callback(mock_callback_update, context)
 
         # Assert: Reward repository was queried with correct ID
         # This is the key assertion - verifies reward_id was extracted correctly
@@ -1671,7 +1671,7 @@ class TestClaimRewardHandlerRouting:
         context.user_data = {}
 
         # Execute
-        result = await claim_reward_callback(mock_callback_update, context)
+        await claim_reward_callback(mock_callback_update, context)
 
         # Assert: Reward repository was queried with correct UUID-like ID
         # This is the key assertion - verifies reward_id was extracted correctly

@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# ruff: noqa: E402
 """Create admin superuser for Django admin panel.
 
 This script creates a new Django superuser with all required fields

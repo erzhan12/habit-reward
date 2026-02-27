@@ -1,7 +1,7 @@
 """Shared fixtures and helpers for web test modules."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from django.test import Client

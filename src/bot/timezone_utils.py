@@ -1,7 +1,7 @@
 """Timezone utilities for user-local date calculations."""
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from src.utils.async_compat import maybe_await

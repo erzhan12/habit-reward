@@ -82,7 +82,7 @@ class TestCacheBackendFailure:
             username="tg_cache_fail", telegram_id="123123123", name="CacheFail",
             language="en", timezone="UTC",
         )
-        req = WebLoginRequest.objects.create(
+        WebLoginRequest.objects.create(
             user=user,
             token="cache_fail_tok",
             status=WebLoginRequest.Status.PENDING,
@@ -279,7 +279,7 @@ class TestCacheFailureScenarios:
             username="tg_cachefail1", telegram_id="555555555",
             name="Cache Fail User", language="en", timezone="UTC",
         )
-        login_req = WebLoginRequest.objects.create(
+        WebLoginRequest.objects.create(
             user=user, token="cache_fail_db_token",
             status="confirmed",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
@@ -297,7 +297,6 @@ class TestCacheFailureScenarios:
 
         from django.test import Client
         from src.web.services.web_login_service import (
-            CacheWriteError,
             LoginServiceUnavailable,
         )
 
@@ -626,9 +625,7 @@ class TestCacheWriteFailureDuringRetry:
             cache_manager, "set",
             side_effect=[None, CacheWriteError("test")],
         ):
-            with patch(
-                "src.web.services.web_login_service.logger"
-            ) as mock_logger:
+            with patch("src.web.services.web_login_service.logger"):
                 login_req, final_token = WebLoginService._create_login_request_with_retry(
                     user.id,
                     existing_token,
@@ -846,7 +843,6 @@ class TestCacheUnavailabilityUnderLoad:
 
         from src.web.services.web_login_service import (
             CacheWriteError,
-            LoginServiceUnavailable,
             WebLoginService,
             _get_executor,
             cache_manager,
@@ -887,12 +883,9 @@ class TestCacheUnavailabilityUnderLoad:
         """Queue depth counter stays accurate even when cache operations fail
         during background processing."""
         from src.web.services.web_login_service import (
-            _queue_depth_count,
             _queue_slots,
-            _MAX_QUEUED_LOGINS,
             _release_queue_slot,
             _increment_queue_depth,
-            _decrement_queue_depth,
         )
 
         # Simulate: acquire a slot, increment, then release (as done in normal flow)
@@ -912,8 +905,6 @@ class TestCacheUnavailabilityUnderLoad:
         """Extra decrements (e.g. from error paths) don't make depth negative."""
         from src.web.services.web_login_service import (
             _decrement_queue_depth,
-            _queue_depth,
-            _queue_depth_count,
         )
 
         # Decrement without prior increment — depth should clamp to 0
@@ -938,7 +929,7 @@ class TestCacheWriteFailureDuringBackgroundProcessing:
         check_status should fall back to DB when the cache key is missing.
         """
         from src.core.models import WebLoginRequest
-        from src.web.services.web_login_service import WebLoginService, cache_manager
+        from src.web.services.web_login_service import WebLoginService
         from src.web.utils.sync import call_async
 
         user = User.objects.create_user(
@@ -980,12 +971,10 @@ class TestCacheWriteFailureDuringBackgroundProcessing:
 
         cache_manager.reset()
         try:
-            failures = 0
             with patch("django.core.cache.cache.set", side_effect=ConnectionError("cache down")):
                 for i in range(15):
                     try:
                         cache_manager.set(f"circuit_test_{i}", True, 60)
-                        failures = 0  # reset on success
                     except CacheWriteError:
                         # Circuit breaker tripped — this is expected
                         assert i >= 4, (

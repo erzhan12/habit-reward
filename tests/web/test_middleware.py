@@ -22,7 +22,6 @@ class TestWebAuthMiddleware:
 
     def test_authenticated_protected_path_is_allowed_through(self, auth_client):
         """Middleware passes authenticated requests; downstream view returns 200."""
-        from unittest.mock import AsyncMock, patch
 
         with (
             patch("src.web.views.dashboard.habit_service") as mock_hs,

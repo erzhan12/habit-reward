@@ -35,7 +35,7 @@ Both known and unknown usernames receive an identical HTTP 200 response with a t
 ### Timing Attack Resistance
 
 - **Status polling jitter**: `check_status` adds 50-200ms random jitter (configurable via `WEB_LOGIN_JITTER_MIN`/`WEB_LOGIN_JITTER_MAX`) from a `secrets.SystemRandom()` CSPRNG.
-- **Jitter scope**: Applied to `pending`, `expired`, and `error` statuses — these have cache-dependent code paths with measurably different timing. Terminal statuses (`confirmed`, `denied`, `used`) are intentionally excluded from jitter because they can only occur after a real DB write and don't create timing side-channels — an attacker cannot reach these statuses without a valid token that has already been acted upon in Telegram, so they cannot be reached through enumeration attempts and provide no enumeration signal.
+- **Jitter scope**: Applied to **all** statuses (`pending`, `expired`, `error`, `confirmed`, `denied`, `used`). Cache-hit paths can be measurably faster than DB fallback, so universal jitter helps prevent statistical timing analysis across status paths.
 - **Background processing**: Token generation, cache writes, and HTTP response happen synchronously. DB writes and Telegram sends happen asynchronously in a bounded thread pool.
 
 ### Login Flow
@@ -87,8 +87,8 @@ All authentication endpoints are rate-limited per IP via `django-ratelimit`:
 
 ### Cache Security
 
-- **Namespace isolation**: All login-related cache keys use the `wl_pending:` and `wl_failed:` prefixes, preventing collisions with other application cache entries.
-- **No sensitive data in cache**: Cache stores only boolean status flags (`True`), never tokens, user IDs, or session data. Token values appear only in cache *keys*, not values.
+- **Namespace isolation**: Login cache keys use dedicated `wl_pending:`, `wl_failed:`, and `wl_alias:` prefixes to avoid collisions with unrelated application entries.
+- **Minimized cache payloads**: Normal status keys store only boolean flags. A rare token-collision retry writes a short-lived alias value (`old_token -> new_token`) so clients with the originally issued token can still resolve status safely. No user IDs or session data are stored in cache values.
 - **TTL enforcement**: All cache entries use a TTL derived from the login request's `expires_at` (max 5 minutes), limiting the window for cache poisoning attacks. Stale entries are automatically evicted.
 
 ## IP Binding Protection

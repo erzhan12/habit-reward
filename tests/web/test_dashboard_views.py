@@ -1,6 +1,5 @@
 """Tests for dashboard views (habits, streaks, completions, reverts)."""
 
-import json
 from datetime import date
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
