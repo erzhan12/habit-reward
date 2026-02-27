@@ -44,7 +44,12 @@ from django_ratelimit.decorators import ratelimit
 
 from inertia import render as inertia_render
 
-from src.web.services.web_login_service import LoginServiceUnavailable, web_login_service
+from src.web.services.web_login_service import (
+    LoginServiceUnavailable,
+    TOKEN_MIN_LENGTH,
+    TOKEN_MAX_LENGTH,
+    web_login_service,
+)
 from src.web.utils.ip import parse_ip_address
 from src.web.utils.sync import call_async
 from src.web.utils.validation import TELEGRAM_USERNAME_PATTERN
@@ -57,11 +62,9 @@ MAX_USER_AGENT_LENGTH = 1024
 MAX_DEVICE_INFO_LENGTH = 255
 # URL-safe base64 token format (secrets.token_urlsafe output)
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
-# secrets.token_urlsafe(TOKEN_BYTES=32) produces exactly 43 characters.
-# Allow a small range to tolerate future TOKEN_BYTES changes while
-# rejecting clearly invalid lengths.
-TOKEN_MIN_LENGTH = 40
-TOKEN_MAX_LENGTH = 50
+# TOKEN_MIN_LENGTH and TOKEN_MAX_LENGTH are imported from
+# web_login_service where they are derived from TOKEN_BYTES
+# (single source of truth).
 
 # Re-export for backward compatibility with existing tests.
 _parse_ip_address = parse_ip_address
@@ -85,7 +88,10 @@ def _sanitize_user_agent(ua: str) -> str:
     return ''.join(c for c in ua if c.isprintable() or c.isspace())
 
 
-_UA_CACHE_MAX_SIZE = getattr(settings, "UA_CACHE_MAX_SIZE", 1024)
+# Default max entries for the User-Agent LRU parse cache.
+# Used as the fallback when settings.UA_CACHE_MAX_SIZE is not set.
+_UA_CACHE_DEFAULT_SIZE = 1024
+_UA_CACHE_MAX_SIZE = getattr(settings, "UA_CACHE_MAX_SIZE", _UA_CACHE_DEFAULT_SIZE)
 
 
 @functools.lru_cache(maxsize=_UA_CACHE_MAX_SIZE)
@@ -95,8 +101,15 @@ def _parse_ua_cached(ua: str) -> str:
     LRU-cached because UA parsing (via ``user_agents`` library) is
     CPU-intensive and the same UA string repeats across requests from
     the same browser.  Cache is bounded to ``UA_CACHE_MAX_SIZE`` entries
-    (default 1024) to limit memory usage while still providing excellent
-    hit rates.  Configurable via ``settings.UA_CACHE_MAX_SIZE``.
+    (default ``_UA_CACHE_DEFAULT_SIZE``) to limit memory usage while still
+    providing excellent hit rates.  Configurable via ``settings.UA_CACHE_MAX_SIZE``.
+
+    NOTE: This LRU cache is **per-process**.  In production with multiple
+    workers (e.g. gunicorn with ``--workers 4``), each process maintains
+    its own independent cache, reducing the overall hit rate compared to a
+    single-process deployment.  This is acceptable because UA diversity is
+    low (most users share a handful of browser/OS combos) and the per-process
+    cache still prevents redundant parsing within each worker.
     """
     ua_parsed = parse_ua(ua)
     browser = f"{ua_parsed.browser.family} {ua_parsed.browser.version_string}".strip()

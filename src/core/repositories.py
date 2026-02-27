@@ -9,6 +9,7 @@ from datetime import date
 from typing import Any
 from decimal import Decimal
 from asgiref.sync import sync_to_async
+from django.db import transaction
 from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 
 from src.core.models import User, Habit, HabitLog, Reward, RewardProgress, AuthCode, APIKey, WebLoginRequest
@@ -129,15 +130,28 @@ class UserRepository:
             return
 
         normalized = username.lstrip('@').lower()
-        # Clear this username from any other user (handles Telegram username recycling)
-        await sync_to_async(
-            User.objects.filter(telegram_username=normalized)
-            .exclude(telegram_id=telegram_id)
-            .update
-        )(telegram_username=None)
-        await sync_to_async(
-            User.objects.filter(telegram_id=telegram_id).update
-        )(telegram_username=normalized)
+
+        def _atomic_username_update():
+            """Clear old assignment and set new one atomically.
+
+            Wraps both UPDATEs in a transaction.atomic() block to prevent a
+            race condition where two users simultaneously claim the same
+            recycled username — without the transaction, both UPDATE queries
+            could succeed independently, leaving the username assigned to
+            the last writer with no guarantee of consistency.
+            """
+            with transaction.atomic():
+                User.objects.filter(
+                    telegram_username=normalized
+                ).exclude(
+                    telegram_id=telegram_id
+                ).update(telegram_username=None)
+
+                User.objects.filter(
+                    telegram_id=telegram_id
+                ).update(telegram_username=normalized)
+
+        await sync_to_async(_atomic_username_update)()
 
 
 class HabitRepository:

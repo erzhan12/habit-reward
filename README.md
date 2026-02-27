@@ -418,6 +418,19 @@ Key metrics to track for the web login flow:
   ```
   Without this, rate limiting will see all requests coming from the proxy IP instead of real client IPs, making rate limits ineffective.
 
+**"database is locked" errors (SQLite):**
+- SQLite uses file-level locking — only one writer at a time. Under concurrent load (multiple login requests), background threads compete for the write lock and you'll see `OperationalError: database table is locked`.
+- **Immediate fix**: Set `WEB_LOGIN_THREAD_POOL_SIZE=1` to serialize all background writes. This limits throughput but eliminates locking errors.
+- **Production fix**: Migrate to PostgreSQL, which uses row-level locking and supports concurrent writes natively.
+- **Migration steps**:
+  1. Install PostgreSQL: `brew install postgresql` (macOS) or `apt install postgresql` (Linux)
+  2. Create a database: `createdb habitreward`
+  3. Set `DATABASE_URL=postgres://user:pass@localhost:5432/habitreward` in `.env`
+  4. Run migrations: `uv run python manage.py migrate`
+  5. Export/import data: `uv run python manage.py dumpdata --natural-primary --natural-foreign > data.json` then `uv run python manage.py loaddata data.json`
+  6. Increase `WEB_LOGIN_THREAD_POOL_SIZE` to 20-50 for concurrent logins
+  7. Set `CONN_MAX_AGE=600` to reuse DB connections across requests
+
 ## Monitoring Web Login in Production
 
 1. **503 errors (thread pool exhaustion)**: Monitor HTTP 503 responses or `grep 'Login thread pool queue full' app.log`. If frequent, increase `WEB_LOGIN_THREAD_POOL_SIZE` (PostgreSQL: 50-100, SQLite: max 10) and `WEB_LOGIN_MAX_QUEUED`.
@@ -462,7 +475,7 @@ All authentication endpoints are rate-limited per IP via `django-ratelimit`:
 
 ### Input Validation
 
-- **Username validation**: Telegram usernames are validated against a canonical regex pattern (`^[a-zA-Z0-9_]{3,32}$`) shared between frontend and backend. A pre-commit hook (`scripts/check_validation_sync.sh`) verifies both patterns stay in sync.
+- **Username validation**: Telegram usernames are validated against a canonical regex pattern (`^[a-z0-9_]{3,32}$`) shared between frontend and backend. The frontend lowercases input before validation. A pre-commit hook (`scripts/check_validation_sync.sh`) verifies both patterns stay in sync.
 - **Token format validation**: Tokens are validated for expected length and character set before processing.
 - **User-Agent sanitization**: UA strings are truncated, filtered for non-printable characters, and parsed via the `user-agents` library (never used as raw HTML).
 - **Database-level constraints**: The `telegram_username` field has a DB-level `CHECK` constraint ensuring format validity even for bulk operations that bypass `save()`.

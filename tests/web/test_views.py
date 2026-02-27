@@ -1356,6 +1356,279 @@ class TestErrorFlashMessages:
         assert "Not achieved yet" in str(mock_messages.error.call_args)
 
 
+# ---- Token collision retry tests (direct unit tests) ----
+
+
+class TestTokenCollisionRetryDirect:
+    """Direct unit tests for _create_login_request_with_retry static method.
+
+    Complements TestTokenCollisionRetry (integration tests through the service)
+    by testing the static method directly with real DB collisions and cache updates.
+    """
+
+    def test_successful_creation_on_first_try(self):
+        """Normal path: token is unique, no retries needed."""
+        from src.web.services.web_login_service import WebLoginService
+
+        user = User.objects.create_user(
+            username="tg_retry1", telegram_id="retry111",
+            name="Retry User 1", language="en", timezone="UTC",
+        )
+        token = "retry_test_unique_token_aaa"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        login_request, final_token = WebLoginService._create_login_request_with_retry(
+            user.id, token, expires_at, None,
+        )
+        assert final_token == token
+        assert login_request.token == token
+        assert login_request.status == "pending"
+
+    def test_retry_on_real_db_collision(self):
+        """Token collision against a real DB record triggers retry with a new token."""
+        from src.web.services.web_login_service import WebLoginService
+        from src.core.models import WebLoginRequest
+
+        user = User.objects.create_user(
+            username="tg_retry2", telegram_id="retry222",
+            name="Retry User 2", language="en", timezone="UTC",
+        )
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        # Create a request with token that will collide
+        existing_token = "collision_token_existing_a"
+        WebLoginRequest.objects.create(
+            user=user, token=existing_token, status="pending",
+            expires_at=expires_at,
+        )
+
+        # Attempt with same token — should collide, then retry with new token
+        with patch("src.web.services.web_login_service.secrets.token_urlsafe",
+                   return_value="new_regenerated_token_bb"):
+            login_request, final_token = WebLoginService._create_login_request_with_retry(
+                user.id, existing_token, expires_at, None,
+            )
+
+        assert final_token == "new_regenerated_token_bb"
+        assert login_request.token == "new_regenerated_token_bb"
+
+    def test_retry_exhaustion_raises_database_error(self):
+        """All retries exhausted raises DatabaseError."""
+        from django.db import DatabaseError
+        from src.web.services.web_login_service import WebLoginService
+
+        user = User.objects.create_user(
+            username="tg_retry3", telegram_id="retry333",
+            name="Retry User 3", language="en", timezone="UTC",
+        )
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        # Make every attempt collide by always returning the same token
+        existing_token = "exhaust_collision_token_a"
+        from src.core.models import WebLoginRequest
+        WebLoginRequest.objects.create(
+            user=user, token=existing_token, status="pending",
+            expires_at=expires_at,
+        )
+
+        with (
+            patch("src.web.services.web_login_service.secrets.token_urlsafe",
+                  return_value=existing_token),
+            pytest.raises(DatabaseError, match="unique token"),
+        ):
+            WebLoginService._create_login_request_with_retry(
+                user.id, existing_token, expires_at, None,
+            )
+
+    def test_retry_updates_cache_with_new_token(self):
+        """On collision retry, the new token's cache key is set."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService, WL_PENDING_KEY
+        from src.core.models import WebLoginRequest
+
+        cache.clear()
+        user = User.objects.create_user(
+            username="tg_retry4", telegram_id="retry444",
+            name="Retry User 4", language="en", timezone="UTC",
+        )
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        existing_token = "cache_collision_token_aa"
+        WebLoginRequest.objects.create(
+            user=user, token=existing_token, status="pending",
+            expires_at=expires_at,
+        )
+
+        new_token = "cache_new_regenerated_tk"
+        with patch("src.web.services.web_login_service.secrets.token_urlsafe",
+                   return_value=new_token):
+            WebLoginService._create_login_request_with_retry(
+                user.id, existing_token, expires_at, None,
+            )
+
+        assert cache.get(f"{WL_PENDING_KEY}{new_token}") is True
+
+
+# ---- Cache failure threshold tests ----
+
+
+class TestCacheFailureThreshold:
+    """Tests for cache write failure tracking and CacheWriteError threshold."""
+
+    def test_cache_write_error_after_threshold(self):
+        """CacheWriteError is raised after _CACHE_FAILURE_THRESHOLD consecutive failures."""
+        import src.web.services.web_login_service as svc_module
+        from src.web.services.web_login_service import CacheWriteError, _safe_cache_set
+
+        original_count = svc_module._cache_failure_count
+        try:
+            svc_module._cache_failure_count = 0
+
+            with patch("django.core.cache.cache.set", side_effect=ConnectionError("cache down")):
+                # First 9 should just warn
+                for i in range(9):
+                    _safe_cache_set(f"test_key_{i}", True, 60)
+
+                # 10th should raise
+                with pytest.raises(CacheWriteError, match="10 times consecutively"):
+                    _safe_cache_set("test_key_10", True, 60)
+        finally:
+            svc_module._cache_failure_count = original_count
+
+    def test_counter_resets_on_success(self):
+        """A successful cache write resets the failure counter."""
+        import src.web.services.web_login_service as svc_module
+        from src.web.services.web_login_service import _safe_cache_set
+
+        original_count = svc_module._cache_failure_count
+        try:
+            svc_module._cache_failure_count = 8  # Close to threshold
+            _safe_cache_set("reset_key", True, 60)
+            assert svc_module._cache_failure_count == 0
+        finally:
+            svc_module._cache_failure_count = original_count
+
+    def test_intermittent_failures_dont_trigger_threshold(self):
+        """Alternating success/failure never reaches threshold."""
+        import src.web.services.web_login_service as svc_module
+        from src.web.services.web_login_service import _safe_cache_set
+
+        original_count = svc_module._cache_failure_count
+        try:
+            svc_module._cache_failure_count = 0
+
+            for i in range(20):
+                if i % 2 == 0:
+                    with patch("django.core.cache.cache.set",
+                               side_effect=ConnectionError("blip")):
+                        _safe_cache_set(f"intermittent_{i}", True, 60)
+                else:
+                    _safe_cache_set(f"intermittent_{i}", True, 60)
+
+            # Should never have raised — counter resets on each success
+            assert svc_module._cache_failure_count == 0
+        finally:
+            svc_module._cache_failure_count = original_count
+
+
+# ---- Username recycling concurrency tests ----
+
+
+class TestUsernameRecyclingConcurrency:
+    """Concurrency tests for update_telegram_username atomicity."""
+
+    def test_atomic_username_reassignment(self):
+        """Username is atomically cleared from old user and assigned to new user."""
+        from src.web.utils.sync import call_async
+
+        old_user = User.objects.create_user(
+            username="tg_old111", telegram_id="old111",
+            name="Old User", language="en", timezone="UTC",
+            telegram_username="recycled_name",
+        )
+        new_user = User.objects.create_user(
+            username="tg_new222", telegram_id="new222",
+            name="New User", language="en", timezone="UTC",
+        )
+
+        from src.core.repositories import UserRepository
+        repo = UserRepository()
+
+        call_async(repo.update_telegram_username("new222", "recycled_name"))
+
+        old_user.refresh_from_db()
+        new_user.refresh_from_db()
+        assert old_user.telegram_username is None
+        assert new_user.telegram_username == "recycled_name"
+
+    def test_sequential_username_claims_no_duplicates(self):
+        """Two sequential claims for the same username — last writer wins,
+        no duplicates remain.
+
+        Note: True concurrent threading tests require PostgreSQL (SQLite
+        file-level locking serializes writes) and a non-test DB (Django test
+        transactions isolate threads).  This test verifies correctness of the
+        atomic block by running claims sequentially.
+        """
+        from src.core.repositories import UserRepository
+        from src.web.utils.sync import call_async
+
+        target_username = "contested_name"
+
+        # Create the user who currently owns the username
+        User.objects.create_user(
+            username="tg_owner", telegram_id="owner000",
+            name="Owner", language="en", timezone="UTC",
+            telegram_username=target_username,
+        )
+
+        # Two claimants
+        claimer_a = User.objects.create_user(
+            username="tg_claima", telegram_id="claima11",
+            name="Claimer A", language="en", timezone="UTC",
+        )
+        claimer_b = User.objects.create_user(
+            username="tg_claimb", telegram_id="claimb22",
+            name="Claimer B", language="en", timezone="UTC",
+        )
+
+        repo = UserRepository()
+
+        # A claims first
+        call_async(repo.update_telegram_username("claima11", target_username))
+        claimer_a.refresh_from_db()
+        assert claimer_a.telegram_username == target_username
+
+        # B claims second — should take ownership from A
+        call_async(repo.update_telegram_username("claimb22", target_username))
+        claimer_a.refresh_from_db()
+        claimer_b.refresh_from_db()
+
+        assert claimer_a.telegram_username is None
+        assert claimer_b.telegram_username == target_username
+
+        # Only one user owns the username
+        count = User.objects.filter(telegram_username=target_username).count()
+        assert count == 1
+
+    def test_clear_username(self):
+        """Setting username to None clears it."""
+        from src.core.repositories import UserRepository
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_clear1", telegram_id="clear111",
+            name="Clear User", language="en", timezone="UTC",
+            telegram_username="to_be_cleared",
+        )
+
+        repo = UserRepository()
+        call_async(repo.update_telegram_username("clear111", None))
+
+        user.refresh_from_db()
+        assert user.telegram_username is None
+
+
 # ---- Timezone edge case tests ----
 
 
@@ -2582,8 +2855,10 @@ class TestValidationPatternSync:
         import re
         from src.web.utils.validation import TELEGRAM_USERNAME_PATTERN
 
-        # Frontend regex from Login.vue: /^[a-zA-Z0-9_]{3,32}$/
-        frontend_pattern = r"^[a-zA-Z0-9_]{3,32}$"
+        # Frontend regex from Login.vue: /^[a-z0-9_]{3,32}$/
+        # Both frontend and backend now enforce lowercase only — the frontend
+        # lowercases input before validation (submitLogin).
+        frontend_pattern = r"^[a-z0-9_]{3,32}$"
 
         assert TELEGRAM_USERNAME_PATTERN == frontend_pattern, (
             f"Backend pattern {TELEGRAM_USERNAME_PATTERN!r} differs from "
@@ -2599,6 +2874,7 @@ class TestValidationPatternSync:
             ("a" * 33, False),   # too long
             ("user@name", False),
             ("", False),
+            ("UpperCase", False),  # uppercase rejected (lowercase only)
         ]
         for username, expected in test_cases:
             backend_match = bool(re.match(TELEGRAM_USERNAME_PATTERN, username))

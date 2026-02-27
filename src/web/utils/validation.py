@@ -11,5 +11,9 @@ Verify sync with:
 Consider adding a pre-commit hook that compares both patterns automatically.
 """
 
-# Telegram usernames: 3-32 alphanumeric characters or underscores.
-TELEGRAM_USERNAME_PATTERN = r"^[a-zA-Z0-9_]{3,32}$"
+# Telegram usernames: 3-32 lowercase alphanumeric characters or underscores.
+# Lowercase only — User.save() normalizes to lowercase, and the DB-level
+# CheckConstraint enforces ^[a-z0-9_]{3,32}$.  Accepting uppercase here would
+# let the frontend accept "UserName" which is silently stored as "username",
+# creating a confusing mismatch.
+TELEGRAM_USERNAME_PATTERN = r"^[a-z0-9_]{3,32}$"

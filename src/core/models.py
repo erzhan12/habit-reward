@@ -98,6 +98,11 @@ class User(AbstractUser):
             # bulk_create/bulk_update/QuerySet.update(), so this constraint
             # ensures telegram_username is always lowercase alnum/underscore
             # 3-32 chars when set (NULL is allowed).
+            #
+            # NOTE: This uses PostgreSQL regex syntax (__regex lookup).
+            # SQLite supports a subset of regex via a Python callback, but
+            # behavior may differ from PostgreSQL (e.g. locale handling).
+            # See check_sqlite_username_constraint() in src/web/checks.py.
             models.CheckConstraint(
                 condition=(
                     models.Q(telegram_username__isnull=True)

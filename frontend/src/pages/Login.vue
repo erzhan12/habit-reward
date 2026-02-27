@@ -105,10 +105,9 @@ const POLL_MAX_CONSECUTIVE_ERRORS = 5; // Stop polling after this many consecuti
 
 // IMPORTANT: Must stay in sync with TELEGRAM_USERNAME_PATTERN in
 // src/web/utils/validation.py. A pre-commit hook verifies both patterns match.
-// Case handling: regex accepts uppercase for UX (users can type naturally),
-// but the value is lowercased before sending to the backend which stores
-// usernames in lowercase.
-const TELEGRAM_USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
+// Lowercase only — the input is lowercased before validation (see submitLogin),
+// matching the backend which stores usernames in lowercase.
+const TELEGRAM_USERNAME_RE = /^[a-z0-9_]{3,32}$/;
 
 const username = ref("");
 const state = ref("idle"); // idle | waiting | denied | expired | error

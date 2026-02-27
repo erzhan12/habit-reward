@@ -59,6 +59,12 @@ WL_FAILED_KEY = f"{_CACHE_PREFIX}wl_failed:"
 # 43-char URL-safe base64 string.  256 bits makes brute-force guessing
 # infeasible (~2^256 possible tokens).
 TOKEN_BYTES = 32
+# Derived from TOKEN_BYTES so token length validation stays in sync.
+# secrets.token_urlsafe(32) produces exactly 43 chars; allow a small
+# tolerance range for any future TOKEN_BYTES changes.
+TOKEN_LENGTH = len(__import__('secrets').token_urlsafe(TOKEN_BYTES))
+TOKEN_MIN_LENGTH = TOKEN_LENGTH - 3
+TOKEN_MAX_LENGTH = TOKEN_LENGTH + 7
 # 3 retries is sufficient because the 256-bit token space makes collisions
 # astronomically unlikely (~1 in 2^128 for birthday paradox with 2^128
 # existing tokens).  3 retries means we tolerate 3 back-to-back collisions,
@@ -91,6 +97,13 @@ _MIN_FAILED_MARKER_TTL_SECONDS = 60
 # For production with concurrent users, use PostgreSQL which has row-level
 # locking and proper connection pooling.  Also tune CONN_MAX_AGE so the DB
 # connection pool can sustain WEB_LOGIN_THREAD_POOL_SIZE concurrent workers.
+#
+# PostgreSQL production recommendations:
+#   WEB_LOGIN_THREAD_POOL_SIZE = 20-50 (match to expected concurrent logins)
+#   CONN_MAX_AGE = 600  (reuse DB connections across requests; must be >=
+#       the thread pool size to avoid connection exhaustion)
+#   DATABASE_URL pool_size >= WEB_LOGIN_THREAD_POOL_SIZE
+#   For >50 concurrent logins, consider PgBouncer for connection pooling.
 # Lazy-initialized thread pool — avoids spawning WEB_LOGIN_THREAD_POOL_SIZE
 # threads at import time.  Created on first use via _get_executor().
 _login_executor: ThreadPoolExecutor | None = None
@@ -107,6 +120,11 @@ def _get_executor() -> ThreadPoolExecutor:
                     max_workers=settings.WEB_LOGIN_THREAD_POOL_SIZE,
                     thread_name_prefix="web_login",
                 )
+                # atexit handlers are best-effort: they only run during
+                # graceful shutdown (SIGTERM / sys.exit).  A SIGKILL will
+                # skip them, leaving in-flight background threads orphaned.
+                # This is acceptable because login requests self-heal via
+                # cache TTL expiry regardless of thread completion.
                 atexit.register(_login_executor.shutdown, wait=True)
     return _login_executor
 
@@ -450,6 +468,7 @@ class WebLoginService:
                 "Invalid telegram_id for user — cannot send notification",
                 extra={"user_id": user.id, "telegram_id": user.telegram_id},
             )
+            _mark_failed_token(token, expires_at)
             return
         await self._send_login_notification(
             chat_id, login_request.id, token, device_info
@@ -520,6 +539,10 @@ class WebLoginService:
         pending_key = f"{WL_PENDING_KEY}{token}"
         failed_key = f"{WL_FAILED_KEY}{token}"
         try:
+            # get_many fetches both keys in a single round-trip (important for
+            # network-backed caches like Redis/Memcached) and ensures both
+            # values are read atomically — preventing a TOCTOU race where the
+            # failed key could be set between two separate get() calls.
             cache_keys = cache.get_many([pending_key, failed_key])
         except Exception:
             logger.warning("Cache read failed during status check for token=%s…", token[:8])

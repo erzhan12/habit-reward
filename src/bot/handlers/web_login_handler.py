@@ -42,8 +42,11 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     # Verify the user pressing the button is the request owner.
-    # Normalize both sides to str explicitly — telegram_id is stored as
-    # CharField but update.effective_user.id is an int from Telegram API.
+    # Both telegram_id values must be compared as strings because:
+    #   - login_request.user.telegram_id is a Django CharField (str)
+    #   - update.effective_user.id is an int from the Telegram API
+    # Without str() conversion, the comparison would always fail due to
+    # type mismatch (e.g. "123456" != 123456).
     request_owner_id = str(login_request.user.telegram_id).strip() if login_request.user and login_request.user.telegram_id else ""
     callback_user_id = str(update.effective_user.id).strip()
     if not request_owner_id or callback_user_id != request_owner_id:
