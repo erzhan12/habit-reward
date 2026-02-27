@@ -685,7 +685,7 @@ class TestAuth:
         cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
         with patch.object(
-            svc.request_repo, "get_by_token",
+            svc.request_repo, "get_status_fields",
             side_effect=OperationalError("database table is locked"),
         ):
             status = call_async(svc.check_status(token))
@@ -706,7 +706,7 @@ class TestAuth:
         cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
         with (
-            patch.object(svc.request_repo, "get_by_token") as mock_db,
+            patch.object(svc.request_repo, "get_status_fields") as mock_db,
             patch.object(cache, "get_many", wraps=cache.get_many) as mock_cache_get_many,
         ):
             status = call_async(svc.check_status(token))
@@ -729,7 +729,7 @@ class TestAuth:
         token = "jitter_test_token"
         cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
-        with patch.object(svc.request_repo, "get_by_token", return_value=None):
+        with patch.object(svc.request_repo, "get_status_fields", return_value=None):
             call_async(svc.check_status(token))
 
         mock_sleep.assert_called_once()
@@ -947,7 +947,7 @@ class TestLoginRaceConditions:
         # Token is in cache but NOT in DB (background thread hasn't run)
         cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
-        with patch.object(svc.request_repo, "get_by_token", return_value=None):
+        with patch.object(svc.request_repo, "get_status_fields", return_value=None):
             status = call_async(svc.check_status(token))
 
         assert status == "pending"
@@ -1028,7 +1028,7 @@ class TestBackgroundProcessingFailures:
         cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
         # No DB record exists (background thread failed before DB write)
-        with patch.object(svc.request_repo, "get_by_token", return_value=None):
+        with patch.object(svc.request_repo, "get_status_fields", return_value=None):
             status = call_async(svc.check_status(token))
 
         assert status == "pending"
@@ -1073,7 +1073,7 @@ class TestBackgroundProcessingFailures:
 
         # Cache entry already evicted (TTL passed)
         # No DB record (background thread failed)
-        with patch.object(svc.request_repo, "get_by_token", return_value=None):
+        with patch.object(svc.request_repo, "get_status_fields", return_value=None):
             status = call_async(svc.check_status(token))
 
         assert status == "expired"
@@ -1104,7 +1104,7 @@ class TestBackgroundProcessingFailures:
         """create_login_request always returns {token, expires_at} regardless
         of what happens in the background thread."""
         from django.core.cache import cache
-        from src.web.services.web_login_service import WebLoginService, _login_executor
+        from src.web.services.web_login_service import WebLoginService, _get_executor
         from src.web.utils.sync import call_async
 
         cache.clear()
@@ -1113,9 +1113,10 @@ class TestBackgroundProcessingFailures:
         mock_user = MagicMock()
         mock_user.telegram_id = "777777777"
 
+        executor = _get_executor()
         with (
             patch.object(svc.user_repo, "get_by_telegram_username", return_value=mock_user),
-            patch.object(_login_executor, "submit") as mock_submit,
+            patch.object(executor, "submit") as mock_submit,
         ):
             result = call_async(svc.create_login_request("testuser"))
 
@@ -1204,7 +1205,7 @@ class TestIPAddressParsing:
 
     @patch("src.web.utils.ip.settings")
     def test_xff_injection_attack(self, mock_settings):
-        """X-Forwarded-For with >2 IPs: falls back to REMOTE_ADDR and logs a warning."""
+        """X-Forwarded-For with >2 IPs: returns 'invalid' and logs a warning."""
         from src.web.utils.ip import parse_ip_address
 
         mock_settings.TRUST_X_FORWARDED_FOR = True
@@ -1216,8 +1217,8 @@ class TestIPAddressParsing:
         }
         with patch("src.web.utils.ip.logger") as mock_logger:
             result = parse_ip_address(request)
-        # Falls back to REMOTE_ADDR when IP injection is detected
-        assert result == "127.0.0.1"
+        # Returns "invalid" when IP injection is detected
+        assert result == "invalid"
         mock_logger.warning.assert_called_once()
         assert "3 IPs" in mock_logger.warning.call_args[0][0] % mock_logger.warning.call_args[0][1:]
 
@@ -2473,7 +2474,7 @@ class TestExecutorShutdown:
         """When executor is shut down, submit raises RuntimeError and semaphore is released."""
         from django.core.cache import cache
         import src.web.services.web_login_service as svc_mod
-        from src.web.services.web_login_service import LoginServiceUnavailable, WebLoginService, _login_executor
+        from src.web.services.web_login_service import LoginServiceUnavailable, WebLoginService, _get_executor
         from src.web.utils.sync import call_async
 
         cache.clear()
@@ -2488,8 +2489,9 @@ class TestExecutorShutdown:
         )
 
         svc = WebLoginService()
+        executor = _get_executor()
 
-        with patch.object(_login_executor, "submit", side_effect=RuntimeError("executor shut down")):
+        with patch.object(executor, "submit", side_effect=RuntimeError("executor shut down")):
             with pytest.raises(LoginServiceUnavailable):
                 call_async(svc.create_login_request("shutdownuser"))
 
@@ -2571,3 +2573,148 @@ class TestValidationPatternSync:
                 f"Mismatch for {username!r}: backend={backend_match}, "
                 f"frontend={frontend_match}, expected={expected}"
             )
+
+
+# ---- New tests for security, bug, and performance changes ----
+
+
+class TestConcurrentCompleteLogin:
+    """Verify that only one of multiple concurrent complete_login calls succeeds.
+
+    Note: True thread-level concurrency causes SQLite table locking in tests.
+    We simulate concurrent callers by calling complete_login sequentially —
+    the UPDATE WHERE status='confirmed' ensures only the first call transitions
+    the token to 'used', and all subsequent calls see status='used' and fail.
+    """
+
+    def test_concurrent_complete_login_only_one_succeeds(self):
+        """Simulating 5 concurrent complete_login calls sequentially,
+        only one should succeed (return a user), the rest should return None."""
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        user = User.objects.create_user(
+            username="tg_conc_complete",
+            telegram_id="880000001",
+            name="Conc Complete",
+            language="en",
+            timezone="UTC",
+        )
+
+        token = "conc_complete_tok"
+        WebLoginRequest.objects.create(
+            user=user,
+            token=token,
+            status=WebLoginRequest.Status.CONFIRMED,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        svc = WebLoginService()
+
+        # Simulate 5 "concurrent" callers — first wins, rest get None
+        results = [call_async(svc.complete_login(token)) for _ in range(5)]
+
+        successes = [r for r in results if r is not None]
+        failures = [r for r in results if r is None]
+
+        assert len(successes) == 1, f"Expected 1 success, got {len(successes)}"
+        assert len(failures) == 4
+        assert successes[0].id == user.id
+
+
+class TestBotLoginRequestCSRF:
+    """Verify that POST requests without valid CSRF tokens are rejected."""
+
+    def test_bot_login_request_rejects_missing_csrf(self):
+        """POST to bot-login/request/ without CSRF token returns 403."""
+        client = Client(enforce_csrf_checks=True)
+        response = client.post(
+            "/auth/bot-login/request/",
+            data=json.dumps({"username": "testuser"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 403
+
+
+class TestQueueFullReturns503:
+    """Verify LoginServiceUnavailable is raised when queue is full."""
+
+    def test_queue_full_returns_503(self):
+        """When all semaphore permits are drained, create_login_request raises
+        LoginServiceUnavailable which the view converts to HTTP 503."""
+        import src.web.services.web_login_service as svc_mod
+        from django.core.cache import cache
+        from src.web.services.web_login_service import LoginServiceUnavailable, WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+
+        user = User.objects.create_user(
+            username="tg_queue_full",
+            telegram_id="880000002",
+            name="Queue Full",
+            language="en",
+            timezone="UTC",
+            telegram_username="queuefulluser",
+        )
+
+        svc = WebLoginService()
+        original_slots = svc_mod._queue_slots
+        mock_sem = MagicMock()
+        mock_sem.acquire.return_value = False
+        svc_mod._queue_slots = mock_sem
+        try:
+            with pytest.raises(LoginServiceUnavailable):
+                call_async(svc.create_login_request("queuefulluser"))
+        finally:
+            svc_mod._queue_slots = original_slots
+
+
+class TestParseIPRejectsMultipleForwardedIPs:
+    """Verify that X-Forwarded-For with >2 IPs returns 'invalid'."""
+
+    @patch("src.web.utils.ip.settings")
+    def test_parse_ip_rejects_multiple_forwarded_ips(self, mock_settings):
+        """X-Forwarded-For with >2 IPs logs a warning and returns 'invalid'."""
+        from src.web.utils.ip import parse_ip_address
+
+        mock_settings.TRUST_X_FORWARDED_FOR = True
+        request = MagicMock()
+        request.META = {
+            "HTTP_X_FORWARDED_FOR": "10.0.0.1, 192.168.1.1, 172.16.0.1",
+            "REMOTE_ADDR": "127.0.0.1",
+        }
+        with patch("src.web.utils.ip.logger") as mock_logger:
+            result = parse_ip_address(request)
+
+        assert result == "invalid"
+        mock_logger.warning.assert_called_once()
+
+
+class TestCacheFailureThresholdRaisesError:
+    """Verify that 3 consecutive cache write failures raise CacheWriteError."""
+
+    def test_cache_failure_threshold_raises_error(self):
+        """3 consecutive cache.set failures raise CacheWriteError."""
+        import src.web.services.web_login_service as svc_mod
+        from src.web.services.web_login_service import CacheWriteError, _safe_cache_set
+
+        # Reset the failure counter
+        original_count = svc_mod._cache_failure_count
+        svc_mod._cache_failure_count = 0
+
+        try:
+            with patch("django.core.cache.cache.set", side_effect=ConnectionError("down")):
+                # First two should just warn
+                for i in range(2):
+                    try:
+                        _safe_cache_set(f"test_key_{i}", True, 60)
+                    except CacheWriteError:
+                        pytest.fail(f"CacheWriteError raised too early on attempt {i + 1}")
+
+                # Third should raise
+                with pytest.raises(CacheWriteError):
+                    _safe_cache_set("test_key_3", True, 60)
+        finally:
+            svc_mod._cache_failure_count = original_count

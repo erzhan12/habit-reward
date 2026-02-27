@@ -22,8 +22,8 @@ from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
 
-# Cryptographically secure RNG for timing jitter — avoids the predictable
-# Mersenne Twister used by the `random` module.
+# Cryptographically secure RNG for timing jitter — thread-safe and avoids
+# the predictable Mersenne Twister used by the `random` module.
 _secure_random = secrets.SystemRandom()
 
 # Configurable via settings.WEB_LOGIN_EXPIRY_MINUTES (default 5).
@@ -58,8 +58,24 @@ _JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
 # you may see "database is locked" errors. For production with significant
 # traffic, use PostgreSQL instead of SQLite. Also tune CONN_MAX_AGE so the
 # DB connection pool can keep up with WEB_LOGIN_THREAD_POOL_SIZE workers.
-_login_executor = ThreadPoolExecutor(max_workers=settings.WEB_LOGIN_THREAD_POOL_SIZE, thread_name_prefix="web_login")
-atexit.register(_login_executor.shutdown, wait=True)
+# Lazy-initialized thread pool — avoids spawning WEB_LOGIN_THREAD_POOL_SIZE
+# threads at import time.  Created on first use via _get_executor().
+_login_executor: ThreadPoolExecutor | None = None
+_executor_lock = threading.Lock()
+
+
+def _get_executor() -> ThreadPoolExecutor:
+    """Return the shared ThreadPoolExecutor, creating it on first use."""
+    global _login_executor
+    if _login_executor is None:
+        with _executor_lock:
+            if _login_executor is None:
+                _login_executor = ThreadPoolExecutor(
+                    max_workers=settings.WEB_LOGIN_THREAD_POOL_SIZE,
+                    thread_name_prefix="web_login",
+                )
+                atexit.register(_login_executor.shutdown, wait=True)
+    return _login_executor
 
 # Maximum number of queued items before rejecting new requests (circuit breaker).
 _MAX_QUEUED_LOGINS = getattr(settings, "WEB_LOGIN_MAX_QUEUED", 50)
@@ -96,6 +112,9 @@ def _safe_cache_set(key: str, value, timeout: int) -> None:
 
     try:
         cache.set(key, value, timeout=timeout)
+        # Counter resets on ANY successful write, not just after threshold.
+        # This means intermittent failures won't trigger CacheWriteError
+        # unless 3+ failures occur consecutively without any successful writes.
         with _cache_failure_lock:
             _cache_failure_count = 0
     except (ConnectionError, TimeoutError, OSError):
@@ -111,6 +130,17 @@ def _safe_cache_set(key: str, value, timeout: int) -> None:
                 f"Cache writes have failed {failure_count} times consecutively "
                 "— check cache backend configuration"
             )
+
+
+def _mark_failed_token(token: str, expires_at) -> None:
+    """Set a failure cache key so check_status can return 'error'.
+
+    Extracted as a module-level function for testability.  Uses a minimum
+    TTL of 60 seconds to ensure the marker persists even when processing
+    is delayed and ``expires_at`` is close to (or past) the current time.
+    """
+    cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 60)
+    _safe_cache_set(f"{WL_FAILED_KEY}{token}", True, cache_ttl)
 
 
 class WebLoginService:
@@ -175,7 +205,7 @@ class WebLoginService:
             # All DB writes + Telegram send happen in the bounded thread pool
             # so the HTTP response time is constant for both paths.
             try:
-                future = _login_executor.submit(
+                future = _get_executor().submit(
                     self._process_login_background, user, token, expires_at, device_info
                 )
                 # Release the semaphore when the future completes (success,
@@ -189,6 +219,11 @@ class WebLoginService:
                 raise LoginServiceUnavailable(
                     "Login service shutting down"
                 )
+            except Exception:
+                # Any other failure during future submission — release
+                # the semaphore to prevent leaks.
+                _queue_slots.release()
+                raise
         else:
             # SECURITY: We deliberately do nothing visible here — no error, no
             # different response.  Returning the same {token, expires_at} for
@@ -218,15 +253,10 @@ class WebLoginService:
         """
         from src.web.utils.sync import call_async
 
-        def _mark_failed():
-            """Set a failure cache key so check_status can return 'error'."""
-            cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
-            _safe_cache_set(f"{WL_FAILED_KEY}{token}", True, cache_ttl)
-
         def _mark_failed_safely():
             """Best-effort cache write; failures are logged but non-fatal here."""
             try:
-                _mark_failed()
+                _mark_failed_token(token, expires_at)
             except CacheWriteError as cache_error:
                 logger.error(
                     "Failed to write wl_failed marker to cache",
@@ -281,6 +311,7 @@ class WebLoginService:
                     WebLoginRequest.objects.filter(
                         user_id=user_id,
                         status=WebLoginRequest.Status.PENDING,
+                        created_at__gte=datetime.now(timezone.utc) - timedelta(hours=1),
                     ).update(status=WebLoginRequest.Status.DENIED)
                     login_request = WebLoginRequest.objects.create(
                         user_id=user_id,
@@ -338,6 +369,9 @@ class WebLoginService:
         Uses plain text (no parse_mode) as defense-in-depth — eliminates
         any risk from HTML parser bugs processing user-controlled device_info.
         """
+        if not settings.TELEGRAM_BOT_TOKEN:
+            logger.error("TELEGRAM_BOT_TOKEN is not configured")
+            raise InvalidToken("Bot token is not configured")
         bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
         device_text = device_info or "Unknown device"
         message_text = (
@@ -404,7 +438,7 @@ class WebLoginService:
             # Cache is empty; fall back to DB lookup.
             db_unavailable = False
             try:
-                login_request = await maybe_await(self.request_repo.get_by_token(token))
+                login_request = await maybe_await(self.request_repo.get_status_fields(token))
             except OperationalError:
                 logger.warning(
                     "DB lock during status check for token=%s…, and cache is empty",
@@ -417,7 +451,16 @@ class WebLoginService:
             # Django's TextChoices members must be converted to their .value
             # (string) for JSON responses.
             if not login_request:
-                status = "error" if db_unavailable else "expired"
+                if db_unavailable:
+                    status = "error"
+                else:
+                    # Token doesn't exist in DB — cache a negative entry to
+                    # avoid repeated DB queries during polling.
+                    try:
+                        cache.set(f"{WL_FAILED_KEY}{token}", True, timeout=300)
+                    except Exception:
+                        pass
+                    status = "expired"
             elif datetime.now(timezone.utc) > login_request.expires_at:
                 status = "expired"
             else:

@@ -69,6 +69,16 @@ def login_page(request):
     return inertia_render(request, "Login")
 
 
+def _sanitize_user_agent(ua: str) -> str:
+    """Truncate and filter a raw User-Agent string.
+
+    Removes non-printable characters and caps length at
+    ``MAX_USER_AGENT_LENGTH`` to bound downstream processing.
+    """
+    ua = ua[:MAX_USER_AGENT_LENGTH]
+    return ''.join(c for c in ua if c.isprintable() or c.isspace())
+
+
 def _parse_device_info(request) -> str:
     """Extract a human-readable device description from the request.
 
@@ -77,11 +87,7 @@ def _parse_device_info(request) -> str:
     Output is truncated to 255 characters (DB field limit) at this input
     boundary.  No IP address is included (GDPR).
     """
-    # Truncate before filtering/parsing so downstream processing is always
-    # bounded by MAX_USER_AGENT_LENGTH.
-    ua = request.META.get("HTTP_USER_AGENT", "")
-    ua = ua[:MAX_USER_AGENT_LENGTH]
-    ua = ''.join(c for c in ua if c.isprintable() or c.isspace())
+    ua = _sanitize_user_agent(request.META.get("HTTP_USER_AGENT", ""))
 
     ua_parsed = parse_ua(ua)
     browser = f"{ua_parsed.browser.family} {ua_parsed.browser.version_string}".strip()
@@ -107,7 +113,7 @@ def _parse_device_info(request) -> str:
 
 
 @require_POST
-@ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True)
+@ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True, group="bot_login_request")
 def bot_login_request(request):
     """Initiate a bot-based login request.
 
@@ -255,6 +261,9 @@ def bot_login_complete(request):
     token = str(data.get("token", "")).strip()
     if not token:
         return JsonResponse({"error": "Token is required"}, status=400)
+
+    if len(token) > 64:
+        return JsonResponse({"error": "Invalid token format"}, status=400)
 
     if not _TOKEN_PATTERN.match(token):
         return JsonResponse({"error": "Invalid token format"}, status=400)

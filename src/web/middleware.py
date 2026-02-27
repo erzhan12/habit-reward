@@ -76,7 +76,10 @@ class ContentSecurityPolicyMiddleware:
     _CSP_TEMPLATE = "; ".join([
         "default-src 'self'",
         "script-src 'self'",
-        "style-src 'self' 'nonce-{nonce}'",
+        # 'unsafe-inline' is needed for Vue 3 scoped styles which inject
+        # <style> tags at runtime without nonce support.  The nonce still
+        # covers Django template styles and manually authored blocks.
+        "style-src 'self' 'nonce-{nonce}' 'unsafe-inline'",
         "img-src 'self' data: https:",
         "connect-src 'self'",
     ])

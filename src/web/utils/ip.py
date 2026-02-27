@@ -35,9 +35,10 @@ def parse_ip_address(request) -> str:
                 logger.warning(
                     "X-Forwarded-For contains %d IPs — reverse proxy may not "
                     "be sanitizing the header (possible IP injection). "
-                    "Falling back to REMOTE_ADDR.",
+                    "Rejecting request IP.",
                     len(parts),
                 )
+                return "invalid"
             else:
                 candidate = parts[0]
                 try:

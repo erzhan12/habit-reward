@@ -42,3 +42,27 @@ def check_xff_trust_configuration(app_configs, **kwargs):
             logger.warning("SECURITY: %s", msg)
             errors.append(Error(msg, id="web.E002"))
     return errors
+
+
+@register()
+def check_login_expiry_consistency(app_configs, **kwargs):
+    """Warn when backend WEB_LOGIN_EXPIRY_MINUTES doesn't match frontend LOGIN_EXPIRY_MS.
+
+    The frontend LOGIN_EXPIRY_MS is hardcoded at 300_000 ms (5 minutes).
+    If the backend setting diverges, login requests will behave
+    inconsistently — e.g. the frontend may stop polling before the
+    backend token actually expires, or vice versa.
+    """
+    errors = []
+    backend_minutes = getattr(settings, "WEB_LOGIN_EXPIRY_MINUTES", 5)
+    frontend_ms = 300_000  # LOGIN_EXPIRY_MS in frontend/src/pages/Login.vue
+    backend_ms = backend_minutes * 60 * 1000
+    if backend_ms != frontend_ms:
+        msg = (
+            f"WEB_LOGIN_EXPIRY_MINUTES={backend_minutes} ({backend_ms}ms) does not "
+            f"match frontend LOGIN_EXPIRY_MS={frontend_ms}ms. Update one to match "
+            "the other to avoid inconsistent login expiry behaviour."
+        )
+        logger.warning("CONFIG: %s", msg)
+        errors.append(Warning(msg, id="web.W001"))
+    return errors

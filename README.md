@@ -206,6 +206,27 @@ The bot login flow implements several security properties:
 | `WEB_LOGIN_JITTER_MIN` | `0.05` | Minimum timing jitter (seconds) added to status polling responses. |
 | `WEB_LOGIN_JITTER_MAX` | `0.2` | Maximum timing jitter (seconds) added to status polling responses. |
 
+#### Queue Overflow Handling
+
+When `WEB_LOGIN_MAX_QUEUED` is exceeded (i.e., there are more pending login requests than the queue can hold), new requests receive an **HTTP 503 Service Unavailable** response with:
+
+```json
+{"error": "Service temporarily unavailable. Please try again shortly."}
+```
+
+This acts as a circuit breaker to prevent unbounded resource consumption under load. To tune for production:
+
+- **`WEB_LOGIN_THREAD_POOL_SIZE`**: Controls how many login requests are processed concurrently (DB write + Telegram API call). Each worker blocks for the duration of a Telegram API round-trip (~200ms–2s). Start with 10 for low traffic, increase to 25–50 for higher concurrency. Requires PostgreSQL for values above ~10 (SQLite locks under concurrent writes).
+- **`WEB_LOGIN_MAX_QUEUED`**: Requests beyond the thread pool capacity queue here before 503 is returned. Set to 2–5x the thread pool size. For example, with `THREAD_POOL_SIZE=25`, set `MAX_QUEUED=100` to absorb bursts of ~125 simultaneous logins.
+
+Monitor queue saturation with:
+
+```bash
+grep 'Login thread pool queue full' /path/to/logs/app.log
+```
+
+If you see frequent 503s, increase both values and ensure your database connection pool (`CONN_MAX_AGE`) can support the additional workers.
+
 #### Tuning Thread Pool and Queue Size
 
 If you observe HTTP 503 errors during peak login times, increase `WEB_LOGIN_THREAD_POOL_SIZE` and/or `WEB_LOGIN_MAX_QUEUED`. Monitor with:

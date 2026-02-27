@@ -1305,6 +1305,19 @@ class WebLoginRequestRepository:
         except WebLoginRequest.DoesNotExist:
             return None
 
+    async def get_status_fields(self, token: str) -> WebLoginRequest | None:
+        """Lightweight status lookup using .only() without the user join.
+
+        Suitable for high-frequency status polling where only status and
+        expires_at are needed.
+        """
+        try:
+            return await sync_to_async(
+                WebLoginRequest.objects.only("status", "expires_at").get
+            )(token=token)
+        except WebLoginRequest.DoesNotExist:
+            return None
+
     async def update_status(self, token: str, status: str) -> int:
         """Update the status of a web login request.
 

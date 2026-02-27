@@ -55,6 +55,17 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("⚠️ This login request has expired.")
         return
 
+    # Validate status is a known value
+    valid_statuses = [s.value for s in WebLoginRequest.Status]
+    if login_request.status not in valid_statuses:
+        logger.error(
+            "Invalid status '%s' for login request %s",
+            login_request.status,
+            login_request.id,
+        )
+        await query.edit_message_text("⚠️ This login request is in an invalid state.")
+        return
+
     # Check if already handled
     if login_request.status != WebLoginRequest.Status.PENDING.value:
         status_text = "confirmed" if login_request.status == WebLoginRequest.Status.CONFIRMED.value else "denied"

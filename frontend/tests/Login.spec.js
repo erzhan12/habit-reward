@@ -230,6 +230,49 @@ describe("Login.vue", () => {
     await flushPromises();
   });
 
+  it("clears timers when component is unmounted during polling", async () => {
+    vi.useFakeTimers();
+    wrapper = createWrapper();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          token: "unmount_tok",
+          expires_at: "2099-01-01T00:00:00Z",
+          message: "ok",
+        }),
+    });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    // Should be in waiting state (polling active)
+    expect(wrapper.text()).toContain("Check your Telegram");
+
+    // Mock status to keep returning pending
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ status: "pending" }),
+    });
+
+    // Unmount during active polling
+    wrapper.unmount();
+    wrapper = null; // prevent afterEach double-unmount
+
+    // Advance time past expiry — no timers should fire (no errors)
+    vi.advanceTimersByTime(400_000);
+    await flushPromises();
+
+    // If timers were not cleared, fetch would have been called after unmount.
+    // Since we unmounted, no polls should have fired.
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+
   it("recovers from polling network error and retries successfully", async () => {
     vi.useFakeTimers();
     wrapper = createWrapper();

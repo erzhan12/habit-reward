@@ -101,11 +101,16 @@ class User(AbstractUser):
         if not self.username and self.telegram_id:
             self.username = f"tg_{self.telegram_id}"
 
-        # Normalize telegram_username: lowercase, strip @
+        # Validate telegram_username format instead of silently normalizing,
+        # to prevent collisions (e.g. "User_1" and "user1" mapping to same value).
         if self.telegram_username:
-            self.telegram_username = re.sub(
-                r'[^a-z0-9_]', '', self.telegram_username.lstrip('@').lower()
-            )
+            cleaned = self.telegram_username.lstrip('@').lower()
+            if not re.match(r'^[a-z0-9_]{3,32}$', cleaned):
+                raise ValidationError(
+                    f"Invalid telegram_username '{self.telegram_username}': "
+                    "must be 3-32 lowercase alphanumeric characters or underscores."
+                )
+            self.telegram_username = cleaned
 
         # Set unusable password for Telegram-only users if no password set
         if not self.password:

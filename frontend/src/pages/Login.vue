@@ -99,7 +99,7 @@ defineOptions({ layout: null });
 // Polling constants — must stay in sync with server's LOGIN_REQUEST_EXPIRY_MINUTES (5 min)
 const POLL_INITIAL_DELAY_MS = 2000; // First poll after 2s
 const POLL_BACKOFF_FACTOR = 2; // Exponential backoff multiplier
-const POLL_MAX_DELAY_MS = 30_000; // Cap at 30s between polls
+const POLL_MAX_DELAY_MS = 30_000; // Cap for exponential backoff between polls
 const LOGIN_EXPIRY_MS = 300_000; // 5 minutes — matches server expiry
 
 // IMPORTANT: Must stay in sync with TELEGRAM_USERNAME_PATTERN in
@@ -116,9 +116,13 @@ let pollTimer = null;
 let expiryTimer = null;
 let pollDelay = 0;
 
+let _csrfToken = null;
 function getCsrfToken() {
-  const meta = document.querySelector('meta[name="csrf-token"]');
-  return meta?.content || "";
+  if (_csrfToken === null) {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    _csrfToken = meta?.content || "";
+  }
+  return _csrfToken;
 }
 
 /**
@@ -250,7 +254,7 @@ async function pollStatus() {
     } else if (data.status === "denied") {
       stopPolling();
       state.value = "denied";
-    } else if (data.status === "expired" || data.status === "not_found") {
+    } else if (data.status === "expired") {
       stopPolling();
       state.value = "expired";
     } else if (data.status === "used") {
