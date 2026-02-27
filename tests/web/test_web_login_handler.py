@@ -157,6 +157,29 @@ class TestWebLoginCallback:
         assert "already" in msg.lower()
 
     @pytest.mark.asyncio
+    async def test_web_login_callback_already_used_status(self, handler_user):
+        """Pressing Confirm on an already-used request shows 'already completed'."""
+        from src.bot.handlers.web_login_handler import web_login_callback
+
+        used_login = await sync_to_async(WebLoginRequest.objects.create)(
+            user=handler_user,
+            token="handler_used_token_padded_to_43chars_xxxxx",
+            status="used",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        update = _make_update(
+            int(handler_user.telegram_id),
+            f"wl_c_{used_login.token}",
+        )
+        await web_login_callback(update, MagicMock())
+
+        await _refresh(used_login)
+        assert used_login.status == "used"  # unchanged
+        msg = update.callback_query.edit_message_text.call_args[0][0]
+        assert "already completed" in msg.lower()
+
+    @pytest.mark.asyncio
     async def test_nonexistent_token(self, handler_user):
         """Callback with unknown token shows 'not found' message."""
         from src.bot.handlers.web_login_handler import web_login_callback

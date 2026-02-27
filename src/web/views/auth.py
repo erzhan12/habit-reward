@@ -193,7 +193,7 @@ def bot_login_request(request):
     if not username:
         return JsonResponse({"error": "Username is required"}, status=400)
 
-    # Strip @ prefix if present
+    # Strip @ prefix if present (frontend also normalizes, but defense-in-depth)
     username = username.lstrip("@")
 
     # Basic validation — canonical pattern from src/web/utils/validation.py

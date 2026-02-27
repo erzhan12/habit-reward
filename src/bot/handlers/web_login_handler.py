@@ -90,8 +90,12 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # login_request.status is a plain string from the DB (e.g. "pending"),
     # so we compare against .value (also a string), NOT the enum member.
     if login_request.status != WebLoginRequest.Status.PENDING.value:
-        status_text = "confirmed" if login_request.status == WebLoginRequest.Status.CONFIRMED.value else "denied"
-        await query.edit_message_text(f"This login request was already {status_text}.")
+        if login_request.status == WebLoginRequest.Status.USED.value:
+            await query.edit_message_text("✅ This login request was already completed.")
+        elif login_request.status == WebLoginRequest.Status.CONFIRMED.value:
+            await query.edit_message_text("This login request was already confirmed.")
+        else:
+            await query.edit_message_text("This login request was already denied.")
         return
 
     if action == 'c':

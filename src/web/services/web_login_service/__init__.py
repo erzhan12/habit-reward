@@ -232,7 +232,7 @@ class WebLoginService:
                 )
             else:
                 logger.warning(
-                    "User has no telegram_id",
+                    "User exists but has no telegram_id (account created via non-bot method)",
                     extra={"username": username, "user_id": user.id},
                 )
 

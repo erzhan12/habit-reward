@@ -25,7 +25,7 @@ Both known and unknown usernames receive an identical HTTP 200 response with a t
 ### Timing Attack Resistance
 
 - **Status polling jitter**: `check_status` adds 50-200ms random jitter (configurable via `WEB_LOGIN_JITTER_MIN`/`WEB_LOGIN_JITTER_MAX`) from a `secrets.SystemRandom()` CSPRNG.
-- **Jitter scope**: Applied to `pending`, `expired`, and `error` statuses — these have cache-dependent code paths with measurably different timing. Terminal statuses (`confirmed`, `denied`, `used`) are excluded as they only appear after a real DB write and don't leak information.
+- **Jitter scope**: Applied to `pending`, `expired`, and `error` statuses — these have cache-dependent code paths with measurably different timing. Terminal statuses (`confirmed`, `denied`, `used`) are intentionally excluded from jitter because they can only occur after a real DB write and don't create timing side-channels — an attacker cannot reach these statuses without a valid token that has already been acted upon, so they provide no enumeration signal.
 - **Background processing**: Token generation, cache writes, and HTTP response happen synchronously. DB writes and Telegram sends happen asynchronously in a bounded thread pool.
 
 ### Token Security

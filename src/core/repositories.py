@@ -9,7 +9,7 @@ from datetime import date
 from typing import Any
 from decimal import Decimal
 from asgiref.sync import sync_to_async
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 
 from src.core.models import User, Habit, HabitLog, Reward, RewardProgress, AuthCode, APIKey, WebLoginRequest
@@ -139,17 +139,34 @@ class UserRepository:
             recycled username — without the transaction, both UPDATE queries
             could succeed independently, leaving the username assigned to
             the last writer with no guarantee of consistency.
-            """
-            with transaction.atomic():
-                User.objects.filter(
-                    telegram_username=normalized
-                ).exclude(
-                    telegram_id=telegram_id
-                ).update(telegram_username=None)
 
-                User.objects.filter(
-                    telegram_id=telegram_id
-                ).update(telegram_username=normalized)
+            Retries once on IntegrityError to handle the theoretical race
+            where two concurrent transactions both pass the EXCLUDE query
+            but collide on the unique constraint.
+            """
+            for attempt in range(2):
+                try:
+                    with transaction.atomic():
+                        User.objects.filter(
+                            telegram_username=normalized
+                        ).exclude(
+                            telegram_id=telegram_id
+                        ).update(telegram_username=None)
+
+                        User.objects.filter(
+                            telegram_id=telegram_id
+                        ).update(telegram_username=normalized)
+                    return
+                except IntegrityError:
+                    if attempt == 0:
+                        logger.warning(
+                            "IntegrityError during username recycling for telegram_id=%s, "
+                            "username=%s — retrying once",
+                            telegram_id,
+                            normalized,
+                        )
+                    else:
+                        raise
 
         await sync_to_async(_atomic_username_update)()
 
