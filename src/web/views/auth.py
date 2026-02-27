@@ -81,12 +81,12 @@ _NON_PRINTABLE_RE = re.compile(r'[^\x20-\x7E\s]')
 
 
 def _sanitize_user_agent(ua: str) -> str:
-    """Truncate and filter a raw User-Agent string.
+    """Filter non-printable characters from a User-Agent string.
 
-    Removes non-printable characters and caps length at
-    ``MAX_USER_AGENT_LENGTH`` to bound downstream processing.
+    Expects input already truncated to ``MAX_USER_AGENT_LENGTH`` by the
+    caller (``_parse_ua_cached``).  Only performs character filtering.
     """
-    return _NON_PRINTABLE_RE.sub('', ua[:MAX_USER_AGENT_LENGTH])
+    return _NON_PRINTABLE_RE.sub('', ua)
 
 
 _UA_CACHE_KEY_PREFIX = "ua_parse:"
@@ -99,20 +99,24 @@ def _parse_ua_cached(ua: str) -> str:
     Uses Django's cache framework (shared across processes, auto-evicted by
     TTL) instead of ``functools.lru_cache`` to avoid per-process memory
     buildup and test pollution. Cache key is a truncated BLAKE2b hash of
-    the raw UA string (truncated to ``MAX_USER_AGENT_LENGTH``) with a 1-hour TTL.
+    the raw UA string (truncated once to ``MAX_USER_AGENT_LENGTH``) with a
+    1-hour TTL.
 
-    Performance note: UA sanitization is intentionally deferred until after
-    cache lookup, so cache hits avoid extra string processing.
+    Performance note: UA truncation is computed once (``ua_truncated``) and
+    reused for both cache key generation and sanitization.  UA sanitization
+    is deferred until after cache lookup, so cache hits avoid extra string
+    processing.
     """
     from django.core.cache import cache
 
-    ua_for_key = ua[:MAX_USER_AGENT_LENGTH]
+    # Truncate once — used for both cache key and parsing.
+    ua_truncated = ua[:MAX_USER_AGENT_LENGTH]
     # blake2b with digest_size=8 produces an 8-byte digest, which
     # hexdigest() encodes as a 16-character hex string.
     # Faster than SHA-256 and sufficient for cache key uniqueness.
     cache_key = (
         f"{_UA_CACHE_KEY_PREFIX}"
-        f"{hashlib.blake2b(ua_for_key.encode(errors='ignore'), digest_size=8).hexdigest()}"
+        f"{hashlib.blake2b(ua_truncated.encode(errors='ignore'), digest_size=8).hexdigest()}"
     )
     try:
         cached = cache.get(cache_key)
@@ -122,7 +126,7 @@ def _parse_ua_cached(ua: str) -> str:
     if cached is not None:
         return cached
 
-    sanitized_ua = _sanitize_user_agent(ua_for_key)
+    sanitized_ua = _sanitize_user_agent(ua_truncated)
     ua_parsed = parse_ua(sanitized_ua)
     browser = f"{ua_parsed.browser.family} {ua_parsed.browser.version_string}".strip()
     os_name = f"{ua_parsed.os.family} {ua_parsed.os.version_string}".strip()
@@ -175,6 +179,13 @@ def validate_login_token(token: str) -> bool:
         TOKEN_MIN_LENGTH <= len(token) <= TOKEN_MAX_LENGTH
         and _TOKEN_PATTERN.match(token) is not None
     )
+
+
+def _validate_token_or_400(token: str):
+    """Validate token format; return a 400 JsonResponse on failure, else None."""
+    if not validate_login_token(token):
+        return JsonResponse({"error": "Invalid token format"}, status=400)
+    return None
 
 
 @require_POST
@@ -233,7 +244,9 @@ def bot_login_request(request):
     if not re.match(TELEGRAM_USERNAME_PATTERN, username):
         return JsonResponse({"error": "Invalid Telegram username"}, status=400)
 
-    device_info = _parse_device_info(request)
+    # Defense-in-depth: truncate even if _parse_device_info already does,
+    # in case the parsing function changes or returns longer output.
+    device_info = _parse_device_info(request)[:MAX_DEVICE_INFO_LENGTH]
 
     try:
         result = call_async(
@@ -281,10 +294,15 @@ def bot_login_status(request, token):
     Example::
 
         curl http://localhost:8000/auth/bot-login/status/abc123def456/
+
+        # Success: {"status": "pending"}
+        # Success: {"status": "confirmed"}
+        # Error:   {"error": "Invalid token format"}  (400)
     """
     token = str(token).strip()
-    if not validate_login_token(token):
-        return JsonResponse({"error": "Invalid token format"}, status=400)
+    error = _validate_token_or_400(token)
+    if error:
+        return error
 
     status = call_async(web_login_service.check_status(token))
     return JsonResponse({"status": status})
@@ -320,6 +338,11 @@ def bot_login_complete(request):
              -H 'Content-Type: application/json' \\
              -H 'X-CSRFToken: <token>' \\
              -d '{"token": "abc123def456"}'
+
+        # Success: {"success": true, "redirect": "/"}
+        # Error:   {"error": "Token is required"}                              (400)
+        # Error:   {"error": "Invalid token format"}                           (400)
+        # Error:   {"error": "Login request expired or invalid. ..."}          (403)
     """
     try:
         data = json.loads(request.body)
@@ -333,8 +356,9 @@ def bot_login_complete(request):
     if not token:
         return JsonResponse({"error": "Token is required"}, status=400)
 
-    if not validate_login_token(token):
-        return JsonResponse({"error": "Invalid token format"}, status=400)
+    error = _validate_token_or_400(token)
+    if error:
+        return error
 
     user = call_async(web_login_service.complete_login(token))
     if not user:

@@ -363,7 +363,24 @@ OUTPUT: reward_progress
 5. RETURN progress
 ```
 
-## Web Login Flow
+## Authentication
+
+The application uses a passwordless, bot-based login flow:
+
+1. **User enters `@username`** on the web login page.
+2. **Bot sends Confirm/Deny buttons** to the user's Telegram chat.
+3. **User taps Confirm** in Telegram, and the web session is created.
+
+This approach eliminates passwords entirely — authentication proof comes
+from Telegram account ownership.  The security model includes
+anti-enumeration (identical responses for known/unknown usernames), timing
+attack resistance (50-200ms CSPRNG jitter), and atomic replay prevention.
+
+See `SECURITY.md` for the full threat model.  Key production settings:
+`AUTH_RATE_LIMIT` (default `10/m`) and `WEB_LOGIN_THREAD_POOL_SIZE`
+(default `10`, increase for high-traffic deployments with PostgreSQL).
+
+### Web Login Flow
 
 The web interface uses a bot-based Confirm/Deny login — no passwords.
 

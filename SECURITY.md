@@ -47,7 +47,7 @@ All authentication endpoints are rate-limited per IP via `django-ratelimit`:
 
 ### X-Forwarded-For Trust
 
-`TRUST_X_FORWARDED_FOR` must only be enabled behind a trusted reverse proxy that overwrites the header. Without a proxy, clients can spoof their IP to bypass rate limiting. Django system checks (`web.E001`, `web.E002`) warn when this is misconfigured.
+`TRUST_X_FORWARDED_FOR` must only be enabled behind a trusted reverse proxy that overwrites the header. Without a proxy, clients can spoof their IP to bypass rate limiting. Django system checks (`web.E001`, `web.E002`) **error** (fail startup) when this is misconfigured.
 
 ### Input Validation
 

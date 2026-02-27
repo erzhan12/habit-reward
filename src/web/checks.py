@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 @register()
 def check_xff_trust_configuration(app_configs, **kwargs):
-    """Warn if TRUST_X_FORWARDED_FOR=True but no reverse proxy indicators.
+    """Error if TRUST_X_FORWARDED_FOR=True but no reverse proxy indicators.
 
     When TRUST_X_FORWARDED_FOR is enabled, Django will trust the
     X-Forwarded-For header for client IP detection.  This is only safe
@@ -31,7 +31,7 @@ def check_xff_trust_configuration(app_configs, **kwargs):
                 "TRUST_X_FORWARDED_FOR."
             )
             logger.warning("SECURITY: %s", msg)
-            errors.append(Warning(msg, id="web.W003"))
+            errors.append(Error(msg, id="web.E001"))
         if not settings.DEBUG:
             msg = (
                 "TRUST_X_FORWARDED_FOR=True in a production environment "
@@ -40,7 +40,7 @@ def check_xff_trust_configuration(app_configs, **kwargs):
                 "header. Without this, clients can spoof their IP address."
             )
             logger.warning("SECURITY: %s", msg)
-            errors.append(Warning(msg, id="web.W004"))
+            errors.append(Error(msg, id="web.E002"))
     return errors
 
 
@@ -170,24 +170,27 @@ def check_sqlite_conn_max_age(app_configs, **kwargs):
 
 @register()
 def check_sqlite_username_constraint(app_configs, **kwargs):
-    """Warn when SQLite is used with the User.telegram_username regex constraint.
+    """Error when SQLite is used with the User.telegram_username regex constraint.
 
     The CheckConstraint on User.telegram_username uses ``__regex`` which maps
     to PostgreSQL's ``~`` operator.  SQLite supports regex via a Python
-    callback but behavior may differ (e.g. locale-dependent character
-    classes).  This is unlikely to cause issues for the simple ``[a-z0-9_]``
-    pattern but is worth noting for awareness.
+    callback but the engine differs from PostgreSQL's — locale handling,
+    character class semantics, and edge cases may diverge.  This could
+    allow invalid usernames to pass the CHECK constraint on SQLite while
+    being correctly rejected on PostgreSQL.
+
+    Production deployments MUST use PostgreSQL for reliable constraint
+    enforcement.  SQLite is acceptable only for local development/testing.
     """
     errors = []
     engine = settings.DATABASES.get("default", {}).get("ENGINE", "")
     if "sqlite" in engine:
         msg = (
             "SQLite backend is in use. The User.telegram_username CHECK "
-            "constraint uses PostgreSQL regex syntax (__regex). SQLite "
-            "handles regex via a Python callback which may behave "
-            "differently for complex patterns. The current simple pattern "
-            "(^[a-z0-9_]{3,32}$) works correctly on both, but be aware "
-            "of this if modifying the constraint."
+            "constraint uses PostgreSQL regex syntax (__regex). SQLite's "
+            "Python regex callback does not match PostgreSQL's engine and "
+            "could allow invalid usernames. Use PostgreSQL for production, "
+            "or accept this risk for local development only."
         )
-        errors.append(Warning(msg, id="web.W005"))
+        errors.append(Error(msg, id="web.E004"))
     return errors

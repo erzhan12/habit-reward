@@ -2856,3 +2856,162 @@ class TestCriticalPathIntegrations:
 
         assert response.status_code == 503
         assert "temporarily unavailable" in response.json()["error"].lower()
+
+
+class TestConcurrentSameUserLogin:
+    """Verify that two login requests from the same user result in exactly
+    one PENDING WebLoginRequest (the other is invalidated to DENIED).
+
+    Tests the transactional invalidation logic in
+    ``_create_login_request_with_retry`` by calling it twice for the same
+    user and verifying the DB invariant.
+    """
+
+    def test_two_requests_only_one_pending(self):
+        """Call _create_login_request_with_retry twice for the same user.
+        After both complete, exactly one WebLoginRequest has status=PENDING."""
+        import secrets
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import (
+            WebLoginService, TOKEN_BYTES,
+        )
+        from django.core.cache import cache
+
+        cache.clear()
+
+        user_obj = User.objects.create_user(
+            username="tg_concurrent_same",
+            telegram_id="770000001",
+            name="Concurrent Same",
+            language="en",
+            timezone="UTC",
+            telegram_username="concurrentsame",
+        )
+
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        token1 = secrets.token_urlsafe(TOKEN_BYTES)
+        token2 = secrets.token_urlsafe(TOKEN_BYTES)
+
+        # First request creates a PENDING login request.
+        req1, final_token1 = WebLoginService._create_login_request_with_retry(
+            user_obj.id, token1, expires_at, "device1",
+        )
+        assert req1.status == WebLoginRequest.Status.PENDING.value
+
+        # Second request should invalidate the first and create a new PENDING.
+        req2, final_token2 = WebLoginService._create_login_request_with_retry(
+            user_obj.id, token2, expires_at, "device2",
+        )
+        assert req2.status == WebLoginRequest.Status.PENDING.value
+
+        # Exactly one PENDING request should exist for this user.
+        pending_count = WebLoginRequest.objects.filter(
+            user=user_obj, status=WebLoginRequest.Status.PENDING,
+        ).count()
+        assert pending_count == 1, (
+            f"Expected exactly 1 PENDING request, found {pending_count}"
+        )
+
+        # The first request should now be DENIED.
+        req1.refresh_from_db()
+        assert req1.status == WebLoginRequest.Status.DENIED.value
+
+        # The second request is the active PENDING one.
+        req2.refresh_from_db()
+        assert req2.status == WebLoginRequest.Status.PENDING.value
+
+
+class TestCircuitBreakerLoadTest:
+    """Load test: submit more requests than queue capacity to verify
+    the 503 circuit breaker activates and that requests resume afterward.
+    """
+
+    def test_overload_triggers_503_then_recovers(self):
+        """Submit more than queue capacity requests rapidly.  At least one
+        should receive HTTP 503.  After the queue drains, a new request
+        should succeed (HTTP 200)."""
+        import src.web.services.web_login_service as svc_mod
+        from src.web.services.web_login_service import _get_executor
+
+        User.objects.create_user(
+            username="tg_loadtest",
+            telegram_id="770000002",
+            name="Load Test",
+            language="en",
+            timezone="UTC",
+            telegram_username="loadtestuser",
+        )
+
+        # Use a small queue capacity for a fast test.
+        original_slots = svc_mod._queue_slots
+        original_max = svc_mod._MAX_QUEUED_LOGINS
+        original_warn = svc_mod._QUEUE_WARN_THRESHOLD
+        test_capacity = 3
+        svc_mod._queue_slots = threading.Semaphore(test_capacity)
+        svc_mod._MAX_QUEUED_LOGINS = test_capacity
+        svc_mod._QUEUE_WARN_THRESHOLD = int(test_capacity * 0.8)
+
+        # Block background threads so the queue fills up.
+        block_event = threading.Event()
+
+        def _blocking_submit(job, *args):
+            """Submit a job that blocks until the event is set."""
+            future = Future()
+
+            def _wrapper():
+                block_event.wait(timeout=10)
+                try:
+                    job(*args)
+                    future.set_result(None)
+                except Exception as exc:
+                    future.set_exception(exc)
+
+            t = threading.Thread(target=_wrapper)
+            t.daemon = True
+            t.start()
+            return future
+
+        try:
+            with patch.object(
+                _get_executor(), "submit", side_effect=_blocking_submit,
+            ):
+                responses = []
+                for i in range(test_capacity + 5):
+                    response = Client().post(
+                        "/auth/bot-login/request/",
+                        data=json.dumps({"username": "loadtestuser"}),
+                        content_type="application/json",
+                    )
+                    responses.append(response)
+
+                status_codes = [r.status_code for r in responses]
+                assert 503 in status_codes, (
+                    f"Expected at least one 503 in {status_codes}"
+                )
+
+            # Unblock all threads so the queue drains.
+            block_event.set()
+            time.sleep(0.5)
+        finally:
+            svc_mod._queue_slots = original_slots
+            svc_mod._MAX_QUEUED_LOGINS = original_max
+            svc_mod._QUEUE_WARN_THRESHOLD = original_warn
+
+        # After queue drains, verify recovery is possible.
+        # Clear rate-limit cache entries so the recovery request isn't
+        # blocked by django-ratelimit (we just sent 8 rapid requests).
+        from django.core.cache import cache as django_cache
+        django_cache.clear()
+
+        with patch(
+            "src.web.views.auth.call_async",
+            side_effect=_call_async_mock(
+                {"token": "recovery_token", "expires_at": "2026-01-01T00:00:00+00:00"}
+            ),
+        ):
+            recovery = Client().post(
+                "/auth/bot-login/request/",
+                data=json.dumps({"username": "loadtestuser"}),
+                content_type="application/json",
+            )
+        assert recovery.status_code == 200

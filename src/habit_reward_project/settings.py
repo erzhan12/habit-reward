@@ -267,6 +267,12 @@ WEB_LOGIN_EXPIRY_MINUTES = env.int('WEB_LOGIN_EXPIRY_MINUTES', default=5)
 # that overwrites X-Forwarded-For with the real client IP.
 TRUST_X_FORWARDED_FOR = env.bool('TRUST_X_FORWARDED_FOR', default=False)
 
+# Number of consecutive cache write failures before the CacheManager raises
+# CacheWriteError (circuit breaker).  High enough to tolerate transient blips
+# (e.g. Redis failover ~1-5s), low enough to surface genuine misconfiguration.
+# See src/web/services/web_login_service/cache_operations.py.
+CACHE_FAILURE_THRESHOLD = env.int('CACHE_FAILURE_THRESHOLD', default=10)
+
 
 # =============================================================================
 # INERTIA.JS + VITE CONFIGURATION

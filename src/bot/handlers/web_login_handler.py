@@ -4,6 +4,8 @@ import logging
 import re
 from datetime import datetime, timezone
 
+from asgiref.sync import sync_to_async
+from django.db import transaction
 from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
@@ -82,35 +84,53 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("⚠️ This login request is in an invalid state.")
         return
 
-    # Check if already handled.
-    # login_request.status is a plain string from the DB (e.g. "pending"),
-    # so we compare against .value (also a string), NOT the enum member.
-    if login_request.status != WebLoginRequest.Status.PENDING.value:
-        if login_request.status == WebLoginRequest.Status.USED.value:
-            await query.edit_message_text("✅ This login request was already completed.")
-        elif login_request.status == WebLoginRequest.Status.CONFIRMED.value:
-            await query.edit_message_text("This login request was already confirmed.")
-        else:
-            await query.edit_message_text("This login request was already denied.")
-        return
+    # Atomically check status and update inside a transaction with a row
+    # lock.  This prevents two concurrent button presses from both seeing
+    # status == PENDING and proceeding (TOCTOU race).
+    new_status = (
+        WebLoginRequest.Status.CONFIRMED.value if action == 'c'
+        else WebLoginRequest.Status.DENIED.value
+    )
 
-    if action == 'c':
-        updated = await maybe_await(
-            web_login_request_repository.update_status(token, WebLoginRequest.Status.CONFIRMED.value)
+    def _atomic_status_transition():
+        """Re-fetch with SELECT FOR UPDATE and transition if still PENDING."""
+        with transaction.atomic():
+            try:
+                lr = (
+                    WebLoginRequest.objects
+                    .select_for_update()
+                    .get(token=token)
+                )
+            except WebLoginRequest.DoesNotExist:
+                return 0, None  # disappeared between fetches
+            if lr.status != WebLoginRequest.Status.PENDING.value:
+                return 0, lr.status  # already handled
+            lr.status = new_status
+            lr.save(update_fields=['status'])
+            return 1, new_status
+
+    updated, current_status = await sync_to_async(_atomic_status_transition)()
+
+    if updated == 1:
+        # Clear cache keys after successful status transition.
+        await maybe_await(
+            web_login_request_repository._clear_login_cache_keys(token)
         )
-        if updated == 1:
+        if action == 'c':
             await query.edit_message_text("✅ Login confirmed. You can close this message.")
             logger.info("Web login confirmed for user %s", login_request.user_id)
-        elif updated == 0:
-            await query.edit_message_text("⚠️ This login request has already been processed.")
-    else:
-        updated = await maybe_await(
-            web_login_request_repository.update_status(token, WebLoginRequest.Status.DENIED.value)
-        )
-        if updated == 1:
+        else:
             await query.edit_message_text("❌ Login denied. The request has been rejected.")
             logger.info("Web login denied for user %s", login_request.user_id)
-        elif updated == 0:
+    else:
+        # Already handled — show appropriate message based on current status.
+        if current_status == WebLoginRequest.Status.USED.value:
+            await query.edit_message_text("✅ This login request was already completed.")
+        elif current_status == WebLoginRequest.Status.CONFIRMED.value:
+            await query.edit_message_text("This login request was already confirmed.")
+        elif current_status == WebLoginRequest.Status.DENIED.value:
+            await query.edit_message_text("This login request was already denied.")
+        else:
             await query.edit_message_text("⚠️ This login request has already been processed.")
 
 

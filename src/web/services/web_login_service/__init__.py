@@ -12,7 +12,9 @@ Package structure::
 import asyncio
 import atexit
 import logging
+import os
 import secrets
+import signal
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
@@ -100,6 +102,7 @@ LOGIN_REQUEST_EXPIRY_MINUTES = getattr(settings, "WEB_LOGIN_EXPIRY_MINUTES", 5)
 # makes statistical discrimination infeasible even with thousands of
 # samples.  The upper bound (200ms) keeps UX responsive — users polling
 # every 2-3s won't notice the added latency.
+# See also: SECURITY.md § "Timing Attack Resistance" for the full threat model.
 _JITTER_MIN = getattr(settings, "WEB_LOGIN_JITTER_MIN", 0.05)
 _JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
 
@@ -116,6 +119,58 @@ _login_executor: ThreadPoolExecutor | None = None
 _executor_lock = threading.Lock()
 
 
+_EXECUTOR_SHUTDOWN_TIMEOUT = 30  # seconds
+
+
+def _shutdown_executor(signum=None, frame=None) -> None:
+    """Gracefully shut down the login executor.
+
+    Called by SIGTERM/SIGINT handlers and atexit.  Uses a 30-second timeout
+    to prevent hanging if threads are stuck (e.g. waiting on Telegram API).
+    """
+    global _login_executor
+    with _executor_lock:
+        executor = _login_executor
+    if executor is None:
+        return
+    # During interpreter shutdown (atexit), logging streams may already be
+    # closed.  Disable logging temporarily to avoid "I/O operation on
+    # closed file" tracebacks from the logging framework.
+    if not signum:
+        logging.disable(logging.CRITICAL)
+    else:
+        sig_name = signal.Signals(signum).name
+        logger.info(
+            "Shutting down login executor (%s), timeout=%ds",
+            sig_name,
+            _EXECUTOR_SHUTDOWN_TIMEOUT,
+        )
+    executor.shutdown(wait=True, cancel_futures=False)
+
+
+def _install_signal_handlers() -> None:
+    """Install SIGTERM/SIGINT handlers for graceful executor shutdown.
+
+    Only installs handlers from the main thread (signal handlers can only
+    be registered from the main thread).  Preserves existing handlers by
+    chaining — calls the previous handler after our shutdown logic.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        prev_handler = signal.getsignal(sig)
+
+        def _handler(signum, frame, _prev=prev_handler):
+            _shutdown_executor(signum, frame)
+            if callable(_prev) and _prev not in (signal.SIG_DFL, signal.SIG_IGN):
+                _prev(signum, frame)
+            elif _prev == signal.SIG_DFL:
+                signal.signal(signum, signal.SIG_DFL)
+                os.kill(os.getpid(), signum)
+
+        signal.signal(sig, _handler)
+
+
 def _get_executor() -> ThreadPoolExecutor:
     """Return the shared ThreadPoolExecutor, creating it on first use."""
     global _login_executor
@@ -125,12 +180,10 @@ def _get_executor() -> ThreadPoolExecutor:
                 max_workers=settings.WEB_LOGIN_THREAD_POOL_SIZE,
                 thread_name_prefix="web_login",
             )
-            # atexit handlers are best-effort: they only run during
-            # graceful shutdown (SIGTERM / sys.exit).  A SIGKILL will
-            # skip them, leaving in-flight background threads orphaned.
-            # This is acceptable because login requests self-heal via
-            # cache TTL expiry regardless of thread completion.
-            atexit.register(_login_executor.shutdown, wait=True)
+            # atexit is best-effort (skipped on SIGKILL).  Signal handlers
+            # provide more reliable shutdown for SIGTERM/SIGINT.
+            atexit.register(_shutdown_executor)
+            _install_signal_handlers()
     return _login_executor
 
 
@@ -349,13 +402,21 @@ class WebLoginService:
             return
 
         def _mark_failed_safely():
-            """Best-effort cache write; failures are logged but non-fatal here."""
+            """Best-effort cache write; failures are logged but non-fatal here.
+
+            If the cache write fails, the token stays in "pending" state
+            until its cache TTL expires.  This is degraded but acceptable:
+            the client will eventually see "expired" instead of "error".
+            We log at ERROR with a monitoring metric so alerting picks it up.
+            """
             try:
                 _mark_failed_token(token, expires_at)
             except CacheWriteError as cache_error:
                 logger.error(
-                    "Failed to write wl_failed marker to cache",
+                    "Failed to write wl_failed marker to cache — token may "
+                    "stay in 'pending' state until TTL expiry",
                     extra={
+                        "metric": "web_login.mark_failed.cache_write_error",
                         "user_id": user.id,
                         "token_prefix": token[:8],
                         "error": str(cache_error),
@@ -506,8 +567,11 @@ class WebLoginService:
                 extra={"token_prefix": token[:8]},
             )
             cache_keys = {}
-        cache_pending = cache_keys.get(pending_key)
-        cache_failed = cache_keys.get(failed_key)
+        # Use 'in' instead of .get() — Django's get_many() omits missing
+        # keys from the returned dict, so 'in' correctly distinguishes
+        # between a missing key (cache miss) and a key with a falsy value.
+        cache_pending = pending_key in cache_keys
+        cache_failed = failed_key in cache_keys
 
         if cache_failed:
             status = "error"
