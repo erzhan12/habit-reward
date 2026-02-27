@@ -420,11 +420,46 @@ The web interface uses a bot-based Confirm/Deny login — no passwords.
     │<────────────────────────│                           │
 ```
 
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Django
+    participant ThreadPool
+    participant TelegramBot
+    participant User as Telegram User
+
+    Browser->>Django: POST /auth/bot-login/request/ {username}
+    Django->>Django: Generate token, cache wl_pending:{token}
+    Django-->>Browser: 200 {token, expires_at}
+    Django->>ThreadPool: Submit background job
+
+    ThreadPool->>ThreadPool: Create DB record (WebLoginRequest)
+    ThreadPool->>TelegramBot: Send Confirm/Deny buttons
+    TelegramBot-->>User: "Login request from Chrome on macOS"
+
+    loop Poll every 2-30s (exponential backoff)
+        Browser->>Django: GET /auth/bot-login/status/{token}/
+        Django-->>Browser: {status: "pending"} + 50-200ms jitter
+    end
+
+    User->>TelegramBot: Taps "Confirm"
+    TelegramBot->>Django: Callback: update status=confirmed
+
+    Browser->>Django: GET /auth/bot-login/status/{token}/
+    Django-->>Browser: {status: "confirmed"}
+
+    Browser->>Django: POST /auth/bot-login/complete/ {token}
+    Django->>Django: Atomic mark_as_used (SELECT FOR UPDATE)
+    Django->>Django: Create Django session
+    Django-->>Browser: 200 {success: true, redirect: "/"}
+```
+
 **Security properties:**
 - **Anti-enumeration**: Known and unknown usernames produce identical responses and timing (background work is deferred to a thread pool).
 - **Timing jitter**: Status polling adds 50-200ms random jitter (configurable) from `secrets.SystemRandom()`.
-- **Replay prevention**: Confirmed tokens are atomically marked `used` via `UPDATE … WHERE status='confirmed'`.
-- **Rate limiting**: All endpoints are rate-limited per IP (`AUTH_RATE_LIMIT`, `AUTH_STATUS_RATE_LIMIT`).
+- **Replay prevention**: Confirmed tokens are atomically marked `used` via `SELECT FOR UPDATE` with row-level locking.
+- **Rate limiting**: All endpoints are rate-limited per IP and per token (`AUTH_RATE_LIMIT`, `AUTH_STATUS_RATE_LIMIT`).
+- **IP binding**: Status polling is bound to the originating IP to prevent cross-machine token enumeration.
 - **CSP nonce**: Production responses include a per-request CSP nonce for `style-src`.
 
 ### Monitoring & Observability

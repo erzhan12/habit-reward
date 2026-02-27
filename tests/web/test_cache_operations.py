@@ -735,3 +735,100 @@ class TestCacheManagerThreadSafety:
             for i in range(3):
                 mgr.set(f"postfail_{i}", True, 60)
         assert mgr.failure_count == 3
+
+
+class TestCacheWriteErrorInUnknownLoginBackground:
+    """Verify CacheWriteError handling in _process_unknown_login_background.
+
+    When the cache backend is unhealthy during unknown-user processing,
+    the method should:
+    1. Log a critical message
+    2. Attempt to write the failed marker (best-effort)
+    3. Not raise — the background thread must not crash
+    """
+
+    def test_cache_write_error_logs_critical_and_attempts_failed_marker(self):
+        """CacheWriteError in _process_unknown_login_background logs critical
+        and attempts _mark_failed_token as a best-effort fallback."""
+        from datetime import datetime, timedelta, timezone
+        from src.web.services.web_login_service import (
+            CacheWriteError,
+            WebLoginService,
+            cache_manager,
+        )
+
+        svc = WebLoginService()
+        token = "unknown_cache_fail_tok"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        with (
+            patch.object(
+                cache_manager, "set",
+                side_effect=CacheWriteError("Cache down"),
+            ),
+            patch(
+                "src.web.services.web_login_service._mark_failed_token"
+            ) as mock_mark_failed,
+            patch("src.web.services.web_login_service.logger") as mock_logger,
+        ):
+            # Should not raise
+            svc._process_unknown_login_background(
+                None, "unknownuser", token, expires_at
+            )
+
+        mock_logger.critical.assert_called_once()
+        assert "Cache backend unhealthy" in mock_logger.critical.call_args[0][0]
+        mock_mark_failed.assert_called_once_with(token, expires_at)
+
+    def test_cache_write_error_swallows_failed_marker_error(self):
+        """When both cache_manager.set AND _mark_failed_token raise
+        CacheWriteError, the method still does not raise."""
+        from datetime import datetime, timedelta, timezone
+        from src.web.services.web_login_service import (
+            CacheWriteError,
+            WebLoginService,
+            cache_manager,
+        )
+
+        svc = WebLoginService()
+        token = "unknown_double_fail_tok"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        with (
+            patch.object(
+                cache_manager, "set",
+                side_effect=CacheWriteError("Cache down"),
+            ),
+            patch(
+                "src.web.services.web_login_service._mark_failed_token",
+                side_effect=CacheWriteError("Still down"),
+            ),
+        ):
+            # Should not raise even when both writes fail
+            svc._process_unknown_login_background(
+                None, "unknownuser", token, expires_at
+            )
+
+    def test_normal_path_sets_pending_cache_key(self):
+        """Happy path: _process_unknown_login_background sets the pending
+        cache key and logs a warning for the unknown user."""
+        from datetime import datetime, timedelta, timezone
+        from django.core.cache import cache
+        from src.web.services.web_login_service import (
+            WL_PENDING_KEY,
+            WebLoginService,
+        )
+
+        cache.clear()
+        svc = WebLoginService()
+        token = "unknown_happy_path_tok"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        with patch("src.web.services.web_login_service.logger") as mock_logger:
+            svc._process_unknown_login_background(
+                None, "unknownuser", token, expires_at
+            )
+
+        assert cache.get(f"{WL_PENDING_KEY}{token}") is True
+        mock_logger.warning.assert_called_once()
+        assert "unknown username" in mock_logger.warning.call_args[0][0].lower()

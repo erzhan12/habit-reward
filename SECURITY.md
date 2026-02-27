@@ -62,6 +62,12 @@ All authentication endpoints are rate-limited per IP via `django-ratelimit`:
 - **No IP in device_info**: The device description sent to Telegram excludes IP addresses entirely.
 - **Minimal data**: Only `telegram_id` is stored for user identification.
 
+### Cache Security
+
+- **Namespace isolation**: All login-related cache keys use the `wl_pending:` and `wl_failed:` prefixes, preventing collisions with other application cache entries.
+- **No sensitive data in cache**: Cache stores only boolean status flags (`True`), never tokens, user IDs, or session data. Token values appear only in cache *keys*, not values.
+- **TTL enforcement**: All cache entries use a TTL derived from the login request's `expires_at` (max 5 minutes), limiting the window for cache poisoning attacks. Stale entries are automatically evicted.
+
 ## Circuit Breakers
 
 - **Thread pool queue**: When `WEB_LOGIN_MAX_QUEUED` is exceeded, new requests return HTTP 503 (prevents unbounded resource consumption).

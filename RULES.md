@@ -2009,7 +2009,7 @@ A pre-commit hook (`scripts/check_validation_sync.sh`) verifies they stay in syn
 Status polling jitter (`src/web/services/web_login_service.py`) is applied to `"pending"`, `"expired"`, and `"error"` statuses — these have cache-dependent code paths with different timing that could leak information. Terminal statuses `"confirmed"`, `"denied"`, and `"used"` are excluded. Named constants `_JITTER_MIN`/`_JITTER_MAX` are configurable via Django settings.
 
 ### UA Parsing Cache
-`_parse_ua_cached` in `src/web/views/auth.py` uses Django's cache framework (not `lru_cache`) with blake2b-hashed keys and 1-hour TTL. Both `cache.get()` and `cache.set()` are wrapped in try-except to gracefully degrade if the cache backend fails — the function falls back to direct UA parsing. Tests: `TestParseUaCachedCacheFailure` in `tests/web/test_auth_views.py`.
+`_parse_ua_cached` in `src/web/views/auth.py` uses Django's cache framework (not `lru_cache`) with `hash()` (masked to 64-bit hex) for cache keys and 1-hour TTL. `MAX_USER_AGENT_LENGTH` is configurable via `settings.MAX_USER_AGENT_LENGTH` (default 1024). Both `cache.get()` and `cache.set()` are wrapped in try-except to gracefully degrade if the cache backend fails — the function falls back to direct UA parsing. Tests: `TestParseUaCachedCacheFailure` in `tests/web/test_auth_views.py`.
 
 ### Timezone-Aware Comparisons
 Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB datetime fields with `datetime.now(timezone.utc)`. Django may return naive datetimes when `USE_TZ=False`. Always guard against `None` at call sites (e.g. `if login_request.expires_at is None or ...`) to handle corrupt DB rows gracefully. The handler in `web_login_handler.py` also imports and uses `_ensure_utc` for consistency.
@@ -2034,7 +2034,7 @@ In `_safe_cache_set`, the threshold check (`should_raise`) MUST be inside the `_
 **DO NOT** use `patch("django.core.cache.cache.set", ...)` or `patch.object(django_cache, "set", ...)` when testing across threads. Django's cache proxy uses `ConnectionProxy` with thread-local connections, so mocks applied to the proxy only work in the main thread. **Instead**, patch the actual backend class: `patch.object(LocMemCache, "set", ...)` (from `django.core.cache.backends.locmem`). This patches at the class level so all instances see the mock.
 
 ### Login.vue Server Expiry Sync
-`Login.vue` uses the server's `expires_at` from the `/auth/bot-login/request/` response to set the client-side expiry timer, avoiding client clock drift. Falls back to `LOGIN_EXPIRY_MS` (5 min) if not provided. Bounded: floor 10s (prevent instant expiry from clock skew), cap `LOGIN_EXPIRY_MS`.
+`Login.vue` uses the server's `expires_at` from the `/auth/bot-login/request/` response to set the client-side expiry timer, avoiding client clock drift. Falls back to `LOGIN_EXPIRY_MS` (5 min) if not provided. Bounded: floor 60s (prevent premature expiry from moderate clock skew), cap `LOGIN_EXPIRY_MS`. `pollStatus()` handles HTTP 400/403 as permanent errors (stops polling immediately).
 
 ### Login.vue Polling Retry Limit
 Frontend polling (`pollStatus`) stops after `POLL_MAX_CONSECUTIVE_ERRORS` (5) consecutive network failures and transitions to error state. The counter resets on any successful poll. `submitLogin` catch also logs to `console.error`.
@@ -2076,3 +2076,22 @@ The `wl_pending` cache key is set eagerly (before background thread) by design. 
 
 ### Token Collision Cache Update
 When `_create_login_request_with_retry` handles an IntegrityError, it writes a pending cache entry for the new token via `_safe_cache_set`. This ensures the retried token is trackable via `check_status`.
+
+### mark_as_used Atomicity (SELECT FOR UPDATE)
+`repositories.py:mark_as_used()` uses `SELECT FOR UPDATE` inside `transaction.atomic()` instead of the old `filter().update()` pattern. This provides true row-level locking on PostgreSQL (prevents TOCTOU race). On SQLite, `SELECT FOR UPDATE` is a no-op, but the `save(update_fields=['status'])` after checking `lr.status` still provides sequential consistency via SQLite's file lock.
+
+### IP-Session Binding for Status Polling
+`bot_login_request` stores the requesting client's IP in `request.session[f"wl_origin_ip:{token}"]`. `bot_login_status` verifies the polling IP matches the originating IP. On mismatch, returns `{"status": "expired"}` (not an error) to prevent information leakage. This blocks attackers who intercept tokens from polling status from a different machine.
+
+### Per-Token Rate Limiting
+`bot_login_status` has two rate limiters: per-IP (`AUTH_STATUS_RATE_LIMIT`) and per-token (`_ratelimit_key_token`, 10/m). The per-token limiter uses the token extracted from the URL path as the rate-limit key.
+
+### Threading Tests with SQLite Pitfall
+SQLite's file-level locking causes `OperationalError("database table is locked")` in threading-based DB tests. For concurrent view tests, use `RequestFactory` (not `Client()`) to avoid session middleware DB access, and mock `login()` and `call_async` at the view level. See `TestConcurrentCompleteLoginThreading` in `tests/web/test_auth_views.py`.
+
+### Bounded Thread Pool Queue
+The login `ThreadPoolExecutor` uses `queue.Queue(maxsize=_MAX_QUEUED_LOGINS)` (replaces the default unbounded `SimpleQueue`) as a hard memory ceiling. This complements the semaphore-based circuit breaker.
+
+### Web Test Files (Updated)
+- `tests/web/test_timing_jitter.py` — timing jitter verification (range, variation, per-status behavior)
+- `tests/web/test_cleanup_command.py` — cleanup_expired_logins management command tests

@@ -3015,3 +3015,79 @@ class TestCircuitBreakerLoadTest:
                 content_type="application/json",
             )
         assert recovery.status_code == 200
+
+
+class TestConcurrentCompleteLoginThreading:
+    """Threading-based concurrency test for complete_login view logic.
+
+    Uses real threads calling the view function directly via RequestFactory
+    to avoid SQLite table-locking from Django's session middleware.
+    Mocks call_async to simulate the race condition: first caller wins
+    (returns user), second gets None (token already used).
+    """
+
+    def test_threading_complete_login_one_succeeds_one_fails(self):
+        """Two real threads call bot_login_complete simultaneously;
+        exactly one gets 200 (success), the other gets 403 (token used)."""
+        from django.test import RequestFactory
+        from src.web.views.auth import bot_login_complete
+
+        user = User.objects.create_user(
+            username="tg_thread_http_complete",
+            telegram_id="880100002",
+            name="Thread HTTP Complete",
+            language="en",
+            timezone="UTC",
+        )
+
+        valid_token = "thread_http_complete_tok_aaabbbbccccddddeeee"
+        call_count = 0
+        call_lock = threading.Lock()
+
+        def _mock_complete(coro):
+            """First caller wins (returns user), second gets None."""
+            nonlocal call_count
+            if hasattr(coro, 'close'):
+                coro.close()
+            with call_lock:
+                call_count += 1
+                current = call_count
+            return user if current == 1 else None
+
+        results = []
+        errors = []
+        lock = threading.Lock()
+        barrier = threading.Barrier(2, timeout=5)
+        factory = RequestFactory()
+
+        def _worker():
+            try:
+                barrier.wait()  # Synchronize thread start
+                request = factory.post(
+                    "/auth/bot-login/complete/",
+                    data=json.dumps({"token": valid_token}),
+                    content_type="application/json",
+                )
+                response = bot_login_complete(request)
+                with lock:
+                    results.append(response.status_code)
+            except Exception as exc:
+                with lock:
+                    errors.append(exc)
+
+        with (
+            patch("src.web.views.auth.call_async", side_effect=_mock_complete),
+            patch("src.web.views.auth.login"),  # Avoid session DB access
+        ):
+            threads = [threading.Thread(target=_worker) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=10)
+
+        assert all(not t.is_alive() for t in threads), "Threads timed out"
+        assert not errors, f"Unexpected errors: {errors}"
+        assert len(results) == 2
+        assert sorted(results) == [200, 403], (
+            f"Expected one 200 and one 403, got {results}"
+        )

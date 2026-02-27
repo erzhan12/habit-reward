@@ -13,6 +13,7 @@ import asyncio
 import atexit
 import logging
 import os
+import queue
 import secrets
 import signal
 import threading
@@ -174,13 +175,25 @@ def _install_signal_handlers() -> None:
 
 
 def _get_executor() -> ThreadPoolExecutor:
-    """Return the shared ThreadPoolExecutor, creating it on first use."""
+    """Return the shared ThreadPoolExecutor, creating it on first use.
+
+    Uses a bounded ``queue.Queue(maxsize=_MAX_QUEUED_LOGINS)`` to cap the
+    internal work queue, preventing unbounded memory growth when Telegram
+    API calls are slow.  This complements the semaphore-based circuit
+    breaker: the semaphore rejects new submissions quickly, while the
+    bounded queue provides a hard memory ceiling inside the executor.
+    """
     global _login_executor
     with _executor_lock:
         if _login_executor is None:
             _login_executor = ThreadPoolExecutor(
                 max_workers=settings.WEB_LOGIN_THREAD_POOL_SIZE,
                 thread_name_prefix="web_login",
+            )
+            # Replace the default unbounded SimpleQueue with a bounded Queue
+            # to enforce a hard memory ceiling on queued work items.
+            _login_executor._work_queue = queue.Queue(
+                maxsize=_MAX_QUEUED_LOGINS
             )
             # atexit is best-effort (skipped on SIGKILL).  Signal handlers
             # provide more reliable shutdown for SIGTERM/SIGINT.
@@ -250,6 +263,30 @@ class WebLoginService:
     def __init__(self):
         self.user_repo = user_repository
         self.request_repo = web_login_request_repository
+
+    @staticmethod
+    def _mark_failed_safely_with_logging(
+        token: str, expires_at, extra: dict
+    ) -> None:
+        """Best-effort cache write to mark a token as failed.
+
+        If the cache write fails, the token stays in "pending" state until
+        its cache TTL expires.  This is degraded but acceptable: the client
+        will eventually see "expired" instead of "error".  Logged at ERROR
+        with a monitoring metric so alerting picks it up.
+        """
+        try:
+            _mark_failed_token(token, expires_at)
+        except CacheWriteError as cache_error:
+            logger.error(
+                "Failed to write wl_failed marker to cache — token may "
+                "stay in 'pending' state until TTL expiry",
+                extra={
+                    "metric": "web_login.mark_failed.cache_write_error",
+                    **extra,
+                    "error": str(cache_error),
+                },
+            )
 
     async def create_login_request(
         self, username: str, device_info: str | None = None
@@ -349,6 +386,12 @@ class WebLoginService:
                 "Cache backend unhealthy during unknown-user login processing",
                 extra={"username": username, "token_prefix": token[:8]},
             )
+            # Best-effort attempt to mark the token as failed so the frontend
+            # sees "error" instead of polling forever on "pending".
+            try:
+                _mark_failed_token(token, expires_at)
+            except CacheWriteError:
+                pass
             return
 
         if not user:
@@ -403,27 +446,10 @@ class WebLoginService:
             # Cannot proceed — check_status won't find this token.
             return
 
-        def _mark_failed_safely():
-            """Best-effort cache write; failures are logged but non-fatal here.
+        _fail_extra = {"user_id": user.id, "token_prefix": token[:8]}
 
-            If the cache write fails, the token stays in "pending" state
-            until its cache TTL expires.  This is degraded but acceptable:
-            the client will eventually see "expired" instead of "error".
-            We log at ERROR with a monitoring metric so alerting picks it up.
-            """
-            try:
-                _mark_failed_token(token, expires_at)
-            except CacheWriteError as cache_error:
-                logger.error(
-                    "Failed to write wl_failed marker to cache — token may "
-                    "stay in 'pending' state until TTL expiry",
-                    extra={
-                        "metric": "web_login.mark_failed.cache_write_error",
-                        "user_id": user.id,
-                        "token_prefix": token[:8],
-                        "error": str(cache_error),
-                    },
-                )
+        def _mark_failed_safely():
+            self._mark_failed_safely_with_logging(token, expires_at, _fail_extra)
 
         # All error paths call _mark_failed_safely() so the frontend sees
         # "error" status instead of hanging on "pending" forever.  This is
@@ -531,19 +557,10 @@ class WebLoginService:
                 "Invalid telegram_id for user — cannot send notification",
                 extra={"user_id": user.id, "telegram_id": user.telegram_id},
             )
-            try:
-                _mark_failed_token(token, expires_at)
-            except CacheWriteError as cache_error:
-                logger.error(
-                    "Failed to write wl_failed marker to cache after invalid "
-                    "telegram_id — token may stay in 'pending' state until TTL expiry",
-                    extra={
-                        "metric": "web_login.mark_failed.cache_write_error",
-                        "user_id": user.id,
-                        "token_prefix": token[:8],
-                        "error": str(cache_error),
-                    },
-                )
+            self._mark_failed_safely_with_logging(
+                token, expires_at,
+                {"user_id": user.id, "token_prefix": token[:8]},
+            )
             return
         await self._send_login_notification(
             chat_id, login_request.id, token, device_info

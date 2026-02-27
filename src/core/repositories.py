@@ -1367,14 +1367,32 @@ class WebLoginRequestRepository:
         return updated
 
     async def mark_as_used(self, token: str) -> int:
-        """Atomically mark a confirmed request as used.
+        """Atomically mark a confirmed request as used with row-level locking.
+
+        Uses SELECT FOR UPDATE to prevent concurrent requests from both
+        marking the same token as used (TOCTOU race in the old
+        filter().update() pattern).
 
         Returns:
             Number of rows updated (0 or 1). 0 means another request beat us.
         """
-        updated = await sync_to_async(
-            WebLoginRequest.objects.filter(token=token, status=WebLoginRequest.Status.CONFIRMED.value).update
-        )(status=WebLoginRequest.Status.USED.value)
+        def _atomic_mark_used():
+            with transaction.atomic():
+                try:
+                    lr = (
+                        WebLoginRequest.objects
+                        .select_for_update()
+                        .get(token=token)
+                    )
+                except WebLoginRequest.DoesNotExist:
+                    return 0
+                if lr.status != WebLoginRequest.Status.CONFIRMED.value:
+                    return 0
+                lr.status = WebLoginRequest.Status.USED.value
+                lr.save(update_fields=['status'])
+                return 1
+
+        updated = await sync_to_async(_atomic_mark_used)()
         if updated:
             await sync_to_async(self.clear_login_cache_keys)(token)
         return updated

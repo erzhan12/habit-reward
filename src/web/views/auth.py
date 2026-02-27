@@ -55,8 +55,11 @@ from src.web.utils.validation import TELEGRAM_USERNAME_PATTERN
 
 logger = logging.getLogger(__name__)
 
-# Maximum length for User-Agent string before parsing (prevent memory issues)
-MAX_USER_AGENT_LENGTH: int = 1024
+# Maximum length for User-Agent string before parsing.  Prevents memory
+# exhaustion from maliciously large UA strings while accommodating typical
+# browser UAs (usually 100-300 chars).  HTTP spec has no hard limit on
+# header values, but 1024 is a safe ceiling for UA parsing purposes.
+MAX_USER_AGENT_LENGTH: int = getattr(settings, "MAX_USER_AGENT_LENGTH", 1024)
 # Maximum device_info length (DB field constraint)
 MAX_DEVICE_INFO_LENGTH: int = 255
 # URL-safe base64 token format (secrets.token_urlsafe output)
@@ -98,9 +101,9 @@ def _parse_ua_cached(ua: str) -> str:
 
     Uses Django's cache framework (shared across processes, auto-evicted by
     TTL) instead of ``functools.lru_cache`` to avoid per-process memory
-    buildup and test pollution. Cache key is a truncated BLAKE2b hash of
-    the raw UA string (truncated once to ``MAX_USER_AGENT_LENGTH``) with a
-    1-hour TTL.
+    buildup and test pollution. Cache key uses Python's built-in ``hash()``
+    masked to 64 bits for speed — sufficient for cache key uniqueness
+    (not security-critical).
 
     Performance note: UA truncation is computed once (``ua_truncated``) and
     reused for both cache key generation and sanitization.  UA sanitization
@@ -111,13 +114,10 @@ def _parse_ua_cached(ua: str) -> str:
 
     # Truncate once — used for both cache key and parsing.
     ua_truncated = ua[:MAX_USER_AGENT_LENGTH]
-    # blake2b with digest_size=8 produces an 8-byte digest, which
-    # hexdigest() encodes as a 16-character hex string.
-    # Faster than SHA-256 and sufficient for cache key uniqueness.
-    cache_key = (
-        f"{_UA_CACHE_KEY_PREFIX}"
-        f"{hashlib.blake2b(ua_truncated.encode(errors='ignore'), digest_size=8).hexdigest()}"
-    )
+    # Built-in hash() is faster than BLAKE2b and sufficient for cache key
+    # uniqueness (not security-critical). Masked to 64 bits for consistent
+    # key length across platforms.
+    cache_key = f"{_UA_CACHE_KEY_PREFIX}{hash(ua_truncated) & 0xFFFFFFFFFFFFFFFF:016x}"
     try:
         cached = cache.get(cache_key)
     except Exception:
@@ -261,11 +261,27 @@ def bot_login_request(request):
     # users — no branching here prevents username enumeration via response
     # body or status code differences.
     result["message"] = "If this username is registered, a login confirmation has been sent."
+
+    # Bind this token to the requesting IP so only the originator can poll
+    # its status.  Stored in the Django session (server-side, not cookie).
+    client_ip = parse_ip_address(request)
+    request.session[f"wl_origin_ip:{result['token']}"] = client_ip
+
     return JsonResponse(result)
+
+
+def _ratelimit_key_token(group, request):
+    """Rate-limit key function: extract token from the URL path.
+
+    The status URL is /auth/bot-login/status/<token>/, so the token is
+    the second-to-last path segment.
+    """
+    return f"status_token:{request.path.rstrip('/').rsplit('/', 1)[-1]}"
 
 
 @require_GET
 @ratelimit(key="ip", rate=settings.AUTH_STATUS_RATE_LIMIT, method="GET", block=True)
+@ratelimit(key=_ratelimit_key_token, rate="10/m", method="GET", block=True)
 def bot_login_status(request, token):
     """Poll the status of a pending login request.
 
@@ -297,10 +313,27 @@ def bot_login_status(request, token):
         # Success: {"status": "confirmed"}
         # Error:   {"error": "Invalid token format"}  (400)
     """
-    token = str(token).strip()
+    if not token or not isinstance(token, str):
+        return JsonResponse({"error": "Invalid token format"}, status=400)
+    token = token.strip()
+
     error = _validate_token_or_400(token)
     if error:
         return error
+
+    # Verify the requesting IP matches the one that created this token.
+    # This prevents an attacker who intercepts a token from polling its
+    # status from a different machine.
+    origin_ip = request.session.get(f"wl_origin_ip:{token}")
+    if origin_ip is not None:
+        client_ip = parse_ip_address(request)
+        if client_ip != origin_ip:
+            logger.warning(
+                "Status poll IP mismatch: origin=%s, poller=%s",
+                _anonymize_ip(origin_ip),
+                _anonymize_ip(client_ip),
+            )
+            return JsonResponse({"status": "expired"})
 
     status = call_async(web_login_service.check_status(token))
     return JsonResponse({"status": status})

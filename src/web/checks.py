@@ -195,11 +195,12 @@ def check_sqlite_username_constraint(app_configs, **kwargs):
     engine = settings.DATABASES.get("default", {}).get("ENGINE", "")
     if "sqlite" in engine:
         msg = (
-            "SQLite backend is in use. The User.telegram_username CHECK "
-            "constraint uses PostgreSQL regex syntax (__regex). SQLite's "
-            "Python regex callback does not match PostgreSQL's engine and "
-            "could allow invalid usernames. Use PostgreSQL for production, "
-            "or accept this risk for local development only."
+            "CRITICAL: SQLite backend detected. User.telegram_username CHECK "
+            "constraint uses PostgreSQL regex syntax (__regex) which behaves "
+            "differently on SQLite. DO NOT USE SQLite IN PRODUCTION. "
+            "For local development, you can disable this check by setting "
+            "SILENCED_SYSTEM_CHECKS=['web.E004'] in settings, but you MUST "
+            "migrate to PostgreSQL before deploying."
         )
         errors.append(Error(msg, id="web.E004"))
     return errors

@@ -262,6 +262,15 @@ async function pollStatus() {
 
   try {
     const response = await fetch(`/auth/bot-login/status/${loginToken.value}/`);
+
+    // Permanent HTTP errors — stop polling immediately, no retry.
+    if (response.status === 400 || response.status === 403) {
+      stopPolling();
+      error.value = "Invalid login request. Please try again.";
+      state.value = "error";
+      return;
+    }
+
     const data = await response.json();
 
     if (data.status === "confirmed") {

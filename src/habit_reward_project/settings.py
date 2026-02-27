@@ -38,19 +38,34 @@ ALLOWED_HOSTS_BASE = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'
 # For development (localhost), leave empty - not needed
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])
 
-# HTTPS enforcement and session security in production
+# HTTPS enforcement and session security in production.
+# These settings are critical for protecting against MITM, session hijacking,
+# and cross-site attacks.  Only applied when DEBUG=False.
 if not DEBUG:
+    # Redirect all HTTP requests to HTTPS (prevents accidental plaintext traffic).
     SECURE_SSL_REDIRECT = True
+    # Trust the X-Forwarded-Proto header from the reverse proxy (nginx/Caddy)
+    # to detect HTTPS.  Required when SSL terminates at the proxy, not Django.
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    # Only send session cookie over HTTPS (prevents session theft via HTTP).
     SESSION_COOKIE_SECURE = True
+    # Only send CSRF cookie over HTTPS (prevents CSRF token theft via HTTP).
     CSRF_COOKIE_SECURE = True
+    # HTTP Strict Transport Security: browsers remember to use HTTPS for 1 year,
+    # preventing SSL-stripping attacks on subsequent visits.
     SECURE_HSTS_SECONDS = 31536000  # 1 year
+    # Apply HSTS to all subdomains (prevents subdomain-based downgrade attacks).
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    # Allow browsers to preload this site's HSTS policy (hstspreload.org).
     SECURE_HSTS_PRELOAD = True
 
     # Session cookie hardening: timeout, no JS access, SameSite
     SESSION_COOKIE_AGE = 1209600  # 2 weeks
+    # Prevent JavaScript from reading the session cookie (mitigates XSS-based
+    # session theft).
     SESSION_COOKIE_HTTPONLY = True
+    # SameSite=Lax: cookie is sent on top-level navigations but not on
+    # cross-site sub-requests, preventing most CSRF attacks.
     SESSION_COOKIE_SAMESITE = "Lax"
 
     # CSRF cookie SameSite (HttpOnly omitted: Inertia/axios reads XSRF-TOKEN; see RULES.md)

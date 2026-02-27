@@ -648,10 +648,16 @@ class WebLoginRequest(models.Model):
                 name='wlr_status_check_idx',
             ),
             # Composite index for the invalidation query in
-            # _create_login_request_with_retry (filters on user + status + created_at).
+            # _create_login_request_with_retry (filters on user + status + expires_at).
             models.Index(
-                fields=['user', 'status', 'created_at'],
-                name='wlr_user_status_created_idx',
+                fields=['user', 'status', 'expires_at'],
+                name='wlr_user_status_expires_idx',
+            ),
+            # Composite index for queries filtering by user + expires_at
+            # (e.g. displaying a user's active login requests).
+            models.Index(
+                fields=['user', 'expires_at'],
+                name='wlr_user_expires_idx',
             ),
         ]
         ordering = ['-created_at']
