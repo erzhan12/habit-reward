@@ -66,3 +66,28 @@ def check_login_expiry_consistency(app_configs, **kwargs):
         logger.warning("CONFIG: %s", msg)
         errors.append(Warning(msg, id="web.W001"))
     return errors
+
+
+@register()
+def check_sqlite_thread_pool_conflict(app_configs, **kwargs):
+    """Error when SQLite is used with multiple background login threads.
+
+    SQLite uses file-level locking — only one writer at a time.  When
+    ``WEB_LOGIN_THREAD_POOL_SIZE > 1``, multiple background threads
+    attempt concurrent DB writes, causing "database is locked" errors
+    and silent deadlocks under load.
+    """
+    errors = []
+    engine = settings.DATABASES.get("default", {}).get("ENGINE", "")
+    pool_size = getattr(settings, "WEB_LOGIN_THREAD_POOL_SIZE", 1)
+    if "sqlite" in engine and pool_size > 1:
+        msg = (
+            f"SQLite backend ({engine}) is configured with "
+            f"WEB_LOGIN_THREAD_POOL_SIZE={pool_size}. SQLite uses file-level "
+            "locking and cannot handle concurrent writes from multiple "
+            "background threads. Set WEB_LOGIN_THREAD_POOL_SIZE=1 or switch "
+            "to PostgreSQL for concurrent login processing."
+        )
+        logger.warning("CONFIG: %s", msg)
+        errors.append(Error(msg, id="web.E003"))
+    return errors

@@ -2004,7 +2004,7 @@ A pre-commit hook (`scripts/check_validation_sync.sh`) verifies they stay in syn
 `src/web/utils/ip.py` takes the leftmost IP from X-Forwarded-For regardless of chain length. Multi-proxy chains (CDN -> LB -> app) are legitimate and should not be rejected. Only the leftmost IP is validated with `ipaddress.ip_address()`.
 
 ### Timing Jitter
-Status polling jitter (`src/web/services/web_login_service.py`) is only applied to "pending" status to avoid unnecessary latency on terminal states. Named constants `_JITTER_MIN`/`_JITTER_MAX` are configurable via Django settings.
+Status polling jitter (`src/web/services/web_login_service.py`) is applied to `"pending"`, `"expired"`, and `"error"` statuses — these have cache-dependent code paths with different timing that could leak information. Terminal statuses `"confirmed"`, `"denied"`, and `"used"` are excluded. Named constants `_JITTER_MIN`/`_JITTER_MAX` are configurable via Django settings.
 
 ### UA Parsing Cache
 `_parse_ua_cached` in `src/web/views/auth.py` uses `functools.lru_cache(maxsize=1024)` to avoid repeated CPU-intensive User-Agent parsing. The cache key is the sanitized UA string.
@@ -2016,7 +2016,16 @@ Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB
 `_queue_slots` (Semaphore) tracks background queue depth. The done callback `_release_queue_slot` (a named function, not a lambda) releases the slot when the future completes. This ensures testability and avoids closure pitfalls. When `executor.submit` raises `RuntimeError`, the caller releases the slot manually.
 
 ### Cache Failure Race Condition
-In `_safe_cache_set`, the threshold check (`should_raise`) MUST be inside the `_cache_failure_lock` to prevent multiple threads from simultaneously reading the same count and all raising `CacheWriteError`.
+In `_safe_cache_set`, the threshold check (`should_raise`) MUST be inside the `_cache_failure_lock` to prevent multiple threads from simultaneously reading the same count and all raising `CacheWriteError`. The threshold is 10 (not 3) — set high to tolerate transient cache blips during peak traffic without blocking all logins globally.
 
 ### Login.vue Polling Retry Limit
 Frontend polling (`pollStatus`) stops after `POLL_MAX_CONSECUTIVE_ERRORS` (5) consecutive network failures and transitions to error state. The counter resets on any successful poll. `submitLogin` catch also logs to `console.error`.
+
+### Token Validation on Status Endpoint
+`bot_login_status()` in `auth.py` validates token format (40-50 chars, URL-safe base64) before passing to the service. This matches the validation in `bot_login_complete()`. Tests using the `/auth/bot-login/status/` endpoint must use valid-length tokens (e.g. `"abcdefghij0123456789_ABCDEFGHIJ0123456789_ab"`).
+
+### Temporary vs Permanent Telegram Errors
+In `_process_login_background` (`web_login_service.py`), only **permanent** Telegram errors (`InvalidToken`, `Forbidden`) mark the request as failed via `_mark_failed_safely()`. **Temporary** errors (`TelegramError` — network, rate limit) do NOT mark as failed — the pending cache entry expires via TTL, allowing the user to retry.
+
+### SQLite System Check
+`src/web/checks.py` includes `check_sqlite_thread_pool_conflict` (`web.E003`) that errors when SQLite is used with `WEB_LOGIN_THREAD_POOL_SIZE > 1`. SQLite's file-level locking cannot handle concurrent background threads.

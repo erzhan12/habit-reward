@@ -558,34 +558,34 @@ class TestAuth:
     @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("pending"))
     def test_bot_login_status_pending(self, mock_async):
         """Status endpoint returns pending."""
-        response = Client().get("/auth/bot-login/status/some_token/")
+        response = Client().get("/auth/bot-login/status/abcdefghij0123456789_ABCDEFGHIJ0123456789_ab/")
         assert response.status_code == 200
         assert response.json()["status"] == "pending"
 
     @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("confirmed"))
     def test_bot_login_status_confirmed(self, mock_async):
         """Status endpoint returns confirmed."""
-        response = Client().get("/auth/bot-login/status/some_token/")
+        response = Client().get("/auth/bot-login/status/abcdefghij0123456789_ABCDEFGHIJ0123456789_ab/")
         assert response.status_code == 200
         assert response.json()["status"] == "confirmed"
 
     @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("denied"))
     def test_bot_login_status_denied(self, mock_async):
         """Status endpoint returns denied."""
-        response = Client().get("/auth/bot-login/status/some_token/")
+        response = Client().get("/auth/bot-login/status/abcdefghij0123456789_ABCDEFGHIJ0123456789_ab/")
         assert response.status_code == 200
         assert response.json()["status"] == "denied"
 
     @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("expired"))
     def test_bot_login_status_expired(self, mock_async):
         """Status endpoint returns expired."""
-        response = Client().get("/auth/bot-login/status/some_token/")
+        response = Client().get("/auth/bot-login/status/abcdefghij0123456789_ABCDEFGHIJ0123456789_ab/")
         assert response.status_code == 200
         assert response.json()["status"] == "expired"
 
     def test_bot_login_status_rejects_post(self):
         """POST to status endpoint returns 405 (GET only)."""
-        response = Client().post("/auth/bot-login/status/some_token/")
+        response = Client().post("/auth/bot-login/status/abcdefghij0123456789_ABCDEFGHIJ0123456789_ab/")
         assert response.status_code == 405
 
     def test_bot_login_complete_success(self, user):
@@ -1818,9 +1818,14 @@ class TestBackgroundProcessingFailure:
             telegram_username="failureuser",
         )
 
-    def test_telegram_send_failure_sets_error_cache(self, failure_user):
-        """Item 11: When bot.send_message raises an exception, the
-        wl_failed:{token} cache key is set and status polling returns 'error'."""
+    def test_temporary_telegram_error_does_not_mark_failed(self, failure_user):
+        """Temporary TelegramError should NOT set wl_failed cache key.
+
+        Temporary errors (network, rate limit) may resolve on retry, so
+        the request stays in "pending" state — allowing the user to retry
+        after the transient issue resolves.  Only permanent errors
+        (InvalidToken, Forbidden) mark the request as failed.
+        """
         from django.core.cache import cache
         from src.web.services.web_login_service import WebLoginService
         from src.web.utils.sync import call_async
@@ -1832,27 +1837,48 @@ class TestBackgroundProcessingFailure:
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
         cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
 
-        # Mock _send_login_notification to raise TelegramError
+        # Mock _send_login_notification to raise TelegramError (temporary)
         with patch(
             "src.web.services.web_login_service.WebLoginService._send_login_notification",
             new_callable=AsyncMock,
-            side_effect=TelegramError("Bot blocked by user"),
+            side_effect=TelegramError("Network timeout"),
         ):
-            # Call _process_login_background which catches the error
             svc._process_login_background(failure_user, token, expires_at, "Test device")
 
-        # The failure cache key should be set
-        assert cache.get(f"{WL_FAILED_KEY}{token}") is True
+        # Temporary error should NOT set the failed cache key
+        assert cache.get(f"{WL_FAILED_KEY}{token}") is None
 
-        # Status polling should return 'error' (no DB record was created
-        # because _process_login_request raises before DB write completes
-        # only if Telegram fails — but in our mock the DB write succeeds,
-        # so check that the cache-based fallback works).
+        # Status should still be "pending" (cache-pending key is still set)
         with patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock):
             status = call_async(svc.check_status(token))
-        # If the DB record was created (transactional write succeeded before
-        # Telegram send), status comes from DB. If not, cache returns 'error'.
-        assert status in ("error", "pending")
+        assert status == "pending"
+
+    def test_permanent_telegram_error_marks_failed(self, failure_user):
+        """Permanent Telegram errors (InvalidToken, Forbidden) DO mark failed."""
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+        from telegram.error import Forbidden
+
+        cache.clear()
+        svc = WebLoginService()
+        token = "perm_fail_test_token"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
+
+        with patch(
+            "src.web.services.web_login_service.WebLoginService._send_login_notification",
+            new_callable=AsyncMock,
+            side_effect=Forbidden("Bot was blocked by user"),
+        ):
+            svc._process_login_background(failure_user, token, expires_at, "Test device")
+
+        # Permanent error SHOULD set the failed cache key
+        assert cache.get(f"{WL_FAILED_KEY}{token}") is True
+
+        with patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock):
+            status = call_async(svc.check_status(token))
+        assert status == "error"
 
 
 # ---- Timing consistency tests ----
@@ -2121,12 +2147,14 @@ class TestCacheBackendFailure:
         assert "token" in result
         assert "expires_at" in result
 
-    def test_create_login_request_raises_after_three_cache_write_failures(self):
-        """Three consecutive cache write failures should raise service unavailable."""
+    def test_create_login_request_raises_after_threshold_cache_write_failures(self):
+        """Consecutive cache write failures reaching threshold should raise service unavailable."""
         from django.core.cache import cache
         import src.web.services.web_login_service as svc_mod
         from src.web.services.web_login_service import LoginServiceUnavailable, WebLoginService
         from src.web.utils.sync import call_async
+
+        threshold = svc_mod._CACHE_FAILURE_THRESHOLD  # 10
 
         cache.clear()
         svc = WebLoginService()
@@ -2136,15 +2164,16 @@ class TestCacheBackendFailure:
         try:
             with patch.object(svc.user_repo, "get_by_telegram_username", return_value=None), \
                  patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis down")):
-                first = call_async(svc.create_login_request("cachefail1"))
-                second = call_async(svc.create_login_request("cachefail2"))
-                assert "token" in first
-                assert "token" in second
+                # First (threshold - 1) requests should succeed despite cache errors
+                for i in range(threshold - 1):
+                    result = call_async(svc.create_login_request(f"cachefail{i}"))
+                    assert "token" in result
 
+                # The threshold-th request should raise
                 with pytest.raises(
                     LoginServiceUnavailable, match="Login service temporarily unavailable"
                 ):
-                    call_async(svc.create_login_request("cachefail3"))
+                    call_async(svc.create_login_request("cachefail_final"))
         finally:
             with svc_mod._cache_failure_lock:
                 svc_mod._cache_failure_count = 0
@@ -2812,12 +2841,14 @@ class TestParseIPMultiProxyChain:
 
 
 class TestCacheFailureThresholdRaisesError:
-    """Verify that 3 consecutive cache write failures raise CacheWriteError."""
+    """Verify that 10 consecutive cache write failures raise CacheWriteError."""
 
     def test_cache_failure_threshold_raises_error(self):
-        """3 consecutive cache.set failures raise CacheWriteError."""
+        """10 consecutive cache.set failures raise CacheWriteError."""
         import src.web.services.web_login_service as svc_mod
         from src.web.services.web_login_service import CacheWriteError, _safe_cache_set
+
+        threshold = svc_mod._CACHE_FAILURE_THRESHOLD  # 10
 
         # Reset the failure counter
         original_count = svc_mod._cache_failure_count
@@ -2825,16 +2856,16 @@ class TestCacheFailureThresholdRaisesError:
 
         try:
             with patch("django.core.cache.cache.set", side_effect=ConnectionError("down")):
-                # First two should just warn
-                for i in range(2):
+                # First (threshold - 1) should just warn
+                for i in range(threshold - 1):
                     try:
                         _safe_cache_set(f"test_key_{i}", True, 60)
                     except CacheWriteError:
                         pytest.fail(f"CacheWriteError raised too early on attempt {i + 1}")
 
-                # Third should raise
+                # The threshold-th failure should raise
                 with pytest.raises(CacheWriteError):
-                    _safe_cache_set("test_key_3", True, 60)
+                    _safe_cache_set("test_key_final", True, 60)
         finally:
             svc_mod._cache_failure_count = original_count
 
@@ -2910,3 +2941,110 @@ class TestCacheFailureScenarios:
             )
         assert response.status_code == 503
         assert "temporarily unavailable" in response.json()["error"]
+
+
+# ---- Cache TTL expiry edge case ----
+
+
+class TestCacheTTLExpiryWithPendingDBRecord:
+    """Verify behavior when cache TTL expires but DB record still exists."""
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_cache_ttl_expires_with_pending_db_record(self, mock_sleep):
+        """When cache-pending TTL expires while token is still pending in DB,
+        check_status should return 'pending' from the DB fallback — not
+        'expired', which would confuse the user.
+
+        Scenario:
+        1. Token created and cached as pending
+        2. Background processing fails with a temporary Telegram error
+           (does NOT mark as failed since temporary errors are not fatal)
+        3. Cache TTL expires (simulated by clearing cache)
+        4. Client polls status — DB record still has status='pending'
+        5. check_status falls back to DB and returns 'pending'
+        """
+        from django.core.cache import cache
+        from src.core.models import WebLoginRequest
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+
+        user = User.objects.create_user(
+            username="tg_ttl_expire",
+            telegram_id="660000001",
+            name="TTL Expire User",
+            language="en",
+            timezone="UTC",
+            telegram_username="ttlexpireuser",
+        )
+
+        token = "ttl_expiry_test_token"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        # Step 1: Create DB record (simulates successful background processing)
+        WebLoginRequest.objects.create(
+            user=user,
+            token=token,
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=expires_at,
+        )
+
+        # Step 2: Set pending cache key, then clear to simulate TTL expiry
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
+        cache.clear()  # Simulates cache TTL expiry
+
+        # Step 3: Poll status — should fall back to DB and return "pending"
+        svc = WebLoginService()
+        status = call_async(svc.check_status(token))
+
+        assert status == "pending", (
+            f"Expected 'pending' from DB fallback after cache TTL expiry, "
+            f"got '{status}'"
+        )
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_cache_ttl_expires_no_db_record_returns_expired(self, mock_sleep):
+        """When both cache and DB have no record, status should be 'expired'.
+
+        This is the case for unknown-user tokens (cache-only, no DB record).
+        Once the cache TTL expires, 'expired' is the correct response.
+        """
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+
+        svc = WebLoginService()
+        status = call_async(svc.check_status("nonexistent_token_for_test"))
+
+        assert status == "expired"
+
+
+# ---- Status endpoint token validation ----
+
+
+class TestStatusEndpointTokenValidation:
+    """Verify that bot_login_status rejects malformed tokens."""
+
+    def test_short_token_returns_400(self):
+        """Token shorter than 40 chars is rejected."""
+        response = Client().get("/auth/bot-login/status/short_token/")
+        assert response.status_code == 400
+        assert response.json()["error"] == "Invalid token format"
+
+    def test_long_token_returns_400(self):
+        """Token longer than 50 chars is rejected."""
+        long_token = "a" * 51
+        response = Client().get(f"/auth/bot-login/status/{long_token}/")
+        assert response.status_code == 400
+        assert response.json()["error"] == "Invalid token format"
+
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("pending"))
+    def test_valid_length_token_passes_validation(self, mock_async):
+        """Token with valid length (40-50 chars) passes to the service."""
+        valid_token = "a" * 43
+        response = Client().get(f"/auth/bot-login/status/{valid_token}/")
+        assert response.status_code == 200
+        assert response.json()["status"] == "pending"

@@ -120,15 +120,17 @@ class CacheWriteError(Exception):
 # Consecutive cache write failure counter.
 _cache_failure_count = 0
 _cache_failure_lock = threading.Lock()
-_CACHE_FAILURE_THRESHOLD = 3
+_CACHE_FAILURE_THRESHOLD = 10
 
 
 def _safe_cache_set(key: str, value, timeout: int) -> None:
     """Write to cache with failure tracking.
 
     Logs warnings on individual failures.  Raises ``CacheWriteError``
-    after ``_CACHE_FAILURE_THRESHOLD`` (3) consecutive failures to
+    after ``_CACHE_FAILURE_THRESHOLD`` (10) consecutive failures to
     surface likely cache misconfiguration instead of silently degrading.
+    The threshold is intentionally high to tolerate transient cache
+    blips during peak traffic without blocking all logins globally.
     """
     global _cache_failure_count
     from django.core.cache import cache
@@ -309,12 +311,13 @@ class WebLoginService:
             _mark_failed_safely()
         except TelegramError as e:
             # Temporary Telegram errors (network, rate limit, etc.) —
-            # may resolve on next attempt.
+            # may resolve on next attempt.  Do NOT mark as failed — the
+            # cache-pending entry will expire via TTL, allowing the user
+            # to retry after the transient issue resolves.
             logger.error(
                 "Temporary Telegram error during login processing",
                 extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
             )
-            _mark_failed_safely()
         except DatabaseError as e:
             logger.error(
                 "Database error during login processing",
@@ -329,16 +332,12 @@ class WebLoginService:
             _mark_failed_safely()
 
     @staticmethod
-    def _create_login_request_with_retry(user_id, token, expires_at, device_info):
+    def _create_login_request_with_retry(user_id, token, expires_at: datetime, device_info):
         """Invalidate pending requests and create a new one in a transaction.
 
         Retries on token collision (IntegrityError on unique constraint).
         Returns (login_request, final_token) since the token may change on retry.
         """
-        # Store the original token so we can clean up its cache entry on
-        # failure — after retries, ``token`` may have been regenerated
-        # and deleting it would remove a different request's cache entry.
-        original_token = token
         for _attempt in range(TOKEN_GENERATION_MAX_RETRIES):
             try:
                 with transaction.atomic():
@@ -357,12 +356,13 @@ class WebLoginService:
             except IntegrityError:
                 # Token collision — regenerate and retry.
                 token = secrets.token_urlsafe(TOKEN_BYTES)
-        from django.core.cache import cache
-        cache.delete(f"{WL_PENDING_KEY}{original_token}")
+        # All retries exhausted.  Don't delete the original cache entry —
+        # it could belong to a concurrent request that won the collision.
+        # The cache entry will expire naturally via its TTL.
         raise DatabaseError("Failed to generate unique token after retries")
 
     async def _process_login_request(
-        self, user, token: str, expires_at, device_info: str | None
+        self, user, token: str, expires_at: datetime, device_info: str | None
     ) -> None:
         """Perform DB writes and send Telegram notification."""
         login_request, token = await sync_to_async(
@@ -396,8 +396,11 @@ class WebLoginService:
     ) -> None:
         """Send the Telegram message with Confirm/Deny buttons.
 
-        Uses plain text (no parse_mode) as defense-in-depth — eliminates
-        any risk from HTML parser bugs processing user-controlled device_info.
+        Uses plain text (no parse_mode) to prevent Telegram parsing bugs
+        from interpreting user-controlled device_info as markdown/HTML,
+        even though device_info is already sanitized by
+        ``_sanitize_user_agent()`` in ``auth.py``.  This is intentional
+        defense-in-depth.
         """
         if not settings.TELEGRAM_BOT_TOKEN:
             logger.error("TELEGRAM_BOT_TOKEN is not configured")
@@ -498,11 +501,14 @@ class WebLoginService:
 
         # Random jitter (50-200ms by default, configurable via settings)
         # masks residual timing differences between DB hit vs miss, cache
-        # hit vs miss, etc.  Only applied to "pending" status — confirmed,
-        # denied, expired, and error are terminal states where timing
-        # differences don't leak information, and adding latency to
-        # terminal responses unnecessarily delays the user.
-        if status == "pending":
+        # hit vs miss, etc.  Applied to "pending", "expired", and "error"
+        # because these statuses have cache-dependent code paths with
+        # measurably different timing (cache hit vs DB fallback vs miss).
+        # Without jitter on all three, an attacker could distinguish them
+        # via response time, enabling username enumeration.  Terminal
+        # statuses "confirmed", "denied", and "used" are excluded — they
+        # only appear after a real DB write and don't leak information.
+        if status in ("pending", "expired", "error"):
             await asyncio.sleep(_secure_random.uniform(_JITTER_MIN, _JITTER_MAX))
 
         return status
@@ -540,7 +546,14 @@ class WebLoginService:
         # Atomically mark as used to prevent token replay
         updated = await maybe_await(self.request_repo.mark_as_used(token))
         if not updated:
-            logger.warning("Token replay attempt — already used: %s...", token[:8])
+            logger.warning(
+                "Token replay attempt — already used: %s...",
+                token[:8],
+                extra={
+                    "user_id": login_request.user_id,
+                    "operation": "complete_login_replay",
+                },
+            )
             return None
 
         logger.info(

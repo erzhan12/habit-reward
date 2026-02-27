@@ -219,6 +219,7 @@ def bot_login_status(request, token):
         - ``error``: Background processing failed (Telegram/DB error).
 
     Error responses:
+        - 400: Invalid token format.
         - 429: Rate limit exceeded (AUTH_STATUS_RATE_LIMIT, default 30/m).
 
     Includes random 50-200ms jitter (configurable) to mask timing side-channels.
@@ -227,6 +228,10 @@ def bot_login_status(request, token):
 
         curl http://localhost:8000/auth/bot-login/status/abc123def456/
     """
+    token = str(token).strip()
+    if not (40 <= len(token) <= 50) or not _TOKEN_PATTERN.match(token):
+        return JsonResponse({"error": "Invalid token format"}, status=400)
+
     status = call_async(web_login_service.check_status(token))
     return JsonResponse({"status": status})
 
