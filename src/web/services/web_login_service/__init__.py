@@ -113,8 +113,10 @@ _JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
 # locking means only one writer at a time.  For production with concurrent
 # users, use PostgreSQL which has row-level locking.
 #
-# TODO: Consider replacing this custom thread-pool orchestration with Django
-# async views + sync_to_async for simpler concurrency management.
+# Decision: keep the bounded thread pool for this flow.  Request/response stays
+# synchronous for anti-enumeration timing guarantees, while DB writes + Telegram
+# sends remain fire-and-forget background work with explicit back-pressure and
+# graceful shutdown hooks.
 _login_executor: ThreadPoolExecutor | None = None
 _executor_lock = threading.Lock()
 

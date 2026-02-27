@@ -10,7 +10,10 @@ A gamified habit-reward system that tracks habits with per-habit streaks, uses v
 - **Telegram Bot Interface**: Easy-to-use bot for logging habits and managing rewards
 - **OpenAI NLP Integration**: Natural language processing for habit classification
 - **Streamlit Dashboard**: Visual analytics and progress tracking
-- **Web Login Interface**: Secure bot-based authentication via Telegram Confirm/Deny buttons
+- **Web Login Interface**: Secure bot-based authentication via Telegram Confirm/Deny buttons.
+  Users enter their @username on the web; the backend sends Confirm/Deny buttons to Telegram;
+  after confirmation, the web completes login. Implements anti-enumeration, timing attack
+  resistance, and IP binding.
 - **Django Backend**: SQLite (production default) via Django ORM (PostgreSQL optional)
 
 ## Architecture

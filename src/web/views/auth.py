@@ -106,9 +106,9 @@ def _parse_ua_cached(ua: str) -> str:
 
     Uses Django's cache framework (shared across processes, auto-evicted by
     TTL) instead of ``functools.lru_cache`` to avoid per-process memory
-    buildup and test pollution. Cache key uses ``hashlib.blake2b`` with an
-    8-byte digest — deterministic across process restarts (unlike Python's
-    built-in ``hash()``, which is randomized per PEP 456).
+    buildup and test pollution. Cache key uses ``hashlib.blake2b`` with a
+    16-byte digest (128-bit) — deterministic across process restarts (unlike
+    Python's built-in ``hash()``, which is randomized per PEP 456).
 
     Performance note: UA truncation is computed once (``ua_truncated``) and
     reused for both cache key generation and sanitization.  UA sanitization
@@ -121,9 +121,12 @@ def _parse_ua_cached(ua: str) -> str:
     if len(ua) > MAX_USER_AGENT_LENGTH:
         logger.warning("Oversized UA truncated (len=%d, max=%d)", len(ua), MAX_USER_AGENT_LENGTH)
     ua_truncated = ua[:MAX_USER_AGENT_LENGTH]
-    # BLAKE2b with 8-byte digest is deterministic across process restarts
+    # BLAKE2b with a 16-byte digest is deterministic across process restarts
     # (PEP 456 randomizes built-in hash()), so cache keys survive deployments.
-    cache_key = f"{_UA_CACHE_KEY_PREFIX}{hashlib.blake2b(ua_truncated.encode(), digest_size=8).hexdigest()}"
+    cache_key = (
+        f"{_UA_CACHE_KEY_PREFIX}"
+        f"{hashlib.blake2b(ua_truncated.encode(), digest_size=16).hexdigest()[:32]}"
+    )
     try:
         cached = cache.get(cache_key)
     except (ConnectionError, TimeoutError, OSError):

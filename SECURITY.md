@@ -38,6 +38,19 @@ Both known and unknown usernames receive an identical HTTP 200 response with a t
 - **Jitter scope**: Applied to `pending`, `expired`, and `error` statuses — these have cache-dependent code paths with measurably different timing. Terminal statuses (`confirmed`, `denied`, `used`) are intentionally excluded from jitter because they can only occur after a real DB write and don't create timing side-channels — an attacker cannot reach these statuses without a valid token that has already been acted upon in Telegram, so they cannot be reached through enumeration attempts and provide no enumeration signal.
 - **Background processing**: Token generation, cache writes, and HTTP response happen synchronously. DB writes and Telegram sends happen asynchronously in a bounded thread pool.
 
+### Login Flow
+
+```mermaid
+flowchart LR
+    A["1. User enters @username on the web login page"]
+    B["2. Backend generates a token and sends Confirm/Deny to Telegram"]
+    C["3. Frontend polls login status with the token"]
+    D["4. User taps Confirm in Telegram"]
+    E["5. Backend marks the login request as confirmed"]
+    F["6. Frontend completes login"]
+    A --> B --> C --> D --> E --> F
+```
+
 ### Token Security
 
 - **256-bit entropy**: Login tokens use `secrets.token_urlsafe(32)` (256 bits), making brute-force infeasible.

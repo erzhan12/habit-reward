@@ -33,9 +33,7 @@ MESSAGES = {
     "CONFIRMED": "✅ Login confirmed. You can close this message.",
     "DENIED": "❌ Login denied. The request has been rejected.",
     "ALREADY_COMPLETED": "✅ This login request was already completed.",
-    "ALREADY_CONFIRMED": "This login request was already confirmed.",
-    "ALREADY_DENIED": "This login request was already denied.",
-    "ALREADY_PROCESSED": "⚠️ This login request has already been processed.",
+    "ALREADY_PROCESSED": "This login request was already processed.",
 }
 
 # Derive pattern from shared constants so button creation and matching stay in sync.
@@ -151,13 +149,10 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.edit_message_text(MESSAGES["DENIED"])
             logger.info("Web login denied for user %s", login_request.user_id)
     else:
-        # Already handled — show appropriate message based on current status.
+        # Already handled — "used" gets its own message; all other
+        # non-pending states share one generic "already processed" response.
         if current_status == WebLoginRequest.Status.USED.value:
             await query.edit_message_text(MESSAGES["ALREADY_COMPLETED"])
-        elif current_status == WebLoginRequest.Status.CONFIRMED.value:
-            await query.edit_message_text(MESSAGES["ALREADY_CONFIRMED"])
-        elif current_status == WebLoginRequest.Status.DENIED.value:
-            await query.edit_message_text(MESSAGES["ALREADY_DENIED"])
         else:
             await query.edit_message_text(MESSAGES["ALREADY_PROCESSED"])
 

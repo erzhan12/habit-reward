@@ -204,9 +204,10 @@ async function submitLogin() {
 
 /**
  * Begin polling the backend for login request status changes.
- * Uses exponential backoff (2s initial → 5s max) to reduce server
- * load. Sets a hard 5-minute expiry timer matching the server-side
- * token TTL, after which polling stops and state becomes "expired".
+ * Uses exponential backoff (2s initial → 30s base max) plus 0-1s jitter
+ * to reduce server load and avoid synchronized retries. Sets a hard
+ * 5-minute expiry timer matching the server-side token TTL, after which
+ * polling stops and state becomes "expired".
  */
 function startPolling() {
   stopPolling();
@@ -217,7 +218,9 @@ function startPolling() {
     pollTimer = setTimeout(async () => {
       await pollStatus();
       if (state.value === "waiting") {
-        pollDelay = Math.min(pollDelay * POLL_BACKOFF_FACTOR, POLL_MAX_DELAY_MS);
+        pollDelay =
+          Math.min(pollDelay * POLL_BACKOFF_FACTOR, POLL_MAX_DELAY_MS) +
+          Math.random() * 1000;
         schedulePoll();
       }
     }, pollDelay);
@@ -255,7 +258,7 @@ function stopPolling() {
  * Handles state transitions: "confirmed" → completeLogin(),
  * "denied" → stop polling with denied state, "expired"/"not_found" →
  * stop with expired state, "used" → redirect (login completed in
- * another tab). On network error, backs off to max delay.
+ * another tab). On network error, backs off to max base delay.
  */
 async function pollStatus() {
   if (!loginToken.value) return;
