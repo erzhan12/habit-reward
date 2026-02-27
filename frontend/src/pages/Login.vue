@@ -230,8 +230,8 @@ function startPolling() {
   let expiryMs = LOGIN_EXPIRY_MS;
   if (serverExpiresAt.value) {
     const serverDelta = new Date(serverExpiresAt.value).getTime() - Date.now();
-    // Floor at 10s to avoid instant expiry from clock skew, cap at LOGIN_EXPIRY_MS
-    expiryMs = Math.max(10_000, Math.min(serverDelta, LOGIN_EXPIRY_MS));
+    // Floor at 60s to avoid premature expiry from moderate clock skew, cap at LOGIN_EXPIRY_MS
+    expiryMs = Math.max(60_000, Math.min(serverDelta, LOGIN_EXPIRY_MS));
   }
   expiryTimer = setTimeout(() => {
     stopPolling();

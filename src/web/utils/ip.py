@@ -36,7 +36,7 @@ def parse_ip_address(request) -> str:
             parts = [p.strip() for p in forwarded.split(",")]
             if len(parts) > 2:
                 logger.debug(
-                    "X-Forwarded-For contains %d IPs (multi-proxy chain)",
+                    "X-Forwarded-For chain length: %d (normal for CDN/LB setups)",
                     len(parts),
                 )
             candidate = parts[0]

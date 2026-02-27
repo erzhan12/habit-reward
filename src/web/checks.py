@@ -23,15 +23,24 @@ def check_xff_trust_configuration(app_configs, **kwargs):
     if getattr(settings, "TRUST_X_FORWARDED_FOR", False):
         has_proxy_header = bool(getattr(settings, "SECURE_PROXY_SSL_HEADER", None))
         if not has_proxy_header:
-            msg = (
-                "TRUST_X_FORWARDED_FOR=True but SECURE_PROXY_SSL_HEADER is not "
-                "set. This suggests Django may not be behind a reverse proxy. "
-                "X-Forwarded-For can be spoofed by clients when exposed directly "
-                "to the internet. Set SECURE_PROXY_SSL_HEADER or disable "
-                "TRUST_X_FORWARDED_FOR."
-            )
-            logger.warning("SECURITY: %s", msg)
-            errors.append(Error(msg, id="web.E001"))
+            if settings.DEBUG:
+                msg = (
+                    "TRUST_X_FORWARDED_FOR enabled in development mode — "
+                    "ensure you configure a reverse proxy before deploying "
+                    "to production."
+                )
+                logger.warning("SECURITY: %s", msg)
+                errors.append(Warning(msg, id="web.W003"))
+            else:
+                msg = (
+                    "TRUST_X_FORWARDED_FOR=True but SECURE_PROXY_SSL_HEADER is not "
+                    "set. This suggests Django may not be behind a reverse proxy. "
+                    "X-Forwarded-For can be spoofed by clients when exposed directly "
+                    "to the internet. Set SECURE_PROXY_SSL_HEADER or disable "
+                    "TRUST_X_FORWARDED_FOR."
+                )
+                logger.warning("SECURITY: %s", msg)
+                errors.append(Error(msg, id="web.E001"))
         if not settings.DEBUG:
             msg = (
                 "TRUST_X_FORWARDED_FOR=True in a production environment "

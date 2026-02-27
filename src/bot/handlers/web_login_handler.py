@@ -114,7 +114,7 @@ async def web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if updated == 1:
         # Clear cache keys after successful status transition.
         await maybe_await(
-            web_login_request_repository._clear_login_cache_keys(token)
+            web_login_request_repository.clear_login_cache_keys(token)
         )
         if action == 'c':
             await query.edit_message_text("✅ Login confirmed. You can close this message.")

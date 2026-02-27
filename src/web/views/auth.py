@@ -143,8 +143,6 @@ def _parse_ua_cached(ua: str) -> str:
     # Defense-in-depth: even though parse_ua usually produces short strings,
     # a crafted UA between 255-1024 chars could yield a longer parsed result.
     result = raw[:MAX_DEVICE_INFO_LENGTH]
-    if len(result) > MAX_DEVICE_INFO_LENGTH:
-        raise ValueError(f"device_info exceeds DB field limit: {len(result)}")
 
     try:
         cache.set(cache_key, result, timeout=_UA_CACHE_TTL)

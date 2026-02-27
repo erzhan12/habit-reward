@@ -133,11 +133,13 @@ def _shutdown_executor(signum=None, frame=None) -> None:
         executor = _login_executor
     if executor is None:
         return
-    # During interpreter shutdown (atexit), logging streams may already be
-    # closed.  Disable logging temporarily to avoid "I/O operation on
-    # closed file" tracebacks from the logging framework.
+    # During CPython interpreter shutdown (atexit), logging streams may
+    # already be closed due to non-deterministic module teardown ordering.
+    # Using raiseExceptions = False suppresses I/O errors from the logging
+    # framework without disabling all logging globally.
+    # See: https://github.com/python/cpython/issues/85581
     if not signum:
-        logging.disable(logging.CRITICAL)
+        logging.raiseExceptions = False
     else:
         sig_name = signal.Signals(signum).name
         logger.info(
@@ -483,7 +485,7 @@ class WebLoginService:
                     WebLoginRequest.objects.filter(
                         user_id=user_id,
                         status=WebLoginRequest.Status.PENDING,
-                        created_at__gte=datetime.now(timezone.utc) - timedelta(hours=1),
+                        expires_at__gte=datetime.now(timezone.utc),
                     ).update(status=WebLoginRequest.Status.DENIED)
                     login_request = WebLoginRequest.objects.create(
                         user_id=user_id,
@@ -529,7 +531,19 @@ class WebLoginService:
                 "Invalid telegram_id for user — cannot send notification",
                 extra={"user_id": user.id, "telegram_id": user.telegram_id},
             )
-            _mark_failed_token(token, expires_at)
+            try:
+                _mark_failed_token(token, expires_at)
+            except CacheWriteError as cache_error:
+                logger.error(
+                    "Failed to write wl_failed marker to cache after invalid "
+                    "telegram_id — token may stay in 'pending' state until TTL expiry",
+                    extra={
+                        "metric": "web_login.mark_failed.cache_write_error",
+                        "user_id": user.id,
+                        "token_prefix": token[:8],
+                        "error": str(cache_error),
+                    },
+                )
             return
         await self._send_login_notification(
             chat_id, login_request.id, token, device_info

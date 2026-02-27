@@ -1307,7 +1307,7 @@ class WebLoginRequestRepository:
     """Repository for bot-based web login requests."""
 
     @staticmethod
-    def _clear_login_cache_keys(token: str) -> None:
+    def clear_login_cache_keys(token: str) -> None:
         """Clear cache keys tied to a login token after terminal DB transitions."""
         from django.core.cache import cache
 
@@ -1363,7 +1363,7 @@ class WebLoginRequestRepository:
             WebLoginRequest.objects.filter(token=token, status=WebLoginRequest.Status.PENDING.value).update
         )(status=status)
         if updated:
-            await sync_to_async(self._clear_login_cache_keys)(token)
+            await sync_to_async(self.clear_login_cache_keys)(token)
         return updated
 
     async def mark_as_used(self, token: str) -> int:
@@ -1376,7 +1376,7 @@ class WebLoginRequestRepository:
             WebLoginRequest.objects.filter(token=token, status=WebLoginRequest.Status.CONFIRMED.value).update
         )(status=WebLoginRequest.Status.USED.value)
         if updated:
-            await sync_to_async(self._clear_login_cache_keys)(token)
+            await sync_to_async(self.clear_login_cache_keys)(token)
         return updated
 
     async def update_telegram_message_id(
