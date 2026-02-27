@@ -115,6 +115,7 @@ const state = ref("idle"); // idle | waiting | denied | expired | error
 const error = ref(null);
 const submitting = ref(false);
 const loginToken = ref(null);
+const serverExpiresAt = ref(null);
 let pollTimer = null;
 let expiryTimer = null;
 let pollDelay = 0;
@@ -189,6 +190,7 @@ async function submitLogin() {
     }
 
     loginToken.value = data.token;
+    serverExpiresAt.value = data.expires_at || null;
     state.value = "waiting";
     submitting.value = false;
     startPolling();
@@ -223,12 +225,18 @@ function startPolling() {
 
   schedulePoll();
 
-  // NOTE: Uses client time — may drift from server. Consider using
-  // expires_at from the server response for higher accuracy.
+  // Use server's expires_at when available to avoid client clock drift;
+  // fall back to LOGIN_EXPIRY_MS if the response didn't include it.
+  let expiryMs = LOGIN_EXPIRY_MS;
+  if (serverExpiresAt.value) {
+    const serverDelta = new Date(serverExpiresAt.value).getTime() - Date.now();
+    // Floor at 10s to avoid instant expiry from clock skew, cap at LOGIN_EXPIRY_MS
+    expiryMs = Math.max(10_000, Math.min(serverDelta, LOGIN_EXPIRY_MS));
+  }
   expiryTimer = setTimeout(() => {
     stopPolling();
     state.value = "expired";
-  }, LOGIN_EXPIRY_MS);
+  }, expiryMs);
 }
 
 function stopPolling() {
@@ -349,6 +357,7 @@ function resetState() {
   state.value = "idle";
   error.value = null;
   loginToken.value = null;
+  serverExpiresAt.value = null;
   submitting.value = false;
 }
 

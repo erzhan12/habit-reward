@@ -103,10 +103,15 @@ def _parse_ua_cached(ua: str) -> str:
     """
     from django.core.cache import cache
 
-    # blake2b with digest_size=8 produces a 16-char hex digest directly,
-    # faster than SHA-256 and sufficient for cache key uniqueness.
+    # blake2b with digest_size=8 produces an 8-byte digest, which
+    # hexdigest() encodes as a 16-character hex string.
+    # Faster than SHA-256 and sufficient for cache key uniqueness.
     cache_key = f"{_UA_CACHE_KEY_PREFIX}{hashlib.blake2b(ua.encode(), digest_size=8).hexdigest()}"
-    cached = cache.get(cache_key)
+    try:
+        cached = cache.get(cache_key)
+    except Exception:
+        logger.warning("Cache read failed for UA parsing; falling back to direct parse")
+        cached = None
     if cached is not None:
         return cached
 
@@ -130,7 +135,10 @@ def _parse_ua_cached(ua: str) -> str:
         f"device_info exceeds DB field limit: {len(result)} > {MAX_DEVICE_INFO_LENGTH}"
     )
 
-    cache.set(cache_key, result, timeout=_UA_CACHE_TTL)
+    try:
+        cache.set(cache_key, result, timeout=_UA_CACHE_TTL)
+    except Exception:
+        logger.warning("Cache write failed for UA parsing; result not cached")
     return result
 
 

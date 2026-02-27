@@ -1187,7 +1187,7 @@ When logging IP addresses (e.g., rate limiting), use `_anonymize_ip()` from `src
 The Telegram username regex exists in two places that MUST stay in sync:
 - **Backend**: `src/web/utils/validation.py` → `TELEGRAM_USERNAME_PATTERN`
 - **Frontend**: `frontend/src/pages/Login.vue` → `TELEGRAM_USERNAME_RE`
-- **Test**: `tests/web/test_views.py::TestValidationPatternSync` asserts they match
+- **Test**: `tests/web/test_auth_views.py::TestValidationPatternSync` asserts they match
 
 ## HabitLog Ordering: Use `last_completed_date`, NOT `timestamp`
 
@@ -2007,7 +2007,7 @@ A pre-commit hook (`scripts/check_validation_sync.sh`) verifies they stay in syn
 Status polling jitter (`src/web/services/web_login_service.py`) is applied to `"pending"`, `"expired"`, and `"error"` statuses — these have cache-dependent code paths with different timing that could leak information. Terminal statuses `"confirmed"`, `"denied"`, and `"used"` are excluded. Named constants `_JITTER_MIN`/`_JITTER_MAX` are configurable via Django settings.
 
 ### UA Parsing Cache
-`_parse_ua_cached` in `src/web/views/auth.py` uses `functools.lru_cache(maxsize=_UA_CACHE_MAX_SIZE)` (default 1024, configurable via `settings.UA_CACHE_MAX_SIZE`) to avoid repeated CPU-intensive User-Agent parsing. The cache key is the sanitized UA string.
+`_parse_ua_cached` in `src/web/views/auth.py` uses Django's cache framework (not `lru_cache`) with blake2b-hashed keys and 1-hour TTL. Both `cache.get()` and `cache.set()` are wrapped in try-except to gracefully degrade if the cache backend fails — the function falls back to direct UA parsing. Tests: `TestParseUaCachedCacheFailure` in `tests/web/test_auth_views.py`.
 
 ### Timezone-Aware Comparisons
 Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB datetime fields with `datetime.now(timezone.utc)`. Django may return naive datetimes when `USE_TZ=False`. Always guard against `None` at call sites (e.g. `if login_request.expires_at is None or ...`) to handle corrupt DB rows gracefully. The handler in `web_login_handler.py` also imports and uses `_ensure_utc` for consistency.
@@ -2017,6 +2017,22 @@ Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB
 
 ### Cache Failure Race Condition
 In `_safe_cache_set`, the threshold check (`should_raise`) MUST be inside the `_cache_failure_lock` to prevent multiple threads from simultaneously reading the same count and all raising `CacheWriteError`. The threshold is 10 (not 3) — set high to tolerate transient cache blips during peak traffic without blocking all logins globally.
+
+### Web Test File Organization
+`tests/web/test_views.py` was split into feature-area files:
+- `tests/web/conftest.py` — shared fixtures (`user`, `auth_client`, `_call_async_mock`) and helpers
+- `tests/web/test_middleware.py` — middleware and redirect tests
+- `tests/web/test_dashboard_views.py` — dashboard view tests
+- `tests/web/test_history_views.py` — streaks and history tests
+- `tests/web/test_rewards_views.py` — rewards view tests
+- `tests/web/test_auth_views.py` — all auth/login flow tests
+- `tests/web/test_cache_operations.py` — cache manager and cache-related tests
+
+### Mocking Django Cache in Threads (Pitfall)
+**DO NOT** use `patch("django.core.cache.cache.set", ...)` or `patch.object(django_cache, "set", ...)` when testing across threads. Django's cache proxy uses `ConnectionProxy` with thread-local connections, so mocks applied to the proxy only work in the main thread. **Instead**, patch the actual backend class: `patch.object(LocMemCache, "set", ...)` (from `django.core.cache.backends.locmem`). This patches at the class level so all instances see the mock.
+
+### Login.vue Server Expiry Sync
+`Login.vue` uses the server's `expires_at` from the `/auth/bot-login/request/` response to set the client-side expiry timer, avoiding client clock drift. Falls back to `LOGIN_EXPIRY_MS` (5 min) if not provided. Bounded: floor 10s (prevent instant expiry from clock skew), cap `LOGIN_EXPIRY_MS`.
 
 ### Login.vue Polling Retry Limit
 Frontend polling (`pollStatus`) stops after `POLL_MAX_CONSECUTIVE_ERRORS` (5) consecutive network failures and transitions to error state. The counter resets on any successful poll. `submitLogin` catch also logs to `console.error`.

@@ -1,7 +1,9 @@
-"""Tests for web interface views."""
+"""Tests for authentication views and bot-based login flow."""
 
 import json
 import threading
+import time
+from concurrent.futures import Future
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,479 +12,9 @@ from django.test import Client
 
 from src.core.models import User
 from src.web.services.web_login_service import WL_FAILED_KEY, WL_PENDING_KEY
+from tests.web.conftest import _call_async_mock
 
 pytestmark = pytest.mark.django_db
-
-
-def _call_async_mock(return_value):
-    """Side effect for call_async mock that properly closes unawaited coroutines."""
-    def _impl(coro):
-        if hasattr(coro, 'close'):
-            coro.close()
-        return return_value
-    return _impl
-
-
-@pytest.fixture
-def user():
-    """Create a test user."""
-    return User.objects.create_user(
-        username="tg_999999999",
-        telegram_id="999999999",
-        name="Test User",
-        language="en",
-        timezone="UTC",
-    )
-
-
-@pytest.fixture
-def auth_client(user):
-    """Create an authenticated Django test client."""
-    client = Client()
-    client.force_login(user)
-    return client
-
-
-def _mock_habit(id=1, name="Running", weight=10):
-    """Create a mock habit object."""
-    h = MagicMock()
-    h.id = id
-    h.name = name
-    h.weight = weight
-    h.active = True
-    return h
-
-
-def _mock_habit_log(habit_id=1):
-    """Create a mock habit log."""
-    log = MagicMock()
-    log.habit_id = habit_id
-    return log
-
-
-def _mock_progress(reward_id=1, name="Coffee", pieces_earned=2,
-                   pieces_required=3, status_name="PENDING", is_recurring=True):
-    """Create a mock reward progress."""
-    reward = MagicMock()
-    reward.id = reward_id
-    reward.name = name
-    reward.is_recurring = is_recurring
-
-    progress = MagicMock()
-    progress.reward = reward
-    progress.pieces_earned = pieces_earned
-    progress.get_pieces_required.return_value = pieces_required
-
-    status = MagicMock()
-    status.name = status_name
-    status.value = f"emoji {status_name}"
-    progress.get_status.return_value = status
-
-    return progress
-
-
-# ---- WebAuthMiddleware unit tests ----
-
-
-class TestWebAuthMiddleware:
-    """Direct tests for WebAuthMiddleware exempt prefixes and auth enforcement."""
-
-    # Paths that should never be redirected to /auth/login/ regardless of auth state.
-    # Each entry is (path, expected_status_not_to_be_login_redirect).
-    EXEMPT_PATHS = [
-        "/auth/login/",
-        "/admin/",
-        "/webhook/test/",
-        "/api/health/",
-    ]
-
-    def test_unauthenticated_protected_path_redirects_to_login(self):
-        response = Client().get("/")
-        assert response.status_code == 302
-        assert response.url == "/auth/login/"
-
-    def test_authenticated_protected_path_is_allowed_through(self, auth_client):
-        """Middleware passes authenticated requests; downstream view returns 200."""
-        from unittest.mock import AsyncMock, patch
-
-        with (
-            patch("src.web.views.dashboard.habit_service") as mock_hs,
-            patch("src.web.views.dashboard.habit_log_repository") as mock_repo,
-            patch("src.web.views.dashboard.streak_service") as mock_ss,
-        ):
-            mock_hs.get_all_active_habits.return_value = []
-            mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
-            mock_ss.get_validated_streak_map.return_value = {}
-            response = auth_client.get("/")
-        assert response.status_code == 200
-
-    def test_auth_prefix_exempt_unauthenticated(self):
-        response = Client().get("/auth/login/")
-        assert response.status_code == 200
-
-    def test_admin_prefix_exempt_unauthenticated(self):
-        """Admin path is handled by Django admin, not redirected to /auth/login/."""
-        response = Client().get("/admin/")
-        # Django admin redirects to its own login; the middleware must not intercept.
-        assert response.status_code != 302 or "/auth/login/" not in (response.url or "")
-
-    def test_webhook_prefix_exempt_unauthenticated(self):
-        """/webhook/* paths pass through the middleware (may 404, not redirect)."""
-        response = Client().get("/webhook/nonexistent/")
-        assert response.status_code != 302 or "/auth/login/" not in (response.url or "")
-
-    def test_api_prefix_exempt_unauthenticated(self):
-        """/api/* paths pass through the middleware (may 404, not redirect)."""
-        response = Client().get("/api/nonexistent/")
-        assert response.status_code != 302 or "/auth/login/" not in (response.url or "")
-
-    def test_redirect_target_is_exact_login_url(self):
-        """Redirect must point to exactly /auth/login/, not a partial match."""
-        response = Client().get("/dashboard/")
-        assert response.status_code == 302
-        assert response.url == "/auth/login/"
-
-
-# ---- Unauthenticated access tests ----
-
-
-class TestUnauthenticatedRedirect:
-    """Unauthenticated users should be redirected to login by middleware."""
-
-    def test_dashboard_redirects(self):
-        response = Client().get("/")
-        assert response.status_code == 302
-        assert "/auth/login/" in response.url
-
-    def test_streaks_redirects(self):
-        response = Client().get("/streaks/")
-        assert response.status_code == 302
-        assert "/auth/login/" in response.url
-
-    def test_history_redirects(self):
-        response = Client().get("/history/")
-        assert response.status_code == 302
-        assert "/auth/login/" in response.url
-
-    def test_rewards_redirects(self):
-        response = Client().get("/rewards/")
-        assert response.status_code == 302
-        assert "/auth/login/" in response.url
-
-    def test_login_page_accessible(self):
-        response = Client().get("/auth/login/")
-        assert response.status_code == 200
-
-
-# ---- Dashboard tests ----
-
-
-class TestDashboard:
-    """Dashboard view tests (service layer mocked)."""
-
-    @patch("src.web.views.dashboard.streak_service")
-    @patch("src.web.views.dashboard.habit_log_repository")
-    @patch("src.web.views.dashboard.habit_service")
-    def test_dashboard_returns_200(self, mock_hs, mock_repo, mock_ss, auth_client):
-        mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
-        mock_ss.get_validated_streak_map.return_value = {}
-        response = auth_client.get("/")
-        assert response.status_code == 200
-
-    @patch("src.web.views.dashboard.streak_service")
-    @patch("src.web.views.dashboard.habit_log_repository")
-    @patch("src.web.views.dashboard.habit_service")
-    def test_dashboard_with_habits(self, mock_hs, mock_repo, mock_ss, auth_client):
-        habit = _mock_habit()
-        mock_hs.get_all_active_habits.return_value = [habit]
-        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
-        mock_ss.get_validated_streak_map.return_value = {1: 5}
-        response = auth_client.get("/")
-        assert response.status_code == 200
-
-    @patch("src.web.views.dashboard.habit_service")
-    def test_complete_habit_redirects(self, mock_hs, auth_client):
-        mock_hs.get_habit_by_id.return_value = _mock_habit()
-        mock_hs.process_habit_completion.return_value = MagicMock()
-        response = auth_client.post("/habits/1/complete/")
-        assert response.status_code == 302
-        assert response.url == "/"
-
-    @patch("src.web.views.dashboard.habit_service")
-    def test_complete_habit_sets_reward_message(self, mock_hs, auth_client):
-        result = MagicMock()
-        result.got_reward = True
-        result.reward = MagicMock(name="reward")
-        result.reward.name = "Coffee"
-        result.cumulative_progress = MagicMock()
-        result.cumulative_progress.pieces_earned = 2
-        result.cumulative_progress.get_pieces_required.return_value = 5
-
-        mock_hs.get_habit_by_id.return_value = _mock_habit()
-        mock_hs.process_habit_completion.return_value = result
-
-        auth_client.post("/habits/1/complete/")
-
-        flash = auth_client.session.get("_completion_flash")
-        assert flash is not None
-        assert flash["got_reward"] is True
-        assert "Reward: Coffee (2/5)" in flash["text"]
-
-    @patch("src.web.views.dashboard.habit_service")
-    def test_complete_habit_sets_no_reward_message(self, mock_hs, auth_client):
-        result = MagicMock()
-        result.got_reward = False
-        result.reward = None
-        result.cumulative_progress = None
-
-        mock_hs.get_habit_by_id.return_value = _mock_habit()
-        mock_hs.process_habit_completion.return_value = result
-
-        auth_client.post("/habits/1/complete/")
-
-        flash = auth_client.session.get("_completion_flash")
-        assert flash is not None
-        assert flash["got_reward"] is False
-        assert "No reward this time." in flash["text"]
-
-    @patch("src.web.views.dashboard.habit_service")
-    def test_complete_nonexistent_habit_redirects(self, mock_hs, auth_client):
-        mock_hs.get_habit_by_id.return_value = None
-        response = auth_client.post("/habits/99999/complete/")
-        assert response.status_code == 302
-        assert response.url == "/"
-
-    @patch("src.web.views.dashboard.habit_service")
-    def test_revert_habit_redirects(self, mock_hs, auth_client):
-        mock_hs.get_habit_by_id.return_value = _mock_habit()
-        mock_hs.revert_habit_completion.return_value = MagicMock()
-        response = auth_client.post("/habits/1/revert/")
-        assert response.status_code == 302
-        assert response.url == "/"
-
-    @patch("src.web.views.dashboard.messages")
-    @patch("src.web.views.dashboard.habit_service")
-    def test_revert_habit_sets_reward_removed_message(self, mock_hs, mock_messages, auth_client):
-        result = MagicMock()
-        result.reward_reverted = True
-        result.reward_name = "Coffee"
-        result.reward_progress = MagicMock()
-        result.reward_progress.pieces_earned = 0
-        result.reward_progress.get_pieces_required.return_value = 5
-
-        mock_hs.get_habit_by_id.return_value = _mock_habit()
-        mock_hs.revert_habit_completion.return_value = result
-
-        auth_client.post("/habits/1/revert/")
-
-        mock_messages.info.assert_called_once()
-        assert "Reward removed: Coffee (0/5)" in str(mock_messages.info.call_args)
-        mock_messages.success.assert_not_called()
-
-    @patch("src.web.views.dashboard.messages")
-    @patch("src.web.views.dashboard.habit_service")
-    def test_revert_habit_sets_plain_success_when_no_reward(self, mock_hs, mock_messages, auth_client):
-        result = MagicMock()
-        result.reward_reverted = False
-        result.reward_name = None
-        result.reward_progress = None
-
-        mock_hs.get_habit_by_id.return_value = _mock_habit()
-        mock_hs.revert_habit_completion.return_value = result
-
-        auth_client.post("/habits/1/revert/")
-
-        mock_messages.success.assert_called_once()
-        assert "Habit undone." in str(mock_messages.success.call_args)
-        mock_messages.info.assert_not_called()
-
-    @patch("src.web.views.dashboard.habit_service")
-    def test_revert_nonexistent_habit_redirects(self, mock_hs, auth_client):
-        mock_hs.get_habit_by_id.return_value = None
-        response = auth_client.post("/habits/99999/revert/")
-        assert response.status_code == 302
-        assert response.url == "/"
-
-    @patch("src.web.views.dashboard.habit_service")
-    def test_revert_failure_still_redirects(self, mock_hs, auth_client):
-        mock_hs.get_habit_by_id.return_value = _mock_habit()
-        mock_hs.revert_habit_completion.side_effect = ValueError("No log found")
-        response = auth_client.post("/habits/1/revert/")
-        assert response.status_code == 302
-        assert response.url == "/"
-
-    @patch("src.web.views.dashboard.messages")
-    @patch("src.web.views.dashboard.habit_service")
-    def test_complete_habit_twice_second_raises_error_flash(self, mock_hs, mock_messages, auth_client):
-        """Second completion attempt is rejected by service; both calls still redirect cleanly."""
-        first_result = MagicMock()
-        first_result.got_reward = False
-        first_result.reward = None
-        first_result.cumulative_progress = None
-
-        mock_hs.get_habit_by_id.return_value = _mock_habit()
-        mock_hs.process_habit_completion.side_effect = [
-            first_result,
-            ValueError("Habit already completed today"),
-        ]
-
-        response1 = auth_client.post("/habits/1/complete/")
-        assert response1.status_code == 302
-
-        response2 = auth_client.post("/habits/1/complete/")
-        assert response2.status_code == 302
-
-        assert mock_hs.process_habit_completion.call_count == 2
-        mock_messages.error.assert_called_once()
-        assert "already completed" in str(mock_messages.error.call_args).lower()
-
-    @patch("src.web.views.dashboard.messages")
-    @patch("src.web.views.dashboard._dashboard_action_ratelimited", return_value=True)
-    def test_complete_habit_when_rate_limited_redirects_with_error(
-        self, _mock_rl, mock_messages, auth_client
-    ):
-        """Rate-limited complete request redirects home with an error flash; service is not called."""
-        response = auth_client.post("/habits/1/complete/")
-        assert response.status_code == 302
-        assert response.url == "/"
-        mock_messages.error.assert_called_once()
-        assert "Too many requests" in str(mock_messages.error.call_args)
-
-    @patch("src.web.views.dashboard.messages")
-    @patch("src.web.views.dashboard._dashboard_action_ratelimited", return_value=True)
-    def test_revert_habit_when_rate_limited_redirects_with_error(
-        self, _mock_rl, mock_messages, auth_client
-    ):
-        """Rate-limited revert request redirects home with an error flash; service is not called."""
-        response = auth_client.post("/habits/1/revert/")
-        assert response.status_code == 302
-        assert response.url == "/"
-        mock_messages.error.assert_called_once()
-        assert "Too many requests" in str(mock_messages.error.call_args)
-
-
-# ---- Streaks tests ----
-
-
-class TestStreaks:
-    """Streaks view tests."""
-
-    @patch("src.web.views.streaks.streak_service")
-    @patch("src.web.views.streaks.habit_log_repository")
-    @patch("src.web.views.streaks.habit_service")
-    def test_streaks_returns_200(self, mock_hs, mock_repo, mock_ss, auth_client):
-        mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_total_count_by_user = AsyncMock(return_value=0)
-        mock_repo.get_habit_streak_stats = AsyncMock(return_value=[])
-        response = auth_client.get("/streaks/")
-        assert response.status_code == 200
-
-
-# ---- History tests ----
-
-
-class TestHistory:
-    """History view tests."""
-
-    @patch("src.web.views.history.habit_log_repository")
-    @patch("src.web.views.history.habit_service")
-    def test_history_returns_200(self, mock_hs, mock_repo, auth_client):
-        mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_logs_in_daterange = AsyncMock(return_value=[])
-        response = auth_client.get("/history/")
-        assert response.status_code == 200
-
-    @patch("src.web.views.history.habit_log_repository")
-    @patch("src.web.views.history.habit_service")
-    def test_history_custom_month(self, mock_hs, mock_repo, auth_client):
-        mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_logs_in_daterange = AsyncMock(return_value=[])
-        response = auth_client.get("/history/?month=2026-01")
-        assert response.status_code == 200
-
-    @patch("src.web.views.history.habit_log_repository")
-    @patch("src.web.views.history.habit_service")
-    def test_history_invalid_month_fallback(self, mock_hs, mock_repo, auth_client):
-        mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_logs_in_daterange = AsyncMock(return_value=[])
-        response = auth_client.get("/history/?month=invalid")
-        assert response.status_code == 200
-
-    @patch("src.web.views.history.habit_log_repository")
-    @patch("src.web.views.history.habit_service")
-    def test_history_habit_filter(self, mock_hs, mock_repo, auth_client):
-        mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_logs_in_daterange = AsyncMock(return_value=[])
-        response = auth_client.get("/history/?habit=1")
-        assert response.status_code == 200
-
-
-# ---- Rewards tests ----
-
-
-class TestRewards:
-    """Rewards view tests."""
-
-    @patch("src.web.views.rewards.reward_service")
-    def test_rewards_returns_200(self, mock_rs, auth_client):
-        mock_rs.get_user_reward_progress.return_value = []
-        mock_rs.get_claimed_one_time_rewards.return_value = []
-        response = auth_client.get("/rewards/")
-        assert response.status_code == 200
-
-    @patch("src.web.views.rewards.reward_service")
-    def test_rewards_with_progress(self, mock_rs, auth_client):
-        progress = _mock_progress(status_name="PENDING")
-        mock_rs.get_user_reward_progress.return_value = [progress]
-        mock_rs.get_claimed_one_time_rewards.return_value = []
-        response = auth_client.get("/rewards/")
-        assert response.status_code == 200
-
-    @patch("src.web.views.rewards.reward_service")
-    def test_rewards_status_uses_name(self, mock_rs, auth_client):
-        """Verify status is sent as .name (ACHIEVED) not .value (emoji)."""
-        progress = _mock_progress(status_name="ACHIEVED")
-        mock_rs.get_user_reward_progress.return_value = [progress]
-        mock_rs.get_claimed_one_time_rewards.return_value = []
-        response = auth_client.get("/rewards/")
-        assert response.status_code == 200
-        # The status should use .name, not .value
-        progress.get_status.assert_called()
-
-    @patch("src.web.views.rewards.reward_repository")
-    @patch("src.web.views.rewards.reward_service")
-    def test_claim_reward_redirects(self, mock_rs, mock_repo, auth_client, user):
-        reward = MagicMock()
-        reward.user_id = user.id
-        mock_repo.get_by_id = AsyncMock(return_value=reward)
-        mock_rs.mark_reward_claimed.return_value = MagicMock()
-        response = auth_client.post("/rewards/1/claim/")
-        assert response.status_code == 302
-        assert response.url == "/rewards/"
-
-    @patch("src.web.views.rewards.reward_repository")
-    @patch("src.web.views.rewards.reward_service")
-    def test_claim_nonexistent_reward_redirects(self, mock_rs, mock_repo, auth_client):
-        mock_repo.get_by_id = AsyncMock(return_value=None)
-        response = auth_client.post("/rewards/99999/claim/")
-        assert response.status_code == 302
-        assert response.url == "/rewards/"
-        mock_rs.mark_reward_claimed.assert_not_called()
-
-    @patch("src.web.views.rewards.reward_repository")
-    @patch("src.web.views.rewards.reward_service")
-    def test_claim_failure_still_redirects(self, mock_rs, mock_repo, auth_client, user):
-        reward = MagicMock()
-        reward.user_id = user.id
-        mock_repo.get_by_id = AsyncMock(return_value=reward)
-        mock_rs.mark_reward_claimed.side_effect = ValueError("Not achieved")
-        response = auth_client.post("/rewards/1/claim/")
-        assert response.status_code == 302
-        assert response.url == "/rewards/"
-
-
-# ---- Auth tests ----
 
 
 class TestAuth:
@@ -1215,7 +747,7 @@ class TestIPAddressParsing:
 
         mock_settings.TRUST_X_FORWARDED_FOR = True
         request = MagicMock()
-        # Multi-proxy chain: CDN → LB → app.  Leftmost is the original client.
+        # Multi-proxy chain: CDN -> LB -> app.  Leftmost is the original client.
         request.META = {
             "HTTP_X_FORWARDED_FOR": "10.0.0.1, 192.168.1.1, 172.16.0.1",
             "REMOTE_ADDR": "127.0.0.1",
@@ -1242,118 +774,6 @@ class TestIPAddressParsing:
         # so no HTML is interpreted.
         assert "<script>" not in info
         assert "Unknown" in info
-
-
-# ---- Prop structure tests (Inertia JSON mode) ----
-
-
-INERTIA_HEADERS = {"HTTP_X_INERTIA": "true", "HTTP_X_INERTIA_VERSION": "1.0"}
-
-
-def _inertia_props(response):
-    """Extract Inertia props from a JSON response."""
-    data = json.loads(response.content)
-    return data["component"], data["props"]
-
-
-class TestPropStructure:
-    """Verify prop shapes returned by Inertia views."""
-
-    @patch("src.web.views.dashboard.streak_service")
-    @patch("src.web.views.dashboard.habit_log_repository")
-    @patch("src.web.views.dashboard.habit_service")
-    def test_dashboard_prop_structure(self, mock_hs, mock_repo, mock_ss, auth_client):
-        habit = _mock_habit(id=1, name="Running", weight=10)
-        mock_hs.get_all_active_habits.return_value = [habit]
-        log = _mock_habit_log(habit_id=1)
-        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[log])
-        mock_ss.get_validated_streak_map.return_value = {1: 3}
-
-        response = auth_client.get("/", **INERTIA_HEADERS)
-        component, props = _inertia_props(response)
-
-        assert component == "Dashboard"
-        assert len(props["habits"]) == 1
-        h = props["habits"][0]
-        assert "name" in h and "streak" in h and "completedToday" in h
-        assert h["name"] == "Running"
-        assert h["streak"] == 3
-        assert h["completedToday"] is True
-        assert props["stats"]["completedToday"] == 1
-        assert props["stats"]["totalToday"] == 1
-
-    @patch("src.web.views.rewards.reward_service")
-    def test_rewards_prop_structure(self, mock_rs, auth_client):
-        progress = _mock_progress(pieces_earned=2, pieces_required=5, status_name="PENDING")
-        mock_rs.get_user_reward_progress.return_value = [progress]
-        mock_rs.get_claimed_one_time_rewards.return_value = []
-
-        response = auth_client.get("/rewards/", **INERTIA_HEADERS)
-        component, props = _inertia_props(response)
-
-        assert component == "Rewards"
-        assert len(props["rewards"]) == 1
-        r = props["rewards"][0]
-        assert r["piecesEarned"] == 2
-        assert r["piecesRequired"] == 5
-        assert r["status"] == "PENDING"
-
-    @patch("src.web.views.history.habit_log_repository")
-    @patch("src.web.views.history.habit_service")
-    def test_history_prop_structure(self, mock_hs, mock_repo, auth_client):
-        mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_logs_in_daterange = AsyncMock(return_value=[])
-
-        response = auth_client.get("/history/", **INERTIA_HEADERS)
-        component, props = _inertia_props(response)
-
-        assert component == "History"
-        assert "currentMonth" in props
-        assert "completions" in props
-        assert "userToday" in props
-
-
-# ---- Error flash message tests ----
-
-
-class TestErrorFlashMessages:
-    """Verify error flash messages are set on failure paths."""
-
-    @patch("src.web.views.dashboard.messages")
-    @patch("src.web.views.dashboard.habit_service")
-    def test_complete_habit_error_sets_flash(self, mock_hs, mock_messages, auth_client):
-        mock_hs.get_habit_by_id.return_value = _mock_habit()
-        mock_hs.process_habit_completion.side_effect = ValueError("Already completed")
-
-        auth_client.post("/habits/1/complete/")
-
-        mock_messages.error.assert_called_once()
-        assert "Already completed" in str(mock_messages.error.call_args)
-
-    @patch("src.web.views.dashboard.messages")
-    @patch("src.web.views.dashboard.habit_service")
-    def test_revert_habit_error_sets_flash(self, mock_hs, mock_messages, auth_client):
-        mock_hs.get_habit_by_id.return_value = _mock_habit()
-        mock_hs.revert_habit_completion.side_effect = ValueError("No log found")
-
-        auth_client.post("/habits/1/revert/")
-
-        mock_messages.error.assert_called_once()
-        assert "No log found" in str(mock_messages.error.call_args)
-
-    @patch("src.web.views.rewards.reward_repository")
-    @patch("src.web.views.rewards.messages")
-    @patch("src.web.views.rewards.reward_service")
-    def test_claim_non_achieved_shows_error_message(self, mock_rs, mock_messages, mock_repo, auth_client, user):
-        reward = MagicMock()
-        reward.user_id = user.id
-        mock_repo.get_by_id = AsyncMock(return_value=reward)
-        mock_rs.mark_reward_claimed.side_effect = ValueError("Not achieved yet")
-
-        auth_client.post("/rewards/1/claim/")
-
-        mock_messages.error.assert_called_once()
-        assert "Not achieved yet" in str(mock_messages.error.call_args)
 
 
 # ---- Token collision retry tests (direct unit tests) ----
@@ -1469,66 +889,6 @@ class TestTokenCollisionRetryDirect:
         assert cache.get(f"{WL_PENDING_KEY}{new_token}") is True
 
 
-# ---- Cache failure threshold tests ----
-
-
-class TestCacheFailureThreshold:
-    """Tests for cache write failure tracking and CacheWriteError threshold."""
-
-    def test_cache_write_error_after_threshold(self):
-        """CacheWriteError is raised after threshold consecutive failures."""
-        from src.web.services.web_login_service import CacheWriteError, cache_manager
-
-        cache_manager.reset()
-        try:
-            with patch("django.core.cache.cache.set", side_effect=ConnectionError("cache down")):
-                # First 9 should just warn
-                for i in range(9):
-                    cache_manager.set(f"test_key_{i}", True, 60)
-
-                # 10th should raise
-                with pytest.raises(CacheWriteError, match="10 times consecutively"):
-                    cache_manager.set("test_key_10", True, 60)
-        finally:
-            cache_manager.reset()
-
-    def test_counter_resets_on_success(self):
-        """A successful cache write resets the failure counter."""
-        from src.web.services.web_login_service import cache_manager
-
-        cache_manager.reset()
-        try:
-            # Simulate 8 failures
-            with patch("django.core.cache.cache.set", side_effect=ConnectionError("blip")):
-                for i in range(8):
-                    cache_manager.set(f"fail_key_{i}", True, 60)
-            assert cache_manager.failure_count == 8
-            # One success resets
-            cache_manager.set("reset_key", True, 60)
-            assert cache_manager.failure_count == 0
-        finally:
-            cache_manager.reset()
-
-    def test_intermittent_failures_dont_trigger_threshold(self):
-        """Alternating success/failure never reaches threshold."""
-        from src.web.services.web_login_service import cache_manager
-
-        cache_manager.reset()
-        try:
-            for i in range(20):
-                if i % 2 == 0:
-                    with patch("django.core.cache.cache.set",
-                               side_effect=ConnectionError("blip")):
-                        cache_manager.set(f"intermittent_{i}", True, 60)
-                else:
-                    cache_manager.set(f"intermittent_{i}", True, 60)
-
-            # Should never have raised — counter resets on each success
-            assert cache_manager.failure_count == 0
-        finally:
-            cache_manager.reset()
-
-
 # ---- Username recycling concurrency tests ----
 
 
@@ -1627,45 +987,6 @@ class TestUsernameRecyclingConcurrency:
         assert user.telegram_username is None
 
 
-# ---- Timezone edge case tests ----
-
-
-class TestDashboardTimezone:
-    """Dashboard must use user.timezone when computing today's date for log queries."""
-
-    @pytest.mark.parametrize("tz", ["UTC", "America/New_York", "Asia/Tokyo"])
-    @patch("src.web.views.dashboard.get_user_today")
-    @patch("src.web.views.dashboard.streak_service")
-    @patch("src.web.views.dashboard.habit_log_repository")
-    @patch("src.web.views.dashboard.habit_service")
-    def test_dashboard_uses_user_timezone(
-        self, mock_hs, mock_repo, mock_ss, mock_today, auth_client, user, tz
-    ):
-        """Dashboard passes user.timezone to get_user_today and forwards the returned
-        date to habit_log_repository so that habit completion is scoped to the correct
-        calendar day for every timezone.
-        """
-        from datetime import date
-        from unittest.mock import ANY
-
-        fake_date = date(2026, 1, 15)
-        mock_today.return_value = fake_date
-        mock_hs.get_all_active_habits.return_value = []
-        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
-        mock_ss.get_validated_streak_map.return_value = {}
-
-        user.timezone = tz
-        user.save()
-
-        response = auth_client.get("/")
-
-        assert response.status_code == 200
-        mock_today.assert_called_once_with(tz)
-        mock_repo.get_todays_logs_by_user.assert_called_once_with(
-            ANY, target_date=fake_date
-        )
-
-
 # ---- Username recycling tests ----
 
 
@@ -1748,7 +1069,7 @@ class TestUsernameRecycling:
 
 class TestFullLoginFlow:
     """Integration test simulating the complete login flow end-to-end:
-    create request → bot confirmation → poll status → complete login → session created.
+    create request -> bot confirmation -> poll status -> complete login -> session created.
     """
 
     @pytest.fixture
@@ -1764,7 +1085,7 @@ class TestFullLoginFlow:
         )
 
     def test_full_login_flow(self, login_user):
-        """End-to-end: create request → bot confirmation → poll status → complete → session."""
+        """End-to-end: create request -> bot confirmation -> poll status -> complete -> session."""
         from django.core.cache import cache
         from src.core.models import WebLoginRequest
         from src.core.repositories import WebLoginRequestRepository
@@ -1832,7 +1153,7 @@ class TestFullLoginFlow:
         assert response.status_code == 403
 
     def test_full_http_login_flow(self, login_user):
-        """End-to-end via HTTP endpoints: POST /request/ → GET /status/ → POST /complete/.
+        """End-to-end via HTTP endpoints: POST /request/ -> GET /status/ -> POST /complete/.
 
         Exercises the real view layer (not just service) to verify JSON
         contracts, session creation, and replay protection via HTTP.
@@ -2369,108 +1690,6 @@ class TestDeviceInfoEdgeCases:
         # Should complete without memory issues and produce valid output
         assert len(info) <= 255
         assert "unknown" in info.lower()  # Should fail to parse
-
-
-# ---- Cache backend failure tests ----
-
-
-class TestCacheBackendFailure:
-    """Test graceful degradation when the cache backend is unavailable."""
-
-    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
-    def test_check_status_degrades_on_cache_failure(self, mock_sleep):
-        """check_status falls back to DB-only when cache.get_many() raises."""
-        from src.core.models import WebLoginRequest
-        from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
-
-        svc = WebLoginService()
-        user = User.objects.create_user(
-            username="tg_cache_fail", telegram_id="123123123", name="CacheFail",
-            language="en", timezone="UTC",
-        )
-        req = WebLoginRequest.objects.create(
-            user=user,
-            token="cache_fail_tok",
-            status=WebLoginRequest.Status.PENDING,
-            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
-        )
-
-        with patch("django.core.cache.cache.get_many", side_effect=ConnectionError("Redis down")):
-            status = call_async(svc.check_status("cache_fail_tok"))
-
-        # Should return the DB status, not crash.
-        assert status == WebLoginRequest.Status.PENDING
-
-    def test_create_login_request_degrades_on_cache_set_failure(self):
-        """create_login_request still returns a token when cache.set() fails."""
-        from django.core.cache import cache
-        from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
-
-        cache.clear()
-        svc = WebLoginService()
-
-        with patch.object(svc.user_repo, "get_by_telegram_username", return_value=None), \
-             patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis down")):
-            result = call_async(svc.create_login_request("cachefailuser"))
-
-        assert "token" in result
-        assert "expires_at" in result
-
-    def test_create_login_request_raises_after_threshold_cache_write_failures(self):
-        """Consecutive cache write failures reaching threshold should raise service unavailable."""
-        from django.core.cache import cache
-        from src.web.services.web_login_service import (
-            LoginServiceUnavailable, WebLoginService, cache_manager,
-        )
-        from src.web.utils.sync import call_async
-
-        threshold = cache_manager._failure_threshold  # 10
-
-        cache.clear()
-        svc = WebLoginService()
-        cache_manager.reset()
-
-        try:
-            with patch.object(svc.user_repo, "get_by_telegram_username", return_value=None), \
-                 patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis down")):
-                # First (threshold - 1) requests should succeed despite cache errors
-                for i in range(threshold - 1):
-                    result = call_async(svc.create_login_request(f"cachefail{i}"))
-                    assert "token" in result
-
-                # The threshold-th request should raise
-                with pytest.raises(
-                    LoginServiceUnavailable, match="Login service temporarily unavailable"
-                ):
-                    call_async(svc.create_login_request("cachefail_final"))
-        finally:
-            cache_manager.reset()
-
-    def test_background_processing_logs_cache_failure(self):
-        """_process_login_background logs a warning when cache.set fails
-        during error recovery (wl_failed key)."""
-        from src.web.services.web_login_service import WebLoginService
-
-        svc = WebLoginService()
-        mock_user = MagicMock()
-        mock_user.id = 42
-
-        with patch.object(svc, "_process_login_request", new_callable=AsyncMock,
-                         side_effect=Exception("boom")), \
-             patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis down")), \
-             patch("src.web.services.web_login_service.logger") as mock_svc_logger, \
-             patch("src.web.services.web_login_service.cache_operations.logger") as mock_cache_logger:
-            # Should not raise — all errors caught.
-            svc._process_login_background(
-                mock_user, "bg_cache_fail", datetime.now(timezone.utc) + timedelta(minutes=5), None
-            )
-
-        # Service logger gets the original error from the exception handler.
-        assert mock_svc_logger.error.called
-        # Cache operations logger gets the warning from failed cache writes.
-        assert mock_cache_logger.warning.called
 
 
 # ---- Username uniqueness constraint tests ----
@@ -3192,217 +2411,6 @@ class TestParseIPMultiProxyChain:
         mock_logger.debug.assert_called_once()
 
 
-class TestCacheFailureThresholdRaisesError:
-    """Verify that 10 consecutive cache write failures raise CacheWriteError."""
-
-    def test_cache_failure_threshold_raises_error(self):
-        """10 consecutive cache.set failures raise CacheWriteError."""
-        from src.web.services.web_login_service import CacheWriteError, cache_manager
-
-        cache_manager.reset()
-        try:
-            with patch("django.core.cache.cache.set", side_effect=ConnectionError("down")):
-                # First 9 should just warn
-                for i in range(9):
-                    try:
-                        cache_manager.set(f"test_key_{i}", True, 60)
-                    except CacheWriteError:
-                        pytest.fail(f"CacheWriteError raised too early on attempt {i + 1}")
-
-                # The 10th failure should raise
-                with pytest.raises(CacheWriteError):
-                    cache_manager.set("test_key_final", True, 60)
-        finally:
-            cache_manager.reset()
-
-
-class TestCacheConnectionErrorThreshold:
-    """Verify LoginServiceUnavailable is raised after 10 consecutive ConnectionError from cache.set()."""
-
-    def test_connection_error_threshold_triggers_service_unavailable(self):
-        """Mock cache.set() to raise ConnectionError; after 10 failures LoginServiceUnavailable is raised."""
-        from django.core.cache import cache
-        from src.web.services.web_login_service import (
-            LoginServiceUnavailable,
-            WebLoginService,
-            cache_manager,
-        )
-        from src.web.utils.sync import call_async
-
-        cache.clear()
-        cache_manager.reset()
-        svc = WebLoginService()
-
-        try:
-            with (
-                patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
-                patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis connection refused")),
-            ):
-                # First 9 requests succeed (cache failures are tolerated)
-                for i in range(9):
-                    result = call_async(svc.create_login_request(f"cache_err_user_{i}"))
-                    assert "token" in result
-
-                # The 10th request should trigger LoginServiceUnavailable
-                with pytest.raises(LoginServiceUnavailable):
-                    call_async(svc.create_login_request("cache_err_user_final"))
-        finally:
-            cache_manager.reset()
-
-
-# ---- Cache failure scenarios ----
-
-
-class TestCacheFailureScenarios:
-    """Verify the login flow works via DB-only path when cache writes fail."""
-
-    def test_login_request_raises_when_cache_critically_fails(self):
-        """create_login_request raises LoginServiceUnavailable when cache backend
-        is unhealthy (3+ consecutive failures)."""
-        from src.web.services.web_login_service import (
-            CacheWriteError,
-            LoginServiceUnavailable,
-            WebLoginService,
-            cache_manager,
-        )
-        from src.web.utils.sync import call_async
-
-        svc = WebLoginService()
-
-        with (
-            patch.object(svc.user_repo, "get_by_telegram_username", return_value=None),
-            patch.object(
-                cache_manager, "set",
-                side_effect=CacheWriteError("Cache down"),
-            ),
-        ):
-            with pytest.raises(LoginServiceUnavailable):
-                call_async(svc.create_login_request("testuser"))
-
-    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
-    def test_check_status_db_fallback_when_cache_read_fails(self, mock_sleep):
-        """check_status falls back to DB when cache.get_many raises."""
-        from src.core.models import WebLoginRequest
-        from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
-
-        user = User.objects.create_user(
-            username="tg_cachefail1", telegram_id="555555555",
-            name="Cache Fail User", language="en", timezone="UTC",
-        )
-        login_req = WebLoginRequest.objects.create(
-            user=user, token="cache_fail_db_token",
-            status="confirmed",
-            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
-        )
-
-        svc = WebLoginService()
-        with patch("django.core.cache.cache.get_many", side_effect=Exception("Redis down")):
-            status = call_async(svc.check_status("cache_fail_db_token"))
-
-        assert status == "confirmed"
-
-    def test_login_endpoint_returns_503_on_cache_failure(self):
-        """POST /auth/bot-login/request/ returns 503 when cache is critically broken."""
-        from src.web.services.web_login_service import (
-            CacheWriteError,
-            LoginServiceUnavailable,
-        )
-
-        def _raise_unavailable(coro):
-            if hasattr(coro, 'close'):
-                coro.close()
-            raise LoginServiceUnavailable("Cache down")
-
-        with patch("src.web.views.auth.call_async", side_effect=_raise_unavailable):
-            response = Client().post(
-                "/auth/bot-login/request/",
-                data=json.dumps({"username": "testuser"}),
-                content_type="application/json",
-            )
-        assert response.status_code == 503
-        assert "temporarily unavailable" in response.json()["error"]
-
-
-# ---- Cache TTL expiry edge case ----
-
-
-class TestCacheTTLExpiryWithPendingDBRecord:
-    """Verify behavior when cache TTL expires but DB record still exists."""
-
-    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
-    def test_cache_ttl_expires_with_pending_db_record(self, mock_sleep):
-        """When cache-pending TTL expires while token is still pending in DB,
-        check_status should return 'pending' from the DB fallback — not
-        'expired', which would confuse the user.
-
-        Scenario:
-        1. Token created and cached as pending
-        2. Background processing fails with a temporary Telegram error
-           (does NOT mark as failed since temporary errors are not fatal)
-        3. Cache TTL expires (simulated by clearing cache)
-        4. Client polls status — DB record still has status='pending'
-        5. check_status falls back to DB and returns 'pending'
-        """
-        from django.core.cache import cache
-        from src.core.models import WebLoginRequest
-        from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
-
-        cache.clear()
-
-        user = User.objects.create_user(
-            username="tg_ttl_expire",
-            telegram_id="660000001",
-            name="TTL Expire User",
-            language="en",
-            timezone="UTC",
-            telegram_username="ttlexpireuser",
-        )
-
-        token = "ttl_expiry_test_token"
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-
-        # Step 1: Create DB record (simulates successful background processing)
-        WebLoginRequest.objects.create(
-            user=user,
-            token=token,
-            status=WebLoginRequest.Status.PENDING,
-            expires_at=expires_at,
-        )
-
-        # Step 2: Set pending cache key, then clear to simulate TTL expiry
-        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
-        cache.clear()  # Simulates cache TTL expiry
-
-        # Step 3: Poll status — should fall back to DB and return "pending"
-        svc = WebLoginService()
-        status = call_async(svc.check_status(token))
-
-        assert status == "pending", (
-            f"Expected 'pending' from DB fallback after cache TTL expiry, "
-            f"got '{status}'"
-        )
-
-    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
-    def test_cache_ttl_expires_no_db_record_returns_expired(self, mock_sleep):
-        """When both cache and DB have no record, status should be 'expired'.
-
-        This is the case for unknown-user tokens (cache-only, no DB record).
-        Once the cache TTL expires, 'expired' is the correct response.
-        """
-        from django.core.cache import cache
-        from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
-
-        cache.clear()
-
-        svc = WebLoginService()
-        status = call_async(svc.check_status("nonexistent_token_for_test"))
-
-        assert status == "expired"
-
-
 # ---- Status endpoint token validation ----
 
 
@@ -3429,330 +2437,6 @@ class TestStatusEndpointTokenValidation:
         response = Client().get(f"/auth/bot-login/status/{valid_token}/")
         assert response.status_code == 200
         assert response.json()["status"] == "pending"
-
-
-# ---- Background failure cache cleanup ----
-
-
-class TestBackgroundFailureCacheCleanup:
-    """Verify TTL-based cleanup when the background thread fails before DB write."""
-
-    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
-    def test_bot_login_background_failure_cache_cleanup(self, mock_sleep):
-        """When background thread fails before DB write, the cache-pending
-        key remains until TTL expiry.  After TTL expires, check_status
-        should return 'expired' (no DB record found) — not 'pending'
-        indefinitely.
-
-        Scenario:
-        1. Token is created and cached as pending (by create_login_request)
-        2. Background thread fails before writing to DB
-        3. Cache TTL expires (simulated by cache.delete)
-        4. check_status falls back to DB, finds nothing, returns 'expired'
-        """
-        from django.core.cache import cache
-        from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
-
-        cache.clear()
-        svc = WebLoginService()
-
-        token = "bg_fail_cache_cleanup_token"
-
-        # Step 1: Simulate create_login_request setting the pending cache key
-        # (no DB record — background thread would create it but fails)
-        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
-
-        # Step 2: While cache key exists, status is "pending"
-        status = call_async(svc.check_status(token))
-        assert status == "pending"
-
-        # Step 3: Simulate cache TTL expiry (background never wrote to DB)
-        cache.delete(f"{WL_PENDING_KEY}{token}")
-
-        # Step 4: With no cache key and no DB record, status is "expired"
-        status = call_async(svc.check_status(token))
-        assert status == "expired", (
-            f"Expected 'expired' after cache TTL expiry with no DB record, "
-            f"got '{status}'"
-        )
-
-
-# ---- Token collision cache update tests ----
-
-
-class TestTokenCollisionCacheUpdate:
-    """Verify that token collision retry writes the new token to cache."""
-
-    def test_token_collision_updates_cache_with_new_token(self):
-        """When IntegrityError triggers token regeneration, the new token
-        should be written to cache so check_status can find it."""
-        from django.core.cache import cache
-        from django.db import IntegrityError
-        from src.core.models import WebLoginRequest
-        from src.web.services.web_login_service import WebLoginService, WL_PENDING_KEY
-        from src.web.utils.sync import call_async
-
-        cache.clear()
-
-        user = User.objects.create_user(
-            username="tg_collision_cache",
-            telegram_id="770000010",
-            name="Collision Cache User",
-            language="en",
-            timezone="UTC",
-            telegram_username="collisioncacheuser",
-        )
-
-        svc = WebLoginService()
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-
-        call_count = 0
-        original_create = WebLoginRequest.objects.create
-        new_tokens = []
-
-        def create_with_collision(**kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise IntegrityError("UNIQUE constraint failed: token")
-            new_tokens.append(kwargs.get("token"))
-            return original_create(**kwargs)
-
-        with patch.object(WebLoginRequest.objects, "create", side_effect=create_with_collision), \
-             patch.object(svc, "_send_login_notification", new_callable=AsyncMock):
-            call_async(svc._process_login_request(user, "collision_cache_tok", expires_at, None))
-
-        assert call_count == 2
-        # The new token (used on the second attempt) should be in cache
-        assert len(new_tokens) == 1
-        assert cache.get(f"{WL_PENDING_KEY}{new_tokens[0]}") is True
-
-
-# ---- Cache/DB race condition tests ----
-
-
-class TestCacheDBRaceConditions:
-    """Verify behavior when cache and DB are in inconsistent states."""
-
-    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
-    def test_cache_pending_but_db_confirmed(self, mock_sleep):
-        """When cache still says pending but DB shows confirmed,
-        check_status should return 'pending' (cache takes priority)."""
-        from django.core.cache import cache
-        from src.core.models import WebLoginRequest
-        from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
-
-        cache.clear()
-
-        user = User.objects.create_user(
-            username="tg_race_cache_db",
-            telegram_id="770000011",
-            name="Race Cache DB",
-            language="en",
-            timezone="UTC",
-        )
-
-        token = "race_cache_db_tok"
-        WebLoginRequest.objects.create(
-            user=user,
-            token=token,
-            status=WebLoginRequest.Status.CONFIRMED,
-            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
-        )
-
-        # Cache still shows pending (hasn't been cleared)
-        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
-
-        svc = WebLoginService()
-        status = call_async(svc.check_status(token))
-
-        # Cache takes priority — pending
-        assert status == "pending"
-
-    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
-    def test_cache_failed_overrides_db_pending(self, mock_sleep):
-        """When cache says failed but DB shows pending,
-        check_status should return 'error' (failed takes priority)."""
-        from django.core.cache import cache
-        from src.core.models import WebLoginRequest
-        from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
-
-        cache.clear()
-
-        user = User.objects.create_user(
-            username="tg_race_fail_pend",
-            telegram_id="770000012",
-            name="Race Fail Pend",
-            language="en",
-            timezone="UTC",
-        )
-
-        token = "race_fail_pend_tok"
-        WebLoginRequest.objects.create(
-            user=user,
-            token=token,
-            status=WebLoginRequest.Status.PENDING,
-            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
-        )
-
-        # Cache shows failed
-        cache.set(f"{WL_FAILED_KEY}{token}", True, timeout=300)
-
-        svc = WebLoginService()
-        status = call_async(svc.check_status(token))
-
-        # Failed cache key takes priority
-        assert status == "error"
-
-    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
-    def test_no_cache_db_expired_returns_expired(self, mock_sleep):
-        """When cache is empty and DB record is past expires_at,
-        check_status should return 'expired'."""
-        from django.core.cache import cache
-        from src.core.models import WebLoginRequest
-        from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
-
-        cache.clear()
-
-        user = User.objects.create_user(
-            username="tg_race_expired",
-            telegram_id="770000013",
-            name="Race Expired",
-            language="en",
-            timezone="UTC",
-        )
-
-        token = "race_expired_tok"
-        WebLoginRequest.objects.create(
-            user=user,
-            token=token,
-            status=WebLoginRequest.Status.PENDING,
-            expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),  # Already expired
-        )
-
-        svc = WebLoginService()
-        status = call_async(svc.check_status(token))
-
-        assert status == "expired"
-
-
-class TestErrorStatusPolling:
-    """Verify that check_status returns 'error' when the failed cache key is set."""
-
-    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
-    def test_error_status_returned_for_failed_token(self, mock_sleep):
-        """When the wl_failed cache key is set, check_status returns 'error'."""
-        from django.core.cache import cache
-        from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
-
-        cache.clear()
-        token = "error_poll_test_tok"
-        cache.set(f"{WL_FAILED_KEY}{token}", True, timeout=300)
-
-        svc = WebLoginService()
-        status = call_async(svc.check_status(token))
-
-        assert status == "error"
-
-    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
-    def test_error_status_takes_priority_over_pending(self, mock_sleep):
-        """When both pending and failed cache keys are set, 'error' wins."""
-        from django.core.cache import cache
-        from src.web.services.web_login_service import WebLoginService
-        from src.web.utils.sync import call_async
-
-        cache.clear()
-        token = "error_priority_tok"
-        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
-        cache.set(f"{WL_FAILED_KEY}{token}", True, timeout=300)
-
-        svc = WebLoginService()
-        status = call_async(svc.check_status(token))
-
-        assert status == "error"
-
-
-class TestCacheWriteFailureDuringRetry:
-    """Verify CacheWriteError logging during token collision retry."""
-
-    def test_cache_failure_during_collision_retry_logs_critical(self):
-        """When _safe_cache_set raises CacheWriteError during retry,
-        it should be caught and logged (not silently swallowed)."""
-        from src.core.models import WebLoginRequest
-        from src.web.services.web_login_service import WebLoginService, CacheWriteError
-
-        user = User.objects.create_user(
-            username="tg_cache_retry_fail",
-            telegram_id="770000020",
-            name="Cache Retry Fail",
-            language="en",
-            timezone="UTC",
-        )
-
-        # Create a login request to force a token collision
-        existing_token = "cache_retry_collide_t"
-        WebLoginRequest.objects.create(
-            user=user,
-            token=existing_token,
-            status=WebLoginRequest.Status.PENDING,
-            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
-        )
-
-        # cache_manager.set will be called during retry with the new token;
-        # make it raise CacheWriteError on the second call
-        from src.web.services.web_login_service import cache_manager
-        with patch.object(
-            cache_manager, "set",
-            side_effect=[None, CacheWriteError("test")],
-        ):
-            with patch(
-                "src.web.services.web_login_service.logger"
-            ) as mock_logger:
-                # Should not raise — the CacheWriteError is caught
-                login_req, final_token = WebLoginService._create_login_request_with_retry(
-                    user.id,
-                    existing_token,
-                    datetime.now(timezone.utc) + timedelta(minutes=5),
-                    "test device",
-                )
-
-                # Verify that it logged critical (not silently swallowed)
-                assert login_req is not None
-                # The token must have changed since the first collided
-                assert final_token != existing_token
-
-
-class TestQueueExhaustion503:
-    """Verify HTTP 503 when the login queue is full."""
-
-    def test_503_when_queue_full(self):
-        """When _queue_slots.acquire returns False, the service should
-        raise LoginServiceUnavailable and the view should return 503."""
-        client = Client()
-
-        with patch(
-            "src.web.services.web_login_service._queue_slots"
-        ) as mock_semaphore:
-            mock_semaphore.acquire.return_value = False
-
-            with patch(
-                "src.web.services.web_login_service.WebLoginService.create_login_request",
-            ) as mock_create:
-                from src.web.services.web_login_service import LoginServiceUnavailable
-                mock_create.side_effect = LoginServiceUnavailable("Queue full")
-
-                response = client.post(
-                    "/auth/bot-login/request/",
-                    data=json.dumps({"username": "testuser"}),
-                    content_type="application/json",
-                )
-
-                assert response.status_code == 503
 
 
 class TestTokenValidationInHandler:
@@ -3885,30 +2569,32 @@ class TestConcurrentTokenCollisions:
                 )
 
 
-class TestCacheManagerThresholdEdgeCases:
-    """Edge cases for CacheManager failure threshold."""
+class TestQueueExhaustion503:
+    """Verify HTTP 503 when the login queue is full."""
 
-    def test_exact_threshold_raises(self):
-        """Exactly threshold failures raises CacheWriteError."""
-        from src.web.services.web_login_service import CacheWriteError, CacheManager
+    def test_503_when_queue_full(self):
+        """When _queue_slots.acquire returns False, the service should
+        raise LoginServiceUnavailable and the view should return 503."""
+        client = Client()
 
-        mgr = CacheManager(failure_threshold=3)
-        with patch("django.core.cache.cache.set", side_effect=ConnectionError("down")):
-            mgr.set("k1", True, 60)
-            mgr.set("k2", True, 60)
-            with pytest.raises(CacheWriteError):
-                mgr.set("k3", True, 60)
+        with patch(
+            "src.web.services.web_login_service._queue_slots"
+        ) as mock_semaphore:
+            mock_semaphore.acquire.return_value = False
 
-    def test_reset_prevents_threshold(self):
-        """Calling reset() after failures prevents threshold from being reached."""
-        from src.web.services.web_login_service import CacheManager
+            with patch(
+                "src.web.services.web_login_service.WebLoginService.create_login_request",
+            ) as mock_create:
+                from src.web.services.web_login_service import LoginServiceUnavailable
+                mock_create.side_effect = LoginServiceUnavailable("Queue full")
 
-        mgr = CacheManager(failure_threshold=3)
-        with patch("django.core.cache.cache.set", side_effect=ConnectionError("down")):
-            mgr.set("k1", True, 60)
-            mgr.set("k2", True, 60)
-        mgr.reset()
-        assert mgr.failure_count == 0
+                response = client.post(
+                    "/auth/bot-login/request/",
+                    data=json.dumps({"username": "testuser"}),
+                    content_type="application/json",
+                )
+
+                assert response.status_code == 503
 
 
 class TestThreadPoolQueueExhaustionDirect:
@@ -3941,3 +2627,69 @@ class TestThreadPoolQueueExhaustionDirect:
             mock_sem.acquire.return_value = False
             with pytest.raises(LoginServiceUnavailable):
                 call_async(svc.create_login_request("queue_full_user"))
+
+
+class TestParseUaCachedCacheFailure:
+    """Tests for _parse_ua_cached graceful degradation when cache backend fails."""
+
+    def test_cache_get_failure_falls_back_to_direct_parse(self):
+        """When cache.get() raises an exception, _parse_ua_cached still returns
+        a valid device_info string by falling back to direct UA parsing."""
+        from src.web.views.auth import _parse_ua_cached
+
+        ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
+
+        with patch("django.core.cache.cache.get", side_effect=ConnectionError("Redis down")):
+            result = _parse_ua_cached(ua)
+
+        assert isinstance(result, str)
+        assert len(result) > 0
+        assert "Chrome" in result
+
+    def test_cache_get_failure_logs_warning(self):
+        """When cache.get() raises an exception, a warning is logged."""
+        from src.web.views.auth import _parse_ua_cached
+
+        ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15"
+
+        with (
+            patch("django.core.cache.cache.get", side_effect=ConnectionError("Redis down")),
+            patch("src.web.views.auth.logger") as mock_logger,
+        ):
+            _parse_ua_cached(ua)
+
+        mock_logger.warning.assert_any_call(
+            "Cache read failed for UA parsing; falling back to direct parse"
+        )
+
+    def test_cache_set_failure_still_returns_result(self):
+        """When cache.set() raises after parsing, the result is still returned."""
+        from src.web.views.auth import _parse_ua_cached
+
+        ua = "Mozilla/5.0 (X11; Linux x86_64) Firefox/121.0"
+
+        with (
+            patch("django.core.cache.cache.get", return_value=None),
+            patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis down")),
+        ):
+            result = _parse_ua_cached(ua)
+
+        assert isinstance(result, str)
+        assert "Firefox" in result
+
+    def test_cache_set_failure_logs_warning(self):
+        """When cache.set() raises after parsing, a warning is logged."""
+        from src.web.views.auth import _parse_ua_cached
+
+        ua = "Mozilla/5.0 (X11; Linux x86_64) Firefox/121.0"
+
+        with (
+            patch("django.core.cache.cache.get", return_value=None),
+            patch("django.core.cache.cache.set", side_effect=ConnectionError("Redis down")),
+            patch("src.web.views.auth.logger") as mock_logger,
+        ):
+            _parse_ua_cached(ua)
+
+        mock_logger.warning.assert_any_call(
+            "Cache write failed for UA parsing; result not cached"
+        )
