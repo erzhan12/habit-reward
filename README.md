@@ -202,7 +202,7 @@ The bot login flow implements several security properties:
 - **Timing resistance**: All status checks include 50-200ms random jitter from a CSPRNG to mask timing differences between cache hits, DB lookups, and different code paths.
 - **Atomic replay prevention**: Tokens are marked as "used" atomically via SQL UPDATE with a WHERE clause, preventing race conditions where the same token could be used twice.
 - **Rate limiting**: All endpoints are rate-limited per IP address to prevent brute force attacks and abuse.
-| `CONN_MAX_AGE` | `600` | Database connection reuse timeout in seconds (reduces overhead in thread pool workers). |
+| `CONN_MAX_AGE` | `600` | Database connection reuse timeout in seconds (reduces overhead in thread pool workers). Set the database connection pool size (via `DATABASE_URL` for PostgreSQL: `?pool_size=N`) to at least match `WEB_LOGIN_THREAD_POOL_SIZE` to avoid connection exhaustion under load. |
 | `WEB_LOGIN_JITTER_MIN` | `0.05` | Minimum timing jitter (seconds) added to status polling responses. |
 | `WEB_LOGIN_JITTER_MAX` | `0.2` | Maximum timing jitter (seconds) added to status polling responses. |
 
@@ -227,16 +227,18 @@ grep 'Login thread pool queue full' /path/to/logs/app.log
 
 If you see frequent 503s, increase both values and ensure your database connection pool (`CONN_MAX_AGE`) can support the additional workers.
 
-#### Tuning Thread Pool and Queue Size
+#### Deployment Checklist
 
-If you observe HTTP 503 errors during peak login times, increase `WEB_LOGIN_THREAD_POOL_SIZE` and/or `WEB_LOGIN_MAX_QUEUED`. Monitor with:
+Before deploying to production, verify:
 
-```bash
-grep 'Login thread pool queue full' /path/to/logs/app.log
-```
-
-- **`WEB_LOGIN_THREAD_POOL_SIZE`**: Each worker handles one DB write + one Telegram API call. If Telegram responses are slow (>1s), you need more workers. Start with 10 and increase if you see queuing.
-- **`WEB_LOGIN_MAX_QUEUED`**: Requests beyond the thread pool queue here. If this fills up, new requests get 503. Set this to 2-5x the thread pool size. A value of 50 supports bursts of ~60 simultaneous logins.
+- [ ] **Database**: Use PostgreSQL (not SQLite) if `WEB_LOGIN_THREAD_POOL_SIZE > 1`. SQLite's file-level locking causes deadlocks under concurrent writes.
+- [ ] **Connection pool**: Set DB connection pool size (`pool_size` in `DATABASE_URL` or `CONN_MAX_AGE`) to at least `WEB_LOGIN_THREAD_POOL_SIZE`.
+- [ ] **Cron job**: Schedule `cleanup_expired_logins` hourly to prevent unbounded `WebLoginRequest` table growth.
+- [ ] **Reverse proxy**: If `TRUST_X_FORWARDED_FOR=True`, verify nginx/Caddy overwrites `X-Forwarded-For`. Set `SECURE_PROXY_SSL_HEADER` to confirm proxy presence.
+- [ ] **Monitoring**: Set up log alerts for `Login thread pool queue full` (queue saturation) and `Cache write failed` (cache backend issues).
+- [ ] **Rate limits**: Review `AUTH_RATE_LIMIT` and `AUTH_STATUS_RATE_LIMIT` for your expected traffic volume.
+- [ ] **Cache backend**: Ensure Redis/Memcached is running and accessible. The login flow degrades gracefully without cache but with higher DB load.
+- [ ] **Telegram bot token**: Verify `TELEGRAM_BOT_TOKEN` is set and the bot is not blocked by target users.
 
 ### Scheduled Tasks
 

@@ -57,6 +57,11 @@ MAX_USER_AGENT_LENGTH = 1024
 MAX_DEVICE_INFO_LENGTH = 255
 # URL-safe base64 token format (secrets.token_urlsafe output)
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+# secrets.token_urlsafe(TOKEN_BYTES=32) produces exactly 43 characters.
+# Allow a small range to tolerate future TOKEN_BYTES changes while
+# rejecting clearly invalid lengths.
+TOKEN_MIN_LENGTH = 40
+TOKEN_MAX_LENGTH = 50
 
 # Re-export for backward compatibility with existing tests.
 _parse_ip_address = parse_ip_address
@@ -80,14 +85,15 @@ def _sanitize_user_agent(ua: str) -> str:
     return ''.join(c for c in ua if c.isprintable() or c.isspace())
 
 
-@functools.lru_cache(maxsize=1024)
+@functools.lru_cache(maxsize=256)
 def _parse_ua_cached(ua: str) -> str:
     """Parse a sanitized User-Agent string into a human-readable description.
 
     LRU-cached because UA parsing (via ``user_agents`` library) is
     CPU-intensive and the same UA string repeats across requests from
-    the same browser.  Cache is bounded to 1024 entries to accommodate
-    higher traffic and diverse UA strings without frequent evictions.
+    the same browser.  Cache is bounded to 256 entries (~typical UA
+    diversity for a small-to-medium site) to limit memory usage while
+    still providing excellent hit rates.
     """
     ua_parsed = parse_ua(ua)
     browser = f"{ua_parsed.browser.family} {ua_parsed.browser.version_string}".strip()
@@ -229,7 +235,7 @@ def bot_login_status(request, token):
         curl http://localhost:8000/auth/bot-login/status/abc123def456/
     """
     token = str(token).strip()
-    if not (40 <= len(token) <= 50) or not _TOKEN_PATTERN.match(token):
+    if not (TOKEN_MIN_LENGTH <= len(token) <= TOKEN_MAX_LENGTH) or not _TOKEN_PATTERN.match(token):
         return JsonResponse({"error": "Invalid token format"}, status=400)
 
     status = call_async(web_login_service.check_status(token))
@@ -279,10 +285,7 @@ def bot_login_complete(request):
     if not token:
         return JsonResponse({"error": "Token is required"}, status=400)
 
-    # secrets.token_urlsafe(TOKEN_BYTES=32) produces exactly 43 characters.
-    # Allow a small range (40-50) to tolerate future TOKEN_BYTES changes
-    # while rejecting clearly invalid lengths.
-    if not (40 <= len(token) <= 50):
+    if not (TOKEN_MIN_LENGTH <= len(token) <= TOKEN_MAX_LENGTH):
         return JsonResponse({"error": "Invalid token format"}, status=400)
 
     if not _TOKEN_PATTERN.match(token):

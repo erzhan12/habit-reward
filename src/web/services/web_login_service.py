@@ -29,7 +29,12 @@ def _ensure_utc(dt: datetime) -> datetime:
     Django's DateTimeField may return naive datetimes when USE_TZ=False.
     This prevents ``TypeError: can't compare offset-naive and offset-aware
     datetimes`` when comparing with ``datetime.now(timezone.utc)``.
+
+    Raises:
+        ValueError: If *dt* is None (prevents confusing downstream errors).
     """
+    if dt is None:
+        raise ValueError("_ensure_utc received None — expected a datetime instance")
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
@@ -57,6 +62,11 @@ TOKEN_GENERATION_MAX_RETRIES = 3  # Max attempts to generate a unique token
 # Masks residual timing differences between DB hit/miss, cache hit/miss.
 _JITTER_MIN = getattr(settings, "WEB_LOGIN_JITTER_MIN", 0.05)
 _JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
+
+# Minimum TTL (seconds) for the wl_failed cache marker.  Ensures the
+# marker persists even when background processing is delayed and
+# ``expires_at`` is close to (or past) the current time.
+_MIN_FAILED_MARKER_TTL_SECONDS = 60
 
 # Bounded thread pool for background login processing (DB writes + Telegram send).
 # Caps concurrent threads to prevent resource exhaustion under load; excess
@@ -139,7 +149,8 @@ def _safe_cache_set(key: str, value, timeout: int) -> None:
         cache.set(key, value, timeout=timeout)
         # Counter resets on ANY successful write, not just after threshold.
         # This means intermittent failures won't trigger CacheWriteError
-        # unless 3+ failures occur consecutively without any successful writes.
+        # unless _CACHE_FAILURE_THRESHOLD+ failures occur consecutively
+        # without any successful writes.
         with _cache_failure_lock:
             _cache_failure_count = 0
     except (ConnectionError, TimeoutError, OSError):
@@ -164,11 +175,15 @@ def _safe_cache_set(key: str, value, timeout: int) -> None:
 def _mark_failed_token(token: str, expires_at) -> None:
     """Set a failure cache key so check_status can return 'error'.
 
-    Extracted as a module-level function for testability.  Uses a minimum
-    TTL of 60 seconds to ensure the marker persists even when processing
-    is delayed and ``expires_at`` is close to (or past) the current time.
+    Extracted as a module-level function for testability.  Uses
+    ``_MIN_FAILED_MARKER_TTL_SECONDS`` as a floor to ensure the marker
+    persists even when processing is delayed and ``expires_at`` is close
+    to (or past) the current time.
     """
-    cache_ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 60)
+    cache_ttl = max(
+        int((expires_at - datetime.now(timezone.utc)).total_seconds()),
+        _MIN_FAILED_MARKER_TTL_SECONDS,
+    )
     _safe_cache_set(f"{WL_FAILED_KEY}{token}", True, cache_ttl)
 
 
@@ -210,9 +225,16 @@ class WebLoginService:
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=LOGIN_REQUEST_EXPIRY_MINUTES)
         cache_ttl = max(int((expires_at - now).total_seconds()), 1)
-        # Cache backend failure is non-fatal — the login flow can still
-        # proceed via DB-only path (check_status will find the DB record
-        # once the background thread writes it).
+        # DESIGN NOTE: The pending cache key is set HERE (before the
+        # background thread runs) intentionally.  If the background thread
+        # fails before writing to DB, the cache key remains until TTL
+        # expiry, causing check_status to return "pending" for up to 5
+        # minutes.  This is acceptable because: (1) the TTL matches the
+        # login expiry so it self-heals, (2) moving the cache write into
+        # the background thread would create a window where check_status
+        # returns "expired" for valid tokens before the thread runs, and
+        # (3) setting it eagerly is required for anti-enumeration — both
+        # known and unknown users must see "pending" immediately.
         try:
             _safe_cache_set(f"{WL_PENDING_KEY}{token}", True, cache_ttl)
         except CacheWriteError as exc:

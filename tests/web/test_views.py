@@ -3048,3 +3048,50 @@ class TestStatusEndpointTokenValidation:
         response = Client().get(f"/auth/bot-login/status/{valid_token}/")
         assert response.status_code == 200
         assert response.json()["status"] == "pending"
+
+
+# ---- Background failure cache cleanup ----
+
+
+class TestBackgroundFailureCacheCleanup:
+    """Verify TTL-based cleanup when the background thread fails before DB write."""
+
+    @patch("src.web.services.web_login_service.asyncio.sleep", new_callable=AsyncMock)
+    def test_bot_login_background_failure_cache_cleanup(self, mock_sleep):
+        """When background thread fails before DB write, the cache-pending
+        key remains until TTL expiry.  After TTL expires, check_status
+        should return 'expired' (no DB record found) — not 'pending'
+        indefinitely.
+
+        Scenario:
+        1. Token is created and cached as pending (by create_login_request)
+        2. Background thread fails before writing to DB
+        3. Cache TTL expires (simulated by cache.delete)
+        4. check_status falls back to DB, finds nothing, returns 'expired'
+        """
+        from django.core.cache import cache
+        from src.web.services.web_login_service import WebLoginService
+        from src.web.utils.sync import call_async
+
+        cache.clear()
+        svc = WebLoginService()
+
+        token = "bg_fail_cache_cleanup_token"
+
+        # Step 1: Simulate create_login_request setting the pending cache key
+        # (no DB record — background thread would create it but fails)
+        cache.set(f"{WL_PENDING_KEY}{token}", True, timeout=300)
+
+        # Step 2: While cache key exists, status is "pending"
+        status = call_async(svc.check_status(token))
+        assert status == "pending"
+
+        # Step 3: Simulate cache TTL expiry (background never wrote to DB)
+        cache.delete(f"{WL_PENDING_KEY}{token}")
+
+        # Step 4: With no cache key and no DB record, status is "expired"
+        status = call_async(svc.check_status(token))
+        assert status == "expired", (
+            f"Expected 'expired' after cache TTL expiry with no DB record, "
+            f"got '{status}'"
+        )

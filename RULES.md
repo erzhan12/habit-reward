@@ -2007,7 +2007,7 @@ A pre-commit hook (`scripts/check_validation_sync.sh`) verifies they stay in syn
 Status polling jitter (`src/web/services/web_login_service.py`) is applied to `"pending"`, `"expired"`, and `"error"` statuses — these have cache-dependent code paths with different timing that could leak information. Terminal statuses `"confirmed"`, `"denied"`, and `"used"` are excluded. Named constants `_JITTER_MIN`/`_JITTER_MAX` are configurable via Django settings.
 
 ### UA Parsing Cache
-`_parse_ua_cached` in `src/web/views/auth.py` uses `functools.lru_cache(maxsize=1024)` to avoid repeated CPU-intensive User-Agent parsing. The cache key is the sanitized UA string.
+`_parse_ua_cached` in `src/web/views/auth.py` uses `functools.lru_cache(maxsize=256)` to avoid repeated CPU-intensive User-Agent parsing. The cache key is the sanitized UA string.
 
 ### Timezone-Aware Comparisons
 Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB datetime fields with `datetime.now(timezone.utc)`. Django may return naive datetimes when `USE_TZ=False`.
@@ -2022,10 +2022,18 @@ In `_safe_cache_set`, the threshold check (`should_raise`) MUST be inside the `_
 Frontend polling (`pollStatus`) stops after `POLL_MAX_CONSECUTIVE_ERRORS` (5) consecutive network failures and transitions to error state. The counter resets on any successful poll. `submitLogin` catch also logs to `console.error`.
 
 ### Token Validation on Status Endpoint
-`bot_login_status()` in `auth.py` validates token format (40-50 chars, URL-safe base64) before passing to the service. This matches the validation in `bot_login_complete()`. Tests using the `/auth/bot-login/status/` endpoint must use valid-length tokens (e.g. `"abcdefghij0123456789_ABCDEFGHIJ0123456789_ab"`).
+`bot_login_status()` in `auth.py` validates token format (`TOKEN_MIN_LENGTH`–`TOKEN_MAX_LENGTH` chars, URL-safe base64) before passing to the service. This matches the validation in `bot_login_complete()`. Both use named constants defined at module level. Tests using the `/auth/bot-login/status/` endpoint must use valid-length tokens (e.g. `"abcdefghij0123456789_ABCDEFGHIJ0123456789_ab"`).
 
 ### Temporary vs Permanent Telegram Errors
 In `_process_login_background` (`web_login_service.py`), only **permanent** Telegram errors (`InvalidToken`, `Forbidden`) mark the request as failed via `_mark_failed_safely()`. **Temporary** errors (`TelegramError` — network, rate limit) do NOT mark as failed — the pending cache entry expires via TTL, allowing the user to retry.
 
 ### SQLite System Check
-`src/web/checks.py` includes `check_sqlite_thread_pool_conflict` (`web.E003`) that errors when SQLite is used with `WEB_LOGIN_THREAD_POOL_SIZE > 1`. SQLite's file-level locking cannot handle concurrent background threads.
+`src/web/checks.py` includes `check_sqlite_thread_pool_conflict`: Warning (`web.W002`) for pool size 2-10, Error (`web.E003`) for pool size >10 when using SQLite. SQLite's file-level locking causes deadlocks under high concurrency.
+
+### Cache Pending Key Race
+The `wl_pending` cache key is set eagerly (before background thread) by design. If the thread fails before DB write, the key remains until TTL — this is intentional for anti-enumeration (both known/unknown users see "pending" immediately). See comment in `create_login_request`.
+
+### Named Constants for Magic Numbers
+- `_MIN_FAILED_MARKER_TTL_SECONDS = 60` — floor TTL for `wl_failed` cache marker
+- `TOKEN_MIN_LENGTH = 40` / `TOKEN_MAX_LENGTH = 50` — token length bounds in `auth.py`
+- `_CACHE_FAILURE_THRESHOLD = 10` — consecutive cache failures before `CacheWriteError`

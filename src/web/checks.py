@@ -70,24 +70,33 @@ def check_login_expiry_consistency(app_configs, **kwargs):
 
 @register()
 def check_sqlite_thread_pool_conflict(app_configs, **kwargs):
-    """Error when SQLite is used with multiple background login threads.
+    """Warn or error when SQLite is used with multiple background login threads.
 
-    SQLite uses file-level locking — only one writer at a time.  When
-    ``WEB_LOGIN_THREAD_POOL_SIZE > 1``, multiple background threads
-    attempt concurrent DB writes, causing "database is locked" errors
-    and silent deadlocks under load.
+    SQLite uses file-level locking — only one writer at a time.  With
+    2-10 threads you may see occasional "database is locked" errors
+    under load (Warning).  Above 10 threads, deadlocks become likely
+    and PostgreSQL should be used instead (Error).
     """
     errors = []
     engine = settings.DATABASES.get("default", {}).get("ENGINE", "")
     pool_size = getattr(settings, "WEB_LOGIN_THREAD_POOL_SIZE", 1)
-    if "sqlite" in engine and pool_size > 1:
+    if "sqlite" in engine and pool_size > 10:
         msg = (
             f"SQLite backend ({engine}) is configured with "
-            f"WEB_LOGIN_THREAD_POOL_SIZE={pool_size}. SQLite uses file-level "
-            "locking and cannot handle concurrent writes from multiple "
-            "background threads. Set WEB_LOGIN_THREAD_POOL_SIZE=1 or switch "
-            "to PostgreSQL for concurrent login processing."
+            f"WEB_LOGIN_THREAD_POOL_SIZE={pool_size}. SQLite cannot reliably "
+            "handle >10 concurrent write threads. Switch to PostgreSQL or "
+            "reduce WEB_LOGIN_THREAD_POOL_SIZE to 10 or fewer."
         )
         logger.warning("CONFIG: %s", msg)
         errors.append(Error(msg, id="web.E003"))
+    elif "sqlite" in engine and pool_size > 1:
+        msg = (
+            f"SQLite backend ({engine}) is configured with "
+            f"WEB_LOGIN_THREAD_POOL_SIZE={pool_size}. SQLite uses file-level "
+            "locking and may produce 'database is locked' errors under "
+            "concurrent load. Consider switching to PostgreSQL for "
+            "production use, or set WEB_LOGIN_THREAD_POOL_SIZE=1."
+        )
+        logger.warning("CONFIG: %s", msg)
+        errors.append(Warning(msg, id="web.W002"))
     return errors
