@@ -232,9 +232,14 @@ LLM_API_KEY = env('LLM_API_KEY', default=None)  # API key for the LLM provider
 DEFAULT_USER_TELEGRAM_ID = env('DEFAULT_USER_TELEGRAM_ID', default=None)
 
 # Gamification Configuration
-# DEPRECATED: STREAK_MULTIPLIER_RATE is replaced by STREAK_REDUCTION_RATE in the new
-# subtractive reward probability formula. Kept for backward compat with old .env files.
-STREAK_MULTIPLIER_RATE = env.float('STREAK_MULTIPLIER_RATE', default=0.1)
+import warnings
+if env('STREAK_MULTIPLIER_RATE', default=None):
+    warnings.warn(
+        "STREAK_MULTIPLIER_RATE is deprecated and no longer used. "
+        "Use STREAK_REDUCTION_RATE instead.",
+        DeprecationWarning,
+        stacklevel=1,
+    )
 STREAK_REDUCTION_RATE = env.float('STREAK_REDUCTION_RATE', default=2.0)  # % reduction per streak day
 MIN_NO_REWARD_PROBABILITY = env.float('MIN_NO_REWARD_PROBABILITY', default=10.0)  # floor %
 PROGRESS_BAR_LENGTH = env.int('PROGRESS_BAR_LENGTH', default=10)

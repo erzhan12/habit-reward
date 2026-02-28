@@ -405,8 +405,12 @@ class HabitLog(models.Model):
         help_text="Current streak for this habit"
     )
     habit_weight = models.IntegerField(
-        help_text="Habit weight at time of completion (1-100)"
+        help_text="Habit weight at time of completion (0-30)"
     )
+    # BREAKING CHANGE (migration 0026, 2026-02): Before this change, this field
+    # stored the total weight multiplier (e.g. 1.5, 11.0). Now it stores the
+    # effective no-reward probability % (e.g. 40.0 means 40% chance of no reward).
+    # Old records retain the legacy multiplier values.
     total_weight_applied = models.FloatField(
         help_text="Effective no-reward probability % applied during reward selection"
     )

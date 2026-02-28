@@ -2,6 +2,11 @@
 
 Part of the reward probability redesign: habit weight now directly reduces
 the no-reward probability instead of acting as a multiplicative factor.
+
+WARNING: This migration maps existing habit weights from the old 1-100 scale
+to the new 0-30 scale using proportional mapping: new = round(old * 30 / 100).
+Values that were already 0 remain 0. Users should review their habit weights
+after this migration to ensure the mapped values match their intent.
 """
 
 from django.db import migrations, models
@@ -9,9 +14,16 @@ import django.core.validators
 
 
 def reset_habit_weights(apps, schema_editor):
-    """Set all existing habits' weight to 0 (new default)."""
+    """Map existing habit weights from old 1-100 scale to new 0-30 scale.
+
+    Uses proportional mapping: new_weight = round(old_weight * 30 / 100).
+    Examples: 10 -> 3, 50 -> 15, 100 -> 30, 1 -> 0.
+    """
+    from django.db.models import F
+    from django.db.models.functions import Round
+
     Habit = apps.get_model('core', 'Habit')
-    Habit.objects.all().update(weight=0)
+    Habit.objects.all().update(weight=Round(F('weight') * 30.0 / 100.0))
 
 
 def restore_habit_weights(apps, schema_editor):

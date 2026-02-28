@@ -84,6 +84,33 @@ class TestEffectiveNoRewardProbability:
         assert result == pytest.approx(20.0)
 
 
+class TestDashboardRewardChanceConsistency:
+    """Test that dashboard reward chance display matches actual reward selection probability."""
+
+    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
+    def test_reward_chance_matches_dashboard_display(self, reward_service):
+        """Verify round(100 - effective) matches the dashboard display logic (dashboard.py line 65)."""
+        test_cases = [
+            {"base": 50.0, "weight": 0, "streak": 0, "expected_chance": 50},
+            {"base": 50.0, "weight": 20, "streak": 0, "expected_chance": 70},
+            {"base": 50.0, "weight": 30, "streak": 5, "expected_chance": 90},
+            {"base": 50.0, "weight": 30, "streak": 20, "expected_chance": 90},  # floor at 10%
+            {"base": 80.0, "weight": 0, "streak": 0, "expected_chance": 20},
+        ]
+        for case in test_cases:
+            effective = reward_service.calculate_effective_no_reward_probability(
+                base_no_reward=case["base"],
+                habit_weight=case["weight"],
+                streak_count=case["streak"],
+            )
+            # This is the exact formula used in dashboard.py line 65
+            reward_chance = round(100 - effective)
+            assert reward_chance == case["expected_chance"], (
+                f"base={case['base']}, weight={case['weight']}, streak={case['streak']}: "
+                f"got {reward_chance}%, expected {case['expected_chance']}%"
+            )
+
+
 class TestRewardSelection:
     """Test reward selection logic."""
 

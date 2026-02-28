@@ -75,6 +75,11 @@ class RewardService:
             Reward | None: Selected reward, or None for "no reward" outcome
         """
 
+        if not (0 <= effective_no_reward_probability <= 100):
+            raise ValueError(
+                f"effective_no_reward_probability must be 0-100, got {effective_no_reward_probability}"
+            )
+
         async def _impl() -> Reward | None:
             logger.info(
                 "Selecting reward with effective_no_reward=%.1f%%, user_id=%s",
