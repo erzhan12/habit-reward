@@ -293,6 +293,7 @@ async function pollStatus() {
     } else if (data.status === "used") {
       // Login completed in another tab — session already exists
       stopPolling();
+      state.value = "idle";
       router.visit("/");
     }
     // 'pending' — reset error counter on successful poll

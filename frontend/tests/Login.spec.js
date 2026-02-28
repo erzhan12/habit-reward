@@ -2,7 +2,7 @@
  * Tests for Login.vue using Vitest + @vue/test-utils.
  *
  * Prerequisites:
- *   npm install -D vitest @vue/test-utils happy-dom
+ *   npm install -D vitest @vue/test-utils jsdom
  *
  * Run:
  *   npx vitest run tests/Login.spec.js

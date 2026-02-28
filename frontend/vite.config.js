@@ -19,6 +19,9 @@ export default defineConfig({
   resolve: {
     extensions: [".js", ".vue", ".json"],
   },
+  test: {
+    environment: "jsdom",
+  },
   build: {
     outDir: resolve("./dist"),
     assetsDir: "",
