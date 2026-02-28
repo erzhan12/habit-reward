@@ -266,7 +266,7 @@ def _release_acquired_queue_slot() -> None:
         _queue_slots.release()
 
 
-def _is_request_stale(expires_at) -> bool:
+def _is_request_stale(expires_at: datetime) -> bool:
     """Check whether a login request has expired (e.g. sat in the queue too long)."""
     return datetime.now(timezone.utc) >= expires_at
 
@@ -497,7 +497,7 @@ class WebLoginService:
             )
 
     def _process_login_background(
-        self, user, token: str, expires_at, device_info: str | None
+        self, user, token: str, expires_at: datetime, device_info: str | None
     ) -> None:
         """Process login request in a background thread (DB writes + Telegram send).
 
