@@ -45,6 +45,10 @@ class RewardService:
             streak_count: Current streak count for this habit
         Returns:
             Effective no-reward probability (percentage, never below floor)
+
+        Example:
+            base=50, weight=20, streak=5 with rate=2.0, floor=10.0
+            -> max(50 - 20 - 10, 10) = 20% no-reward (80% reward chance)
         """
         streak_reduction = streak_count * settings.STREAK_REDUCTION_RATE
         floor = settings.MIN_NO_REWARD_PROBABILITY

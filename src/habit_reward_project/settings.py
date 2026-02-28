@@ -243,7 +243,11 @@ if env('STREAK_MULTIPLIER_RATE', default=None) and not _streak_multiplier_warned
     )
     _streak_multiplier_warned = True
 STREAK_REDUCTION_RATE = env.float('STREAK_REDUCTION_RATE', default=2.0)  # % reduction per streak day
+if STREAK_REDUCTION_RATE < 0:
+    raise ValueError('STREAK_REDUCTION_RATE must be non-negative')
 MIN_NO_REWARD_PROBABILITY = env.float('MIN_NO_REWARD_PROBABILITY', default=10.0)  # floor %
+if MIN_NO_REWARD_PROBABILITY < 0 or MIN_NO_REWARD_PROBABILITY > 100:
+    raise ValueError('MIN_NO_REWARD_PROBABILITY must be between 0 and 100')
 PROGRESS_BAR_LENGTH = env.int('PROGRESS_BAR_LENGTH', default=10)
 RECENT_LOGS_LIMIT = env.int('RECENT_LOGS_LIMIT', default=10)
 NO_REWARD_PROBABILITY_PERCENT = env.float('NO_REWARD_PROBABILITY_PERCENT', default=50.0)

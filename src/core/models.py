@@ -163,7 +163,7 @@ class Habit(models.Model):
     weight = models.IntegerField(
         default=0,
         validators=[MinValueValidator(0), MaxValueValidator(30)],
-        help_text="Habit weight for reward probability bonus (0-30, each point = -1% no-reward)"
+        help_text="Habit weight for reward probability bonus (0-30, each point = -1% no-reward, min floor applied)"
     )
     category = models.CharField(
         max_length=100,

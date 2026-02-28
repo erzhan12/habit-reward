@@ -124,7 +124,7 @@ def mock_habit_log(mock_user, mock_habit, mock_reward):
     log.got_reward = True
     log.streak_count = 5
     log.habit_weight = 10
-    log.total_weight_applied = 1.5
+    log.total_weight_applied = 30.0
     log.last_completed_date = date.today()
     # Make timestamp a datetime object so .isoformat() works
     log.timestamp = datetime(2025, 12, 10, 12, 0, 0)

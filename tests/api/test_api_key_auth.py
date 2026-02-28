@@ -67,7 +67,7 @@ class TestAPIKeyAuthentication:
         mock_result.habit_name = mock_habit.name
         mock_result.streak_count = 5
         mock_result.got_reward = False
-        mock_result.total_weight_applied = 1.5
+        mock_result.total_weight_applied = 30.0
         mock_result.reward = None
         mock_result.cumulative_progress = None
         mock_habit_service.process_habit_completion = AsyncMock(return_value=mock_result)
@@ -185,7 +185,7 @@ class TestCombinedAuth:
         mock_result.habit_name = mock_habit.name
         mock_result.streak_count = 5
         mock_result.got_reward = False
-        mock_result.total_weight_applied = 1.5
+        mock_result.total_weight_applied = 30.0
         mock_result.reward = None
         mock_result.cumulative_progress = None
         mock_habit_service.process_habit_completion = AsyncMock(return_value=mock_result)
@@ -224,7 +224,7 @@ class TestCombinedAuth:
         mock_result.habit_name = mock_habit.name
         mock_result.streak_count = 5
         mock_result.got_reward = False
-        mock_result.total_weight_applied = 1.5
+        mock_result.total_weight_applied = 30.0
         mock_result.reward = None
         mock_result.cumulative_progress = None
         mock_habit_service.process_habit_completion = AsyncMock(return_value=mock_result)
@@ -272,7 +272,7 @@ class TestHabitCompletionWithAPIKey:
         mock_result.habit_name = mock_habit.name
         mock_result.streak_count = 5
         mock_result.got_reward = False
-        mock_result.total_weight_applied = 1.5
+        mock_result.total_weight_applied = 30.0
         mock_result.reward = None
         mock_result.cumulative_progress = None
         mock_habit_service.process_habit_completion = AsyncMock(return_value=mock_result)

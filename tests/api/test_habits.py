@@ -237,7 +237,7 @@ class TestCompleteHabit:
         result.habit_name = mock_habit.name
         result.streak_count = 5
         result.got_reward = False
-        result.total_weight_applied = 1.5
+        result.total_weight_applied = 30.0
         result.reward = None
         result.cumulative_progress = None
         mock_service.process_habit_completion = AsyncMock(return_value=result)
@@ -264,7 +264,7 @@ class TestCompleteHabit:
         result.habit_name = mock_habit.name
         result.streak_count = 10
         result.got_reward = True
-        result.total_weight_applied = 2.0
+        result.total_weight_applied = 40.0
         result.reward = mock_reward
         result.cumulative_progress = None
         mock_service.process_habit_completion = AsyncMock(return_value=result)
@@ -320,7 +320,7 @@ class TestBatchCompleteHabits:
         result.habit_name = mock_habit.name
         result.streak_count = 5
         result.got_reward = False
-        result.total_weight_applied = 1.5
+        result.total_weight_applied = 30.0
         result.reward = None
         result.cumulative_progress = None
         mock_service.process_habit_completion = AsyncMock(return_value=result)
@@ -359,7 +359,7 @@ class TestBatchCompleteHabits:
         result.habit_name = mock_habit.name
         result.streak_count = 5
         result.got_reward = False
-        result.total_weight_applied = 1.5
+        result.total_weight_applied = 30.0
         result.reward = None
         result.cumulative_progress = None
         mock_service.process_habit_completion = AsyncMock(return_value=result)

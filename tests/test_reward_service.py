@@ -111,6 +111,46 @@ class TestDashboardRewardChanceConsistency:
             )
 
 
+class TestEdgeCases:
+    """Test edge cases for the effective no-reward probability formula."""
+
+    @override_settings(STREAK_REDUCTION_RATE=0, MIN_NO_REWARD_PROBABILITY=10.0)
+    def test_zero_streak_rate_no_streak_effect(self, reward_service):
+        """Test that STREAK_REDUCTION_RATE=0 means streaks have no effect."""
+        result = reward_service.calculate_effective_no_reward_probability(
+            base_no_reward=50.0, habit_weight=0, streak_count=100
+        )
+        # max(50 - 0 - 0, 10) = 50
+        assert result == pytest.approx(50.0)
+
+    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
+    def test_very_large_streak_floor_enforced(self, reward_service):
+        """Test that very large streaks (100+) still respect the floor."""
+        result = reward_service.calculate_effective_no_reward_probability(
+            base_no_reward=50.0, habit_weight=30, streak_count=100
+        )
+        # max(50 - 30 - 200, 10) = max(-180, 10) = 10
+        assert result == pytest.approx(10.0)
+
+    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=0)
+    def test_floor_zero_allows_zero_probability(self, reward_service):
+        """Test that MIN_NO_REWARD_PROBABILITY=0 allows probability to reach 0."""
+        result = reward_service.calculate_effective_no_reward_probability(
+            base_no_reward=50.0, habit_weight=30, streak_count=20
+        )
+        # max(50 - 30 - 40, 0) = max(-20, 0) = 0
+        assert result == pytest.approx(0.0)
+
+    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=100.0)
+    def test_floor_hundred_always_no_reward(self, reward_service):
+        """Test that MIN_NO_REWARD_PROBABILITY=100 means always no-reward."""
+        result = reward_service.calculate_effective_no_reward_probability(
+            base_no_reward=50.0, habit_weight=0, streak_count=0
+        )
+        # max(50 - 0 - 0, 100) = 100
+        assert result == pytest.approx(100.0)
+
+
 class TestRewardSelection:
     """Test reward selection logic."""
 
