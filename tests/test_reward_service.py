@@ -27,38 +27,61 @@ def mock_progress_repo():
     return Mock()
 
 
-class TestWeightCalculation:
-    """Test weight calculation logic."""
+class TestEffectiveNoRewardProbability:
+    """Test effective no-reward probability calculation."""
 
-    def test_basic_weight_calculation(self, reward_service):
-        """Test basic weight calculation without streak."""
-        total_weight = reward_service.calculate_total_weight(
-            habit_weight=10,
-            streak_count=1
+    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
+    def test_base_only(self, reward_service):
+        """Test with no weight and no streak (base probability unchanged)."""
+        result = reward_service.calculate_effective_no_reward_probability(
+            base_no_reward=50.0, habit_weight=0, streak_count=0
         )
+        assert result == pytest.approx(50.0)
 
-        # 10 * (1 + 1*0.1) = 10 * 1.1 = 11.0
-        assert total_weight == pytest.approx(11.0)
-
-    def test_weight_with_high_streak(self, reward_service):
-        """Test weight calculation with high streak."""
-        total_weight = reward_service.calculate_total_weight(
-            habit_weight=10,
-            streak_count=10
+    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
+    def test_weight_reduces_probability(self, reward_service):
+        """Test that habit weight reduces no-reward probability."""
+        result = reward_service.calculate_effective_no_reward_probability(
+            base_no_reward=50.0, habit_weight=20, streak_count=0
         )
+        # max(50 - 20 - 0, 10) = 30
+        assert result == pytest.approx(30.0)
 
-        # 10 * (1 + 10*0.1) = 10 * 2.0 = 20.0
-        assert total_weight == pytest.approx(20.0)
-
-    def test_weight_with_habit_multiplier(self, reward_service):
-        """Test weight calculation with habit multiplier."""
-        total_weight = reward_service.calculate_total_weight(
-            habit_weight=20,
-            streak_count=5
+    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
+    def test_streak_reduces_probability(self, reward_service):
+        """Test that streak reduces no-reward probability."""
+        result = reward_service.calculate_effective_no_reward_probability(
+            base_no_reward=50.0, habit_weight=0, streak_count=5
         )
+        # max(50 - 0 - 10, 10) = 40
+        assert result == pytest.approx(40.0)
 
-        # 20 * (1 + 5*0.1) = 20 * 1.5 = 30.0
-        assert total_weight == pytest.approx(30.0)
+    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
+    def test_weight_and_streak_combined(self, reward_service):
+        """Test combined weight and streak reduction."""
+        result = reward_service.calculate_effective_no_reward_probability(
+            base_no_reward=50.0, habit_weight=20, streak_count=5
+        )
+        # max(50 - 20 - 10, 10) = 20
+        assert result == pytest.approx(20.0)
+
+    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
+    def test_floor_enforced(self, reward_service):
+        """Test that probability never goes below the floor."""
+        result = reward_service.calculate_effective_no_reward_probability(
+            base_no_reward=50.0, habit_weight=30, streak_count=20
+        )
+        # max(50 - 30 - 40, 10) = max(-20, 10) = 10
+        assert result == pytest.approx(10.0)
+
+    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
+    def test_max_weight_no_streak(self, reward_service):
+        """Test max weight with no streak."""
+        result = reward_service.calculate_effective_no_reward_probability(
+            base_no_reward=50.0, habit_weight=30, streak_count=0
+        )
+        # max(50 - 30 - 0, 10) = 20
+        assert result == pytest.approx(20.0)
 
 
 class TestRewardSelection:
@@ -73,13 +96,13 @@ class TestRewardSelection:
         mock_reward_repo.get_all_active.return_value = mock_rewards
 
         with patch.object(reward_service, 'reward_repo', mock_reward_repo):
-            selected = reward_service.select_reward(user_id=1, total_weight=10.0)
+            selected = reward_service.select_reward(user_id=1, effective_no_reward_probability=50.0)
 
         # Selected reward should be either one of the rewards or None
         assert selected is None or selected in mock_rewards
 
     def test_select_reward_includes_no_reward_weight(self, reward_service):
-        """Ensure no-reward weight equals sum of other weights when configured for 50%."""
+        """Ensure no-reward weight equals sum of other weights when effective probability is 50%."""
         rewards = [
             Reward(id="r1", name="Reward 1", weight=2),
             Reward(id="r2", name="Reward 2", weight=3),
@@ -87,12 +110,9 @@ class TestRewardSelection:
         reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
         reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
 
-        with (
-            override_settings(NO_REWARD_PROBABILITY_PERCENT=50.0),
-            patch("src.services.reward_service.random.choices") as mock_choices,
-        ):
+        with patch("src.services.reward_service.random.choices") as mock_choices:
             mock_choices.return_value = [rewards[0]]
-            selected = reward_service.select_reward(user_id="1", total_weight=5.0)
+            selected = reward_service.select_reward(user_id="1", effective_no_reward_probability=50.0)
 
         assert selected == rewards[0]
         population = mock_choices.call_args.args[0]
@@ -109,12 +129,9 @@ class TestRewardSelection:
         reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
         reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
 
-        with (
-            override_settings(NO_REWARD_PROBABILITY_PERCENT=25.0),
-            patch("src.services.reward_service.random.choices") as mock_choices,
-        ):
+        with patch("src.services.reward_service.random.choices") as mock_choices:
             mock_choices.return_value = [rewards[0]]
-            selected = reward_service.select_reward(user_id="1", total_weight=5.0)
+            selected = reward_service.select_reward(user_id="1", effective_no_reward_probability=25.0)
 
         assert selected == rewards[0]
         weights = mock_choices.call_args.kwargs["weights"]
@@ -131,12 +148,9 @@ class TestRewardSelection:
         reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
         reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
 
-        with (
-            override_settings(NO_REWARD_PROBABILITY_PERCENT=0.0),
-            patch("src.services.reward_service.random.choices") as mock_choices,
-        ):
+        with patch("src.services.reward_service.random.choices") as mock_choices:
             mock_choices.return_value = [rewards[0]]
-            selected = reward_service.select_reward(user_id="1", total_weight=5.0)
+            selected = reward_service.select_reward(user_id="1", effective_no_reward_probability=0.0)
 
         assert selected == rewards[0]
         population = mock_choices.call_args.args[0]
@@ -151,11 +165,8 @@ class TestRewardSelection:
         reward_service.reward_repo.get_all_active = Mock(return_value=rewards)
         reward_service.progress_repo.get_all_by_user = Mock(return_value=[])
 
-        with (
-            override_settings(NO_REWARD_PROBABILITY_PERCENT=100.0),
-            patch("src.services.reward_service.random.choices") as mock_choices,
-        ):
-            selected = reward_service.select_reward(user_id="1", total_weight=5.0)
+        with patch("src.services.reward_service.random.choices") as mock_choices:
+            selected = reward_service.select_reward(user_id="1", effective_no_reward_probability=100.0)
 
         assert selected is None
         mock_choices.assert_not_called()
@@ -165,7 +176,7 @@ class TestRewardSelection:
         mock_reward_repo.get_all_active.return_value = []
 
         with patch.object(reward_service, 'reward_repo', mock_reward_repo):
-            selected = reward_service.select_reward(total_weight=10.0)
+            selected = reward_service.select_reward(effective_no_reward_probability=50.0)
 
         assert selected is None
 
@@ -477,7 +488,7 @@ class TestDailyLimitEnforcement:
              patch.object(reward_service, 'progress_repo', mock_progress_repo), \
              patch.object(reward_service, 'habit_log_repo', mock_habit_log_repo):
             selected = await reward_service.select_reward(
-                total_weight=10.0,
+                effective_no_reward_probability=50.0,
                 user_id="user123"
             )
 
@@ -514,7 +525,7 @@ class TestDailyLimitEnforcement:
             # Mock random selection to return the reward (not None)
             mock_choices.return_value = [mock_reward]
             selected = await reward_service.select_reward(
-                total_weight=10.0,
+                effective_no_reward_probability=50.0,
                 user_id="user123"
             )
 
@@ -552,7 +563,7 @@ class TestDailyLimitEnforcement:
              patch.object(reward_service, 'progress_repo', mock_progress_repo), \
              patch.object(reward_service, 'habit_log_repo', mock_habit_log_repo):
             selected = await reward_service.select_reward(
-                total_weight=10.0,
+                effective_no_reward_probability=50.0,
                 user_id="user123"
             )
 
@@ -601,7 +612,7 @@ class TestDailyLimitEnforcement:
              patch.object(reward_service, 'progress_repo', mock_progress_repo), \
              patch.object(reward_service, 'habit_log_repo', mock_habit_log_repo):
             selected = await reward_service.select_reward(
-                total_weight=10.0,
+                effective_no_reward_probability=50.0,
                 user_id="user123"
             )
 
@@ -639,7 +650,7 @@ class TestDailyLimitEnforcement:
             # Mock random selection to return the reward (not None)
             mock_choices.return_value = [mock_reward]
             selected = await reward_service.select_reward(
-                total_weight=10.0,
+                effective_no_reward_probability=50.0,
                 user_id="user123"
             )
 

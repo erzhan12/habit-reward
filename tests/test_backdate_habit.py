@@ -39,7 +39,8 @@ def mock_user():
         telegram_id="123456789",
         name="Test User",
         is_active=True,
-        language="en"
+        language="en",
+        no_reward_probability=50.0,
     )
 
 
@@ -50,7 +51,7 @@ def mock_habit():
         id=1,
         user_id=123,
         name="Walking",
-        weight=10,
+        weight=0,
         category="health",
         active=True,
         allowed_skip_days=0,  # No grace days by default
@@ -231,8 +232,8 @@ class TestBackdateValidation:
             id=999,
             user_id=123,
             habit_id=1,
-            habit_weight=10,
-            total_weight_applied=1.0,
+            habit_weight=0,
+            total_weight_applied=50.0,
             last_completed_date=yesterday,
             streak_count=5
         )

@@ -232,7 +232,11 @@ LLM_API_KEY = env('LLM_API_KEY', default=None)  # API key for the LLM provider
 DEFAULT_USER_TELEGRAM_ID = env('DEFAULT_USER_TELEGRAM_ID', default=None)
 
 # Gamification Configuration
+# DEPRECATED: STREAK_MULTIPLIER_RATE is replaced by STREAK_REDUCTION_RATE in the new
+# subtractive reward probability formula. Kept for backward compat with old .env files.
 STREAK_MULTIPLIER_RATE = env.float('STREAK_MULTIPLIER_RATE', default=0.1)
+STREAK_REDUCTION_RATE = env.float('STREAK_REDUCTION_RATE', default=2.0)  # % reduction per streak day
+MIN_NO_REWARD_PROBABILITY = env.float('MIN_NO_REWARD_PROBABILITY', default=10.0)  # floor %
 PROGRESS_BAR_LENGTH = env.int('PROGRESS_BAR_LENGTH', default=10)
 RECENT_LOGS_LIMIT = env.int('RECENT_LOGS_LIMIT', default=10)
 NO_REWARD_PROBABILITY_PERCENT = env.float('NO_REWARD_PROBABILITY_PERCENT', default=50.0)
@@ -257,8 +261,8 @@ HABIT_CATEGORIES = [
 
 # Habit validation limits
 HABIT_NAME_MAX_LENGTH = 100
-HABIT_WEIGHT_MIN = 1
-HABIT_WEIGHT_MAX = 100
+HABIT_WEIGHT_MIN = 0
+HABIT_WEIGHT_MAX = 30
 
 # Web auth rate limit (django-ratelimit format, e.g. '10/m', '5/m')
 AUTH_RATE_LIMIT = env('AUTH_RATE_LIMIT', default='10/m')

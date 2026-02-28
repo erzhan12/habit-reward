@@ -161,9 +161,9 @@ class Habit(models.Model):
         help_text="Habit name"
     )
     weight = models.IntegerField(
-        default=10,
-        validators=[MinValueValidator(1), MaxValueValidator(100)],
-        help_text="Habit base weight for reward calculations (1-100)"
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(30)],
+        help_text="Habit weight for reward probability bonus (0-30, each point = -1% no-reward)"
     )
     category = models.CharField(
         max_length=100,
@@ -408,7 +408,7 @@ class HabitLog(models.Model):
         help_text="Habit weight at time of completion (1-100)"
     )
     total_weight_applied = models.FloatField(
-        help_text="Total calculated weight (habit × user × streak multiplier)"
+        help_text="Effective no-reward probability % applied during reward selection"
     )
     last_completed_date = models.DateField(
         help_text="Date of completion (for streak tracking)"

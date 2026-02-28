@@ -10,7 +10,7 @@ class Habit(BaseModel):
     id: str | int | None = None  # Airtable record ID (str) or Django PK (int)
     user_id: str | int | None = Field(default=None, description="Owning user id")
     name: str = Field(..., description="Habit name")
-    weight: int = Field(default=10, ge=1, le=100, description="Habit base weight for reward calculations (1-100)")
+    weight: int = Field(default=0, ge=0, le=30, description="Habit weight for reward probability bonus (0-30, each point = -1% no-reward)")
     category: str | None = Field(default=None, description="Habit category (e.g., health, productivity)")
     allowed_skip_days: int = Field(default=0, ge=0, description="Number of consecutive days user can skip without breaking streak (0 for strict)")
     exempt_weekdays: list[int] = Field(default_factory=list, description="List of weekday numbers (1=Mon, 7=Sun) that don't count against streak")
@@ -25,7 +25,7 @@ class Habit(BaseModel):
         json_schema_extra={
             "example": {
                 "name": "Walking",
-                "weight": 10,
+                "weight": 0,
                 "category": "health",
                 "allowed_skip_days": 0,
                 "exempt_weekdays": [],

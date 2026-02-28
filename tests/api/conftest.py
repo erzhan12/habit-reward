@@ -21,6 +21,7 @@ def mock_user():
     user.timezone = "UTC"
     user.is_active = True
     user.username = "tg_123456789"
+    user.no_reward_probability = 50.0
     return user
 
 

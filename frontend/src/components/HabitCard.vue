@@ -12,8 +12,11 @@
           >
             {{ habit.name }}
           </h3>
-          <span class="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-text-secondary shrink-0">
+          <span v-if="habit.weight > 0" class="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-text-secondary shrink-0">
             {{ habit.weight }}w
+          </span>
+          <span v-if="!habit.completedToday" class="text-xs px-1.5 py-0.5 rounded bg-accent/20 text-accent shrink-0">
+            {{ habit.rewardChance }}%
           </span>
         </div>
         <div v-if="habit.streak > 0" class="flex items-center gap-1 mt-1">
