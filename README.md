@@ -258,7 +258,7 @@ write lock contention.
 | `WEB_LOGIN_JITTER_MAX` | `0.2` | Maximum timing jitter (seconds) added to status polling responses. |
 
 **Cleanup scheduling:** Schedule `cleanup_expired_logins` hourly (cron or systemd timer),
-otherwise expired login records accumulate indefinitely.
+otherwise expired `WebLoginRequest` and `LoginTokenIpBinding` records accumulate indefinitely.
 
 Cron example:
 
@@ -308,7 +308,7 @@ Before deploying to production, verify:
 
 - [ ] **Database**: Use PostgreSQL (not SQLite) if `WEB_LOGIN_THREAD_POOL_SIZE > 1`. SQLite's file-level locking causes deadlocks under concurrent writes.
 - [ ] **Connection pool**: Set DB connection pool size (`pool_size` in `DATABASE_URL` or `CONN_MAX_AGE`) to at least `WEB_LOGIN_THREAD_POOL_SIZE`.
-- [ ] **Cron job**: Schedule `cleanup_expired_logins` hourly to prevent unbounded `WebLoginRequest` table growth.
+- [ ] **Cron job**: Schedule `cleanup_expired_logins` hourly to prevent unbounded `WebLoginRequest` and `LoginTokenIpBinding` table growth.
 - [ ] **Reverse proxy**: If `TRUST_X_FORWARDED_FOR=True`, verify nginx/Caddy overwrites `X-Forwarded-For`. Set `SECURE_PROXY_SSL_HEADER` to confirm proxy presence.
 - [ ] **Monitoring**: Set up log alerts for `Login thread pool queue full` (queue saturation) and `Cache write failed` (cache backend issues).
 - [ ] **Rate limits**: Review `AUTH_RATE_LIMIT` and `AUTH_STATUS_RATE_LIMIT` for your expected traffic volume.
@@ -325,7 +325,7 @@ If migrating from the old Telegram Login Widget to the new bot-based Confirm/Den
 
 ### Scheduled Tasks
 
-The `cleanup_expired_logins` management command deletes expired `WebLoginRequest` records to prevent unbounded table growth. Schedule it hourly via cron:
+The `cleanup_expired_logins` management command deletes expired `WebLoginRequest` and `LoginTokenIpBinding` records to prevent unbounded table growth. Schedule it hourly via cron:
 
 ```cron
 0 * * * * cd /path/to/project && /path/to/venv/bin/python manage.py cleanup_expired_logins >> /var/log/cleanup.log 2>&1

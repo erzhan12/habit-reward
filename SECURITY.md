@@ -115,7 +115,7 @@ When a user initiates a login request (`POST /auth/bot-login/request/`), the ser
 
 - **Always enforce HTTPS** in production to prevent token interception.
 - Only enable `TRUST_X_FORWARDED_FOR` behind a trusted reverse proxy that overwrites the header.
-- Expired `LoginTokenIpBinding` records are cleaned up via the same housekeeping process as expired `WebLoginRequest` records.
+- Expired `LoginTokenIpBinding` records are cleaned up by the `cleanup_expired_logins` management command alongside expired `WebLoginRequest` records. Schedule this command hourly via cron (see README).
 
 ### Rate Limiting Bypass Risks
 

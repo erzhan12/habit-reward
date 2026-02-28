@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from django.core.management import call_command
 
-from src.core.models import User, WebLoginRequest
+from src.core.models import LoginTokenIpBinding, User, WebLoginRequest
 
 pytestmark = pytest.mark.django_db
 
@@ -162,3 +162,89 @@ class TestCleanupExpiredLogins:
         call_command("cleanup_expired_logins")
 
         assert WebLoginRequest.objects.count() == 0
+
+
+class TestCleanupExpiredIpBindings:
+    """Tests for LoginTokenIpBinding cleanup in the cleanup command."""
+
+    def test_deletes_expired_ip_bindings(self):
+        """Expired IP bindings are deleted by the cleanup command."""
+        now = datetime.now(timezone.utc)
+        LoginTokenIpBinding.objects.create(
+            token="expired_binding_aaa",
+            ip_address="10.0.0.1",
+            expires_at=now - timedelta(minutes=10),
+        )
+        LoginTokenIpBinding.objects.create(
+            token="expired_binding_bbb",
+            ip_address="10.0.0.2",
+            expires_at=now - timedelta(hours=1),
+        )
+
+        call_command("cleanup_expired_logins")
+
+        assert LoginTokenIpBinding.objects.count() == 0
+
+    def test_preserves_active_ip_bindings(self):
+        """Non-expired IP bindings are preserved."""
+        now = datetime.now(timezone.utc)
+        LoginTokenIpBinding.objects.create(
+            token="active_binding_aaa",
+            ip_address="10.0.0.1",
+            expires_at=now + timedelta(minutes=5),
+        )
+
+        call_command("cleanup_expired_logins")
+
+        assert LoginTokenIpBinding.objects.count() == 1
+
+    def test_mixed_expired_and_active_ip_bindings(self):
+        """Only expired IP bindings are deleted; active ones remain."""
+        now = datetime.now(timezone.utc)
+        LoginTokenIpBinding.objects.create(
+            token="expired_binding_ccc",
+            ip_address="10.0.0.1",
+            expires_at=now - timedelta(minutes=10),
+        )
+        active = LoginTokenIpBinding.objects.create(
+            token="active_binding_bbb",
+            ip_address="10.0.0.2",
+            expires_at=now + timedelta(minutes=5),
+        )
+
+        call_command("cleanup_expired_logins")
+
+        remaining = list(LoginTokenIpBinding.objects.all())
+        assert remaining == [active]
+
+    def test_both_requests_and_bindings_cleaned(self, login_user):
+        """Both expired login requests and IP bindings are cleaned up together."""
+        now = datetime.now(timezone.utc)
+        WebLoginRequest.objects.create(
+            user=login_user,
+            token="expired_req_aaa",
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=now - timedelta(minutes=10),
+        )
+        LoginTokenIpBinding.objects.create(
+            token="expired_req_aaa",
+            ip_address="10.0.0.1",
+            expires_at=now - timedelta(minutes=10),
+        )
+        # Active records should survive
+        WebLoginRequest.objects.create(
+            user=login_user,
+            token="active_req_aaa",
+            status=WebLoginRequest.Status.PENDING,
+            expires_at=now + timedelta(minutes=5),
+        )
+        LoginTokenIpBinding.objects.create(
+            token="active_req_aaa",
+            ip_address="10.0.0.2",
+            expires_at=now + timedelta(minutes=5),
+        )
+
+        call_command("cleanup_expired_logins")
+
+        assert WebLoginRequest.objects.count() == 1
+        assert LoginTokenIpBinding.objects.count() == 1
