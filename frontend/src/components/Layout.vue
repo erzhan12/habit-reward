@@ -19,6 +19,15 @@
           {{ item.label }}
         </Link>
       </nav>
+      <div class="p-3 border-t border-gray-800">
+        <button
+          @click="handleLogout"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium w-full text-text-secondary hover:text-text-primary hover:bg-bg-card-hover transition-colors"
+        >
+          <span class="text-lg">&#x1F6AA;</span>
+          Logout
+        </button>
+      </div>
     </aside>
 
     <!-- Flash messages -->
@@ -36,7 +45,7 @@
 
 <script setup>
 import { computed } from "vue";
-import { Link, usePage } from "@inertiajs/vue3";
+import { Link, router, usePage } from "@inertiajs/vue3";
 import BottomNav from "./BottomNav.vue";
 import FlashMessages from "./FlashMessages.vue";
 
@@ -49,6 +58,10 @@ const navItems = [
   { href: "/history/", icon: "\uD83D\uDCC5", label: "History" },
   { href: "/rewards/", icon: "\uD83C\uDF81", label: "Rewards" },
 ];
+
+function handleLogout() {
+  router.post("/auth/logout/");
+}
 
 function isActive(href) {
   const url = usePage().url;
