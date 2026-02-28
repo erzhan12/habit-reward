@@ -160,7 +160,17 @@ else
 fi
 
 echo ""
-print_msg $GREEN "STEP 3: Set Telegram webhook"
+print_msg $GREEN "STEP 3: Start Vite dev server (frontend)"
+print_msg $BLUE "----------------------------------------"
+echo "Open ANOTHER NEW terminal window and run:"
+echo ""
+print_msg $YELLOW "    cd $PROJECT_ROOT/frontend && npm run dev"
+print_msg $BLUE "    (This starts Vite HMR on localhost:5173 for the Vue frontend)"
+echo ""
+read -p "Press ENTER when the Vite dev server is running..."
+
+echo ""
+print_msg $GREEN "STEP 4: Set Telegram webhook"
 print_msg $BLUE "----------------------------------------"
 cd "$PROJECT_ROOT"
 uv run python scripts/set_webhook.py
