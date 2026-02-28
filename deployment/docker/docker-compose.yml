@@ -51,11 +51,11 @@ services:
       - habit_reward_network
 
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; r=urllib.request.Request('http://localhost:8000/admin/login/',headers={'X-Forwarded-Proto':'https'}); urllib.request.urlopen(r)"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 120s
 
   # Caddy Reverse Proxy with Automatic SSL
   caddy:
