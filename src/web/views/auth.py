@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 # unusual but legitimate UAs (e.g. embedded WebViews, bot crawlers).
 # See: https://developers.whatismybrowser.com/learn/user-agent-string-lengths/
 MAX_USER_AGENT_LENGTH: int = getattr(settings, "MAX_USER_AGENT_LENGTH", 512)
-# Maximum device_info length (DB field constraint)
+# Must match the database field limit for WebLoginRequest.device_info
 MAX_DEVICE_INFO_LENGTH: int = 255
 # URL-safe base64 token format (secrets.token_urlsafe output)
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")

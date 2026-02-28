@@ -81,7 +81,7 @@ All authentication endpoints are rate-limited per IP via `django-ratelimit`:
 
 ### GDPR
 
-- **IP anonymization**: IP addresses are hashed via SHA-256 (16-hex-char prefix) before logging. Raw IPs are never stored.
+- **IP anonymization**: IP addresses are hashed via SHA-256 before logging (see `src/web/views/auth.py:_anonymize_ip` for details). Raw IPs are never stored in logs.
 - **No IP in device_info**: The device description sent to Telegram excludes IP addresses entirely.
 - **Minimal data**: Only `telegram_id` is stored for user identification.
 

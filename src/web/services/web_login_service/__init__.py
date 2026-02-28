@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError, transaction
+from django.db import DatabaseError
 
 from src.core.models import WebLoginRequest
 from telegram.error import Forbidden, InvalidToken, RetryAfter, TelegramError
@@ -116,8 +116,10 @@ LOGIN_REQUEST_EXPIRY_MINUTES = getattr(settings, "WEB_LOGIN_EXPIRY_MINUTES", 5)
 # See also: SECURITY.md § "Timing Attack Resistance" for the full threat model.
 # Adjust WEB_LOGIN_JITTER_MIN / WEB_LOGIN_JITTER_MAX in settings if your
 # infrastructure changes the cache/DB delta (e.g. remote Redis vs local memcached).
-_JITTER_MIN = getattr(settings, "WEB_LOGIN_JITTER_MIN", 0.05)
-_JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", 0.2)
+_JITTER_MIN_DEFAULT = 0.05
+_JITTER_MAX_DEFAULT = 0.2
+_JITTER_MIN = getattr(settings, "WEB_LOGIN_JITTER_MIN", _JITTER_MIN_DEFAULT)
+_JITTER_MAX = getattr(settings, "WEB_LOGIN_JITTER_MAX", _JITTER_MAX_DEFAULT)
 
 # Bounded thread pool for background login processing (DB writes + Telegram send).
 # See token_operations.py for token constants, cache_operations.py for cache logic.
@@ -210,9 +212,10 @@ def _get_executor() -> ThreadPoolExecutor:
 
 
 # Maximum number of queued items before rejecting new requests (circuit breaker).
-# 50 = 5x normal thread pool size (10 workers), allowing burst capacity
+# Default is 5x normal thread pool size (10 workers), allowing burst capacity
 # while preventing unbounded queuing.
-_MAX_QUEUED_LOGINS = getattr(settings, "WEB_LOGIN_MAX_QUEUED", 50)
+_DEFAULT_MAX_QUEUED_LOGINS = 50
+_MAX_QUEUED_LOGINS = getattr(settings, "WEB_LOGIN_MAX_QUEUED", _DEFAULT_MAX_QUEUED_LOGINS)
 
 # Fraction of _MAX_QUEUED_LOGINS at which a warning is emitted (80%).
 _QUEUE_WARN_THRESHOLD_FRACTION = 0.8
@@ -261,6 +264,11 @@ def _release_acquired_queue_slot() -> None:
         _decrement_queue_depth()
     finally:
         _queue_slots.release()
+
+
+def _is_request_stale(expires_at: datetime) -> bool:
+    """Check whether a login request has expired (e.g. sat in the queue too long)."""
+    return datetime.now(timezone.utc) >= expires_at
 
 
 class LoginServiceUnavailable(Exception):
@@ -489,7 +497,7 @@ class WebLoginService:
             )
 
     def _process_login_background(
-        self, user, token: str, expires_at, device_info: str | None
+        self, user, token: str, expires_at: datetime, device_info: str | None
     ) -> None:
         """Process login request in a background thread (DB writes + Telegram send).
 
@@ -502,9 +510,7 @@ class WebLoginService:
         """
         from src.web.utils.sync import call_async
 
-        # Staleness check: if the item sat in the queue long enough to
-        # expire, skip processing — the client will already see "expired".
-        if datetime.now(timezone.utc) >= expires_at:
+        if _is_request_stale(expires_at):
             logger.warning(
                 "Skipping stale login request (expired while queued)",
                 extra={"user_id": user.id, "token_prefix": token[:8]},

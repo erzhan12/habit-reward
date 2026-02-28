@@ -2,8 +2,6 @@
 
 import json
 import threading
-import time
-from concurrent.futures import Future
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,7 +9,7 @@ import pytest
 from django.test import Client
 
 from src.core.models import LoginTokenIpBinding, User
-from src.web.services.web_login_service import WL_FAILED_KEY, WL_PENDING_KEY
+from src.web.services.web_login_service import WL_PENDING_KEY
 from tests.web.conftest import _call_async_mock
 
 pytestmark = pytest.mark.django_db

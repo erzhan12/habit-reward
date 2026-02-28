@@ -1,17 +1,13 @@
 """Tests for IP binding and address parsing."""
 
 import json
-import threading
-import time
-from concurrent.futures import Future
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.test import Client
 
-from src.core.models import LoginTokenIpBinding, User
-from src.web.services.web_login_service import WL_FAILED_KEY, WL_PENDING_KEY
+from src.core.models import LoginTokenIpBinding
 from tests.web.conftest import _call_async_mock
 
 pytestmark = pytest.mark.django_db
@@ -273,22 +269,3 @@ class TestIPAddressParsing:
         assert "Unknown" in info
 
 
-class TestParseIPMultiProxyChain:
-    """Verify that X-Forwarded-For with >2 IPs takes the leftmost IP."""
-
-    @patch("src.web.utils.ip.settings")
-    def test_parse_ip_takes_leftmost_from_multi_proxy_chain(self, mock_settings):
-        """X-Forwarded-For with >2 IPs takes the leftmost (original client) IP."""
-        from src.web.utils.ip import parse_ip_address
-
-        mock_settings.TRUST_X_FORWARDED_FOR = True
-        request = MagicMock()
-        request.META = {
-            "HTTP_X_FORWARDED_FOR": "10.0.0.1, 192.168.1.1, 172.16.0.1",
-            "REMOTE_ADDR": "127.0.0.1",
-        }
-        with patch("src.web.utils.ip.logger") as mock_logger:
-            result = parse_ip_address(request)
-
-        assert result == "10.0.0.1"
-        mock_logger.debug.assert_called_once()

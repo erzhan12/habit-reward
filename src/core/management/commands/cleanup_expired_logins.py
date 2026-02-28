@@ -1,10 +1,7 @@
 """Django management command to clean up expired web login requests.
 
 Usage:
-    python manage.py cleanup_expired_logins [--hours HOURS]
-
-Example:
-    python manage.py cleanup_expired_logins --hours 24
+    python manage.py cleanup_expired_logins
 
 Schedule hourly via cron:
     0 * * * * cd /path/to/project && python manage.py cleanup_expired_logins
