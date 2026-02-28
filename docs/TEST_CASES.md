@@ -968,34 +968,36 @@ Streak reset correctly: [ ] YES [ ] NO
 
 ---
 
-### TC5.3: Verify Streak Multiplier Calculation
+### TC5.3: Verify Streak Reduction Calculation
 
 **Preconditions**:
 - Can create habit with specific streak
-- STREAK_MULTIPLIER_RATE = 0.1 (default)
+- STREAK_REDUCTION_RATE = 2.0 (default)
+- MIN_NO_REWARD_PROBABILITY = 10.0 (default)
+- NO_REWARD_PROBABILITY_PERCENT = 50.0 (default)
 
 **Test Steps**:
-1. Complete a habit to establish streak = 1
-2. Check Habit Log → `total_weight_applied`
-3. Calculate: habit_weight × (1 + 1 × 0.1) = expected
+1. Complete a habit (weight=10) to establish streak = 1
+2. Check Habit Log → `total_weight_applied` (now stores effective no-reward %)
+3. Calculate: max(50 - 10 - (1 × 2.0), 10.0) = 38.0
 4. Repeat for streak = 5 (manipulate date to create)
-5. Calculate: habit_weight × (1 + 5 × 0.1) = expected
+5. Calculate: max(50 - 10 - (5 × 2.0), 10.0) = 30.0
 
 **Expected Results**:
-- ✓ Streak 1: multiplier = 1.1
-- ✓ Streak 5: multiplier = 1.5
-- ✓ Streak 10: multiplier = 2.0
-- ✓ total_weight_applied matches formula
+- ✓ Streak 1, weight 10: effective_no_reward = 38.0 (reward_chance = 62%)
+- ✓ Streak 5, weight 10: effective_no_reward = 30.0 (reward_chance = 70%)
+- ✓ Streak 10, weight 10: effective_no_reward = 20.0 (reward_chance = 80%)
+- ✓ total_weight_applied matches formula (stores effective no-reward %)
 
 **Actual Results**:
 ```
-Test Case: Habit "Meditation" (weight 1.0)
+Test Case: Habit "Meditation" (weight 10)
 
-Streak | Expected Multiplier | Expected Total Weight | Actual Total Weight | Match?
--------|--------------------|-----------------------|---------------------|-------
-1      | 1.1                | 1.1                   |                     |
-5      | 1.5                | 1.5                   |                     |
-10     | 2.0                | 2.0                   |                     |
+Streak | Expected No-Reward % | Expected Reward Chance | Actual total_weight_applied | Match?
+-------|--------------------|-----------------------|-----------------------------|-------
+1      | 38.0               | 62%                   |                             |
+5      | 30.0               | 70%                   |                             |
+10     | 20.0               | 80%                   |                             |
 
 All calculations correct: [ ] YES [ ] NO
 
@@ -1099,35 +1101,37 @@ Notes:
 
 ---
 
-## TEST CASE 6: WEIGHT CALCULATION & MULTIPLIERS
+## TEST CASE 6: WEIGHT CALCULATION & NO-REWARD PROBABILITY
 
-**Objective**: Verify total weight formula: habit_weight × streak_multiplier
+**Objective**: Verify subtractive formula: effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDUCTION_RATE), MIN_NO_REWARD_PROBABILITY)
 
 ---
 
-### TC6.1: Base Weight Calculation (Streak = 1)
+### TC6.1: Base No-Reward Calculation (Streak = 1)
 
 **Preconditions**:
-- Test User (weight 1.0)
+- Test User
 - Fresh habit completion (streak = 1)
+- NO_REWARD_PROBABILITY_PERCENT = 50.0 (default)
+- STREAK_REDUCTION_RATE = 2.0 (default)
 
 **Test Steps**:
-1. Complete "Morning Exercise" (weight 2.0) for first time
-2. Open Airtable → Habit Log
+1. Complete "Morning Exercise" (weight 15) for first time
+2. Open Habit Log
 3. Find entry and check fields:
    - habit_weight
-   - total_weight_applied
-4. Calculate expected: 2.0 × 1.0 × 1.1 = 2.2
+   - total_weight_applied (effective no-reward %)
+4. Calculate expected: max(50 - 15 - (1 × 2.0), 10.0) = 33.0
 
 **Expected Results**:
-- ✓ habit_weight = 2.0
-- ✓ total_weight_applied = 2.2
+- ✓ habit_weight = 15
+- ✓ total_weight_applied = 33.0 (effective no-reward %)
 
 **Actual Results**:
 ```
 habit_weight: __________
 total_weight_applied: __________
-Expected: 2.2
+Expected: 33.0
 
 Match: [ ] YES [ ] NO
 
@@ -1138,27 +1142,27 @@ Calculation correct: [ ] YES [ ] NO
 
 ---
 
-### TC6.2: High Streak Weight Boost
+### TC6.2: High Streak Reduction Effect
 
 **Preconditions**:
 - Ability to create streak = 10 (manual date manipulation)
 
 **Test Steps**:
-1. Complete "Meditation" (weight 1.0) and manipulate to create streak = 10
+1. Complete "Meditation" (weight 10) and manipulate to create streak = 10
 2. Complete habit again
 3. Check total_weight_applied
-4. Expected: 1.0 × 1.0 × (1 + 10 × 0.1) = 1.0 × 1.0 × 2.0 = 2.0
+4. Expected: max(50 - 10 - (10 × 2.0), 10.0) = 20.0
 
 **Expected Results**:
-- ✓ total_weight_applied = 2.0
-- ✓ Streak 10 doubles the base weight
+- ✓ total_weight_applied = 20.0 (effective no-reward %)
+- ✓ Streak 10 with weight 10 gives 80% reward chance
 
 **Actual Results**:
 ```
 total_weight_applied: __________
-Expected: 2.0
+Expected: 20.0
 
-Doubling effect confirmed: [ ] YES [ ] NO
+High streak reduction confirmed: [ ] YES [ ] NO
 ```
 
 **Status**: [ ] PASS [ ] FAIL [ ] BLOCKED
@@ -3225,8 +3229,8 @@ Rewards (1) ──→ (Many) Reward Progress
 ```
 
 ### Key Formulas
-- **Streak Multiplier**: `1 + (streak_count × 0.1)`
-- **Total Weight**: `habit_weight × streak_multiplier`
+- **Effective No-Reward %**: `max(base_no_reward - habit_weight - (streak × STREAK_REDUCTION_RATE), MIN_NO_REWARD_PROBABILITY)`
+- **Reward Chance**: `100 - effective_no_reward`
 - **Progress Percent**: `(pieces_earned / pieces_required) × 100`
 
 ### Status Emoji Legend

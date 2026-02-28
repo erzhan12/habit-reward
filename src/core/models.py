@@ -407,12 +407,18 @@ class HabitLog(models.Model):
     habit_weight = models.IntegerField(
         help_text="Habit weight at time of completion (0-30)"
     )
-    # BREAKING CHANGE (migration 0026, 2026-02): Before this change, this field
-    # stored the total weight multiplier (e.g. 1.5, 11.0). Now it stores the
-    # effective no-reward probability % (e.g. 40.0 means 40% chance of no reward).
-    # Old records retain the legacy multiplier values.
+    # ⚠️ BREAKING CHANGE (migration 0026, 2026-02)
+    # ─────────────────────────────────────────────
+    # SEMANTIC CHANGE: Before migration 0026, this field stored the total weight
+    # multiplier (e.g. 1.5, 11.0) from the old formula:
+    #   total_weight = habit_weight × (1 + streak × STREAK_MULTIPLIER_RATE)
+    # After migration 0026, this field stores the effective no-reward probability %
+    # (e.g. 40.0 means 40% chance of no reward) from the new formula:
+    #   effective_no_reward = max(base - habit_weight - (streak × STREAK_REDUCTION_RATE), MIN)
+    # Old records retain legacy multiplier values. Query by date to distinguish.
     total_weight_applied = models.FloatField(
-        help_text="Effective no-reward probability % applied during reward selection"
+        help_text="Effective no-reward probability % applied during reward selection "
+        "(pre-0026 records contain legacy multiplier values)"
     )
     last_completed_date = models.DateField(
         help_text="Date of completion (for streak tracking)"

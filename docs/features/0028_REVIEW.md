@@ -1,5 +1,7 @@
 # Feature 0028 Code Review: Configurable "No Reward" Probability
 
+> **Note (2026-02):** The `STREAK_MULTIPLIER_RATE` / `settings.streak_multiplier_rate` references in this review have been replaced by the subtractive probability system using `STREAK_REDUCTION_RATE` and `MIN_NO_REWARD_PROBABILITY`. See migration 0026.
+
 ## Summary
 
 **Status: APPROVED**

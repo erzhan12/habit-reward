@@ -27,7 +27,13 @@ def reset_habit_weights(apps, schema_editor):
 
 
 def restore_habit_weights(apps, schema_editor):
-    """Restore weights to old default (10) for rollback."""
+    """Restore weights to old default (10) for rollback.
+
+    WARNING: This rollback is destructive. It sets all habits with weight=0
+    back to the old default of 10, regardless of whether they were originally 0
+    or were mapped down from a low value (e.g., 1-3 mapped to 0). Original
+    values are not preserved. Review habit weights manually after rollback.
+    """
     Habit = apps.get_model('core', 'Habit')
     Habit.objects.filter(weight=0).update(weight=10)
 

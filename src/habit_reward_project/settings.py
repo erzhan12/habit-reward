@@ -233,13 +233,15 @@ DEFAULT_USER_TELEGRAM_ID = env('DEFAULT_USER_TELEGRAM_ID', default=None)
 
 # Gamification Configuration
 import warnings
-if env('STREAK_MULTIPLIER_RATE', default=None):
+_streak_multiplier_warned = False
+if env('STREAK_MULTIPLIER_RATE', default=None) and not _streak_multiplier_warned:
     warnings.warn(
         "STREAK_MULTIPLIER_RATE is deprecated and no longer used. "
         "Use STREAK_REDUCTION_RATE instead.",
         DeprecationWarning,
         stacklevel=1,
     )
+    _streak_multiplier_warned = True
 STREAK_REDUCTION_RATE = env.float('STREAK_REDUCTION_RATE', default=2.0)  # % reduction per streak day
 MIN_NO_REWARD_PROBABILITY = env.float('MIN_NO_REWARD_PROBABILITY', default=10.0)  # floor %
 PROGRESS_BAR_LENGTH = env.int('PROGRESS_BAR_LENGTH', default=10)

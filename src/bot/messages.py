@@ -146,7 +146,7 @@ Track your habits and earn rewards!
 4. Earn reward pieces (cumulative rewards)
 5. Claim rewards when you have enough pieces
 
-Your streak multiplier increases your chances of getting rewards!"""
+Higher streaks and habit weights increase your reward chances by reducing the no-reward probability!"""
 
     # Formatter Messages
     FORMAT_STREAK = "<b>Streak:</b> {streak_count} days"
@@ -471,7 +471,7 @@ Use this key in your app with the header:
 4. Зарабатывайте части наград (накопительные награды)
 5. Забирайте награды, когда наберёте достаточно частей
 
-Множитель серий увеличивает шансы получения наград!""",
+Высокие серии и вес привычек увеличивают шансы на награды, уменьшая вероятность отсутствия награды!""",
 
             # Formatter Messages
             'FORMAT_STREAK': "<b>Серия:</b> {streak_count} дней",
@@ -793,7 +793,7 @@ Use this key in your app with the header:
 4. Сыйлық бөліктерін жинаңыз (жинақталатын сыйлықтар)
 5. Жеткілікті бөліктер жинағанда сыйлықтарды алыңыз
 
-Сериялар көбейткіші сыйлық алу мүмкіндігін арттырады!""",
+Жоғары сериялар мен әдет салмағы сыйлық алу мүмкіндігін арттырады, сыйлық алмау ықтималдығын азайтады!""",
 
             # Formatter Messages
             'FORMAT_STREAK': "<b>Серия:</b> {streak_count} күн",
