@@ -68,8 +68,8 @@ USER botuser
 EXPOSE 8000
 
 # Healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f --max-time 5 http://localhost:8000/health || exit 1
 
 # Entrypoint handles migrations and superuser creation
 ENTRYPOINT ["/app/entrypoint.sh"]
