@@ -1,34 +1,10 @@
 """Tests for device info, UA parsing, and token validation."""
 
-import json
-import threading
-import time
-from concurrent.futures import Future
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-from django.test import Client
-
-from src.core.models import LoginTokenIpBinding, User
-from src.web.services.web_login_service import WL_FAILED_KEY, WL_PENDING_KEY
-from tests.web.conftest import _call_async_mock
 
 pytestmark = pytest.mark.django_db
-
-# Default test token (40-50 chars, URL-safe base64)
-_TEST_TOKEN = "abcdefghij0123456789_ABCDEFGHIJ0123456789_ab"
-# Default test client IP (Django test Client sends 127.0.0.1)
-_TEST_IP = "127.0.0.1"
-
-
-def _create_ip_binding(token=_TEST_TOKEN, ip=_TEST_IP, minutes=5):
-    """Create a LoginTokenIpBinding in the DB for test tokens."""
-    return LoginTokenIpBinding.objects.create(
-        token=token,
-        ip_address=ip,
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=minutes),
-    )
 
 
 class TestDeviceInfoEdgeCases:

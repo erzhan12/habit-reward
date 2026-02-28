@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError, transaction
+from django.db import DatabaseError
 
 from src.core.models import WebLoginRequest
 from telegram.error import Forbidden, InvalidToken, RetryAfter, TelegramError

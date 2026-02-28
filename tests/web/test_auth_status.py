@@ -1,11 +1,8 @@
 """Tests for bot login status polling endpoint."""
 
-import json
-import threading
-import time
 from concurrent.futures import Future
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from django.test import Client
