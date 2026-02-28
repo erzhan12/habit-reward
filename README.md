@@ -10,6 +10,10 @@ A gamified habit-reward system that tracks habits with per-habit streaks, uses v
 - **Telegram Bot Interface**: Easy-to-use bot for logging habits and managing rewards
 - **OpenAI NLP Integration**: Natural language processing for habit classification
 - **Streamlit Dashboard**: Visual analytics and progress tracking
+- **Web Login Interface**: Secure bot-based authentication via Telegram Confirm/Deny buttons.
+  Users enter their @username on the web; the backend sends Confirm/Deny buttons to Telegram;
+  after confirmation, the web completes login. Implements anti-enumeration, timing attack
+  resistance, and IP binding.
 - **Django Backend**: SQLite (production default) via Django ORM (PostgreSQL optional)
 
 ## Architecture
@@ -106,6 +110,31 @@ The dashboard will open in your browser at `http://localhost:8501`
 - Reward value overview (total earned, claimed, pending)
 - Per-habit streak chart
 
+### Web Login
+
+Access the web interface at `http://localhost:8000/auth/login/` and enter your Telegram username. The bot will send Confirm/Deny buttons to your Telegram account. Tap Confirm to complete the login.
+
+**Security Features:**
+- Anti-enumeration (unknown usernames receive identical responses)
+- Timing attack resistance (CSPRNG jitter on status polling)
+- Atomic replay prevention (tokens are single-use)
+- Rate limiting (10 requests/minute for login, 30/minute for status)
+
+### Web Login Architecture
+
+The web login flow uses a bot-based Confirm/Deny mechanism instead of passwords:
+
+1. **Request initiation** — The user submits their Telegram username via the web form. The backend issues a cryptographically random token with a 5-minute expiry; known usernames get a `WebLoginRequest` row, while unknown usernames stay cache-only for anti-enumeration.
+2. **Telegram notification** — The bot sends an inline-keyboard message (Confirm / Deny) to the user's Telegram account.
+3. **Status polling** — The browser polls `GET /auth/bot-login/status/<token>/` with CSPRNG timing jitter to prevent timing-based enumeration.
+4. **Confirmation** — When the user taps Confirm, the request status is updated and the browser receives a session cookie.
+
+**Background thread pool** — Database writes and Telegram API calls are offloaded to a `ThreadPoolExecutor` (default 10 workers, max 50 queued) so the HTTP response returns immediately. A semaphore-based circuit breaker rejects new requests when the queue is full.
+
+**Cache-based anti-enumeration** — A pending marker is written to the cache for every login request (valid or not). The status endpoint checks the cache first, so responses for unknown usernames are indistinguishable from real ones.
+
+**Cleanup scheduling** — Expired `WebLoginRequest` rows are purged by the `cleanup_expired_web_logins` management command, which should be scheduled via cron or a task runner.
+
 ## How It Works
 
 ### Streak Calculation
@@ -177,6 +206,137 @@ LLM_API_KEY=your_key_here
 DEFAULT_USER_TELEGRAM_ID=your_telegram_id_here
 ```
 
+### Configuration Examples
+
+**Minimal (development):**
+
+```env
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF
+DEBUG=True
+WEB_LOGIN_THREAD_POOL_SIZE=2
+```
+
+**Production with PostgreSQL:**
+
+```env
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF
+DEBUG=False
+DATABASE_URL=postgres://user:pass@db:5432/habitreward?pool_size=25
+WEB_LOGIN_THREAD_POOL_SIZE=25
+WEB_LOGIN_MAX_QUEUED=100
+CONN_MAX_AGE=600
+TRUST_X_FORWARDED_FOR=True
+SECURE_PROXY_SSL_HEADER=HTTP_X_FORWARDED_PROTO,https
+AUTH_RATE_LIMIT=20/m
+AUTH_STATUS_RATE_LIMIT=60/m
+```
+
+**Production with SQLite (low traffic only):**
+
+```env
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF
+DEBUG=False
+WEB_LOGIN_THREAD_POOL_SIZE=1
+WEB_LOGIN_MAX_QUEUED=10
+```
+
+**Warning:** SQLite is **NOT** recommended for production with concurrent users due to
+write lock contention.
+
+### Web Login Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `WEB_LOGIN_THREAD_POOL_SIZE` | `10` | Max concurrent background login workers (DB writes + Telegram send). |
+| `WEB_LOGIN_MAX_QUEUED` | `50` | Max queued login requests before returning HTTP 503. |
+| `WEB_LOGIN_EXPIRY_MINUTES` | `5` | How long users have to confirm a login request in Telegram. |
+| `AUTH_RATE_LIMIT` | `10/m` | Rate limit for login request and complete endpoints (per IP). |
+| `AUTH_STATUS_RATE_LIMIT` | `30/m` | Rate limit for status polling endpoint (per IP). |
+| `TRUST_X_FORWARDED_FOR` | `False` | Trust X-Forwarded-For header for client IP. **Only enable behind a trusted reverse proxy** (nginx/Caddy) that overwrites this header. When exposed directly to the internet, clients can spoof their IP. **WARNING:** In production (`DEBUG=False`), enabling this without a reverse proxy is a security risk — attackers can forge their IP to bypass rate limiting and IP-based access controls. |
+| `CONN_MAX_AGE` | `600` | Database connection reuse timeout in seconds for PostgreSQL/MySQL (reduces overhead in thread pool workers). SQLite does not benefit from this setting. Set the database connection pool size (via `DATABASE_URL` for PostgreSQL: `?pool_size=N`) to at least match `WEB_LOGIN_THREAD_POOL_SIZE` to avoid connection exhaustion under load. |
+| `WEB_LOGIN_JITTER_MIN` | `0.05` | Minimum timing jitter (seconds) added to status polling responses. |
+| `WEB_LOGIN_JITTER_MAX` | `0.2` | Maximum timing jitter (seconds) added to status polling responses. |
+
+**Cleanup scheduling:** Schedule `cleanup_expired_logins` hourly (cron or systemd timer),
+otherwise expired `WebLoginRequest` and `LoginTokenIpBinding` records accumulate indefinitely.
+
+Cron example:
+
+```cron
+0 * * * * cd /path && python manage.py cleanup_expired_logins
+```
+
+#### Bot Login Endpoint Rate Limits
+
+- `POST /auth/bot-login/request/` uses `AUTH_RATE_LIMIT` (default `10/m`).
+- `POST /auth/bot-login/complete/` uses `AUTH_RATE_LIMIT` (default `10/m`).
+- `GET /auth/bot-login/status/<token>/` uses `AUTH_STATUS_RATE_LIMIT` (default `30/m`).
+
+#### Security Design
+
+The bot login flow implements several security properties:
+
+- **Anti-enumeration**: Unknown usernames receive the same response as known ones (same token, same timing) to prevent attackers from discovering valid usernames.
+- **Timing resistance**: All status checks include 50-200ms random jitter from a CSPRNG to mask timing differences between cache hits, DB lookups, and different code paths.
+- **Atomic replay prevention**: Tokens are marked as "used" atomically via SQL UPDATE with a WHERE clause, preventing race conditions where the same token could be used twice.
+- **Rate limiting**: All endpoints are rate-limited per IP address to prevent brute force attacks and abuse.
+
+#### Queue Overflow Handling
+
+When `WEB_LOGIN_MAX_QUEUED` is exceeded (i.e., there are more pending login requests than the queue can hold), new requests receive an **HTTP 503 Service Unavailable** response with:
+
+```json
+{"error": "Service temporarily unavailable. Please try again shortly."}
+```
+
+This acts as a circuit breaker to prevent unbounded resource consumption under load. To tune for production:
+
+- **`WEB_LOGIN_THREAD_POOL_SIZE`**: Controls how many login requests are processed concurrently (DB write + Telegram API call). Each worker blocks for the duration of a Telegram API round-trip (~200ms–2s). Start with 10 for low traffic, increase to 25–50 for higher concurrency. Requires PostgreSQL for values above ~10 (SQLite locks under concurrent writes).
+- **`WEB_LOGIN_MAX_QUEUED`**: Requests beyond the thread pool capacity queue here before 503 is returned. Set to 2–5x the thread pool size. For example, with `THREAD_POOL_SIZE=25`, set `MAX_QUEUED=100` to absorb bursts of ~125 simultaneous logins.
+
+Monitor queue saturation with:
+
+```bash
+grep 'Login thread pool queue full' /path/to/logs/app.log
+```
+
+If you see frequent 503s, increase both values and ensure your database connection pool (`CONN_MAX_AGE`) can support the additional workers.
+
+#### Deployment Checklist
+
+Before deploying to production, verify:
+
+- [ ] **Database**: Use PostgreSQL (not SQLite) if `WEB_LOGIN_THREAD_POOL_SIZE > 1`. SQLite's file-level locking causes deadlocks under concurrent writes.
+- [ ] **Connection pool**: Set DB connection pool size (`pool_size` in `DATABASE_URL` or `CONN_MAX_AGE`) to at least `WEB_LOGIN_THREAD_POOL_SIZE`.
+- [ ] **Cron job**: Schedule `cleanup_expired_logins` hourly to prevent unbounded `WebLoginRequest` and `LoginTokenIpBinding` table growth.
+- [ ] **Reverse proxy**: If `TRUST_X_FORWARDED_FOR=True`, verify nginx/Caddy overwrites `X-Forwarded-For`. Set `SECURE_PROXY_SSL_HEADER` to confirm proxy presence.
+- [ ] **Monitoring**: Set up log alerts for `Login thread pool queue full` (queue saturation) and `Cache write failed` (cache backend issues).
+- [ ] **Rate limits**: Review `AUTH_RATE_LIMIT` and `AUTH_STATUS_RATE_LIMIT` for your expected traffic volume.
+- [ ] **Cache backend**: Ensure Redis/Memcached is running and accessible. The login flow degrades gracefully without cache but with higher DB load.
+- [ ] **Telegram bot token**: Verify `TELEGRAM_BOT_TOKEN` is set and the bot is not blocked by target users.
+
+### Migration from Telegram Widget
+
+If migrating from the old Telegram Login Widget to the new bot-based Confirm/Deny login:
+
+1. **Update environment variables**: Remove `TELEGRAM_BOT_USERNAME` (no longer used). Ensure `TELEGRAM_BOT_TOKEN` is set instead.
+2. **Verify user data**: Ensure existing users have `telegram_username` set in the database. The new login flow looks up users by `@username`, not by `telegram_id`. Run: `python manage.py shell -c "from src.core.models import User; print(User.objects.filter(telegram_username__isnull=True).count())"` to check for users missing a username.
+3. **Clear browser storage**: Users should clear their browser's local storage / cookies to force re-authentication with the new flow. Alternatively, log out all existing sessions by rotating `SECRET_KEY`.
+
+### Scheduled Tasks
+
+The `cleanup_expired_logins` management command deletes expired `WebLoginRequest` and `LoginTokenIpBinding` records to prevent unbounded table growth. Schedule it hourly via cron:
+
+```cron
+0 * * * * cd /path/to/project && /path/to/venv/bin/python manage.py cleanup_expired_logins >> /var/log/cleanup.log 2>&1
+```
+
+Or with `uv`:
+
+```cron
+0 * * * * cd /path/to/project && uv run python manage.py cleanup_expired_logins >> /var/log/cleanup.log 2>&1
+```
+
 ## Algorithms
 
 ### Per-Habit Streak Algorithm
@@ -220,6 +380,213 @@ OUTPUT: reward_progress
      progress.status = "🕒 Pending"
 5. RETURN progress
 ```
+
+## Authentication
+
+The application uses a passwordless, bot-based login flow:
+
+1. **User enters `@username`** on the web login page.
+2. **Bot sends Confirm/Deny buttons** to the user's Telegram chat.
+3. **User taps Confirm** in Telegram, and the web session is created.
+
+This approach eliminates passwords entirely — authentication proof comes
+from Telegram account ownership.  The security model includes
+anti-enumeration (identical responses for known/unknown usernames), timing
+attack resistance (50-200ms CSPRNG jitter), and atomic replay prevention.
+
+See `SECURITY.md` for the full threat model.  Key production settings:
+`AUTH_RATE_LIMIT` (default `10/m`) and `WEB_LOGIN_THREAD_POOL_SIZE`
+(default `10`, increase for high-traffic deployments with PostgreSQL).
+
+### Web Login Flow
+
+The web interface uses a bot-based Confirm/Deny login — no passwords.
+
+```
+ Browser                   Django                    Telegram Bot
+    │                         │                           │
+    │  POST /request/         │                           │
+    │  {"username":"alice"}   │                           │
+    │────────────────────────>│                           │
+    │                         │ generate token            │
+    │                         │ cache wl_pending:{token}  │
+    │  200 {token, expires}   │                           │
+    │<────────────────────────│                           │
+    │                         │──[thread pool]──────────> │
+    │                         │  send Confirm/Deny buttons│
+    │                         │                           │
+    │  GET /status/{token}/   │                           │
+    │────────────────────────>│                           │
+    │  {"status":"pending"}   │                           │
+    │<────────────────────────│                           │
+    │                         │                           │
+    │          ...polling...  │    User taps Confirm      │
+    │                         │<──────────────────────────│
+    │                         │  update status=confirmed  │
+    │                         │                           │
+    │  GET /status/{token}/   │                           │
+    │────────────────────────>│                           │
+    │  {"status":"confirmed"} │                           │
+    │<────────────────────────│                           │
+    │                         │                           │
+    │  POST /complete/        │                           │
+    │  {"token":"..."}        │                           │
+    │────────────────────────>│                           │
+    │                         │ mark token as "used"      │
+    │                         │ create Django session     │
+    │  200 {redirect: "/"}    │                           │
+    │<────────────────────────│                           │
+```
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Django
+    participant ThreadPool
+    participant TelegramBot
+    participant User as Telegram User
+
+    Browser->>Django: POST /auth/bot-login/request/ {username}
+    Django->>Django: Generate token, cache wl_pending:{token}
+    Django-->>Browser: 200 {token, expires_at}
+    Django->>ThreadPool: Submit background job
+
+    ThreadPool->>ThreadPool: Create DB record (WebLoginRequest)
+    ThreadPool->>TelegramBot: Send Confirm/Deny buttons
+    TelegramBot-->>User: "Login request from Chrome on macOS"
+
+    loop Poll every 2-30s (exponential backoff)
+        Browser->>Django: GET /auth/bot-login/status/{token}/
+        Django-->>Browser: {status: "pending"} + 50-200ms jitter
+    end
+
+    User->>TelegramBot: Taps "Confirm"
+    TelegramBot->>Django: Callback: update status=confirmed
+
+    Browser->>Django: GET /auth/bot-login/status/{token}/
+    Django-->>Browser: {status: "confirmed"}
+
+    Browser->>Django: POST /auth/bot-login/complete/ {token}
+    Django->>Django: Atomic mark_as_used (SELECT FOR UPDATE)
+    Django->>Django: Create Django session
+    Django-->>Browser: 200 {success: true, redirect: "/"}
+```
+
+**Security properties:**
+- **Anti-enumeration**: Known and unknown usernames produce identical responses and timing (background work is deferred to a thread pool).
+- **Timing jitter**: Status polling adds 50-200ms random jitter (configurable) from `secrets.SystemRandom()`.
+- **Replay prevention**: Confirmed tokens are atomically marked `used` via `SELECT FOR UPDATE` with row-level locking.
+- **Rate limiting**: All endpoints are rate-limited per IP and per token (`AUTH_RATE_LIMIT`, `AUTH_STATUS_RATE_LIMIT`).
+- **IP binding**: Status polling is bound to the originating IP to prevent cross-machine token enumeration.
+- **CSP nonce**: Production responses include a per-request CSP nonce for `style-src`.
+
+### Monitoring & Observability
+
+Key metrics to track for the web login flow:
+
+| Metric | How to monitor | Action threshold |
+|---|---|---|
+| Login queue depth | `grep 'Login thread pool queue full' app.log` | Increase `WEB_LOGIN_THREAD_POOL_SIZE` if frequent |
+| Token generation retries | `grep 'Failed to generate unique token' app.log` | Should never appear — investigate if it does |
+| Cache hit/miss rate | Monitor your cache backend (Redis `INFO stats`, memcached stats) | High miss rate may indicate cache eviction pressure |
+| Request-to-confirmation time | Measure time between `POST /request/` and status becoming `confirmed` | If >30s, check Telegram API latency |
+| 503 error rate | `grep 'temporarily unavailable' app.log` or HTTP 503 count | Increase `WEB_LOGIN_MAX_QUEUED` if >1% of requests |
+| Permanent Telegram errors | `grep 'Permanent Telegram error' app.log` (logged at CRITICAL) | Check bot token validity and bot block status |
+
+### Troubleshooting
+
+**Telegram API unreachable:**
+- Status polling returns `"error"` after the background thread fails.
+- Check: `grep 'Telegram.*error' app.log` — temporary errors (network) vs permanent errors (invalid token, bot blocked).
+- Verify bot token: `curl https://api.telegram.org/bot<TOKEN>/getMe`
+
+**Cache backend failure:**
+- The system degrades gracefully to DB-only mode. Status checks are slower but functional.
+- Check: `grep 'Cache write failed' app.log` — frequent entries indicate a cache backend issue.
+- Users may see slightly longer "pending" periods as the DB write completes in the background thread.
+
+**Stuck pending requests:**
+- Check `telegram_message_id` on the `WebLoginRequest` record — if NULL, the Telegram message was never sent.
+- Verify bot token validity and that the user hasn't blocked the bot.
+- Run `python manage.py cleanup_expired_logins` to clear stale records.
+
+**Too many 429 (rate limit) errors:**
+- Increase `AUTH_RATE_LIMIT` (default `10/m`) for login requests, or `AUTH_STATUS_RATE_LIMIT` (default `30/m`) for status polling.
+- If behind a reverse proxy, ensure `TRUST_X_FORWARDED_FOR=True` AND set `SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https")` in settings. Example nginx config:
+  ```nginx
+  proxy_set_header X-Forwarded-For $remote_addr;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  ```
+  Without this, rate limiting will see all requests coming from the proxy IP instead of real client IPs, making rate limits ineffective.
+
+**"database is locked" errors (SQLite):**
+- SQLite uses file-level locking — only one writer at a time. Under concurrent load (multiple login requests), background threads compete for the write lock and you'll see `OperationalError: database table is locked`.
+- **Immediate fix**: Set `WEB_LOGIN_THREAD_POOL_SIZE=1` to serialize all background writes. This limits throughput but eliminates locking errors.
+- **Production fix**: Migrate to PostgreSQL, which uses row-level locking and supports concurrent writes natively.
+- **Migration steps**:
+  1. Install PostgreSQL: `brew install postgresql` (macOS) or `apt install postgresql` (Linux)
+  2. Create a database: `createdb habitreward`
+  3. Set `DATABASE_URL=postgres://user:pass@localhost:5432/habitreward` in `.env`
+  4. Run migrations: `uv run python manage.py migrate`
+  5. Export/import data: `uv run python manage.py dumpdata --natural-primary --natural-foreign > data.json` then `uv run python manage.py loaddata data.json`
+  6. Increase `WEB_LOGIN_THREAD_POOL_SIZE` to 20-50 for concurrent logins
+  7. Set `CONN_MAX_AGE=600` to reuse DB connections across requests
+
+## Monitoring Web Login in Production
+
+1. **503 errors (thread pool exhaustion)**: Monitor HTTP 503 responses or `grep 'Login thread pool queue full' app.log`. If frequent, increase `WEB_LOGIN_THREAD_POOL_SIZE` (PostgreSQL: 50-100, SQLite: max 10) and `WEB_LOGIN_MAX_QUEUED`.
+
+2. **Cache hit rate**: Monitor your cache backend for `wl_pending:*` key hit/miss rates. A high miss rate indicates cache eviction pressure or misconfiguration. Check with Redis `INFO stats` or memcached `stats`.
+
+3. **Telegram API failures**: Watch for `wl_failed:*` cache keys — these indicate background Telegram send failures. `grep 'Permanent Telegram error' app.log` (CRITICAL level) means the bot token is invalid or the bot was blocked. `grep 'Temporary Telegram error' app.log` means transient network issues.
+
+4. **Recommended thread pool sizes**:
+   - Low traffic (<10 concurrent logins): `WEB_LOGIN_THREAD_POOL_SIZE=10`, `WEB_LOGIN_MAX_QUEUED=50`
+   - Medium traffic (10-50 concurrent): `WEB_LOGIN_THREAD_POOL_SIZE=25`, `WEB_LOGIN_MAX_QUEUED=100`
+   - High traffic (50+ concurrent): `WEB_LOGIN_THREAD_POOL_SIZE=50-100`, `WEB_LOGIN_MAX_QUEUED=200` (requires PostgreSQL)
+
+## Security Considerations
+
+### Anti-Enumeration Protection
+
+The bot login flow is designed to prevent username enumeration attacks:
+
+- **Identical responses**: Both known and unknown usernames receive the same HTTP 200 response with a token and generic message. No branching in the response path reveals user existence.
+- **Constant-time responses**: All DB writes and Telegram API calls are deferred to a background thread pool, so the HTTP response time is identical regardless of whether the user exists. An attacker cannot distinguish valid from invalid usernames by measuring response latency.
+- **Cache-only tokens for unknown users**: Unknown usernames get a cache-only token that expires silently after TTL, indistinguishable from a real pending request during status polling.
+
+### Timing Attack Protections
+
+- **Status polling jitter**: The `check_status` endpoint adds random jitter (50-200ms, configurable via `WEB_LOGIN_JITTER_MIN`/`WEB_LOGIN_JITTER_MAX`) from a CSPRNG (`secrets.SystemRandom()`) to mask timing differences between cache hits, DB lookups, and different code paths.
+- **Background processing**: Token generation, cache writes, and HTTP response happen synchronously. DB writes and Telegram sends happen asynchronously in a bounded thread pool, ensuring the response path is constant-time.
+
+### Token Security
+
+- **256-bit entropy**: Login tokens use `secrets.token_urlsafe(32)` (256 bits of entropy), making brute-force guessing infeasible.
+- **Atomic replay prevention**: Confirmed tokens are atomically marked `used` via `UPDATE ... WHERE status='confirmed'`, preventing race conditions where the same token could be consumed twice.
+- **Single-use guarantee**: The `mark_as_used` repository method returns the count of updated rows — if 0, the token was already consumed.
+
+### Rate Limiting
+
+All authentication endpoints are rate-limited per IP via `django-ratelimit`:
+
+- `POST /auth/bot-login/request/` — `AUTH_RATE_LIMIT` (default `10/m`)
+- `GET /auth/bot-login/status/<token>/` — `AUTH_STATUS_RATE_LIMIT` (default `30/m`)
+- `POST /auth/bot-login/complete/` — `AUTH_RATE_LIMIT` (default `10/m`)
+
+### Input Validation
+
+- **Username validation**: Telegram usernames are validated against a canonical regex pattern (`^[a-z0-9_]{3,32}$`) shared between frontend and backend. The frontend lowercases input before validation. A pre-commit hook (`scripts/check_validation_sync.sh`) verifies both patterns stay in sync.
+- **Token format validation**: Tokens are validated for expected length and character set before processing.
+- **User-Agent sanitization**: UA strings are truncated, filtered for non-printable characters, and parsed via the `user-agents` library (never used as raw HTML).
+- **Database-level constraints**: The `telegram_username` field has a DB-level `CHECK` constraint ensuring format validity even for bulk operations that bypass `save()`.
+
+## CI/CD Workflows
+
+The project uses GitHub Actions for automated checks:
+
+- **`.github/workflows/check-pattern-sync.yml`** — Verifies that the frontend and backend Telegram username regex patterns stay in sync on every PR. Prevents silent divergence between `TELEGRAM_USERNAME_RE` in `Login.vue` and `TELEGRAM_USERNAME_PATTERN` in `src/web/utils/validation.py`.
+- **`.github/workflows/claude-code-review.yml`** — Automated code review on PRs using Claude Code. Provides AI-assisted feedback on code changes.
 
 ## Ethical Considerations
 

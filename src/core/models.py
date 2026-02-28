@@ -1,5 +1,7 @@
 """Django ORM models for habit reward system."""
 
+import re
+
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
@@ -11,8 +13,10 @@ def validate_iana_timezone(value: str) -> None:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
     try:
         ZoneInfo(value)
-    except (KeyError, ZoneInfoNotFoundError, ValueError):
-        raise ValidationError(f"'{value}' is not a valid IANA timezone.")
+    except (KeyError, ZoneInfoNotFoundError, ValueError) as e:
+        raise ValidationError(
+            f"'{value}' is not a valid IANA timezone: {e}"
+        ) from e
 
 
 class User(AbstractUser):
@@ -64,6 +68,14 @@ class User(AbstractUser):
         validators=[MinValueValidator(0.01), MaxValueValidator(99.99)],
         help_text="Probability of getting no reward during habit completion (0.01-99.99%)"
     )
+    telegram_username = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        help_text="Telegram @username (lowercase, without @)"
+    )
     last_bot_message_id = models.BigIntegerField(
         null=True,
         blank=True,
@@ -79,6 +91,25 @@ class User(AbstractUser):
         indexes = [
             models.Index(fields=['telegram_id']),
             models.Index(fields=['is_active']),
+            models.Index(fields=['telegram_username']),
+        ]
+        constraints = [
+            # DB-level enforcement: save() validation is bypassed by
+            # bulk_create/bulk_update/QuerySet.update(), so this constraint
+            # ensures telegram_username is always lowercase alnum/underscore
+            # 3-32 chars when set (NULL is allowed).
+            #
+            # NOTE: This uses PostgreSQL regex syntax (__regex lookup).
+            # SQLite supports a subset of regex via a Python callback, but
+            # behavior may differ from PostgreSQL (e.g. locale handling).
+            # See check_sqlite_username_constraint() in src/web/checks.py.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(telegram_username__isnull=True)
+                    | models.Q(telegram_username__regex=r'^[a-z0-9_]{3,32}$')
+                ),
+                name='user_telegram_username_format',
+            ),
         ]
         ordering = ['-date_joined']
 
@@ -86,9 +117,28 @@ class User(AbstractUser):
         return f"{self.name} ({self.telegram_id})"
 
     def save(self, *args, **kwargs):
-        """Override save to auto-generate username from telegram_id if not set."""
+        """Override save to auto-generate username from telegram_id if not set.
+
+        LIMITATION: This validation only runs on individual ``save()`` calls.
+        It is bypassed by ``bulk_create()``, ``bulk_update()``, and
+        ``QuerySet.update()`` which skip the model's ``save()`` method
+        entirely.  The database-level CHECK constraint on
+        ``telegram_username`` (see Meta.constraints) provides a safety net
+        for those code paths.
+        """
         if not self.username and self.telegram_id:
             self.username = f"tg_{self.telegram_id}"
+
+        # Validate telegram_username format instead of silently normalizing,
+        # to prevent collisions (e.g. "User_1" and "user1" mapping to same value).
+        if self.telegram_username:
+            cleaned = self.telegram_username.lstrip('@').lower()
+            if not re.match(r'^[a-z0-9_]{3,32}$', cleaned):
+                raise ValidationError(
+                    f"Invalid telegram_username '{self.telegram_username}': "
+                    "must be 3-32 lowercase alphanumeric characters or underscores."
+                )
+            self.telegram_username = cleaned
 
         # Set unusable password for Telegram-only users if no password set
         if not self.password:
@@ -534,6 +584,122 @@ class AuthCode(models.Model):
 
     def __str__(self):
         return f"AuthCode for {self.user.name} (expires: {self.expires_at})"
+
+
+class WebLoginRequest(models.Model):
+    """Bot-based web login request.
+
+    User enters @username on web, bot sends Confirm/Deny buttons,
+    web polls for the result.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        CONFIRMED = 'confirmed', 'Confirmed'
+        DENIED = 'denied', 'Denied'
+        USED = 'used', 'Used'
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='web_login_requests',
+        help_text="User this login request belongs to"
+    )
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="Random token for polling status"
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+        help_text="Current status of the login request"
+    )
+    device_info = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Browser/device info from the requesting client"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the request was created"
+    )
+    expires_at = models.DateTimeField(
+        help_text="When the request expires (5 minutes from creation)"
+    )
+    telegram_message_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Telegram message ID of the Confirm/Deny message"
+    )
+
+    class Meta:
+        db_table = 'web_login_requests'
+        indexes = [
+            models.Index(fields=['token']),
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['expires_at']),
+            models.Index(fields=['token', 'status'], name='web_login_r_token_status_idx'),
+            models.Index(
+                fields=['token', 'status', 'expires_at'],
+                name='wlr_status_check_idx',
+            ),
+            # Composite index for the invalidation query in
+            # _create_login_request_with_retry (filters on user + status + expires_at).
+            models.Index(
+                fields=['user', 'status', 'expires_at'],
+                name='wlr_user_status_expires_idx',
+            ),
+            # Composite index for queries filtering by user + expires_at
+            # (e.g. displaying a user's active login requests).
+            models.Index(
+                fields=['user', 'expires_at'],
+                name='wlr_user_expires_idx',
+            ),
+            # Standalone index for queries filtering only by user
+            # (composite indexes above all pair user with other fields).
+            models.Index(fields=['user'], name='wlr_user_idx'),
+        ]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"WebLoginRequest for {self.user.name} ({self.status})"
+
+
+class LoginTokenIpBinding(models.Model):
+    """Binds a login token to the originating IP address.
+
+    Database-backed storage replaces session-based IP binding to prevent
+    session fixation, CSRF, and cookie exposure attacks.  Each row ties
+    a login token to the IP that created it; status polling and login
+    completion endpoints verify the caller's IP against this record.
+    """
+
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="Login token (matches WebLoginRequest.token)"
+    )
+    ip_address = models.CharField(
+        max_length=45,
+        help_text="IPv4 or IPv6 address that created the token"
+    )
+    expires_at = models.DateTimeField(
+        help_text="When this binding expires (same as the login request)"
+    )
+
+    class Meta:
+        db_table = 'login_token_ip_bindings'
+        indexes = [
+            models.Index(fields=['expires_at'], name='ltib_expires_idx'),
+        ]
+
+    def __str__(self):
+        return f"IPBinding {self.token[:8]}… → {self.ip_address}"
 
 
 class APIKey(models.Model):

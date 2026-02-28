@@ -79,6 +79,10 @@ def setup_handlers_sync():
     # Add settings handler
     application.add_handler(settings_conversation)
 
+    # Register web login callback handler in group 1
+    from src.bot.handlers.web_login_handler import web_login_handler
+    application.add_handler(web_login_handler, group=1)
+
     # Register menu callbacks in group 1 so they run alongside ConversationHandlers
     # (ConversationHandlers in group 0 end conversations; group 1 handles navigation)
     for handler in get_menu_handlers():

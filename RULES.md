@@ -297,6 +297,10 @@ class UserRepository:
         return await sync_to_async(User.objects.create)(**user_data)
 ```
 
+### Why `maybe_await` Is Used Everywhere
+
+Repository methods are `async def` and wrap Django ORM calls with `sync_to_async`. However, callers cannot always know at call time whether the return value is a coroutine or an already-resolved value — this depends on the execution context (sync Django view via `call_async`, async bot handler, background thread via `asyncio.run`, test harness). `maybe_await` (`src/utils/async_compat.py`) inspects the value at runtime: if it's awaitable, it awaits it; otherwise returns it directly. This lets a single service/handler codebase work across all three contexts without per-caller branching. Do NOT replace `await maybe_await(repo.method(...))` with bare `await repo.method(...)` — it will break in sync call sites.
+
 **Performance**: Always use `select_related()` and `prefetch_related()` for ForeignKey relationships to avoid N+1 queries:
 
 ```python
@@ -1140,6 +1144,54 @@ BotAuditLog.objects.create(
 
 **Why**: Django's `TextChoices` validates enum values. Invalid strings are silently rejected, resulting in NULL database values.
 
+## Web Login Status: String Returns and Enum Comparisons
+
+**Convention**: Two rules for WebLoginRequest status handling:
+
+1. **Return values** from `check_status()` must be plain strings for JSON serialization. Use `str(login_request.status)` or string literals.
+2. **Comparisons** in handlers and repository queries should use `WebLoginRequest.Status.PENDING.value` (enum `.value`) for type safety and refactoring support.
+
+**Files**:
+- `src/web/services/web_login_service.py` — `check_status()` returns strings; constants `TOKEN_BYTES`, `TOKEN_GENERATION_MAX_RETRIES`, `_JITTER_MIN`, `_JITTER_MAX` are configurable
+- `src/bot/handlers/web_login_handler.py` — status comparisons use `Status.X.value`
+- `src/core/repositories.py` — filter/update queries use `Status.X.value`
+
+```python
+# ❌ Bad — returns enum member, breaks JSON serialization
+return WebLoginRequest.Status.PENDING
+
+# ✅ Good — consistent string return
+return "pending"
+return str(login_request.status)
+
+# ❌ Bad — string literals in queries (typo-prone)
+WebLoginRequest.objects.filter(status='pending')
+
+# ✅ Good — enum .value in queries
+WebLoginRequest.objects.filter(status=WebLoginRequest.Status.PENDING.value)
+```
+
+## IP Anonymization in Logs
+
+When logging IP addresses (e.g., rate limiting), use `_anonymize_ip()` from `src/web/views/auth.py` to hash IPs for GDPR compliance. Never log raw IP addresses in production.
+
+## Web Login Service: Error Handling Patterns
+
+- **Cache writes**: Use `cache_manager.set(key, value, timeout)` from `web_login_service/cache_operations.py` — never raw `cache.set()` with manual try/except. The `CacheManager` tracks consecutive failures and raises `CacheWriteError` after `CACHE_FAILURE_THRESHOLD` (default 10, configurable in settings.py).
+- **telegram_id**: Always validate with `try: int(user.telegram_id)` before passing to Telegram API — non-numeric values cause `ValueError`.
+- **ThreadPoolExecutor.submit()**: Wrap in try/except RuntimeError to release the semaphore if the executor is shut down.
+- **ThreadPoolExecutor queue bounding**: Do NOT replace `_work_queue` on the executor — it's a CPython private attribute that can break across Python versions. Use the semaphore-based circuit breaker (`_queue_slots`) for queue bounding instead. See `_get_executor()` in `src/web/services/web_login_service/__init__.py`.
+- **Timing jitter**: Always apply uniformly to ALL status check paths — selective jitter is itself a timing side-channel.
+- **Bot login handler race condition**: The handler in `web_login_handler.py` uses `transaction.atomic()` + `select_for_update()` for the status check+update to prevent TOCTOU races on concurrent button presses.
+- **Django system checks**: `web.E001`/`web.E002` (XFF trust errors) and `web.E004` (SQLite regex constraint) are **errors** that block startup. They were previously warnings.
+
+## Validation Pattern Sync
+
+The Telegram username regex exists in two places that MUST stay in sync:
+- **Backend**: `src/web/utils/validation.py` → `TELEGRAM_USERNAME_PATTERN`
+- **Frontend**: `frontend/src/pages/Login.vue` → `TELEGRAM_USERNAME_RE`
+- **Test**: `tests/web/test_auth_views.py::TestValidationPatternSync` asserts they match
+
 ## HabitLog Ordering: Use `last_completed_date`, NOT `timestamp`
 
 **CRITICAL**: When querying for the "most recent" habit log, always order by `last_completed_date DESC`, never by `timestamp DESC`.
@@ -1780,32 +1832,88 @@ For critical query filters (like `claimed=True AND reward__is_recurring=False`),
 - `X-Frame-Options: DENY` — Prevents clickjacking.
 - `Referrer-Policy: strict-origin-when-cross-origin` — Limits referrer leakage.
 
-**CSP tradeoff**: `style-src` includes `'unsafe-inline'` because Tailwind and Vue often rely on inline styles. For stronger XSS protection, consider nonces or hashes (requires build/template changes); the tradeoff is documented in the middleware docstring.
+**CSP nonce**: `style-src` uses a per-request nonce (`'nonce-{nonce}'`) generated by `ContentSecurityPolicyMiddleware`. The nonce is set on `request.csp_nonce` and passed to templates via the `csp_nonce` context processor (`src/web/context_processors.py`). The `<meta name="csp-nonce">` tag in `base.html` exposes the nonce to frontend code. Vue 3 runtime style injection does not natively support nonces, so component-scoped styles may require future work (hash-based or build-time extraction).
 
 ### Authentication Endpoint Hardening
 
-**Rate Limiting**: Auth endpoints MUST use `django-ratelimit` to prevent brute-force. The rate is configurable via `settings.AUTH_RATE_LIMIT` (env: `AUTH_RATE_LIMIT`, default `'10/m'`) so it can be tuned per environment without code changes.
+**Rate Limiting**: Auth endpoints MUST use `django-ratelimit` to prevent brute-force. The rate is configurable via `settings.AUTH_RATE_LIMIT` (env: `AUTH_RATE_LIMIT`, default `'10/m'`) so it can be tuned per environment without code changes. Every auth endpoint MUST have a rate limit — both POST endpoints use `settings.AUTH_RATE_LIMIT`, the GET status endpoint uses `"30/m"`.
 ```python
 from django_ratelimit.decorators import ratelimit
 from django.conf import settings
+from django.views.decorators.http import require_GET, require_POST
 
 @require_POST
 @ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True)
-def telegram_callback(request):
+def bot_login_request(request):
+    ...
+
+@require_GET
+@ratelimit(key="ip", rate="30/m", method="GET", block=True)
+def bot_login_status(request, token):
     ...
 ```
 
+**Method restriction**: Always pair rate-limit `method=` with the corresponding `@require_POST`/`@require_GET` decorator. Without it, requests via other HTTP methods bypass the rate limiter entirely.
+
 **Dashboard action rate limiting**: Complete/revert habit endpoints (`src/web/views/dashboard.py`) MUST be rate-limited per user to prevent rapid clicking, abuse, and race conditions. Use `django_ratelimit.core.is_ratelimited` with `group="dashboard_action"` and `key="user"` so both endpoints share one limit. Rate is configurable via `settings.DASHBOARD_ACTION_RATE_LIMIT` (env: `DASHBOARD_ACTION_RATE_LIMIT`, default `'60/m'`). Use the core API (not the decorator) so rate limiting works in async views.
 
-**Generic Error Messages**: Auth failures MUST return identical responses regardless of failure reason. Never reveal whether a user exists, is inactive, or has an invalid hash.
+**Anti-Enumeration (Username Existence)**: The bot-login request endpoint MUST NOT leak whether a username exists. This requires identical behavior across all observable channels:
+
+1. **Response body** — The service always returns `{token, expires_at}` for both paths; the view always returns `200` with the generic message. Never include a `sent` field or any boolean that distinguishes the two paths.
+2. **Response timing** — ALL DB writes (invalidate + create) AND the Telegram `send_message` MUST run in the bounded `_login_executor` (`ThreadPoolExecutor(max_workers=10)`), NOT raw `threading.Thread`. The service does only: user lookup → generate token → `cache.set(wl_pending:{token})` → return. Both paths execute the same work. The executor caps concurrent background threads to prevent resource exhaustion under load; excess submissions queue. See `web_login_service.py:_login_executor`.
+3. **Status polling (constant-time `check_status`)** — All tokens are cached as `wl_pending:` on creation. `check_status()` MUST always perform **both** the DB query and the cache lookup on every call (no short-circuiting) so that response timing is identical whether or not a DB record exists. A random jitter (`asyncio.sleep(_secure_random.uniform(0.1, 0.5))`) using `secrets.SystemRandom()` at the start masks any residual timing differences. **Cache TTL** must be derived from the same `expires_at` timestamp used for the DB record (not a separate constant) to prevent drift. **SQLite lock handling**: `check_status` catches `OperationalError` from the DB read (background thread may hold a write lock) and falls through to the cache, which always has the correct answer because it was set before the thread launched. See `web_login_service.py:check_status`.
+4. **Frontend polling** — `Login.vue` uses additive backoff (2s → 3s → 4s → 5s cap) via recursive `setTimeout`, NOT a fixed `setInterval`. The client-side expiry timeout MUST be 300,000ms (5 minutes) to match the server's `LOGIN_REQUEST_EXPIRY_MINUTES`. On network errors, `pollDelay` jumps to the 5s cap before retrying. Never use `setInterval` for polling — it doesn't wait for the previous request to complete.
+5. **JSON body validation** — Always `str()` user-supplied fields before calling `.strip()` (e.g. `str(data.get("username", "")).strip()`). Non-dict JSON bodies (`[]`, `"str"`, `123`) must be caught with `isinstance(data, dict)` after `json.loads`.
 
 ```python
-# ✅ Good - All failures return same generic message + 403
-return JsonResponse({"error": "Authentication failed. Please try again."}, status=403)
+# ✅ Good - Service always returns a dict, view has no branching
+result = call_async(web_login_service.create_login_request(username, device_info))
+result["message"] = "If this username is registered, ..."
+return JsonResponse(result)
 
-# ❌ Bad - Reveals system internals to attacker
-return JsonResponse({"error": "User not found. Please use the Telegram bot first."}, status=404)
+# ❌ Bad - Branching on result leaks timing (DB writes only for known users)
+if not result:
+    fake_token = secrets.token_urlsafe(32)  # different code path = timing leak
 ```
+
+**Token Replay Prevention**: After a confirmed token is used to create a session, it MUST be atomically marked as `used` (status transition: `confirmed` → `used`). The `mark_as_used` repository method uses `filter(token=..., status='confirmed').update(status='used')` — if it returns 0, another request beat us. The same pattern applies to `update_status()` (`filter(token=..., status='pending')`). **Testing note**: SQLite + Django test transactions don't support true multi-threaded concurrency tests (table-level locking). Test atomicity by calling the operation twice sequentially and asserting the second call returns 0. See `TestLoginRaceConditions` in `tests/web/test_views.py`.
+
+**Token Flow (step-by-step)**:
+1. View receives POST `/request/` with username.
+2. Service looks up user (or `None` for unknown) — same code path either way.
+3. `secrets.token_urlsafe(32)` generates a unique token.  The DB's unique constraint on `token` catches the astronomically unlikely collision — a retry loop wraps the insert with `try/except IntegrityError`.
+4. `cache.set("wl_pending:{token}", True, timeout=<cache_ttl>)` — immediate.
+5. For known users: `_login_executor.submit(...)` dispatches DB write + Telegram send to the bounded thread pool. A circuit breaker rejects with `LoginServiceUnavailable` if the queue exceeds `WEB_LOGIN_MAX_QUEUED` (default 50).
+6. Service returns `{token, expires_at}` to the view — always 200.
+7. Frontend polls `GET /status/{token}/` with additive backoff (2s → 5s cap).
+8. `check_status()` performs DB lookup **and** cache lookup on every call (no short-circuit) with 100-500ms random jitter. If DB is locked (SQLite), falls back to cache.
+9. When user taps Confirm in Telegram, bot handler calls `repo.update_status(token, "confirmed")`.
+10. Next poll returns `"confirmed"` → frontend calls `POST /complete/` → session created.
+
+**Cache Fallback Behaviour (DB locked)**:
+SQLite write locks can block reads during the background thread's transactional writes. `check_status()` catches `OperationalError` and falls through to the cache. Because the `wl_pending:{token}` cache key was set **before** the thread pool submission, the cache always has the correct fallback. The cache TTL is derived from the same `expires_at` as the DB record.
+
+**ThreadPoolExecutor Concurrency Model**:
+`_login_executor = ThreadPoolExecutor(max_workers=WEB_LOGIN_THREAD_POOL_SIZE)` (default 10) runs DB writes + Telegram send in background threads so the HTTP response is constant-time. A semaphore-based circuit breaker (`_queue_slots = threading.Semaphore(_MAX_QUEUED_LOGINS)`) tracks in-flight work — when all slots are taken, the view returns HTTP 503. The semaphore is acquired before `_login_executor.submit()` and released in the `finally` block of `_process_login_background`. This avoids relying on `_work_queue.qsize()` which is a CPython implementation detail. Workers use `call_async()` (asgiref) instead of `asyncio.run()` for consistency. Connection pooling (`CONN_MAX_AGE=600`) reduces connection overhead in workers.
+
+**Background Thread Failure Graceful Degradation**: When `_process_login_background` fails (Telegram API down, DB error, etc.), specific exception handlers catch `TelegramError`, `DatabaseError`, and generic `Exception` with differentiated structured logging (extra fields: `user_id`, `token_prefix`, `error`). A `wl_failed:{token}` cache key is set so `check_status()` returns `'error'` instead of leaving the user polling `'pending'` indefinitely. All cache writes are wrapped in try/except — if the cache backend is also down, a warning is logged but the error doesn't propagate.
+
+**Cache Error Handling**: All `cache.set()` and `cache.get_many()` calls are wrapped in try/except. When the cache backend fails: `create_login_request` still returns a token (the DB-only path works once the background thread writes), `check_status` falls back to DB-only results, and `_process_login_background` logs a warning if the `wl_failed` cache key can't be set.
+
+**HTML Escaping Strategy**: Device info is stored *unescaped* in the DB (only truncated to 255 chars in `_parse_device_info`). HTML-escaping for Telegram's `parse_mode="HTML"` is done at the *output boundary* in `_send_login_notification`, not at the input boundary. This keeps the DB data context-neutral and avoids double-escaping.
+
+**Configurable Expiry**: `LOGIN_REQUEST_EXPIRY_MINUTES` reads from `settings.WEB_LOGIN_EXPIRY_MINUTES` (env: `WEB_LOGIN_EXPIRY_MINUTES`, default 5). Frontend's `LOGIN_EXPIRY_MS` in `Login.vue` must stay in sync.
+
+**Troubleshooting**:
+- *Telegram API timeouts*: Check `wl_failed:{token}` in cache; `check_status` returns `"error"`. The `TelegramError` handler logs the root cause.
+- *Cache eviction before DB write completes*: Shouldn't happen — cache TTL matches `expires_at` and is set before the thread launches. If it does, status returns `"expired"` (safe degradation).
+- *Thread pool queue full*: HTTP 503 is returned with a CRITICAL log. Increase `WEB_LOGIN_THREAD_POOL_SIZE` or `WEB_LOGIN_MAX_QUEUED`, or investigate slow Telegram API responses.
+
+**Database Indexes for WebLoginRequest**: The `(token, status)` composite index (`web_login_r_token_status_idx`) is required for the atomic `UPDATE ... WHERE token=? AND status=?` queries in `update_status()` and `mark_as_used()`. Without it, the DB uses the `token` unique index and does a row-level filter on `status`. See migration `0021_add_webloginrequest_token_status_index`.
+
+**IP Address Validation**: Client IPs are parsed and validated by `parse_ip_address()` in `src/web/utils/ip.py`. Malformed values (e.g. XSS payloads, garbage strings) fall back to `REMOTE_ADDR`. **X-Forwarded-For is only trusted when `settings.TRUST_X_FORWARDED_FOR=True`** (env: `TRUST_X_FORWARDED_FOR`, default `False`). A Django system check (`src/web/checks.py`, id `web.W001`) warns at startup if `TRUST_X_FORWARDED_FOR=True` but `SECURE_PROXY_SSL_HEADER` is not set, indicating the app may not be behind a proxy. Tests that need X-Forwarded-For parsing must `@patch("src.web.utils.ip.settings")` and set `mock_settings.TRUST_X_FORWARDED_FOR = True`.
+
+**Telegram Username Validation Constant**: The canonical regex for Telegram usernames lives in `src/web/utils/validation.py` as `TELEGRAM_USERNAME_PATTERN`. Both `src/web/views/auth.py` and `frontend/src/pages/Login.vue` must keep their copies in sync. Cross-referencing comments mark each location.
 
 **Server-Side Logging**: Always log the actual failure reason with client IP for ops visibility:
 ```python
@@ -1845,30 +1953,9 @@ def test_success(self, mock_sync, user):
     ...
 ```
 
-### External Script Security (SRI)
+### Telegram Username Recycling
 
-External scripts MUST include Subresource Integrity (SRI) attributes. See `frontend/src/pages/Login.vue`: the Telegram widget is loaded with a `WIDGET_SRI` constant and optional fallback.
-
-**Verify / get current hash** (run from repo root):
-- `./scripts/verify_telegram_widget_sri.sh` — verify stored hash matches live widget; exit 1 if mismatch (used in CI).
-- `./scripts/verify_telegram_widget_sri.sh --print` — print current SRI hash for manual update.
-
-**SRI hash updates**: The hash is tied to the widget URL (`?22`). When Telegram updates the widget, CI will fail (Verify Telegram widget SRI step). To fix:
-1. Run `./scripts/verify_telegram_widget_sri.sh --print` and copy the hash.
-2. Update the `WIDGET_SRI` constant in `frontend/src/pages/Login.vue`.
-3. Run `./scripts/verify_telegram_widget_sri.sh` to confirm; test login in staging before deploying.
-
-**Fallback**: If the script fails to load (e.g. SRI mismatch), the login page retries once **without** SRI so users can still sign in. A console warning is logged. This is a deliberate availability vs. integrity tradeoff; update the hash when CI or the script reports a mismatch.
-
-**Optional automation**: A scheduled workflow or cron can run `./scripts/verify_telegram_widget_sri.sh` weekly and e.g. open an issue on failure to catch widget changes before users hit the fallback.
-
-### Telegram Auth Input Validation
-
-`src/web/utils/telegram_auth.py` validates and filters widget data before HMAC verification:
-1. Required fields check (`id`, `auth_date`, `hash`)
-2. Numeric type validation for `id` and `auth_date`
-3. Field filtering — only allowed fields (`ALLOWED_FIELDS`) are included in HMAC computation, unexpected keys are silently stripped
-4. **Auth date freshness**: `auth_date` must be within `settings.TELEGRAM_AUTH_MAX_AGE` seconds (env: `TELEGRAM_AUTH_MAX_AGE`, default 86400 = 24h). Use 300 for 5 minutes for tighter security.
+Telegram usernames can be transferred between users. The `update_telegram_username` repository method (`src/core/repositories.py`) clears a username from any previous owner before assigning it to the current user. The `/start` handler (`src/bot/handlers/command_handlers.py`) always syncs the username (including `None` when removed). The `telegram_username` field has `unique=True` (NULLs are allowed in Postgres/SQLite).
 
 ### CSRF Token Pattern
 
@@ -1900,3 +1987,115 @@ for habit in all_habits:
 ```
 
 `get_latest_streak_counts()` uses Django `Subquery` to fetch latest streak per habit in one query. See `src/core/repositories.py`.
+
+## Web Login Security Patterns
+
+### Token Length Validation
+`secrets.token_urlsafe(32)` always produces exactly 43 characters. The token validation in `src/web/views/auth.py` enforces `40 <= len(token) <= 50`. When updating `TOKEN_BYTES`, ensure the length range still covers the output. Tests that send tokens through `POST /auth/bot-login/complete/` must use 40-50 char tokens.
+
+### Validation Pattern Sync (Frontend/Backend)
+The username regex pattern is duplicated in:
+- **Backend**: `src/web/utils/validation.py` (`TELEGRAM_USERNAME_PATTERN`)
+- **Frontend**: `frontend/src/pages/Login.vue` (`TELEGRAM_USERNAME_RE`)
+
+A pre-commit hook (`scripts/check_validation_sync.sh`) verifies they stay in sync. The frontend accepts uppercase for UX but lowercases before sending to the backend.
+
+### CheckConstraint vs save() Validation
+`User.save()` validates `telegram_username` format, but `bulk_create`/`bulk_update`/`QuerySet.update()` bypass `save()`. The DB-level `CheckConstraint` (`user_telegram_username_format`) in `src/core/models.py` enforces the format at the DB layer. Use `condition=` (not deprecated `check=`) for Django 6.0 compatibility.
+
+### X-Forwarded-For Multi-Proxy Chains
+`src/web/utils/ip.py` takes the leftmost IP from X-Forwarded-For regardless of chain length. Multi-proxy chains (CDN -> LB -> app) are legitimate and should not be rejected. Only the leftmost IP is validated with `ipaddress.ip_address()`.
+
+### Timing Jitter
+Status polling jitter (`src/web/services/web_login_service/__init__.py`) is applied to **ALL** status check paths — including `"confirmed"`, `"denied"`, and `"used"`. Cache hits are measurably faster than DB lookups; without universal jitter, statistical timing analysis can distinguish code paths. Named constants `_JITTER_MIN`/`_JITTER_MAX` are configurable via Django settings (`WEB_LOGIN_JITTER_MIN` / `WEB_LOGIN_JITTER_MAX`).
+
+### IP Binding Protection
+Login tokens are bound to the originating IP via `LoginTokenIpBinding` (DB model, not sessions). The binding is created in `bot_login_request` BEFORE the JSON response. Both `bot_login_status` and `bot_login_complete` enforce IP matching — if no binding exists or IP mismatches, the request is rejected. See `SECURITY.md` § "IP Binding Protection" for the full threat model. Tests that hit status/complete endpoints must create a `_create_ip_binding()` record (see `tests/web/test_auth_views.py`).
+
+### UA Parsing Cache
+`_parse_ua_cached` in `src/web/views/auth.py` uses Django's cache framework (not `lru_cache`) with `hashlib.blake2b` (8-byte digest) for deterministic cache keys across process restarts and 1-hour TTL. `MAX_USER_AGENT_LENGTH` is configurable via `settings.MAX_USER_AGENT_LENGTH` (default 512). Oversized UAs are logged at WARNING before truncation. Both `cache.get()` and `cache.set()` are wrapped in try-except to gracefully degrade if the cache backend fails — the function falls back to direct UA parsing. Tests: `TestParseUaCachedCacheFailure` in `tests/web/test_auth_views.py`.
+
+### Timezone-Aware Comparisons
+Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB datetime fields with `datetime.now(timezone.utc)`. Django may return naive datetimes when `USE_TZ=False`. Always guard against `None` at call sites (e.g. `if login_request.expires_at is None or ...`) to handle corrupt DB rows gracefully. The handler in `web_login_handler.py` also imports and uses `_ensure_utc` for consistency.
+
+### Thread Pool Semaphore Pattern
+`_queue_slots` (Semaphore) tracks background queue depth. The done callback `_release_queue_slot` (a named function, not a lambda) releases the slot when the future completes. This ensures testability and avoids closure pitfalls. When `executor.submit` raises `RuntimeError`, the caller releases the slot manually.
+
+### Cache Failure Race Condition
+In `CacheManager.set`, the threshold check (`should_raise`) MUST be inside the `_lock` to prevent multiple threads from simultaneously reading the same count and all raising `CacheWriteError`. The threshold is 5 (configurable via `CACHE_FAILURE_THRESHOLD`) — high enough to tolerate transient cache blips during peak traffic without blocking all logins globally, low enough to surface issues faster.
+
+### Web Test File Organization
+`tests/web/test_views.py` was split into feature-area files:
+- `tests/web/conftest.py` — shared fixtures (`user`, `auth_client`, `_call_async_mock`) and helpers
+- `tests/web/test_middleware.py` — middleware and redirect tests
+- `tests/web/test_dashboard_views.py` — dashboard view tests
+- `tests/web/test_history_views.py` — streaks and history tests
+- `tests/web/test_rewards_views.py` — rewards view tests
+- `tests/web/test_auth_views.py` — all auth/login flow tests
+- `tests/web/test_cache_operations.py` — cache manager and cache-related tests
+
+### Mocking Django Cache in Threads (Pitfall)
+**DO NOT** use `patch("django.core.cache.cache.set", ...)` or `patch.object(django_cache, "set", ...)` when testing across threads. Django's cache proxy uses `ConnectionProxy` with thread-local connections, so mocks applied to the proxy only work in the main thread. **Instead**, patch the actual backend class: `patch.object(LocMemCache, "set", ...)` (from `django.core.cache.backends.locmem`). This patches at the class level so all instances see the mock.
+
+### Login.vue Server Expiry Sync
+`Login.vue` uses the server's `expires_at` from the `/auth/bot-login/request/` response to set the client-side expiry timer, avoiding client clock drift. Falls back to `LOGIN_EXPIRY_MS` (5 min) if not provided. Bounded: floor 60s (prevent premature expiry from moderate clock skew), cap `LOGIN_EXPIRY_MS`. `pollStatus()` handles HTTP 400/403 as permanent errors (stops polling immediately).
+
+### Login.vue Polling Retry Limit
+Frontend polling (`pollStatus`) stops after `POLL_MAX_CONSECUTIVE_ERRORS` (5) consecutive network failures and transitions to error state. The counter resets on any successful poll. `submitLogin` catch also logs to `console.error`.
+
+### Token Validation on Status Endpoint
+`bot_login_status()` in `auth.py` validates token format (`TOKEN_MIN_LENGTH`–`TOKEN_MAX_LENGTH` chars, URL-safe base64) before passing to the service. This matches the validation in `bot_login_complete()`. Both use named constants defined at module level. Tests using the `/auth/bot-login/status/` endpoint must use valid-length tokens (e.g. `"abcdefghij0123456789_ABCDEFGHIJ0123456789_ab"`).
+
+### Temporary vs Permanent Telegram Errors
+In `_process_login_background` (`web_login_service.py`), only **permanent** Telegram errors (`InvalidToken`, `Forbidden`) mark the request as failed via `_mark_failed_safely()`. **Temporary** errors (`TelegramError` — network, rate limit) do NOT mark as failed — the pending cache entry expires via TTL, allowing the user to retry.
+
+### SQLite System Check
+`src/web/checks.py` includes `check_sqlite_thread_pool_conflict`: Warning (`web.W002`) for pool size 2-10, Error (`web.E003`) for pool size >10 when using SQLite. SQLite's file-level locking causes deadlocks under high concurrency.
+
+### Cache Pending Key Race
+The `wl_pending` cache key is set eagerly (before background thread) by design. If the thread fails before DB write, the key remains until TTL — this is intentional for anti-enumeration (both known/unknown users see "pending" immediately). See comment in `create_login_request`.
+
+### Named Constants for Magic Numbers
+- `_MIN_FAILED_MARKER_TTL_SECONDS = 60` — floor TTL for `wl_failed` cache marker
+- `TOKEN_MIN_LENGTH = 40` / `TOKEN_MAX_LENGTH = 50` — token length bounds in `auth.py`
+- `_CACHE_FAILURE_THRESHOLD = 10` — consecutive cache failures before `CacheWriteError`
+- `TOKEN_BYTES = 32` — 256 bits of entropy for `secrets.token_urlsafe`
+- `TOKEN_GENERATION_MAX_RETRIES = 3` — collision retry limit
+- All constants have inline comments documenting their rationale in `web_login_service.py`
+
+### Cache TTL Helper
+`_cache_ttl_seconds(expires_at, min_ttl=1)` in `web_login_service.py` calculates cache TTL from an expiry datetime. Used by `create_login_request`, `_mark_failed_token`, and token collision retry. Always use this instead of inline `max(int(...), N)`.
+
+### IP Anonymization
+`_anonymize_ip()` in `auth.py` uses a 16-hex-char SHA-256 prefix (64 bits) for GDPR-safe logging. This provides ~4 billion unique buckets, virtually eliminating collision risk.
+
+### X-Forwarded-For Logging Level
+`ip.py` logs multi-proxy chains (>2 IPs) at WARNING level (not DEBUG) since they may indicate spoofing or misconfiguration in environments without a trusted proxy.
+
+### Exception Chaining
+`validate_iana_timezone` in `src/core/models.py` chains the original exception (`from e`) so the ValidationError includes the root cause for debugging.
+
+### SECURITY.md
+`SECURITY.md` documents the threat model and security properties. Keep it in sync with changes to the login flow.
+
+### Token Collision Cache Update
+When `_create_login_request_with_retry` handles an IntegrityError, it writes a pending cache entry for the new token via `_safe_cache_set`. This ensures the retried token is trackable via `check_status`.
+
+### mark_as_used Atomicity (SELECT FOR UPDATE)
+`repositories.py:mark_as_used()` uses `SELECT FOR UPDATE` inside `transaction.atomic()` instead of the old `filter().update()` pattern. This provides true row-level locking on PostgreSQL (prevents TOCTOU race). On SQLite, `SELECT FOR UPDATE` is a no-op, but the `save(update_fields=['status'])` after checking `lr.status` still provides sequential consistency via SQLite's file lock.
+
+### IP-Session Binding for Status Polling
+`bot_login_request` stores the requesting client's IP in `request.session[f"wl_origin_ip:{token}"]`. `bot_login_status` verifies the polling IP matches the originating IP. On mismatch, returns `{"status": "expired"}` (not an error) to prevent information leakage. This blocks attackers who intercept tokens from polling status from a different machine.
+
+### Per-Token Rate Limiting
+`bot_login_status` has two rate limiters: per-IP (`AUTH_STATUS_RATE_LIMIT`) and per-token (`_ratelimit_key_token`, 10/m). The per-token limiter uses the token extracted from the URL path as the rate-limit key.
+
+### Threading Tests with SQLite Pitfall
+SQLite's file-level locking causes `OperationalError("database table is locked")` in threading-based DB tests. For concurrent view tests, use `RequestFactory` (not `Client()`) to avoid session middleware DB access, and mock `login()` and `call_async` at the view level. See `TestConcurrentCompleteLoginThreading` in `tests/web/test_auth_views.py`.
+
+### Bounded Thread Pool Queue
+The login `ThreadPoolExecutor` uses `queue.Queue(maxsize=_MAX_QUEUED_LOGINS)` (replaces the default unbounded `SimpleQueue`) as a hard memory ceiling. This complements the semaphore-based circuit breaker.
+
+### Web Test Files (Updated)
+- `tests/web/test_timing_jitter.py` — timing jitter verification (range, variation, per-status behavior)
+- `tests/web/test_cleanup_command.py` — cleanup_expired_logins management command tests

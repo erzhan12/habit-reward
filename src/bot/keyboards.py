@@ -1,5 +1,7 @@
 """Inline keyboard builders for Telegram bot."""
 
+from datetime import date
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from src.models.habit import Habit
 from src.models.reward import Reward
@@ -1216,7 +1218,7 @@ def build_date_picker_keyboard(
     habit_id: int | str,
     completed_dates: list,  # list[date]
     language: str = 'en',
-    user_today: 'date | None' = None,
+    user_today: date | None = None,
 ) -> InlineKeyboardMarkup:
     """Build 8-day date picker showing which dates are already completed.
 
@@ -1229,7 +1231,7 @@ def build_date_picker_keyboard(
     Returns:
         InlineKeyboardMarkup with 8-day calendar (today + 7 days back) and back button
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     keyboard = []
     today = user_today if user_today is not None else date.today()

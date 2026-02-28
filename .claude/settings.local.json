@@ -62,7 +62,8 @@
       "Bash(cd /Users/erzhan/DATA/PROJ/habit_reward/frontend && npm install 2>&1 | tail -20)",
       "Bash(npx vite build 2>&1)",
       "Bash(cd /Users/erzhan/DATA/PROJ/habit_reward/frontend && npm run build 2>&1)",
-      "Bash(npm run build 2>&1 | tail -5)"
+      "Bash(npm run build 2>&1 | tail -5)",
+      "WebFetch(domain:inertiajs.com)"
     ],
     "deny": [],
     "ask": []

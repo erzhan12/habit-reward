@@ -242,17 +242,17 @@ def run_test(iterations=10000, verbose=False):
     print("=" * 60)
 
     print(f"\nTotal selections: {total:,}")
-    print(f"\nOutcome Distribution:")
+    print("\nOutcome Distribution:")
     print(f"  Got Reward:  {got_reward_count:>6,} ({got_reward_pct:>5.2f}%)")
     print(f"  No Reward:   {no_reward_count:>6,} ({no_reward_pct:>5.2f}%)")
     print(f"  Expected:    {total // 2:>6,} (50.00%)")
 
-    print(f"\nReward Distribution (when reward given):")
+    print("\nReward Distribution (when reward given):")
     for name, count in sorted(reward_distribution.items(), key=lambda x: -x[1]):
         pct = count / got_reward_count * 100 if got_reward_count > 0 else 0
         print(f"  {name}: {count:,} ({pct:.1f}%)")
 
-    print(f"\nStatistical Analysis:")
+    print("\nStatistical Analysis:")
     deviation = no_reward_pct - 50.0
     print(f"  Deviation from 50%: {deviation:+.2f}%")
     print(f"  Chi-square:         {chi_square:.3f}")

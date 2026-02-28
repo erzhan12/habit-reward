@@ -1,0 +1,43 @@
+name: Check Pattern Sync
+
+on:
+  pull_request:
+    paths:
+      - "src/web/utils/validation.py"
+      - "frontend/src/pages/Login.vue"
+
+jobs:
+  pattern-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify TELEGRAM_USERNAME regex patterns match
+        run: |
+          set -euo pipefail
+
+          # Extract the Python pattern (strip anchors for comparison).
+          py_pattern=$(grep -oP "TELEGRAM_USERNAME_PATTERN\s*=\s*r\"\\^\K[^$]+" src/web/utils/validation.py) || {
+            echo "::error::Failed to extract TELEGRAM_USERNAME_PATTERN from src/web/utils/validation.py"
+            echo "  Expected format: TELEGRAM_USERNAME_PATTERN = r\"^...$\""
+            exit 1
+          }
+
+          # Extract the JS pattern (strip anchors for comparison).
+          js_pattern=$(grep -oP "TELEGRAM_USERNAME_RE\s*=\s*/\\^\K[^$]+" frontend/src/pages/Login.vue) || {
+            echo "::error::Failed to extract TELEGRAM_USERNAME_RE from frontend/src/pages/Login.vue"
+            echo "  Expected format: TELEGRAM_USERNAME_RE = /^...$/"
+            exit 1
+          }
+
+          echo "Python pattern body: $py_pattern"
+          echo "JS pattern body:     $js_pattern"
+
+          if [ "$py_pattern" != "$js_pattern" ]; then
+            echo "::error::TELEGRAM_USERNAME patterns are out of sync!"
+            echo "  Python (src/web/utils/validation.py): ^${py_pattern}\$"
+            echo "  JS     (frontend/src/pages/Login.vue): ^${js_pattern}\$"
+            exit 1
+          fi
+          echo "Patterns match."

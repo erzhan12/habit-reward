@@ -9,9 +9,10 @@ from datetime import date
 from typing import Any
 from decimal import Decimal
 from asgiref.sync import sync_to_async
+from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 
-from src.core.models import User, Habit, HabitLog, Reward, RewardProgress, AuthCode, APIKey
+from src.core.models import User, Habit, HabitLog, Reward, RewardProgress, AuthCode, APIKey, WebLoginRequest, LoginTokenIpBinding
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -94,6 +95,84 @@ class UserRepository:
 
         await sync_to_async(User.objects.filter(pk=pk).update)(**updates)
         return await sync_to_async(User.objects.get)(pk=pk)
+
+    async def get_by_telegram_username(self, username: str) -> User | None:
+        """Get user by Telegram username (case-insensitive).
+
+        Args:
+            username: Telegram username (with or without @)
+
+        Returns:
+            User instance or None
+        """
+        normalized = username.lstrip('@').lower()
+        try:
+            return await sync_to_async(User.objects.get)(
+                telegram_username=normalized, is_active=True
+            )
+        except User.DoesNotExist:
+            return None
+
+    async def update_telegram_username(self, telegram_id: str, username: str | None) -> None:
+        """Sync Telegram username from bot interaction.
+
+        Handles username recycling: if another user previously held this
+        username, clears it from the old user before assigning to the new one.
+
+        Args:
+            telegram_id: User's Telegram ID
+            username: Current Telegram username, or None to clear
+        """
+        if not username:
+            await sync_to_async(
+                User.objects.filter(telegram_id=telegram_id).update
+            )(telegram_username=None)
+            return
+
+        normalized = username.lstrip('@').lower()
+
+        def _atomic_username_update():
+            """Clear old assignment and set new one atomically.
+
+            Wraps both UPDATEs in a transaction.atomic() block to prevent a
+            race condition where two users simultaneously claim the same
+            recycled username — without the transaction, both UPDATE queries
+            could succeed independently, leaving the username assigned to
+            the last writer with no guarantee of consistency.
+
+            Retries once on IntegrityError to handle the theoretical race
+            where two concurrent transactions both pass the EXCLUDE query
+            but collide on the unique constraint.
+            """
+            for attempt in range(2):
+                try:
+                    with transaction.atomic():
+                        # SELECT FOR UPDATE locks matching rows until the
+                        # transaction commits, preventing two concurrent
+                        # transactions from both passing the EXCLUDE check
+                        # before either commits (lost-update race).
+                        User.objects.select_for_update().filter(
+                            telegram_username=normalized
+                        ).exclude(
+                            telegram_id=telegram_id
+                        ).update(telegram_username=None)
+
+                        User.objects.filter(
+                            telegram_id=telegram_id
+                        ).update(telegram_username=normalized)
+                    return
+                except IntegrityError:
+                    if attempt == 0:
+                        logger.warning(
+                            "IntegrityError during username recycling for telegram_id=%s, "
+                            "username=%s — retrying once",
+                            telegram_id,
+                            normalized,
+                        )
+                    else:
+                        raise
+
+        await sync_to_async(_atomic_username_update)()
 
 
 class HabitRepository:
@@ -1224,6 +1303,188 @@ class APIKeyRepository:
             return None
 
 
+class WebLoginRequestRepository:
+    """Repository for bot-based web login requests."""
+
+    @staticmethod
+    def clear_login_cache_keys(token: str) -> None:
+        """Clear cache keys tied to a login token after terminal DB transitions."""
+        from django.core.cache import cache
+
+        from src.web.services.web_login_service import WL_FAILED_KEY, WL_PENDING_KEY
+
+        cache.delete_many([f"{WL_PENDING_KEY}{token}", f"{WL_FAILED_KEY}{token}"])
+
+    async def create(
+        self,
+        user_id: int | str,
+        token: str,
+        expires_at,
+        device_info: str | None = None,
+    ) -> WebLoginRequest:
+        """Create a new web login request."""
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        return await sync_to_async(WebLoginRequest.objects.create)(
+            user_id=user_pk,
+            token=token,
+            expires_at=expires_at,
+            device_info=device_info,
+        )
+
+    async def get_by_token(self, token: str) -> WebLoginRequest | None:
+        """Get a web login request by token."""
+        try:
+            return await sync_to_async(
+                WebLoginRequest.objects.select_related("user").get
+            )(token=token)
+        except WebLoginRequest.DoesNotExist:
+            return None
+
+    async def get_status_fields(self, token: str) -> WebLoginRequest | None:
+        """Lightweight status lookup using .only() without the user join.
+
+        Suitable for high-frequency status polling where only status and
+        expires_at are needed.
+        """
+        try:
+            return await sync_to_async(
+                WebLoginRequest.objects.only("status", "expires_at").get
+            )(token=token)
+        except WebLoginRequest.DoesNotExist:
+            return None
+
+    async def update_status(self, token: str, status: str) -> int:
+        """Update the status of a web login request.
+
+        Returns:
+            Number of rows updated (0 or 1)
+        """
+        updated = await sync_to_async(
+            WebLoginRequest.objects.filter(token=token, status=WebLoginRequest.Status.PENDING.value).update
+        )(status=status)
+        if updated:
+            await sync_to_async(self.clear_login_cache_keys)(token)
+        return updated
+
+    async def mark_as_used(self, token: str) -> int:
+        """Atomically mark a confirmed request as used with row-level locking.
+
+        Uses SELECT FOR UPDATE to prevent concurrent requests from both
+        marking the same token as used (TOCTOU race in the old
+        filter().update() pattern).
+
+        Returns:
+            Number of rows updated (0 or 1). 0 means another request beat us.
+        """
+        def _atomic_mark_used():
+            with transaction.atomic():
+                try:
+                    lr = (
+                        WebLoginRequest.objects
+                        .select_for_update()
+                        .get(token=token)
+                    )
+                except WebLoginRequest.DoesNotExist:
+                    return 0
+                if lr.status != WebLoginRequest.Status.CONFIRMED.value:
+                    return 0
+                lr.status = WebLoginRequest.Status.USED.value
+                lr.save(update_fields=['status'])
+                return 1
+
+        updated = await sync_to_async(_atomic_mark_used)()
+        if updated:
+            await sync_to_async(self.clear_login_cache_keys)(token)
+        return updated
+
+    async def update_telegram_message_id(
+        self, request_id: int | str, telegram_message_id: int
+    ) -> None:
+        """Save the Telegram message ID on a login request."""
+        pk = int(request_id) if isinstance(request_id, str) else request_id
+        await sync_to_async(
+            WebLoginRequest.objects.filter(pk=pk).update
+        )(telegram_message_id=telegram_message_id)
+
+    async def invalidate_pending_for_user(self, user_id: int | str) -> int:
+        """Invalidate all pending requests for a user (when new one is created).
+
+        Returns:
+            Number of requests invalidated
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        return await sync_to_async(
+            WebLoginRequest.objects.filter(user_id=user_pk, status=WebLoginRequest.Status.PENDING.value).update
+        )(status=WebLoginRequest.Status.DENIED.value)
+
+    async def delete_expired(self) -> int:
+        """Delete all expired login requests.
+
+        Returns:
+            Number of deleted requests
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        deleted, _ = await sync_to_async(
+            WebLoginRequest.objects.filter(expires_at__lt=now).delete
+        )()
+        return deleted
+
+    async def get_by_token_lightweight(self, token: str) -> WebLoginRequest | None:
+        """Get a web login request by token WITHOUT select_related('user').
+
+        Suitable for bot callback handling where the user object is only
+        needed later for telegram_id comparison (accessed via the cached
+        FK from select_related on the full fetch path).
+        """
+        try:
+            return await sync_to_async(WebLoginRequest.objects.get)(token=token)
+        except WebLoginRequest.DoesNotExist:
+            return None
+
+    @staticmethod
+    def create_ip_binding(token: str, ip_address: str, expires_at) -> LoginTokenIpBinding:
+        """Create a DB-backed IP binding for a login token.
+
+        Called synchronously from the Django view (via call_async or directly).
+
+        Pre-condition: ``ip_address`` is already validated by
+        ``parse_ip_address()`` in the calling view (``bot_login_request``
+        in ``src/web/views/auth.py``).  That function extracts the IP from
+        ``request.META['REMOTE_ADDR']`` (or ``X-Forwarded-For`` when trusted)
+        and returns a plain string.  If adding new call sites, ensure
+        ``parse_ip_address()`` is called first to prevent malformed IPs
+        from reaching the database.
+        """
+        return LoginTokenIpBinding.objects.create(
+            token=token,
+            ip_address=ip_address,
+            expires_at=expires_at,
+        )
+
+    @staticmethod
+    def get_ip_binding(token: str) -> LoginTokenIpBinding | None:
+        """Look up the IP binding for a login token.
+
+        Returns None if no binding exists (e.g. token unknown or expired
+        binding was cleaned up).
+        """
+        try:
+            return LoginTokenIpBinding.objects.get(token=token)
+        except LoginTokenIpBinding.DoesNotExist:
+            return None
+
+    @staticmethod
+    def delete_expired_ip_bindings() -> int:
+        """Delete expired IP bindings (housekeeping)."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        deleted, _ = LoginTokenIpBinding.objects.filter(expires_at__lt=now).delete()
+        return deleted
+
+
 # Global repository instances (for backward compatibility with Airtable pattern)
 user_repository = UserRepository()
 habit_repository = HabitRepository()
@@ -1232,3 +1493,4 @@ reward_progress_repository = RewardProgressRepository()
 habit_log_repository = HabitLogRepository()
 auth_code_repository = AuthCodeRepository()
 api_key_repository = APIKeyRepository()
+web_login_request_repository = WebLoginRequestRepository()

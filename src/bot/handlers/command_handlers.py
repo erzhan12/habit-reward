@@ -53,6 +53,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE | Non
         logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
         return
 
+    # Sync Telegram username for web login (always — clears stale values too)
+    try:
+        await maybe_await(
+            user_repository.update_telegram_username(telegram_id, update.effective_user.username)
+        )
+    except Exception as e:
+        logger.warning(f"Failed to sync telegram username: {e}")
+
     # Auto-detect and set language if not already set
     if not user.language or user.language == 'en':
         detected_lang = detect_language_from_telegram(update)

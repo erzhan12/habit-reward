@@ -85,6 +85,10 @@ def main():
     # Add settings handler
     application.add_handler(settings_conversation)
 
+    # Register web login callback handler in group 1
+    from src.bot.handlers.web_login_handler import web_login_handler
+    application.add_handler(web_login_handler, group=1)
+
     # Register menu callbacks in group 1 (after conversation handlers in group 0)
     # This ensures conversation handlers take precedence when active
     for handler in get_menu_handlers():

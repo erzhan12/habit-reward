@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# ruff: noqa: E402
 """Script to set Telegram webhook.
 
 This script sets the Telegram webhook URL for the bot using the configuration

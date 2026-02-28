@@ -1,10 +1,14 @@
 """Web interface middleware."""
 
+import secrets
+
 from django.conf import settings
 from django.contrib.messages import get_messages
 from django.shortcuts import redirect
 
 from inertia import share
+
+import src.web.checks  # noqa: F401 — register system checks
 
 
 class WebAuthMiddleware:
@@ -58,21 +62,29 @@ class ContentSecurityPolicyMiddleware:
     In production (DEBUG=False), applies a strict CSP and security headers.
     In development, skips these headers to allow Vite HMR.
 
-    CSP tradeoff: style-src includes 'unsafe-inline' because Tailwind/Vue
-    and component-scoped styles often rely on inline styles. Alternatives
-    (nonces or hashes) would require build/template changes; documented here
-    for future hardening.
+    A per-request nonce replaces the old ``'unsafe-inline'`` for style-src.
+    The nonce is stored on ``request.csp_nonce`` and made available in
+    templates via the ``csp_nonce`` context processor.
 
-    script-src includes 'unsafe-eval' because the Telegram Login Widget
-    (telegram-widget.js) uses eval() internally for __parseFunction.
+    Note: Vue 3 runtime style injection (scoped component styles) may still
+    require ``'unsafe-inline'`` as a fallback until Vue adds native nonce
+    support for injected ``<style>`` tags.  The nonce covers any inline
+    styles in Django templates and manually authored ``<style>`` blocks.
     """
 
-    CSP_POLICY = "; ".join([
+    # Template with {nonce} placeholder, filled per-request.
+    _CSP_TEMPLATE = "; ".join([
         "default-src 'self'",
-        "script-src 'self' 'unsafe-eval' https://telegram.org",
-        "style-src 'self' 'unsafe-inline'",
+        "script-src 'self'",
+        # 'unsafe-inline' is needed for Vue 3 scoped styles which inject
+        # <style> tags at runtime without nonce support.  The nonce still
+        # covers Django template styles and manually authored blocks.
+        # TODO(#24): Remove 'unsafe-inline' once Vue build pipeline supports
+        # nonce injection for scoped styles (e.g. via
+        # vite-plugin-css-injected-by-js or SFC compiler nonce option).
+        # See: https://github.com/erzhan12/habit-reward/issues/24
+        "style-src 'self' 'nonce-{nonce}' 'unsafe-inline'",
         "img-src 'self' data: https:",
-        "frame-src https://oauth.telegram.org",
         "connect-src 'self'",
     ])
 
@@ -80,9 +92,13 @@ class ContentSecurityPolicyMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        # Generate a per-request nonce for CSP.
+        request.csp_nonce = secrets.token_urlsafe(16)
         response = self.get_response(request)
         if not settings.DEBUG:
-            response["Content-Security-Policy"] = self.CSP_POLICY
+            response["Content-Security-Policy"] = self._CSP_TEMPLATE.format(
+                nonce=request.csp_nonce
+            )
             response["X-Content-Type-Options"] = "nosniff"
             response["X-Frame-Options"] = "DENY"
             response["Referrer-Policy"] = "strict-origin-when-cross-origin"

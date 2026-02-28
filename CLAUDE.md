@@ -20,3 +20,26 @@ Step one is to identify and document the specific task or problem we're solving.
 7. After making all necessary commits for this particular task, verify with the user that they're satisfied with the implementation and that the task is complete.
 
 8. At this point if the user is satisfied and the changes are committed, ask if they're ready to move on to the next task or if there's anything else they'd like to adjust with the current implementation.
+
+
+## Development Workflow
+
+When implementing features, always follow this cycle:
+1. Implement the feature
+2. Run tests/linting
+3. Self-review the changes for bugs, edge cases, security, code quality
+4. Fix any issues found
+5. Repeat steps 2-4 until no issues remain
+6. Provide a summary of what was done
+
+Then you just say `implement X` and it'll follow the loop automatically.
+
+You can also run it in a more explicit loop style:
+
+```text
+Implement [feature]. Then enter a review loop:
+- Review all changed files critically as if you're a senior reviewer
+- If you find issues, fix them and review again
+- Stop when the code passes your review with no issues
+- Run all tests at the end
+```

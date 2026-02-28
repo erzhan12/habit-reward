@@ -1,0 +1,426 @@
+/**
+ * Tests for Login.vue using Vitest + @vue/test-utils.
+ *
+ * Prerequisites:
+ *   npm install -D vitest @vue/test-utils happy-dom
+ *
+ * Run:
+ *   npx vitest run tests/Login.spec.js
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mount, flushPromises } from "@vue/test-utils";
+
+// Stub Inertia router before importing the component.
+vi.mock("@inertiajs/vue3", () => ({
+  router: { visit: vi.fn() },
+}));
+
+import { router } from "@inertiajs/vue3";
+import Login from "../src/pages/Login.vue";
+
+function createWrapper({ withCsrf = true } = {}) {
+  if (withCsrf) {
+    // Provide a CSRF meta tag in the DOM.
+    const meta = document.createElement("meta");
+    meta.setAttribute("name", "csrf-token");
+    meta.setAttribute("content", "test-csrf-token");
+    document.head.appendChild(meta);
+  }
+
+  return mount(Login, {
+    global: {
+      stubs: {},
+    },
+  });
+}
+
+describe("Login.vue", () => {
+  let wrapper;
+
+  beforeEach(() => {
+    // Keep backoff+jitter timers deterministic in fake-timer tests.
+    vi.spyOn(Math, "random").mockReturnValue(0);
+  });
+
+  afterEach(() => {
+    if (wrapper) wrapper.unmount();
+    // Clean up meta tags.
+    document
+      .querySelectorAll('meta[name="csrf-token"]')
+      .forEach((el) => el.remove());
+    vi.restoreAllMocks();
+  });
+
+  // --- Username validation ---
+
+  it("rejects usernames shorter than 3 chars", async () => {
+    wrapper = createWrapper();
+    const input = wrapper.find("input");
+    await input.setValue("ab");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Invalid Telegram username");
+  });
+
+  it("rejects usernames with special characters", async () => {
+    wrapper = createWrapper();
+    await wrapper.find("input").setValue("user@name!");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Invalid Telegram username");
+  });
+
+  it("accepts valid usernames", async () => {
+    wrapper = createWrapper();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          token: "abc123",
+          expires_at: new Date(Date.now() + 300000).toISOString(),
+          message: "ok",
+        }),
+    });
+
+    await wrapper.find("input").setValue("valid_user");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    // Should transition to "waiting" state (no error shown).
+    expect(wrapper.text()).toContain("Check your Telegram");
+  });
+
+  // --- State machine transitions ---
+
+  it("transitions idle → waiting on successful submit", async () => {
+    wrapper = createWrapper();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ token: "tok", expires_at: "2099-01-01T00:00:00Z", message: "ok" }),
+    });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Check your Telegram");
+  });
+
+  it("transitions to error state on network failure", async () => {
+    wrapper = createWrapper();
+    global.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Network error");
+  });
+
+  it("shows a graceful error when CSRF token is missing", async () => {
+    wrapper = createWrapper({ withCsrf: false });
+    global.fetch = vi.fn();
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Security token missing");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  // --- Error handling ---
+
+  it("shows error on 429 rate limit", async () => {
+    wrapper = createWrapper();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: () => Promise.resolve({ error: "Rate limited" }),
+    });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Too many attempts");
+  });
+
+  it("shows error on 500 server error", async () => {
+    wrapper = createWrapper();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({}),
+    });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Server error");
+  });
+
+  // --- Expired state transition ---
+
+  it("transitions to expired state after timeout", async () => {
+    vi.useFakeTimers();
+    wrapper = createWrapper();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          token: "tok_expire",
+          expires_at: new Date(Date.now() + 300000).toISOString(),
+          message: "ok",
+        }),
+    });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    // Should be in waiting state now
+    expect(wrapper.text()).toContain("Check your Telegram");
+
+    // Mock status poll to keep returning "pending"
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ status: "pending" }),
+    });
+
+    // Advance past the 5-minute LOGIN_EXPIRY_MS timeout
+    vi.advanceTimersByTime(300_000);
+    await flushPromises();
+
+    // Should now show the expired state
+    expect(wrapper.text()).toContain("Request expired");
+    expect(wrapper.text()).toContain("timed out");
+
+    vi.useRealTimers();
+  });
+
+  // --- Multiple rapid clicks (debouncing) ---
+
+  it("ignores rapid duplicate submits while submitting is true", async () => {
+    wrapper = createWrapper();
+    let resolveFirst;
+    const firstCall = new Promise((r) => {
+      resolveFirst = r;
+    });
+    global.fetch = vi.fn().mockReturnValue(firstCall);
+
+    await wrapper.find("input").setValue("gooduser");
+    // First submit
+    wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    // Second submit while first is in-flight — should be a no-op.
+    wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    // Resolve the first call to clean up.
+    resolveFirst({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ token: "t", expires_at: "2099-01-01", message: "ok" }),
+    });
+    await flushPromises();
+  });
+
+  it("clears timers when component is unmounted during polling", async () => {
+    vi.useFakeTimers();
+    wrapper = createWrapper();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          token: "unmount_tok",
+          expires_at: "2099-01-01T00:00:00Z",
+          message: "ok",
+        }),
+    });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    // Should be in waiting state (polling active)
+    expect(wrapper.text()).toContain("Check your Telegram");
+
+    // Mock status to keep returning pending
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ status: "pending" }),
+    });
+
+    // Unmount during active polling
+    wrapper.unmount();
+    wrapper = null; // prevent afterEach double-unmount
+
+    // Advance time past expiry — no timers should fire (no errors)
+    vi.advanceTimersByTime(400_000);
+    await flushPromises();
+
+    // If timers were not cleared, fetch would have been called after unmount.
+    // Since we unmounted, no polls should have fired.
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+
+  // --- Concurrent tab detection ---
+
+  it("redirects to / when status returns 'used' (login completed in another tab)", async () => {
+    vi.useFakeTimers();
+    wrapper = createWrapper();
+    global.fetch = vi
+      .fn()
+      // submitLogin()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            token: "concurrent_tok",
+            expires_at: "2099-01-01T00:00:00Z",
+            message: "ok",
+          }),
+      })
+      // first pollStatus() → "used" (login completed in another tab)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ status: "used" }),
+      });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Check your Telegram");
+
+    // First poll after 2s returns "used"
+    await vi.advanceTimersByTimeAsync(2000);
+    await flushPromises();
+
+    // Should redirect to "/" via Inertia router (session already exists)
+    expect(router.visit).toHaveBeenCalledWith("/");
+
+    // Polling should have stopped (no further fetch calls)
+    const callCount = global.fetch.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(30000);
+    await flushPromises();
+    expect(global.fetch).toHaveBeenCalledTimes(callCount);
+
+    vi.useRealTimers();
+  });
+
+  it("recovers from polling network error and retries successfully", async () => {
+    vi.useFakeTimers();
+    wrapper = createWrapper();
+    global.fetch = vi
+      .fn()
+      // submitLogin()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            token: "poll_retry_tok",
+            expires_at: "2099-01-01T00:00:00Z",
+            message: "ok",
+          }),
+      })
+      // first pollStatus() call -> network error
+      .mockRejectedValueOnce(new Error("poll timeout"))
+      // second pollStatus() call -> confirmed
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ status: "confirmed" }),
+      })
+      // completeLogin()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true, redirect: "/" }),
+      });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Check your Telegram");
+
+    // First poll after initial 2s delay; it fails and should back off.
+    await vi.advanceTimersByTimeAsync(2000);
+    await flushPromises();
+
+    // Retry at max backoff (30s) should still proceed and complete login.
+    await vi.advanceTimersByTimeAsync(30000);
+    await flushPromises();
+
+    expect(global.fetch).toHaveBeenCalledTimes(4);
+    expect(router.visit).toHaveBeenCalledWith("/");
+    vi.useRealTimers();
+  });
+
+  // --- Consecutive poll failures (POLL_MAX_CONSECUTIVE_ERRORS) ---
+
+  it("stops polling and shows error after 5 consecutive poll failures", async () => {
+    vi.useFakeTimers();
+    wrapper = createWrapper();
+
+    // submitLogin succeeds
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            token: "consec_fail_tok",
+            expires_at: "2099-01-01T00:00:00Z",
+            message: "ok",
+          }),
+      });
+
+    await wrapper.find("input").setValue("gooduser");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Check your Telegram");
+
+    // All subsequent polls fail (5 consecutive failures)
+    global.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
+
+    // Advance through 5 poll cycles with max backoff (30s each after first)
+    // First poll at 2s
+    await vi.advanceTimersByTimeAsync(2000);
+    await flushPromises();
+    // Polls 2-5 at max backoff (30s)
+    for (let i = 0; i < 4; i++) {
+      await vi.advanceTimersByTimeAsync(30000);
+      await flushPromises();
+    }
+
+    // After 5 consecutive failures, should show error and stop polling
+    expect(wrapper.text()).toContain("Connection lost");
+
+    // Verify polling stopped — no more fetch calls after the error
+    const callCount = global.fetch.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60000);
+    await flushPromises();
+    expect(global.fetch).toHaveBeenCalledTimes(callCount);
+
+    vi.useRealTimers();
+  });
+});

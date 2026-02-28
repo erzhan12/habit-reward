@@ -38,19 +38,34 @@ ALLOWED_HOSTS_BASE = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'
 # For development (localhost), leave empty - not needed
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])
 
-# HTTPS enforcement and session security in production
+# HTTPS enforcement and session security in production.
+# These settings are critical for protecting against MITM, session hijacking,
+# and cross-site attacks.  Only applied when DEBUG=False.
 if not DEBUG:
+    # Redirect all HTTP requests to HTTPS (prevents accidental plaintext traffic).
     SECURE_SSL_REDIRECT = True
+    # Trust the X-Forwarded-Proto header from the reverse proxy (nginx/Caddy)
+    # to detect HTTPS.  Required when SSL terminates at the proxy, not Django.
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    # Only send session cookie over HTTPS (prevents session theft via HTTP).
     SESSION_COOKIE_SECURE = True
+    # Only send CSRF cookie over HTTPS (prevents CSRF token theft via HTTP).
     CSRF_COOKIE_SECURE = True
+    # HTTP Strict Transport Security: browsers remember to use HTTPS for 1 year,
+    # preventing SSL-stripping attacks on subsequent visits.
     SECURE_HSTS_SECONDS = 31536000  # 1 year
+    # Apply HSTS to all subdomains (prevents subdomain-based downgrade attacks).
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    # Allow browsers to preload this site's HSTS policy (hstspreload.org).
     SECURE_HSTS_PRELOAD = True
 
     # Session cookie hardening: timeout, no JS access, SameSite
     SESSION_COOKIE_AGE = 1209600  # 2 weeks
+    # Prevent JavaScript from reading the session cookie (mitigates XSS-based
+    # session theft).
     SESSION_COOKIE_HTTPONLY = True
+    # SameSite=Lax: cookie is sent on top-level navigations but not on
+    # cross-site sub-requests, preventing most CSRF attacks.
     SESSION_COOKIE_SAMESITE = "Lax"
 
     # CSRF cookie SameSite (HttpOnly omitted: Inertia/axios reads XSRF-TOKEN; see RULES.md)
@@ -103,6 +118,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'src.web.context_processors.csp_nonce',
             ],
         },
     },
@@ -118,6 +134,14 @@ ASGI_APPLICATION = 'src.habit_reward_project.asgi.application'
 DATABASES = {
     'default': env.db('DATABASE_URL', default=f'sqlite:///{BASE_DIR}/db.sqlite3')
 }
+
+# Reuse database connections for 10 minutes instead of closing after each
+# request. This reduces connection overhead in ThreadPoolExecutor workers
+# for PostgreSQL/MySQL.
+# NOTE: SQLite ignores CONN_MAX_AGE (no connection pooling benefit).
+# NOTE: Tune based on thread pool size - with 10 workers, you need at least
+# 10 DB connections available on PostgreSQL/MySQL.
+DATABASES['default']['CONN_MAX_AGE'] = env.int('CONN_MAX_AGE', default=600)
 
 
 # Password validation
@@ -236,15 +260,36 @@ HABIT_NAME_MAX_LENGTH = 100
 HABIT_WEIGHT_MIN = 1
 HABIT_WEIGHT_MAX = 100
 
-# Telegram Login Widget
-TELEGRAM_BOT_USERNAME = env('TELEGRAM_BOT_USERNAME', default='')
-# Max age of auth_date for Login Widget verification (seconds). Use 300 for tighter security.
-TELEGRAM_AUTH_MAX_AGE = env.int('TELEGRAM_AUTH_MAX_AGE', default=86400)
-
 # Web auth rate limit (django-ratelimit format, e.g. '10/m', '5/m')
 AUTH_RATE_LIMIT = env('AUTH_RATE_LIMIT', default='10/m')
+# Status polling rate limit (higher than auth because polling is frequent)
+AUTH_STATUS_RATE_LIMIT = env('AUTH_STATUS_RATE_LIMIT', default='30/m')
 # Dashboard actions (complete/revert habit) rate limit per user
 DASHBOARD_ACTION_RATE_LIMIT = env('DASHBOARD_ACTION_RATE_LIMIT', default='60/m')
+
+# Thread pool size for background login processing (DB writes + Telegram send).
+# Default 10: balances concurrency with SQLite's file-level write lock.
+# Each worker blocks for a Telegram API round-trip (~200ms-2s).  10 workers
+# can handle ~5-50 concurrent logins depending on API latency.
+# For PostgreSQL: can increase to 50-100.
+# For SQLite: keep at 10 max due to write lock contention.
+# Monitor 503 errors to detect if this needs tuning.
+WEB_LOGIN_THREAD_POOL_SIZE = env.int('WEB_LOGIN_THREAD_POOL_SIZE', default=10)
+
+# Login request expiry in minutes (how long users have to confirm in Telegram).
+# Must stay in sync with frontend LOGIN_EXPIRY_MS in Login.vue.
+WEB_LOGIN_EXPIRY_MINUTES = env.int('WEB_LOGIN_EXPIRY_MINUTES', default=5)
+
+# Trust X-Forwarded-For header for client IP detection.
+# Only enable when Django is behind a trusted reverse proxy (e.g. nginx/Caddy)
+# that overwrites X-Forwarded-For with the real client IP.
+TRUST_X_FORWARDED_FOR = env.bool('TRUST_X_FORWARDED_FOR', default=False)
+
+# Number of consecutive cache write failures before the CacheManager raises
+# CacheWriteError (circuit breaker).  High enough to tolerate transient blips
+# (e.g. Redis failover ~1-5s), low enough to surface genuine misconfiguration.
+# See src/web/services/web_login_service/cache_operations.py.
+CACHE_FAILURE_THRESHOLD = env.int('CACHE_FAILURE_THRESHOLD', default=5)
 
 
 # =============================================================================

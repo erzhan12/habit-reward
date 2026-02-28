@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# ruff: noqa: E402
 """Reset admin password for Django admin panel.
 
 This script helps reset or create admin user passwords for accessing
