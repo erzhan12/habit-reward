@@ -99,6 +99,10 @@ class UserRepository:
     async def get_by_telegram_username(self, username: str) -> User | None:
         """Get user by Telegram username (case-insensitive).
 
+        Intentionally no select_related/prefetch_related — call sites
+        (web_login_service) only access scalar fields (id, telegram_id,
+        name) and never traverse habit/reward relations.
+
         Args:
             username: Telegram username (with or without @)
 
