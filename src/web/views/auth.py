@@ -59,8 +59,10 @@ logger = logging.getLogger(__name__)
 
 # Maximum length for User-Agent string before parsing.  Prevents memory
 # exhaustion from maliciously large UA strings while accommodating typical
-# browser UAs (usually 100-300 chars).  512 is a generous ceiling — the
-# longest common browser UAs are ~300 chars.
+# browser UAs (usually 100-300 chars).  512 chosen as a generous ceiling —
+# the longest common browser UAs are ~300 chars; 512 provides headroom for
+# unusual but legitimate UAs (e.g. embedded WebViews, bot crawlers).
+# See: https://developers.whatismybrowser.com/learn/user-agent-string-lengths/
 MAX_USER_AGENT_LENGTH: int = getattr(settings, "MAX_USER_AGENT_LENGTH", 512)
 # Maximum device_info length (DB field constraint)
 MAX_DEVICE_INFO_LENGTH: int = 255
@@ -99,6 +101,17 @@ def _sanitize_user_agent(ua: str) -> str:
 # UA parse cache — bounded by Django cache backend eviction (TTL + LRU).
 # Unlike functools.lru_cache, Django's cache is shared across processes and
 # automatically evicts entries, so no per-process unbounded growth occurs.
+#
+# Eviction strategy depends on the configured cache backend:
+#   - LocMemCache: LRU eviction when MAX_ENTRIES is reached (default 300).
+#     See system check web.W009 which warns if MAX_ENTRIES is unset.
+#   - Memcached / Redis: TTL-based eviction with LRU fallback at memory limit.
+#   - DatabaseCache: Requires periodic `clearsessions` / `createcachetable`
+#     management commands; entries are pruned by TTL on read.
+#
+# BLAKE2b 128-bit digests have negligible collision risk (~2^64 birthday bound),
+# so cache key space is effectively bounded by the number of distinct UAs
+# seen within _UA_CACHE_TTL, not by hash collisions.
 _UA_CACHE_KEY_PREFIX = "ua_parse:"
 _UA_CACHE_TTL = 3600  # 1 hour
 

@@ -1448,6 +1448,14 @@ class WebLoginRequestRepository:
         """Create a DB-backed IP binding for a login token.
 
         Called synchronously from the Django view (via call_async or directly).
+
+        Pre-condition: ``ip_address`` is already validated by
+        ``parse_ip_address()`` in the calling view (``bot_login_request``
+        in ``src/web/views/auth.py``).  That function extracts the IP from
+        ``request.META['REMOTE_ADDR']`` (or ``X-Forwarded-For`` when trusted)
+        and returns a plain string.  If adding new call sites, ensure
+        ``parse_ip_address()`` is called first to prevent malformed IPs
+        from reaching the database.
         """
         return LoginTokenIpBinding.objects.create(
             token=token,

@@ -379,6 +379,59 @@ class TestAuth:
         assert response.json()["error"] == "Too many requests. Please wait a moment and try again."
 
 
+# ---- IP binding mismatch tests ----
+
+
+class TestIPBindingMismatch:
+    """Tests for IP binding enforcement on status polling and login completion.
+
+    Tokens are bound to the originating IP at creation time.  Requests from
+    a different IP must be rejected to prevent cross-IP token theft.
+    """
+
+    def test_status_poll_from_different_ip_returns_expired(self):
+        """Polling token status from a different IP than creation returns 'expired'."""
+        # Create binding for IP A (default 127.0.0.1)
+        _create_ip_binding(token=_TEST_TOKEN, ip="10.0.0.1")
+        # Poll from IP B (Django test client uses 127.0.0.1 by default)
+        response = Client().get(f"/auth/bot-login/status/{_TEST_TOKEN}/")
+        assert response.status_code == 200
+        assert response.json()["status"] == "expired"
+
+    def test_complete_from_different_ip_returns_403(self):
+        """Completing login from a different IP than creation returns 403."""
+        # Create binding for IP A
+        _create_ip_binding(token=_TEST_TOKEN, ip="10.0.0.1")
+        # Complete from IP B (Django test client uses 127.0.0.1)
+        response = Client().post(
+            "/auth/bot-login/complete/",
+            data={"token": _TEST_TOKEN},
+            content_type="application/json",
+        )
+        assert response.status_code == 403
+        assert "expired or invalid" in response.json()["error"]
+
+    @patch("src.web.views.auth.call_async", side_effect=_call_async_mock("confirmed"))
+    def test_status_poll_from_same_ip_succeeds(self, mock_async):
+        """Polling from the same IP that created the token succeeds."""
+        _create_ip_binding(token=_TEST_TOKEN, ip=_TEST_IP)
+        response = Client().get(f"/auth/bot-login/status/{_TEST_TOKEN}/")
+        assert response.status_code == 200
+        assert response.json()["status"] == "confirmed"
+
+    def test_complete_from_same_ip_with_confirmed_token_succeeds(self, user):
+        """Completing login from the same IP succeeds when token is confirmed."""
+        _create_ip_binding(token=_TEST_TOKEN, ip=_TEST_IP)
+        with patch("src.web.views.auth.call_async", side_effect=_call_async_mock(user)):
+            response = Client().post(
+                "/auth/bot-login/complete/",
+                data={"token": _TEST_TOKEN},
+                content_type="application/json",
+            )
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
 # ---- Race condition / atomicity tests ----
 
 

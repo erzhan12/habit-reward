@@ -61,13 +61,21 @@ logger = logging.getLogger(__name__)
 
 
 def _ensure_utc(dt: datetime) -> datetime:
-    """Django's DateTimeField returns timezone-aware datetimes when USE_TZ=True (recommended).
+    """Ensure a datetime is timezone-aware (UTC).
 
-    This function handles the edge case where USE_TZ=False by adding UTC
-    timezone info. If you see this error, verify USE_TZ=True in settings.
+    Django's DateTimeField returns timezone-aware datetimes when USE_TZ=True
+    (recommended).  This function handles the edge case where USE_TZ=False
+    by adding UTC timezone info.
+
+    All callers guard with ``expires_at is None`` before calling this function,
+    so the ValueError below should never fire in practice.  The guard exists
+    because ``WebLoginRequest.expires_at`` is non-nullable at the DB level,
+    but the ORM type annotation is ``datetime | None`` (Django convention).
 
     Raises:
         ValueError: If *dt* is None (prevents confusing downstream errors).
+            This indicates a data integrity issue — ``expires_at`` must not
+            be NULL in the database.
     """
     if dt is None:
         raise ValueError("_ensure_utc received None — expected a datetime instance")
@@ -434,6 +442,48 @@ class WebLoginService:
                 extra={"username": username, "user_id": user.id},
             )
 
+    @staticmethod
+    def _handle_background_error(
+        exc: Exception, user_id: int, token_prefix: str
+    ) -> None:
+        """Log a background processing error with appropriate severity.
+
+        Called by ``_process_login_background`` for all exception types.
+        Centralises the logging logic so the caller stays flat and readable.
+        """
+        extra = {"user_id": user_id, "token_prefix": token_prefix, "error": str(exc)}
+
+        if isinstance(exc, (InvalidToken, Forbidden)):
+            logger.critical(
+                "Permanent Telegram error during login processing — check bot config",
+                extra=extra,
+            )
+        elif isinstance(exc, RetryAfter):
+            extra["retry_after"] = exc.retry_after
+            logger.warning(
+                "Telegram rate limit during login processing (retry after %ds)",
+                exc.retry_after,
+                extra=extra,
+            )
+        elif isinstance(exc, TelegramError):
+            logger.error(
+                "Temporary Telegram error during login processing",
+                extra=extra,
+            )
+        elif isinstance(exc, DatabaseError):
+            logger.error(
+                "Database error during login processing",
+                extra=extra,
+            )
+        else:
+            logger.error(
+                "Unexpected error during login processing: %s: %s",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+                extra=extra,
+            )
+
     def _process_login_background(
         self, user, token: str, expires_at, device_info: str | None
     ) -> None:
@@ -475,12 +525,7 @@ class WebLoginService:
             # Cannot proceed — check_status won't find this token.
             return
 
-        _fail_extra = {"user_id": user.id, "token_prefix": token[:8]}
-
-        def _mark_failed_safely():
-            self._mark_failed_safely_with_logging(token, expires_at, _fail_extra)
-
-        # All error paths call _mark_failed_safely() so the frontend sees
+        # All error paths mark the token as failed so the frontend sees
         # "error" status instead of hanging on "pending" forever.  This is
         # intentional: even for potentially transient errors (RetryAfter,
         # TelegramError), we don't retry in this thread — the user can
@@ -488,44 +533,12 @@ class WebLoginService:
         # clear feedback rather than leaving the client polling indefinitely.
         try:
             call_async(self._process_login_request(user, token, expires_at, device_info))
-        except (InvalidToken, Forbidden) as e:
-            logger.critical(
-                "Permanent Telegram error during login processing — check bot config",
-                extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
+        except Exception as exc:
+            self._handle_background_error(exc, user.id, token[:8])
+            self._mark_failed_safely_with_logging(
+                token, expires_at,
+                {"user_id": user.id, "token_prefix": token[:8]},
             )
-            _mark_failed_safely()
-        except RetryAfter as e:
-            logger.warning(
-                "Telegram rate limit during login processing (retry after %ds)",
-                e.retry_after,
-                extra={
-                    "user_id": user.id,
-                    "token_prefix": token[:8],
-                    "retry_after": e.retry_after,
-                },
-            )
-            _mark_failed_safely()
-        except TelegramError as e:
-            logger.error(
-                "Temporary Telegram error during login processing",
-                extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
-            )
-            _mark_failed_safely()
-        except DatabaseError as e:
-            logger.error(
-                "Database error during login processing",
-                extra={"user_id": user.id, "token_prefix": token[:8], "error": str(e)},
-            )
-            _mark_failed_safely()
-        except Exception as e:
-            logger.error(
-                "Unexpected error during login processing: %s: %s",
-                type(e).__name__,
-                e,
-                exc_info=True,
-                extra={"user_id": user.id, "token_prefix": token[:8]},
-            )
-            _mark_failed_safely()
 
     @staticmethod
     def _create_login_request_with_retry(user_id, token, expires_at: datetime, device_info):
@@ -549,6 +562,17 @@ class WebLoginService:
            if the alias key is later unavailable.  Up to
            ``TOKEN_GENERATION_MAX_RETRIES`` attempts are made before raising
            ``DatabaseError``.
+
+        Example — alias chain on collision::
+
+            1. Client receives token A in the HTTP response.
+            2. Background thread tries INSERT with token A → IntegrityError.
+            3. New token B is generated; DB row is created with token B.
+            4. Cache alias written: wl_alias:A → B
+            5. Client polls GET /status/A/
+            6. _resolve_token_alias(A) follows alias → B
+            7. check_status looks up B in cache/DB → returns correct status.
+            8. Client calls POST /complete/ with token A → resolves to B → login succeeds.
 
         Returns:
             tuple[WebLoginRequest, str]: The created login request and the final
@@ -715,6 +739,9 @@ class WebLoginService:
                     except (ConnectionError, TimeoutError, OSError):
                         pass
                     status = "expired"
+            # expires_at is NOT NULL at the DB level; the ``is None`` guard
+            # is defense-in-depth against data corruption.  _ensure_utc will
+            # never raise ValueError here under normal operation.
             elif login_request.expires_at is None or now > _ensure_utc(login_request.expires_at):
                 status = "expired"
             else:
@@ -758,6 +785,8 @@ class WebLoginService:
             )
             return None
 
+        # expires_at is NOT NULL at the DB level; the ``is None`` guard
+        # is defense-in-depth against data corruption.
         if login_request.expires_at is None or now > _ensure_utc(login_request.expires_at):
             logger.warning(
                 "Complete login attempt with expired token",

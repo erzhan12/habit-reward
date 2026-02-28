@@ -117,6 +117,24 @@ When a user initiates a login request (`POST /auth/bot-login/request/`), the ser
 - Only enable `TRUST_X_FORWARDED_FOR` behind a trusted reverse proxy that overwrites the header.
 - Expired `LoginTokenIpBinding` records are cleaned up via the same housekeeping process as expired `WebLoginRequest` records.
 
+### Rate Limiting Bypass Risks
+
+If `TRUST_X_FORWARDED_FOR` is enabled without a trusted reverse proxy, per-IP rate limiting can be trivially bypassed:
+
+1. **IP spoofing**: An attacker sends requests with a different `X-Forwarded-For` header on each request, causing `django-ratelimit` to see a new "client IP" every time and never trigger the rate limit.
+2. **Auth endpoint abuse**: Without effective rate limiting, the login request endpoint (`POST /auth/bot-login/request/`) can be used to spam Telegram Confirm/Deny messages to targeted users (denial-of-service at the UX level).
+3. **Token brute-force (theoretical)**: While 256-bit tokens make brute-force infeasible regardless, rate limiting is a defense-in-depth layer that should not be silently disabled.
+
+**Mitigations**:
+
+- Django system checks **prevent startup** when this is misconfigured:
+  - `web.E001`: Errors if `TRUST_X_FORWARDED_FOR=True` but `SECURE_PROXY_SSL_HEADER` is not set (no reverse proxy detected).
+  - `web.E002`: Errors if `TRUST_X_FORWARDED_FOR=True` in production (`DEBUG=False`) without explicit proxy configuration.
+- These checks are registered in `src/web/checks.py` and run automatically on `manage.py runserver`, `migrate`, and `check`.
+- In development (`DEBUG=True`), `web.W003` emits a warning instead of an error, allowing local testing with `TRUST_X_FORWARDED_FOR=True`.
+
+**Recommendation**: Never set `TRUST_X_FORWARDED_FOR=True` unless Django is deployed behind a reverse proxy (nginx, Caddy, etc.) that overwrites the `X-Forwarded-For` header with the actual client IP.
+
 ## Circuit Breakers
 
 - **Thread pool queue**: When `WEB_LOGIN_MAX_QUEUED` is exceeded, new requests return HTTP 503 (prevents unbounded resource consumption).

@@ -230,6 +230,33 @@ def check_sqlite_username_constraint(app_configs, **kwargs):
 
 
 @register()
+def check_ua_cache_eviction(app_configs, **kwargs):
+    """Warn when the UA parse cache uses LocMemCache without explicit MAX_ENTRIES.
+
+    LocMemCache defaults to MAX_ENTRIES=300, which is usually fine, but if the
+    site sees a large variety of User-Agent strings the cache can thrash.
+    Setting MAX_ENTRIES explicitly signals that the eviction ceiling has been
+    considered.
+    """
+    errors = []
+    cache_config = getattr(settings, "CACHES", {}).get("default", {})
+    backend = cache_config.get("BACKEND", "")
+    if "LocMemCache" in backend:
+        options = cache_config.get("OPTIONS", {})
+        if "MAX_ENTRIES" not in options:
+            msg = (
+                "Default cache backend is LocMemCache without explicit "
+                "MAX_ENTRIES in OPTIONS. The UA parse cache (ua_parse:*) "
+                "relies on automatic eviction to stay bounded. LocMemCache "
+                "defaults to MAX_ENTRIES=300 which is usually sufficient, "
+                "but set it explicitly to document the eviction ceiling. "
+                "Example: CACHES['default']['OPTIONS']['MAX_ENTRIES'] = 500"
+            )
+            errors.append(Warning(msg, id="web.W009"))
+    return errors
+
+
+@register()
 def check_use_tz_enabled(app_configs, **kwargs):
     """Error when USE_TZ is not True.
 

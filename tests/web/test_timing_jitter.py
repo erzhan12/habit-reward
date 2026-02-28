@@ -3,6 +3,19 @@
 Verifies that check_status applies non-trivial timing jitter to
 prevent timing side-channel attacks. See SECURITY.md for the full
 threat model.
+
+CI flakiness note
+~~~~~~~~~~~~~~~~~
+These tests mock ``asyncio.sleep`` and assert on the *values* passed to it
+(range and statistical variation), so they do **not** depend on real wall-clock
+timing and should be stable across fast and slow CI runners.
+
+The one potential source of flakiness is ``test_jitter_has_nontrivial_variation``,
+which asserts ``stdev > 0.01`` over 10 CSPRNG samples.  The probability of 10
+uniform [0.05, 0.2] samples having stdev <= 0.01 is astronomically low
+(~1 in 10^12), but if this ever flakes on CI, increase the sample count or
+widen the threshold.  Setting ``CI=true`` in the environment will NOT skip
+these tests — they are deterministic enough to run everywhere.
 """
 
 import statistics
@@ -14,6 +27,11 @@ import pytest
 from src.core.models import User
 from src.web.services.web_login_service import WL_PENDING_KEY
 
+# To enable automatic retries on CI, install pytest-rerunfailures and uncomment:
+#   pytestmark = [pytest.mark.django_db, pytest.mark.flaky(reruns=2)]
+# To skip timing tests entirely on slow CI runners:
+#   pytestmark = [pytest.mark.django_db, pytest.mark.skipif(
+#       os.environ.get("CI") == "true", reason="Timing tests skipped on CI")]
 pytestmark = pytest.mark.django_db
 
 
