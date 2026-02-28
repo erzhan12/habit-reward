@@ -19,6 +19,18 @@
           {{ item.label }}
         </Link>
       </nav>
+      <div class="p-3 border-t border-gray-800">
+        <button
+          @click="handleLogout"
+          :disabled="isLoggingOut"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium w-full text-text-secondary hover:text-text-primary hover:bg-bg-card-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label="Log out of your account"
+        >
+          <span class="text-lg" aria-hidden="true">&#x1F6AA;</span>
+          {{ isLoggingOut ? 'Logging out...' : 'Logout' }}
+        </button>
+        <p v-if="logoutError" class="px-3 mt-1 text-xs text-red-400">{{ logoutError }}</p>
+      </div>
     </aside>
 
     <!-- Flash messages -->
@@ -35,8 +47,8 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
-import { Link, usePage } from "@inertiajs/vue3";
+import { computed, ref } from "vue";
+import { Link, router, usePage } from "@inertiajs/vue3";
 import BottomNav from "./BottomNav.vue";
 import FlashMessages from "./FlashMessages.vue";
 
@@ -49,6 +61,23 @@ const navItems = [
   { href: "/history/", icon: "\uD83D\uDCC5", label: "History" },
   { href: "/rewards/", icon: "\uD83C\uDF81", label: "Rewards" },
 ];
+
+const isLoggingOut = ref(false);
+const logoutError = ref(null);
+
+async function handleLogout() {
+  if (isLoggingOut.value) return;
+  isLoggingOut.value = true;
+  logoutError.value = null;
+  try {
+    await router.post("/auth/logout/");
+  } catch (error) {
+    console.error("Logout failed:", error);
+    logoutError.value = "Logout failed. Please try again.";
+  } finally {
+    isLoggingOut.value = false;
+  }
+}
 
 function isActive(href) {
   const url = usePage().url;

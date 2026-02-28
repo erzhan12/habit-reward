@@ -67,8 +67,8 @@ jobs:
           npx --yes
           --package vitest@3.0.7
           --package @vue/test-utils@2.4.6
-          --package happy-dom@15.11.7
-          vitest run tests/Login.spec.js --environment happy-dom
+          --package jsdom@26.0.0
+          vitest run tests/Login.spec.js --environment jsdom
 
   build:
     name: Build Docker Image

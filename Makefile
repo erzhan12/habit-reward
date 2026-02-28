@@ -1,4 +1,4 @@
-.PHONY: help install sync dev-install migrate test test-cov api bot bot-webhook dashboard ngrok clean lint format check
+.PHONY: help install sync dev-install migrate test test-cov api bot bot-webhook frontend dashboard ngrok clean lint format check
 
 # Default target - show help
 help:
@@ -15,6 +15,7 @@ help:
 	@echo "  make api          - Run the FastAPI REST API server"
 	@echo "  make bot          - Run the Telegram bot (polling mode)"
 	@echo "  make bot-webhook  - Run the Telegram bot (webhook mode)"
+	@echo "  make frontend     - Run Vite dev server (frontend HMR)"
 	@echo "  make dashboard    - Run the Streamlit dashboard"
 	@echo "  make ngrok        - Start ngrok tunnel on port 8000"
 	@echo ""
@@ -95,6 +96,11 @@ bot-webhook:
 	@echo "  - FastAPI: /v1/*, /health, /docs"
 	@echo "  - Django:  /webhook/telegram, /admin/"
 	uv run uvicorn asgi:app --host 0.0.0.0 --port 8000 --reload
+
+# Run Vite dev server for frontend (HMR)
+frontend:
+	@echo "Starting Vite dev server..."
+	cd frontend && npm run dev
 
 # Run Streamlit dashboard
 dashboard:

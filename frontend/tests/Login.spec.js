@@ -2,7 +2,7 @@
  * Tests for Login.vue using Vitest + @vue/test-utils.
  *
  * Prerequisites:
- *   npm install -D vitest @vue/test-utils happy-dom
+ *   npm install -D vitest @vue/test-utils jsdom
  *
  * Run:
  *   npx vitest run tests/Login.spec.js
@@ -280,7 +280,7 @@ describe("Login.vue", () => {
 
   // --- Concurrent tab detection ---
 
-  it("redirects to / when status returns 'used' (login completed in another tab)", async () => {
+  it("redirects to / and stops polling when another tab completes login (status 'used')", async () => {
     vi.useFakeTimers();
     wrapper = createWrapper();
     global.fetch = vi

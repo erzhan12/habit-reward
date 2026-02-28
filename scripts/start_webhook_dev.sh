@@ -21,6 +21,15 @@ print_msg() {
     echo -e "${color}$@${NC}"
 }
 
+# Cross-platform sed in-place editing
+sed_in_place() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
 print_msg $BLUE "=========================================="
 print_msg $BLUE "🚀 Webhook Development Environment Setup"
 print_msg $BLUE "=========================================="
@@ -107,24 +116,12 @@ print_msg $GREEN "✅ Ngrok URL: $NGROK_URL"
 print_msg $BLUE "Updating .env with NGROK_URL..."
 
 # Remove old ngrok-related variables if they exist
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS
-    sed -i '' '/^TELEGRAM_WEBHOOK_URL=.*ngrok/d' "$PROJECT_ROOT/.env" 2>/dev/null || true
-else
-    # Linux
-    sed -i '/^TELEGRAM_WEBHOOK_URL=.*ngrok/d' "$PROJECT_ROOT/.env" 2>/dev/null || true
-fi
+sed_in_place '/^TELEGRAM_WEBHOOK_URL=.*ngrok/d' "$PROJECT_ROOT/.env" 2>/dev/null || true
 
 # Update or add NGROK_URL
 if grep -q "^NGROK_URL=" "$PROJECT_ROOT/.env"; then
     # Update existing line
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS
-        sed -i '' "s|^NGROK_URL=.*|NGROK_URL=$NGROK_URL|" "$PROJECT_ROOT/.env"
-    else
-        # Linux
-        sed -i "s|^NGROK_URL=.*|NGROK_URL=$NGROK_URL|" "$PROJECT_ROOT/.env"
-    fi
+    sed_in_place "s|^NGROK_URL=.*|NGROK_URL=$NGROK_URL|" "$PROJECT_ROOT/.env"
 else
     # Add new line
     echo "NGROK_URL=$NGROK_URL" >> "$PROJECT_ROOT/.env"
@@ -160,7 +157,17 @@ else
 fi
 
 echo ""
-print_msg $GREEN "STEP 3: Set Telegram webhook"
+print_msg $GREEN "STEP 3: Start Vite dev server (frontend)"
+print_msg $BLUE "----------------------------------------"
+echo "Open ANOTHER NEW terminal window and run:"
+echo ""
+print_msg $YELLOW "    make frontend"
+print_msg $BLUE "    (or: cd frontend && npm run dev)"
+echo ""
+read -p "Press ENTER when the Vite dev server is running..."
+
+echo ""
+print_msg $GREEN "STEP 4: Set Telegram webhook"
 print_msg $BLUE "----------------------------------------"
 cd "$PROJECT_ROOT"
 uv run python scripts/set_webhook.py
