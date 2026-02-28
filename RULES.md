@@ -656,6 +656,15 @@ async with self._atomic():
 
 ## Code Quality & Linting
 
+**CRITICAL**: Before committing, ALWAYS run the review loop from CLAUDE.md:
+1. Run tests (`uv run python -m pytest --tb=short -q`)
+2. Self-review ALL changed files for: unused imports, duplicate code, stale docs, security issues, edge cases
+3. Fix any issues found
+4. Re-run tests
+5. Repeat until clean — then commit
+
+**Pitfall**: When a background agent creates files (e.g. splitting a large test file), it tends to copy-paste full import blocks into every file. Always review for unused imports after agent-generated code.
+
 **CRITICAL**: All code must pass the linting checks before committing.
 
 ### Linting Requirements
