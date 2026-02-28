@@ -42,7 +42,7 @@ from django.shortcuts import redirect
 from django.views.decorators.http import require_GET, require_POST
 from django_ratelimit.decorators import ratelimit
 
-from inertia import render as inertia_render
+from inertia import location as inertia_location, render as inertia_render
 
 from src.core.repositories import web_login_request_repository
 from src.web.services.web_login_service import (
@@ -453,7 +453,7 @@ def bot_login_complete(request):
 def logout_view(request):
     """Log out the user and redirect to login page."""
     logout(request)
-    return redirect("/auth/login/")
+    return inertia_location("/auth/login/")
 
 
 def dev_login(request):

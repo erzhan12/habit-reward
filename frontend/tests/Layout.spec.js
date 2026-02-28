@@ -33,6 +33,35 @@ describe("Layout.vue", () => {
     expect(router.post).toHaveBeenCalledWith("/auth/logout/");
   });
 
+  it("logs error and re-enables button when logout fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    router.post.mockRejectedValue(new Error("Network failure"));
+
+    const wrapper = mount(Layout, {
+      global: {
+        stubs: {
+          BottomNav: true,
+          FlashMessages: true,
+        },
+      },
+    });
+
+    const logoutButton = wrapper.find('button[aria-label="Log out of your account"]');
+    await logoutButton.trigger("click");
+    await vi.waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith("Logout failed:", expect.any(Error));
+    });
+
+    // Button should be re-enabled after error
+    expect(logoutButton.attributes("disabled")).toBeUndefined();
+    expect(wrapper.text()).toContain("Logout");
+
+    // Should show error message to user
+    expect(wrapper.text()).toContain("Logout failed");
+
+    consoleSpy.mockRestore();
+  });
+
   it("disables logout button while logging out", async () => {
     // Make router.post return a pending promise so isLoggingOut stays true
     router.post.mockReturnValue(new Promise(() => {}));

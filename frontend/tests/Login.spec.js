@@ -280,7 +280,7 @@ describe("Login.vue", () => {
 
   // --- Concurrent tab detection ---
 
-  it("redirects to / when status returns 'used' (login completed in another tab)", async () => {
+  it("redirects to / and stops polling when another tab completes login (status 'used')", async () => {
     vi.useFakeTimers();
     wrapper = createWrapper();
     global.fetch = vi

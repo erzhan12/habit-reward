@@ -8,7 +8,7 @@ import pytest
 from django.test import Client
 
 from src.core.models import LoginTokenIpBinding
-from tests.web.conftest import _call_async_mock
+from tests.web.conftest import INERTIA_HEADERS, _call_async_mock
 
 pytestmark = pytest.mark.django_db
 
@@ -124,9 +124,19 @@ class TestAuth:
         assert response.status_code == 200
 
     def test_logout_redirects(self, auth_client):
+        """Logout returns Inertia location redirect (409 + X-Inertia-Location)."""
         response = auth_client.post("/auth/logout/")
-        assert response.status_code == 302
-        assert "/auth/login/" in response.url
+        assert response.status_code == 409
+        assert response["X-Inertia-Location"] == "/auth/login/"
+
+    def test_logout_returns_inertia_location_with_inertia_headers(self, auth_client):
+        """Logout via Inertia router.post returns 409 with X-Inertia-Location header."""
+        response = auth_client.post(
+            "/auth/logout/",
+            **INERTIA_HEADERS,
+        )
+        assert response.status_code == 409
+        assert response["X-Inertia-Location"] == "/auth/login/"
 
     def test_bot_login_rate_limit_http_level(self):
         """Sending requests over the limit triggers rate limiting and returns 429 JSON.

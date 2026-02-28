@@ -29,6 +29,7 @@
           <span class="text-lg" aria-hidden="true">&#x1F6AA;</span>
           {{ isLoggingOut ? 'Logging out...' : 'Logout' }}
         </button>
+        <p v-if="logoutError" class="px-3 mt-1 text-xs text-red-400">{{ logoutError }}</p>
       </div>
     </aside>
 
@@ -62,14 +63,17 @@ const navItems = [
 ];
 
 const isLoggingOut = ref(false);
+const logoutError = ref(null);
 
 async function handleLogout() {
   if (isLoggingOut.value) return;
   isLoggingOut.value = true;
+  logoutError.value = null;
   try {
     await router.post("/auth/logout/");
   } catch (error) {
     console.error("Logout failed:", error);
+    logoutError.value = "Logout failed. Please try again.";
   } finally {
     isLoggingOut.value = false;
   }
