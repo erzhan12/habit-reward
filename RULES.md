@@ -919,6 +919,13 @@ habitreward.org { ... }
 
 Blocks: Direct IP access, unknown domains, router exploits, domain fronting.
 
+### Docker Health Check Configuration
+
+- **Files**: `deployment/docker/Dockerfile` (lines 71-72), `deployment/docker/docker-compose.yml` (lines 53-58)
+- **start_period**: Use `60s`, not `120s`. The entrypoint (migrations, collectstatic, superuser check, webhook setup) completes well within 60s. Excessive start periods hide real startup failures.
+- **curl timeout**: Always include `--max-time 5` in the curl health check command for faster failure detection.
+- Keep Dockerfile and docker-compose.yml health check settings consistent.
+
 ## Bot Audit Logging
 
 **CRITICAL**: All high-level Telegram bot interactions are logged to `BotAuditLog` model for debugging and user support.
