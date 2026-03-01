@@ -391,7 +391,7 @@ class RewardProgressRepository:
         """Attach cached pieces_required to avoid ForeignKey access in async contexts.
 
         This prevents SynchronousOnlyOperation errors when get_status() is called
-        from async contexts by caching the pieces_required value directly on the instance.
+        from async contexts by caching pieces_required directly on the instance.
 
         Args:
             progress: RewardProgress instance with reward loaded via select_related
@@ -437,7 +437,7 @@ class RewardProgressRepository:
         """
         user_pk = int(user_id) if isinstance(user_id, str) else user_id
         progress_list = await sync_to_async(list)(
-            RewardProgress.objects.filter(user_id=user_pk)
+            RewardProgress.objects.filter(user_id=user_pk, reward__active=True)
             .select_related("reward", "user")
             .order_by("reward__name")
         )
@@ -461,6 +461,7 @@ class RewardProgressRepository:
                 user_id=user_pk,
                 pieces_earned__gte=F("reward__pieces_required"),
                 claimed=False,
+                reward__active=True,
             ).select_related("reward", "user")
         )
         # Attach cached pieces_required to each progress object
@@ -481,6 +482,7 @@ class RewardProgressRepository:
                 user_id=user_pk,
                 claimed=True,
                 reward__is_recurring=False,
+                reward__active=True,
             ).select_related("reward", "user").order_by("reward__name")
         )
         return [self._attach_cached_pieces_required(p) for p in claimed_list]

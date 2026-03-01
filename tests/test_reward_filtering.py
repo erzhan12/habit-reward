@@ -91,6 +91,56 @@ class TestGetUserRewardProgress:
         assert len(result) == 1
         assert result[0].reward_id == 2
 
+    @pytest.mark.asyncio
+    async def test_repo_filters_inactive_rewards_at_db_level(self):
+        """Integration test: get_all_by_user only returns progress for active rewards.
+
+        Creates both an active and inactive reward with progress, then verifies
+        the repository's reward__active=True filter excludes the inactive one.
+        """
+        from src.core.models import User, Reward
+        from src.core.models import RewardProgress as DjangoRewardProgress
+        from src.core.repositories import RewardProgressRepository
+
+        user = await User.objects.acreate(
+            telegram_id="999888777",
+            name="Filter Test User",
+            username="filter_test",
+        )
+
+        try:
+            active_reward = await Reward.objects.acreate(
+                user=user,
+                name="Active Reward",
+                weight=10.0,
+                pieces_required=5,
+                active=True,
+            )
+            inactive_reward = await Reward.objects.acreate(
+                user=user,
+                name="Inactive Reward",
+                weight=10.0,
+                pieces_required=5,
+                active=False,
+            )
+
+            await DjangoRewardProgress.objects.acreate(
+                user=user, reward=active_reward, pieces_earned=2,
+            )
+            await DjangoRewardProgress.objects.acreate(
+                user=user, reward=inactive_reward, pieces_earned=3,
+            )
+
+            repo = RewardProgressRepository()
+            results = await repo.get_all_by_user(user.id)
+
+            assert len(results) == 1
+            assert results[0].reward_id == active_reward.id
+        finally:
+            await DjangoRewardProgress.objects.filter(user=user).adelete()
+            await Reward.objects.filter(user=user).adelete()
+            await user.adelete()
+
     # ------------------------------------------------------------------
     # Ordering
     # ------------------------------------------------------------------

@@ -542,6 +542,7 @@ class RewardService:
     ) -> list[RewardProgress] | Awaitable[list[RewardProgress]]:
         """Get all reward progress for a user.
 
+        Only returns progress for rewards where reward.active=True.
         Returns unclaimed rewards sorted by:
         1. Pending rewards (pieces > 0) sorted by fill percentage descending
         2. Achieved rewards (ready to claim)
