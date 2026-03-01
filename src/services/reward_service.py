@@ -542,6 +542,7 @@ class RewardService:
     ) -> list[RewardProgress] | Awaitable[list[RewardProgress]]:
         """Get all reward progress for a user.
 
+        Only returns progress for rewards where reward.active=True.
         Returns unclaimed rewards sorted by:
         1. Pending rewards (pieces > 0) sorted by fill percentage descending
         2. Achieved rewards (ready to claim)
@@ -550,8 +551,6 @@ class RewardService:
 
         async def _impl() -> list[RewardProgress]:
             results = await maybe_await(self.progress_repo.get_all_by_user(user_id))
-            # Filter out inactive rewards — only show progress for active rewards.
-            results = [r for r in results if self._is_active_reward_progress(r)]
             coerced = [self._coerce_progress(r) for r in results]
 
             # Filter claimed and split unclaimed into 3 groups (single pass).
@@ -717,7 +716,7 @@ class RewardService:
 
         state = getattr(progress, "_state", None)
         fields_cache = getattr(state, "fields_cache", None)
-        if isinstance(fields_cache, dict) and "reward" not in fields_cache:
+        if not isinstance(fields_cache, dict) or "reward" not in fields_cache:
             logger.warning(
                 "Reward relation not prefetched for progress %s; treating as active",
                 getattr(progress, "id", "?"),
