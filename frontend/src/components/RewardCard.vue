@@ -19,23 +19,27 @@
       />
     </div>
 
-    <div class="flex items-center justify-between">
+    <div class="grid grid-cols-3 items-center">
       <span class="text-xs text-text-secondary">
         {{ reward.piecesEarned }} / {{ reward.piecesRequired }} pieces
       </span>
 
-      <button
-        v-if="reward.status === 'ACHIEVED'"
-        @click="$emit('claim', reward.id)"
-        :disabled="loading"
-        class="px-3 py-1 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-medium transition-colors disabled:opacity-50"
-      >
-        Claim
-      </button>
+      <div class="flex justify-center">
+        <button
+          v-if="reward.status === 'ACHIEVED'"
+          @click="$emit('claim', reward.id)"
+          :disabled="loading"
+          class="px-3 py-1 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-medium transition-colors disabled:opacity-50"
+        >
+          Claim
+        </button>
+      </div>
 
-      <span v-if="reward.isRecurring" class="text-xs text-text-secondary">
-        recurring
-      </span>
+      <div class="flex justify-end">
+        <span v-if="reward.isRecurring" class="text-xs text-text-secondary">
+          recurring
+        </span>
+      </div>
     </div>
   </div>
 </template>
