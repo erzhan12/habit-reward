@@ -1,6 +1,7 @@
 """Unit tests for reward filtering and ordering in get_user_reward_progress()."""
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from src.services.reward_service import RewardService
@@ -25,6 +26,43 @@ def _make_progress(
         pieces_required=pieces_required,
         claimed=claimed,
     )
+
+
+class _DjangoLikeProgress:
+    """Django-like object used to test async-safe filtering behavior."""
+
+    def __init__(
+        self,
+        *,
+        reward_id: int,
+        pieces_earned: int = 1,
+        pieces_required: int = 10,
+        claimed: bool = False,
+        cached_active: bool | None = None,
+    ) -> None:
+        self.id = reward_id
+        self.user_id = 42
+        self.reward_id = reward_id
+        self.pieces_earned = pieces_earned
+        self.pieces_required = pieces_required
+        self.claimed = claimed
+        self._state = SimpleNamespace(fields_cache={})
+        if cached_active is not None:
+            self._cached_reward_active = cached_active
+
+    @property
+    def reward(self):
+        raise AssertionError("reward relation should not be accessed in this test")
+
+    def get_status(self) -> str:
+        if self.claimed:
+            return "✅ Claimed"
+        if self.pieces_earned >= self.pieces_required:
+            return "⏳ Achieved"
+        return "🕒 Pending"
+
+    def get_pieces_required(self) -> int:
+        return self.pieces_required
 
 
 class TestGetUserRewardProgress:
@@ -90,6 +128,30 @@ class TestGetUserRewardProgress:
 
         assert len(result) == 1
         assert result[0].reward_id == 2
+
+    @pytest.mark.asyncio
+    async def test_inactive_rewards_hidden(self, service):
+        """Rewards linked to inactive reward definitions must be excluded."""
+        active = _make_progress(pieces_earned=5, pieces_required=10, reward_id=1)
+        active.reward = SimpleNamespace(active=True)
+        inactive = _make_progress(pieces_earned=5, pieces_required=10, reward_id=2)
+        inactive.reward = SimpleNamespace(active=False)
+        service.progress_repo.get_all_by_user.return_value = [inactive, active]
+
+        result = await service.get_user_reward_progress("1")
+
+        assert [r.reward_id for r in result] == [1]
+
+    @pytest.mark.asyncio
+    async def test_cached_reward_active_avoids_relation_access(self, service):
+        """Use cached active flag without touching Django reward relation descriptors."""
+        inactive = _DjangoLikeProgress(reward_id=2, pieces_earned=5, cached_active=False)
+        active = _DjangoLikeProgress(reward_id=1, pieces_earned=5, cached_active=True)
+        service.progress_repo.get_all_by_user.return_value = [inactive, active]
+
+        result = await service.get_user_reward_progress("1")
+
+        assert [r.reward_id for r in result] == [1]
 
     # ------------------------------------------------------------------
     # Ordering

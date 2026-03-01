@@ -388,20 +388,22 @@ class RewardProgressRepository:
 
     @staticmethod
     def _attach_cached_pieces_required(progress: RewardProgress) -> RewardProgress:
-        """Attach cached pieces_required to avoid ForeignKey access in async contexts.
+        """Attach cached reward fields to avoid ForeignKey access in async contexts.
 
         This prevents SynchronousOnlyOperation errors when get_status() is called
-        from async contexts by caching the pieces_required value directly on the instance.
+        from async contexts by caching reward-derived values directly on the instance.
 
         Args:
             progress: RewardProgress instance with reward loaded via select_related
 
         Returns:
-            Same RewardProgress instance with _cached_pieces_required attached
+            Same RewardProgress instance with cached reward fields attached
         """
         if progress and hasattr(progress, "reward"):
             # Access reward.pieces_required now (in sync context) and cache it
             progress._cached_pieces_required = progress.reward.pieces_required
+            # Cache reward.active so service layers can safely filter in async contexts.
+            progress._cached_reward_active = bool(getattr(progress.reward, "active", True))
         return progress
 
     async def get_by_user_and_reward(

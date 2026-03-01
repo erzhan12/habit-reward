@@ -550,6 +550,8 @@ class RewardService:
 
         async def _impl() -> list[RewardProgress]:
             results = await maybe_await(self.progress_repo.get_all_by_user(user_id))
+            # Filter out inactive rewards — only show progress for active rewards.
+            results = [r for r in results if self._is_active_reward_progress(r)]
             coerced = [self._coerce_progress(r) for r in results]
 
             # Filter claimed and split unclaimed into 3 groups (single pass).
@@ -701,6 +703,29 @@ class RewardService:
             progress,
             from_attributes=True,
         )
+
+    @staticmethod
+    def _is_active_reward_progress(progress: RewardProgress) -> bool:
+        """Return True when progress belongs to an active reward.
+
+        Uses repository-cached reward.active when available to avoid touching
+        Django relation descriptors in async contexts.
+        """
+        cached_active = getattr(progress, "_cached_reward_active", None)
+        if cached_active is not None:
+            return bool(cached_active)
+
+        state = getattr(progress, "_state", None)
+        fields_cache = getattr(state, "fields_cache", None)
+        if isinstance(fields_cache, dict) and "reward" not in fields_cache:
+            logger.warning(
+                "Reward relation not prefetched for progress %s; treating as active",
+                getattr(progress, "id", "?"),
+            )
+            return True
+
+        reward = getattr(progress, "reward", None)
+        return getattr(reward, "active", True)
 
 
 # Global service instance
