@@ -19,7 +19,8 @@ class Settings(BaseSettings):
     default_user_telegram_id: str | None = None
     
     # Gamification Configuration
-    streak_multiplier_rate: float = 0.1
+    streak_reduction_rate: float = 2.0
+    min_no_reward_probability: float = 10.0
     progress_bar_length: int = 10
     recent_logs_limit: int = 10
     
@@ -61,8 +62,8 @@ HABIT_CATEGORIES = [
 
 # Habit validation limits
 HABIT_NAME_MAX_LENGTH = 100
-HABIT_WEIGHT_MIN = 1
-HABIT_WEIGHT_MAX = 100
+HABIT_WEIGHT_MIN = 0
+HABIT_WEIGHT_MAX = 30
 
 # Reward validation limits
 REWARD_NAME_MAX_LENGTH = 255

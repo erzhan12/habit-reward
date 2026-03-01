@@ -24,7 +24,8 @@ def mock_user():
         id=123,
         telegram_id="123456789",
         name="Test User",
-        is_active=True
+        is_active=True,
+        no_reward_probability=50.0,
     )
 
 
@@ -34,7 +35,7 @@ def mock_habit():
     return Habit(
         id=1,
         name="Walking",
-        weight=10,
+        weight=0,
         category="health",
         active=True
     )
@@ -80,7 +81,7 @@ class TestHabitCompletion:
         mock_user_repo.get_by_telegram_id.return_value = mock_user
         mock_habit_repo.get_by_name.return_value = mock_habit
         mock_streak_service.calculate_streak.return_value = 5
-        mock_reward_service.calculate_total_weight.return_value = 1.5
+        mock_reward_service.calculate_effective_no_reward_probability.return_value = 40.0
         mock_reward_service.select_reward.return_value = mock_reward
         mock_reward_service.get_todays_awarded_rewards.return_value = []
         mock_log_repo.get_log_for_habit_on_date.return_value = None
@@ -116,7 +117,7 @@ class TestHabitCompletion:
         assert result.habit_name == "Walking"
         assert result.streak_count == 5
         assert result.got_reward is True
-        assert result.total_weight_applied == 1.5
+        assert result.total_weight_applied == 40.0
 
         # Verify habit log was created
         mock_log_repo.create.assert_called_once()
@@ -178,7 +179,7 @@ class TestHabitCompletion:
         mock_user_repo.get_by_telegram_id.return_value = mock_user
         mock_habit_repo.get_by_name.return_value = mock_habit
         mock_streak_service.calculate_streak.return_value = 3
-        mock_reward_service.calculate_total_weight.return_value = 1.3
+        mock_reward_service.calculate_effective_no_reward_probability.return_value = 44.0
         mock_reward_service.get_todays_awarded_rewards.return_value = []
         mock_log_repo.get_log_for_habit_on_date.return_value = None
 
@@ -205,8 +206,8 @@ class TestHabitCompletion:
     def test_get_all_active_habits(self, habit_service):
         """Test getting all active habits."""
         mock_habits = [
-            Habit(id="h1", name="Walking", weight=10, active=True),
-            Habit(id="h2", name="Reading", weight=10, active=True)
+            Habit(id="h1", name="Walking", weight=0, active=True),
+            Habit(id="h2", name="Reading", weight=0, active=True)
         ]
 
         with patch.object(habit_service.habit_repo, 'get_all_active', return_value=mock_habits):
@@ -219,8 +220,8 @@ class TestHabitCompletion:
     async def test_get_active_habits_pending_for_today_filters_completed(self, habit_service):
         """Habits completed today should be excluded from the selection list."""
         all_habits = [
-            Habit(id="1", name="Walking", weight=10, active=True),
-            Habit(id="2", name="Reading", weight=5, active=True),
+            Habit(id="1", name="Walking", weight=0, active=True),
+            Habit(id="2", name="Reading", weight=0, active=True),
         ]
         todays_logs = [SimpleNamespace(habit_id="1")]
 

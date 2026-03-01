@@ -33,7 +33,7 @@ class HabitCompletionResult(BaseModel):
                 },
                 "streak_count": 5,
                 "got_reward": True,
-                "total_weight_applied": 1.5
+                "total_weight_applied": 30.0
             }
         }
     )

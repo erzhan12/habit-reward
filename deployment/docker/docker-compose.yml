@@ -35,7 +35,8 @@ services:
       # Optional: Application Settings
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SUPPORTED_LANGUAGES: ${SUPPORTED_LANGUAGES:-en,ru,kk}
-      STREAK_MULTIPLIER_RATE: ${STREAK_MULTIPLIER_RATE:-0.1}
+      STREAK_REDUCTION_RATE: ${STREAK_REDUCTION_RATE:-2.0}
+      MIN_NO_REWARD_PROBABILITY: ${MIN_NO_REWARD_PROBABILITY:-10.0}
 
     volumes:
       # Persist SQLite database (bind mount for easy access)

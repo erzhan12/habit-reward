@@ -235,8 +235,8 @@ async def test_tc002_habit_completion_snapshot(test_user, test_habits, test_rewa
     assert 'streak_count' in log.snapshot, "Snapshot should contain streak_count"
     assert log.snapshot['streak_count'] >= 0
 
-    assert 'total_weight' in log.snapshot, "Snapshot should contain total_weight"
-    assert log.snapshot['total_weight'] > 0
+    assert 'effective_no_reward' in log.snapshot, "Snapshot should contain effective_no_reward"
+    assert log.snapshot['effective_no_reward'] > 0
 
     assert 'selected_reward_name' in log.snapshot, "Snapshot should contain selected_reward_name"
     assert log.snapshot['selected_reward_name'] == 'Coffee Break'

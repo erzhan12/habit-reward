@@ -1,5 +1,7 @@
 # Code Review: Gamified Habit-Reward System (Feature 0001)
 
+> **Note (2026-02):** The streak multiplier system referenced in this review has been replaced by a subtractive probability system. See migration 0026 and the current `src/services/reward_service.py` for the new formula.
+
 **Review Date:** 2025-10-15
 **Reviewer:** Claude Code
 **Plan Document:** [docs/features/0001_PLAN.md](0001_PLAN.md)

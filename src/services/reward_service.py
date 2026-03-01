@@ -6,7 +6,7 @@ from datetime import date
 from typing import Awaitable
 from types import SimpleNamespace, MethodType
 
-from src.core.repositories import reward_repository, reward_progress_repository, habit_log_repository, user_repository
+from src.core.repositories import reward_repository, reward_progress_repository, habit_log_repository
 from src.core.models import Reward, RewardProgress
 from src.models.reward_progress import RewardProgress as RewardProgressModel
 from django.conf import settings
@@ -28,45 +28,66 @@ class RewardService:
         self.progress_repo = reward_progress_repository
         self.habit_log_repo = habit_log_repository
 
-    def calculate_total_weight(
+    def calculate_effective_no_reward_probability(
         self,
+        base_no_reward: float,
         habit_weight: int,
-        streak_count: int
+        streak_count: int,
     ) -> float:
         """
-        Calculate total weight multiplier for reward selection.
+        Calculate effective no-reward probability after habit weight and streak bonuses.
 
-        Formula: total_weight = habit_weight × streak_multiplier
-        Where: streak_multiplier = 1 + (streak_count × 0.1)
+        Formula: effective = max(base - habit_weight - (streak × streak_rate), floor)
 
         Args:
-            habit_weight: Weight of the habit (integer 1-100)
+            base_no_reward: User's base no_reward_probability setting (e.g. 50.0)
+            habit_weight: Habit weight (0-30), each point = 1% reduction
             streak_count: Current streak count for this habit
-
         Returns:
-            Total weight multiplier
+            Effective no-reward probability (percentage, never below floor)
+
+        Example:
+            base=50, weight=20, streak=5 with rate=2.0, floor=10.0
+            -> max(50 - 20 - 10, 10) = 20% no-reward (80% reward chance)
         """
-        streak_multiplier = 1 + (streak_count * settings.STREAK_MULTIPLIER_RATE)
-        total_weight = habit_weight * streak_multiplier
-        return total_weight
+        streak_reduction = streak_count * settings.STREAK_REDUCTION_RATE
+        floor = settings.MIN_NO_REWARD_PROBABILITY
+        effective = max(base_no_reward - habit_weight - streak_reduction, floor)
+        logger.info(
+            "Effective no-reward: max(%.1f - %d - %.1f, %.1f) = %.1f%%",
+            base_no_reward, habit_weight, streak_reduction, floor, effective,
+        )
+        return effective
 
     def select_reward(
         self,
-        total_weight: float,
+        effective_no_reward_probability: float,
         user_id: str | None = None,
         exclude_reward_ids: list[str] | None = None,
         target_date: 'date | None' = None,
     ) -> Reward | None | Awaitable[Reward | None]:
-        """Perform weighted random reward selection with configurable 'no reward' probability.
+        """Perform weighted random reward selection with pre-computed no-reward probability.
+
+        Args:
+            effective_no_reward_probability: Pre-computed no-reward % (already accounts
+                for habit weight and streak via calculate_effective_no_reward_probability).
+            user_id: Required user ID for filtering rewards.
+            exclude_reward_ids: Reward IDs to exclude from selection.
+            target_date: Date for daily-limit checks.
 
         Returns:
             Reward | None: Selected reward, or None for "no reward" outcome
         """
 
+        if not (0 <= effective_no_reward_probability <= 100):
+            raise ValueError(
+                f"effective_no_reward_probability must be 0-100, got {effective_no_reward_probability}"
+            )
+
         async def _impl() -> Reward | None:
             logger.info(
-                "Selecting reward with total_weight=%s, user_id=%s",
-                total_weight,
+                "Selecting reward with effective_no_reward=%.1f%%, user_id=%s",
+                effective_no_reward_probability,
                 user_id,
             )
             if exclude_reward_ids:
@@ -174,13 +195,13 @@ class RewardService:
                     )
                     return None
 
-            # Calculate reward weights
-            reward_weights = [reward.weight * total_weight for reward in rewards]
+            # Use raw reward weights to determine relative odds among rewards
+            reward_weights = [reward.weight for reward in rewards]
 
             sum_reward_weights = sum(reward_weights)
             logger.info(
-                "🎲 Reward weights: %s (sum=%.2f)",
-                [(r.name, r.weight * total_weight) for r in rewards],
+                "Reward weights: %s (sum=%.2f)",
+                [(r.name, r.weight) for r in rewards],
                 sum_reward_weights,
             )
 
@@ -191,40 +212,23 @@ class RewardService:
                 )
                 return None
 
-            # Configure "no reward" as an implicit option with desired probability.
+            # Configure "no reward" as an implicit option with the effective probability.
             #
             # We model selection as: pick from (rewards + [None]) using weights.
             # If S = sum(reward_weights), and N = no_reward_weight, then:
             #   P(no_reward) = N / (S + N)
             # Solving for N gives:
             #   N = S * p / (100 - p)
-            # where p is the user's no_reward_probability setting.
-
-            # Fetch user to get their personal no_reward_probability setting
-            user = await maybe_await(user_repository.get_by_id(user_id))
-            if user and hasattr(user, 'no_reward_probability'):
-                no_reward_probability_percent = float(user.no_reward_probability)
-                logger.info(
-                    "🎲 no_reward_probability from user DB: %.1f%%",
-                    no_reward_probability_percent,
-                )
-            else:
-                # Fallback to global setting if user not found or field missing
-                no_reward_probability_percent = float(
-                    getattr(settings, "NO_REWARD_PROBABILITY_PERCENT", 50.0)
-                )
-                logger.info(
-                    "🎲 NO_REWARD_PROBABILITY_PERCENT from settings (fallback): %.1f%%",
-                    no_reward_probability_percent,
-                )
+            # where p = effective_no_reward_probability (already adjusted for habit weight + streak).
+            no_reward_probability_percent = effective_no_reward_probability
 
             if no_reward_probability_percent <= 0:
                 population = rewards
                 weights = reward_weights
-                logger.info("🎲 p<=0: No 'None' in population (always reward)")
+                logger.info("p<=0: No 'None' in population (always reward)")
             elif no_reward_probability_percent >= 100:
                 logger.info(
-                    "🎲 p>=100: NO_REWARD_PROBABILITY_PERCENT=%s -> always no reward",
+                    "p>=100: effective_no_reward=%.1f%% -> always no reward",
                     no_reward_probability_percent,
                 )
                 return None
@@ -235,7 +239,7 @@ class RewardService:
                 population = rewards + [None]
                 weights = reward_weights + [no_reward_weight]
                 logger.info(
-                    "🎲 Formula: N = S * p / (100 - p) = %.2f * %.1f / %.1f = %.2f",
+                    "Formula: N = S * p / (100 - p) = %.2f * %.1f / %.1f = %.2f",
                     sum_reward_weights,
                     no_reward_probability_percent,
                     100.0 - no_reward_probability_percent,
@@ -244,13 +248,13 @@ class RewardService:
                 total_weight_sum = sum(weights)
                 actual_no_reward_prob = (no_reward_weight / total_weight_sum) * 100
                 logger.info(
-                    "🎲 Final weights: rewards=%.2f, no_reward=%.2f, total=%.2f",
+                    "Final weights: rewards=%.2f, no_reward=%.2f, total=%.2f",
                     sum_reward_weights,
                     no_reward_weight,
                     total_weight_sum,
                 )
                 logger.info(
-                    "🎲 Actual P(no_reward) = %.2f / %.2f = %.1f%%",
+                    "Actual P(no_reward) = %.2f / %.2f = %.1f%%",
                     no_reward_weight,
                     total_weight_sum,
                     actual_no_reward_prob,
@@ -259,9 +263,9 @@ class RewardService:
             selected = random.choices(population, weights=weights, k=1)[0]
 
             if selected is None:
-                logger.info("🎲 Selected: None (no reward)")
+                logger.info("Selected: None (no reward)")
             else:
-                logger.info("🎲 Selected reward: %s", selected.name)
+                logger.info("Selected reward: %s", selected.name)
 
             return selected
 

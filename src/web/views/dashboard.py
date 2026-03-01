@@ -14,6 +14,7 @@ from asgiref.sync import sync_to_async
 from src.bot.timezone_utils import get_user_today
 from src.core.repositories import habit_log_repository
 from src.services.habit_service import habit_service
+from src.services.reward_service import reward_service
 from src.services.streak_service import streak_service
 from src.utils.async_compat import maybe_await
 
@@ -47,6 +48,8 @@ async def dashboard(request):
     completed_count = 0
     total_points = 0
 
+    base_no_reward = float(user.no_reward_probability)
+
     for habit in all_habits:
         streak = streak_map.get(habit.id, 0)
         is_completed = habit.id in completed_habit_ids
@@ -54,12 +57,20 @@ async def dashboard(request):
             completed_count += 1
             total_points += habit.weight
 
+        effective_no_reward = reward_service.calculate_effective_no_reward_probability(
+            base_no_reward=base_no_reward,
+            habit_weight=habit.weight,
+            streak_count=streak,
+        )
+        reward_chance = round(100 - effective_no_reward)
+
         habits.append({
             "id": habit.id,
             "name": habit.name,
             "weight": habit.weight,
             "streak": streak,
             "completedToday": is_completed,
+            "rewardChance": reward_chance,
         })
 
     # Sort: incomplete first, then completed

@@ -1,11 +1,11 @@
 # Habit Reward System
 
-A gamified habit-reward system that tracks habits with per-habit streaks, uses variable ratio rewards with streak multipliers, and supports cumulative rewards with lifecycle status tracking.
+A gamified habit-reward system that tracks habits with per-habit streaks, uses a subtractive reward probability system where habit weights and streaks reduce the no-reward chance, and supports cumulative rewards with lifecycle status tracking.
 
 ## Features
 
 - **Per-Habit Streak Tracking**: Each habit maintains its own streak independently
-- **Weighted Random Rewards**: Variable ratio reward system with streak multipliers
+- **Weighted Random Rewards**: Variable ratio reward system with subtractive no-reward probability
 - **Cumulative Rewards**: Collect pieces toward larger rewards with status tracking (🕒 Pending, ⏳ Achieved, ✅ Completed)
 - **Telegram Bot Interface**: Easy-to-use bot for logging habits and managing rewards
 - **OpenAI NLP Integration**: Natural language processing for habit classification
@@ -145,19 +145,24 @@ Each habit maintains its own streak:
 3. Already completed today: return current streak
 4. Missed days: reset to 1
 
-### Reward Weight Formula
+### Reward Probability Formula
 
 ```
-total_weight = habit_weight × streak_multiplier
-where streak_multiplier = 1 + (streak_count × 0.1)
+effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDUCTION_RATE), MIN_NO_REWARD_PROBABILITY)
+reward_chance = 100 - effective_no_reward
 ```
+
+Where:
+- `base_no_reward` = configured no-reward probability (default 50%)
+- `habit_weight` = habit weight (0-30, each point = -1% no-reward)
+- `STREAK_REDUCTION_RATE` = % reduction per streak day (default 2.0)
+- `MIN_NO_REWARD_PROBABILITY` = floor % (default 10.0)
 
 ### Weighted Random Selection
 
-1. Fetch all active rewards (including "none" type)
-2. Adjust each reward weight by total_weight
-3. Perform weighted random selection
-4. If cumulative: increment pieces, check if achieved
+1. Fetch all active rewards (including "none" type with effective_no_reward weight)
+2. Perform weighted random selection
+3. If cumulative: increment pieces, check if achieved
 
 ### Cumulative Rewards
 
@@ -357,12 +362,12 @@ OUTPUT: current_streak
 ### Weighted Random Reward Selection
 
 ```
-INPUT: total_weight
+INPUT: effective_no_reward (from probability formula above)
 OUTPUT: selected_reward
 
 1. rewards = get_all_active_rewards()
-2. adjusted_weights = [r.weight * total_weight for r in rewards]
-3. selected = random.choices(rewards, weights=adjusted_weights, k=1)[0]
+2. Set "none" reward weight = effective_no_reward
+3. selected = random.choices(rewards, weights=[r.weight for r in rewards], k=1)[0]
 4. RETURN selected
 ```
 
@@ -592,7 +597,7 @@ The project uses GitHub Actions for automated checks:
 
 1. **Data Privacy**: Only telegram_id stored, full user control via Django admin
 2. **Transparent Logic**: All calculations logged and visible
-3. **Motivation vs Addiction**: "None" rewards always included, streak multiplier capped
+3. **Motivation vs Addiction**: "None" rewards always included, no-reward probability has a minimum floor (MIN_NO_REWARD_PROBABILITY)
 4. **Extensibility**: Repository pattern enables easy database migration
 
 ## Future Enhancements

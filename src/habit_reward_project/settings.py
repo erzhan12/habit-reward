@@ -232,7 +232,22 @@ LLM_API_KEY = env('LLM_API_KEY', default=None)  # API key for the LLM provider
 DEFAULT_USER_TELEGRAM_ID = env('DEFAULT_USER_TELEGRAM_ID', default=None)
 
 # Gamification Configuration
-STREAK_MULTIPLIER_RATE = env.float('STREAK_MULTIPLIER_RATE', default=0.1)
+import warnings
+_streak_multiplier_warned = False
+if env('STREAK_MULTIPLIER_RATE', default=None) and not _streak_multiplier_warned:
+    warnings.warn(
+        "STREAK_MULTIPLIER_RATE is deprecated and no longer used. "
+        "Use STREAK_REDUCTION_RATE instead.",
+        DeprecationWarning,
+        stacklevel=1,
+    )
+    _streak_multiplier_warned = True
+STREAK_REDUCTION_RATE = env.float('STREAK_REDUCTION_RATE', default=2.0)  # % reduction per streak day
+if STREAK_REDUCTION_RATE < 0:
+    raise ValueError('STREAK_REDUCTION_RATE must be non-negative')
+MIN_NO_REWARD_PROBABILITY = env.float('MIN_NO_REWARD_PROBABILITY', default=10.0)  # floor %
+if MIN_NO_REWARD_PROBABILITY < 0 or MIN_NO_REWARD_PROBABILITY > 100:
+    raise ValueError('MIN_NO_REWARD_PROBABILITY must be between 0 and 100')
 PROGRESS_BAR_LENGTH = env.int('PROGRESS_BAR_LENGTH', default=10)
 RECENT_LOGS_LIMIT = env.int('RECENT_LOGS_LIMIT', default=10)
 NO_REWARD_PROBABILITY_PERCENT = env.float('NO_REWARD_PROBABILITY_PERCENT', default=50.0)
@@ -257,8 +272,8 @@ HABIT_CATEGORIES = [
 
 # Habit validation limits
 HABIT_NAME_MAX_LENGTH = 100
-HABIT_WEIGHT_MIN = 1
-HABIT_WEIGHT_MAX = 100
+HABIT_WEIGHT_MIN = 0
+HABIT_WEIGHT_MAX = 30
 
 # Web auth rate limit (django-ratelimit format, e.g. '10/m', '5/m')
 AUTH_RATE_LIMIT = env('AUTH_RATE_LIMIT', default='10/m')

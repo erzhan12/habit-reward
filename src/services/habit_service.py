@@ -244,7 +244,8 @@ class HabitService:
                     )
                 )
 
-            total_weight = self.reward_service.calculate_total_weight(
+            effective_no_reward = self.reward_service.calculate_effective_no_reward_probability(
+                base_no_reward=float(user.no_reward_probability),
                 habit_weight=habit_weight,
                 streak_count=streak_count,
             )
@@ -253,7 +254,7 @@ class HabitService:
             # based on each reward's max_daily_claims configuration
             selected_reward = await maybe_await(
                 self.reward_service.select_reward(
-                    total_weight=total_weight,
+                    effective_no_reward_probability=effective_no_reward,
                     user_id=user.id,
                     exclude_reward_ids=[],  # No manual exclusion needed
                     target_date=today,
@@ -283,7 +284,7 @@ class HabitService:
                     got_reward=got_reward,
                     streak_count=streak_count,
                     habit_weight=habit_weight,
-                    total_weight_applied=total_weight,
+                    total_weight_applied=effective_no_reward,
                     last_completed_date=target_date,  # Use target_date for backdating
                 )
                 await maybe_await(self.habit_log_repo.create(habit_log))
@@ -307,7 +308,7 @@ class HabitService:
             snapshot = {
                 "habit_name": habit.name,
                 "streak_count": streak_count,
-                "total_weight": total_weight,
+                "effective_no_reward": effective_no_reward,
                 "selected_reward_name": selected_reward.name if got_reward else None,
             }
 
@@ -336,7 +337,7 @@ class HabitService:
                 cumulative_progress=reward_progress,
                 motivational_quote=None,
                 got_reward=got_reward,
-                total_weight_applied=total_weight,
+                total_weight_applied=effective_no_reward,
             )
 
         return run_sync_or_async(_impl())

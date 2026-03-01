@@ -2115,3 +2115,27 @@ The login `ThreadPoolExecutor` uses `queue.Queue(maxsize=_MAX_QUEUED_LOGINS)` (r
 ### Web Test Files (Updated)
 - `tests/web/test_timing_jitter.py` — timing jitter verification (range, variation, per-status behavior)
 - `tests/web/test_cleanup_command.py` — cleanup_expired_logins management command tests
+
+## Reward Probability Formula (Subtractive System)
+
+Habit weight and streak directly reduce the no-reward probability:
+
+```
+effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDUCTION_RATE), MIN_NO_REWARD_PROBABILITY)
+```
+
+- `base_no_reward`: User's `no_reward_probability` setting (default 50%)
+- `habit_weight`: 0-30, each point = 1% reduction (default 0 = no bonus)
+- `STREAK_REDUCTION_RATE`: 2% per streak day (setting)
+- `MIN_NO_REWARD_PROBABILITY`: 10% floor (setting)
+- Reward chance shown to user = `round(100 - effective_no_reward)`
+
+**Key files**:
+- `src/services/reward_service.py` — `calculate_effective_no_reward_probability()` computes effective %, `select_reward()` uses it directly
+- `src/services/habit_service.py` — fetches `user.no_reward_probability`, calls the formula, passes result to `select_reward()`
+- `src/web/views/dashboard.py` — computes `rewardChance` per habit for frontend display
+- `frontend/src/components/HabitCard.vue` — shows reward chance badge
+- `src/bot/keyboards.py` — weight keyboard values: `[0, 5, 10, 15, 20, 25, 30]`
+- `src/habit_reward_project/settings.py` — `STREAK_REDUCTION_RATE`, `MIN_NO_REWARD_PROBABILITY`
+
+**Migration note**: Old `STREAK_MULTIPLIER_RATE` setting is deprecated. Old `calculate_total_weight()` replaced by `calculate_effective_no_reward_probability()`. Migration `0026` resets all habit weights to 0. `HabitLog.total_weight_applied` now stores effective no-reward % (not the old multiplicative weight).

@@ -339,12 +339,14 @@ def build_language_selection_keyboard(language: str = 'en') -> InlineKeyboardMar
 
 
 def build_weight_selection_keyboard(
-    current_weight: int | None = None, 
+    current_weight: int | None = None,
     language: str = 'en',
     skip_callback: str | None = None
 ) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for habit weight selection (10, 20, 30...100).
+    Build inline keyboard for habit weight selection (0, 5, 10, 15, 20, 25, 30).
+
+    Each point of weight reduces the no-reward probability by 1%.
 
     Args:
         current_weight: Current weight value (will be highlighted with ✓)
@@ -354,10 +356,11 @@ def build_weight_selection_keyboard(
     Returns:
         InlineKeyboardMarkup with weight buttons
     """
+    weight_values = [0, 5, 10, 15, 20, 25, 30]
     keyboard = []
     row = []
 
-    for weight in range(10, 101, 10):
+    for weight in weight_values:
         # Highlight current weight with checkmark
         button_text = f"✓ {weight}" if current_weight == weight else str(weight)
         button = InlineKeyboardButton(
@@ -366,8 +369,8 @@ def build_weight_selection_keyboard(
         )
         row.append(button)
 
-        # Create rows of 5 buttons each
-        if len(row) == 5:
+        # Create rows of 4 buttons each
+        if len(row) == 4:
             keyboard.append(row)
             row = []
 

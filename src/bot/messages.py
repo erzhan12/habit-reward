@@ -146,7 +146,7 @@ Track your habits and earn rewards!
 4. Earn reward pieces (cumulative rewards)
 5. Claim rewards when you have enough pieces
 
-Your streak multiplier increases your chances of getting rewards!"""
+Higher streaks and habit weights increase your reward chances by reducing the no-reward probability!"""
 
     # Formatter Messages
     FORMAT_STREAK = "<b>Streak:</b> {streak_count} days"
@@ -161,7 +161,7 @@ Your streak multiplier increases your chances of getting rewards!"""
 
     # Habit Management Messages
     HELP_ADD_HABIT_NAME_PROMPT = "Please enter the name for your new habit:"
-    HELP_ADD_HABIT_WEIGHT_PROMPT = "Select the weight for this habit (1-100). Weight affects reward chances:"
+    HELP_ADD_HABIT_WEIGHT_PROMPT = "Select the weight for this habit (0-30).\n\nEach point reduces the no-reward chance by 1%:"
     HELP_ADD_HABIT_CATEGORY_PROMPT = "Select a category for this habit:"
     HELP_ADD_HABIT_GRACE_DAYS_PROMPT = "How many grace days for this habit?\n\n<b>Grace days</b> allow you to skip days without breaking your streak.\n\nExample: With 1 grace day, you can miss one day and still maintain your streak."
     HELP_ADD_HABIT_EXEMPT_DAYS_PROMPT = "Select days that don't count against your streak:\n\n<b>Exempt days</b> are days of the week (like weekends) that won't break your streak if you don't complete the habit."
@@ -183,7 +183,7 @@ Your streak multiplier increases your chances of getting rewards!"""
     ERROR_HABIT_NAME_TOO_LONG = "❌ Habit name is too long (max 100 characters)."
     ERROR_HABIT_NAME_EMPTY = "❌ Habit name cannot be empty."
     ERROR_HABIT_NAME_EXISTS = "❌ You already have a habit named '<b>{name}</b>'.\n\nPlease choose a different name:"
-    ERROR_WEIGHT_INVALID = "❌ Invalid weight. Please select a value between 1-100."
+    ERROR_WEIGHT_INVALID = "❌ Invalid weight. Please select a value between 0-30."
     HELP_EDIT_HABIT_SELECT = "Select a habit to edit:"
     HELP_EDIT_HABIT_NAME_PROMPT = "Current name: <b>{current_name}</b>\n\nEnter new name:"
     HELP_EDIT_HABIT_WEIGHT_PROMPT = "Current weight: <b>{current_weight}</b>\n\nSelect new weight:"
@@ -471,7 +471,7 @@ Use this key in your app with the header:
 4. Зарабатывайте части наград (накопительные награды)
 5. Забирайте награды, когда наберёте достаточно частей
 
-Множитель серий увеличивает шансы получения наград!""",
+Высокие серии и вес привычек увеличивают шансы на награды, уменьшая вероятность отсутствия награды!""",
 
             # Formatter Messages
             'FORMAT_STREAK': "<b>Серия:</b> {streak_count} дней",
@@ -486,7 +486,7 @@ Use this key in your app with the header:
 
             # Habit Management Messages
             'HELP_ADD_HABIT_NAME_PROMPT': "Введите название для новой привычки:",
-            'HELP_ADD_HABIT_WEIGHT_PROMPT': "Выберите вес для этой привычки (1-100). Вес влияет на шансы получения наград:",
+            'HELP_ADD_HABIT_WEIGHT_PROMPT': "Выберите вес для этой привычки (0-30).\n\nКаждый пункт уменьшает шанс \"без награды\" на 1%:",
             'HELP_ADD_HABIT_CATEGORY_PROMPT': "Выберите категорию для этой привычки:",
             'HELP_ADD_HABIT_GRACE_DAYS_PROMPT': "Сколько дней отсрочки (grace days) для этой привычки?\n\n<b>Дни отсрочки</b> позволяют пропускать дни без потери серии.\n\nПример: С 1 днём отсрочки вы можете пропустить один день и сохранить серию.",
             'HELP_ADD_HABIT_EXEMPT_DAYS_PROMPT': "Выберите дни, которые не учитываются в серии:\n\n<b>Исключённые дни</b> — это дни недели (например, выходные), которые не прервут вашу серию, если вы не выполните привычку.",
@@ -507,7 +507,7 @@ Use this key in your app with the header:
             'HELP_HABIT_CREATED_NEXT': "🧩 <b>Ваши привычки:</b>",
             'ERROR_HABIT_NAME_TOO_LONG': "❌ Название привычки слишком длинное (макс. 100 символов).",
             'ERROR_HABIT_NAME_EMPTY': "❌ Название привычки не может быть пустым.",
-            'ERROR_WEIGHT_INVALID': "❌ Неверный вес. Выберите значение от 1 до 100.",
+            'ERROR_WEIGHT_INVALID': "❌ Неверный вес. Выберите значение от 0 до 30.",
             'HELP_EDIT_HABIT_SELECT': "Выберите привычку для редактирования:",
             'HELP_EDIT_HABIT_NAME_PROMPT': "Текущее название: <b>{current_name}</b>\n\nВведите новое название:",
             'HELP_EDIT_HABIT_WEIGHT_PROMPT': "Текущий вес: <b>{current_weight}</b>\n\nВыберите новый вес:",
@@ -793,7 +793,7 @@ Use this key in your app with the header:
 4. Сыйлық бөліктерін жинаңыз (жинақталатын сыйлықтар)
 5. Жеткілікті бөліктер жинағанда сыйлықтарды алыңыз
 
-Сериялар көбейткіші сыйлық алу мүмкіндігін арттырады!""",
+Жоғары сериялар мен әдет салмағы сыйлық алу мүмкіндігін арттырады, сыйлық алмау ықтималдығын азайтады!""",
 
             # Formatter Messages
             'FORMAT_STREAK': "<b>Серия:</b> {streak_count} күн",
@@ -808,7 +808,7 @@ Use this key in your app with the header:
 
             # Habit Management Messages
             'HELP_ADD_HABIT_NAME_PROMPT': "Жаңа әдеттің атын енгізіңіз:",
-            'HELP_ADD_HABIT_WEIGHT_PROMPT': "Осы әдет үшін салмақты таңдаңыз (1-100). Салмақ сыйлық мүмкіндігіне әсер етеді:",
+            'HELP_ADD_HABIT_WEIGHT_PROMPT': "Осы әдет үшін салмақты таңдаңыз (0-30).\n\nӘр ұпай \"сыйлықсыз\" мүмкіндігін 1%-ға азайтады:",
             'HELP_ADD_HABIT_CATEGORY_PROMPT': "Осы әдет үшін санатты таңдаңыз:",
             'HELP_ADD_HABIT_GRACE_DAYS_PROMPT': "Бұл әдет үшін қанша күн шегерім (grace days) керек?\n\n<b>Шегерім күндері</b> серияны үзбей күндерді өткізіп жіберуге мүмкіндік береді.\n\nМысалы: 1 шегерім күнімен сіз бір күнді өткізіп жіберіп, серияны сақтай аласыз.",
             'HELP_ADD_HABIT_EXEMPT_DAYS_PROMPT': "Серияға әсер етпейтін күндерді таңдаңыз:\n\n<b>Ерекше күндер</b> — бұл әдетті орындамасаңыз да серияңызды үзбейтін апта күндері (мысалы, демалыс күндері).",
@@ -830,7 +830,7 @@ Use this key in your app with the header:
             'ERROR_HABIT_NAME_TOO_LONG': "❌ Әдет атауы тым ұзын (макс. 100 таңба).",
             'ERROR_HABIT_NAME_EMPTY': "❌ Әдет атауы бос болуы мүмкін емес.",
             'ERROR_HABIT_NAME_EXISTS': "❌ Сізде '<b>{name}</b>' атты әдет бар.\n\nБасқа атау таңдаңыз:",
-            'ERROR_WEIGHT_INVALID': "❌ Қате салмақ. 1-ден 100-ге дейін мән таңдаңыз.",
+            'ERROR_WEIGHT_INVALID': "❌ Қате салмақ. 0-ден 30-ға дейін мән таңдаңыз.",
             'HELP_EDIT_HABIT_SELECT': "Өңдеу үшін әдетті таңдаңыз:",
             'HELP_EDIT_HABIT_NAME_PROMPT': "Ағымдағы аты: <b>{current_name}</b>\n\nЖаңа атын енгізіңіз:",
             'HELP_EDIT_HABIT_WEIGHT_PROMPT': "Ағымдағы салмақ: <b>{current_weight}</b>\n\nЖаңа салмақты таңдаңыз:",

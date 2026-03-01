@@ -85,7 +85,7 @@ class HabitCreateRequest(BaseModel):
     """Habit creation request."""
 
     name: str = Field(..., min_length=1, max_length=100)
-    weight: int = Field(default=10, ge=1, le=100)
+    weight: int = Field(default=0, ge=0, le=30)
     category: str | None = Field(default=None, max_length=100)
     allowed_skip_days: int = Field(default=0, ge=0, le=7)
     exempt_weekdays: list[int] = Field(default_factory=list)
@@ -95,7 +95,7 @@ class HabitUpdateRequest(BaseModel):
     """Habit update request."""
 
     name: str | None = Field(default=None, min_length=1, max_length=100)
-    weight: int | None = Field(default=None, ge=1, le=100)
+    weight: int | None = Field(default=None, ge=0, le=30)
     category: str | None = None
     allowed_skip_days: int | None = Field(default=None, ge=0, le=7)
     exempt_weekdays: list[int] | None = None
