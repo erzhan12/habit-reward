@@ -92,22 +92,54 @@ class TestGetUserRewardProgress:
         assert result[0].reward_id == 2
 
     @pytest.mark.asyncio
-    async def test_service_trusts_repo_active_filter(self, service):
-        """Service relies on the repository to filter inactive rewards at DB level.
+    async def test_repo_filters_inactive_rewards_at_db_level(self):
+        """Integration test: get_all_by_user only returns progress for active rewards.
 
-        The repo query uses reward__active=True, so the service should not
-        receive inactive rewards. This test verifies the service correctly
-        passes through whatever the repo returns without additional filtering.
+        Creates both an active and inactive reward with progress, then verifies
+        the repository's reward__active=True filter excludes the inactive one.
         """
-        # Repo returns only active rewards (as it would with reward__active=True)
-        service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),
-            _make_progress(pieces_earned=3, pieces_required=10, reward_id=2),
-        ]
+        from src.core.models import User, Reward
+        from src.core.models import RewardProgress as DjangoRewardProgress
+        from src.core.repositories import RewardProgressRepository
 
-        result = await service.get_user_reward_progress("1")
+        user = await User.objects.acreate(
+            telegram_id="999888777",
+            name="Filter Test User",
+            username="filter_test",
+        )
 
-        assert [r.reward_id for r in result] == [1, 2]
+        try:
+            active_reward = await Reward.objects.acreate(
+                user=user,
+                name="Active Reward",
+                weight=10.0,
+                pieces_required=5,
+                active=True,
+            )
+            inactive_reward = await Reward.objects.acreate(
+                user=user,
+                name="Inactive Reward",
+                weight=10.0,
+                pieces_required=5,
+                active=False,
+            )
+
+            await DjangoRewardProgress.objects.acreate(
+                user=user, reward=active_reward, pieces_earned=2,
+            )
+            await DjangoRewardProgress.objects.acreate(
+                user=user, reward=inactive_reward, pieces_earned=3,
+            )
+
+            repo = RewardProgressRepository()
+            results = await repo.get_all_by_user(user.id)
+
+            assert len(results) == 1
+            assert results[0].reward_id == active_reward.id
+        finally:
+            await DjangoRewardProgress.objects.filter(user=user).adelete()
+            await Reward.objects.filter(user=user).adelete()
+            await user.adelete()
 
     # ------------------------------------------------------------------
     # Ordering
