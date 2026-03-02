@@ -244,6 +244,8 @@ class HabitLogAdmin(admin.ModelAdmin):
                                 # If was claimed, mark as unclaimed
                                 if progress.claimed:
                                     progress.claimed = False
+                                    if progress.times_claimed > 0:
+                                        progress.times_claimed -= 1
 
                                 progress.save()
                                 logger.info(

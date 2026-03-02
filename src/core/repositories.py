@@ -501,6 +501,8 @@ class RewardProgressRepository:
 
         if progress.claimed or new_pieces < progress.pieces_earned:
             updates["claimed"] = False
+            if progress.claimed and progress.times_claimed > 0:
+                updates["times_claimed"] = progress.times_claimed - 1
 
         if not updates:
             return progress
