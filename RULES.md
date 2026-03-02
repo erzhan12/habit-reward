@@ -1752,16 +1752,16 @@ When a repository query already includes `.order_by()`, do NOT add a redundant s
 
 ```python
 # ✅ Good - Repository handles sorting
-async def get_claimed_non_recurring_by_user(self, user_id):
+async def get_ever_claimed_by_user(self, user_id):
     return await sync_to_async(list)(
         RewardProgress.objects.filter(
-            user_id=user_pk, claimed=True, reward__is_recurring=False,
+            user_id=user_pk, times_claimed__gt=0,
         ).select_related("reward", "user").order_by("reward__name")
     )
 
 # Service just coerces, no re-sort needed
 async def _impl():
-    results = await maybe_await(self.progress_repo.get_claimed_non_recurring_by_user(user_id))
+    results = await maybe_await(self.progress_repo.get_ever_claimed_by_user(user_id))
     return [self._coerce_progress(r) for r in results]
 
 # ❌ Bad - Redundant sort in service
@@ -2155,5 +2155,5 @@ effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDU
 - `frontend/src/pages/Rewards.vue` — shows `×N` badge
 - Migration: `0027_add_times_claimed_to_rewardprogress.py` (backfills `times_claimed=1` for existing `claimed=True` rows)
 
-### Claimed Rewards Query — No `active` Filter
-`get_claimed_non_recurring_by_user()` does NOT filter by `reward__active=True`. Non-recurring rewards auto-deactivate after claim, so filtering by active would hide them from the claimed list. The filter was intentionally removed.
+### Claimed Rewards Query — `times_claimed__gt=0`
+`get_ever_claimed_by_user()` filters by `times_claimed__gt=0` (not `claimed=True`). This ensures recurring rewards appear in the Claimed Rewards list even when their `claimed` flag has been reset to `False` after a new piece cycle. The query does NOT filter by `reward__active` or `reward__is_recurring` — all rewards ever claimed are shown. Service method: `reward_service.get_claimed_rewards()`.

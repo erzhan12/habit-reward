@@ -11,7 +11,7 @@ class TestRewards:
     @patch("src.web.views.rewards.reward_service")
     def test_rewards_returns_200(self, mock_rs, auth_client):
         mock_rs.get_user_reward_progress.return_value = []
-        mock_rs.get_claimed_one_time_rewards.return_value = []
+        mock_rs.get_claimed_rewards.return_value = []
         response = auth_client.get("/rewards/")
         assert response.status_code == 200
 
@@ -19,7 +19,7 @@ class TestRewards:
     def test_rewards_with_progress(self, mock_rs, auth_client):
         progress = _mock_progress(status_name="PENDING")
         mock_rs.get_user_reward_progress.return_value = [progress]
-        mock_rs.get_claimed_one_time_rewards.return_value = []
+        mock_rs.get_claimed_rewards.return_value = []
         response = auth_client.get("/rewards/")
         assert response.status_code == 200
 
@@ -28,7 +28,7 @@ class TestRewards:
         """Verify status is sent as .name (ACHIEVED) not .value (emoji)."""
         progress = _mock_progress(status_name="ACHIEVED")
         mock_rs.get_user_reward_progress.return_value = [progress]
-        mock_rs.get_claimed_one_time_rewards.return_value = []
+        mock_rs.get_claimed_rewards.return_value = []
         response = auth_client.get("/rewards/")
         assert response.status_code == 200
         progress.get_status.assert_called()

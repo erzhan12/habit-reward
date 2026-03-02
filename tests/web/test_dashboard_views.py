@@ -229,7 +229,7 @@ class TestPropStructure:
     def test_rewards_prop_structure(self, mock_rs, auth_client):
         progress = _mock_progress(pieces_earned=2, pieces_required=5, status_name="PENDING")
         mock_rs.get_user_reward_progress.return_value = [progress]
-        mock_rs.get_claimed_one_time_rewards.return_value = []
+        mock_rs.get_claimed_rewards.return_value = []
 
         response = auth_client.get("/rewards/", **INERTIA_HEADERS)
         component, props = _inertia_props(response)

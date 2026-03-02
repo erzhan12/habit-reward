@@ -51,8 +51,8 @@ def _make_reward(
     )
 
 
-class TestGetClaimedOneTimeRewards:
-    """Tests for RewardService.get_claimed_one_time_rewards()."""
+class TestGetClaimedRewards:
+    """Tests for RewardService.get_claimed_rewards()."""
 
     @pytest.fixture
     def service(self):
@@ -63,33 +63,33 @@ class TestGetClaimedOneTimeRewards:
     @pytest.mark.asyncio
     async def test_empty_when_no_claimed(self, service):
         """Returns empty list when user has no claimed one-time rewards."""
-        service.progress_repo.get_claimed_non_recurring_by_user.return_value = []
+        service.progress_repo.get_ever_claimed_by_user.return_value = []
 
-        result = await service.get_claimed_one_time_rewards("42")
+        result = await service.get_claimed_rewards("42")
 
         assert result == []
-        service.progress_repo.get_claimed_non_recurring_by_user.assert_called_once_with("42")
+        service.progress_repo.get_ever_claimed_by_user.assert_called_once_with("42")
 
     @pytest.mark.asyncio
     async def test_returns_claimed_non_recurring(self, service):
         """Returns claimed non-recurring rewards."""
-        service.progress_repo.get_claimed_non_recurring_by_user.return_value = [
+        service.progress_repo.get_ever_claimed_by_user.return_value = [
             _make_progress(pieces_earned=0, pieces_required=5, claimed=True, reward_id=1),
             _make_progress(pieces_earned=0, pieces_required=3, claimed=True, reward_id=2),
         ]
 
-        result = await service.get_claimed_one_time_rewards("42")
+        result = await service.get_claimed_rewards("42")
 
         assert len(result) == 2
 
     @pytest.mark.asyncio
     async def test_coerces_results(self, service):
         """Results are coerced through _coerce_progress."""
-        service.progress_repo.get_claimed_non_recurring_by_user.return_value = [
+        service.progress_repo.get_ever_claimed_by_user.return_value = [
             _make_progress(pieces_earned=0, pieces_required=5, claimed=True, reward_id=1),
         ]
 
-        result = await service.get_claimed_one_time_rewards("42")
+        result = await service.get_claimed_rewards("42")
 
         assert len(result) == 1
         # Coerced result should have get_status() returning CLAIMED
@@ -103,13 +103,13 @@ class TestGetClaimedOneTimeRewards:
         reward_z = _make_reward(reward_id=3, name="Zebra Trip")
 
         # Repo returns already sorted by reward__name
-        service.progress_repo.get_claimed_non_recurring_by_user.return_value = [
+        service.progress_repo.get_ever_claimed_by_user.return_value = [
             _make_progress(reward_id=1, claimed=True, reward=reward_a),
             _make_progress(reward_id=2, claimed=True, reward=reward_m),
             _make_progress(reward_id=3, claimed=True, reward=reward_z),
         ]
 
-        result = await service.get_claimed_one_time_rewards("42")
+        result = await service.get_claimed_rewards("42")
 
         names = [r.reward.name for r in result]
         assert names == ["Apple Juice", "Movie Night", "Zebra Trip"]
@@ -119,26 +119,27 @@ class TestGetClaimedOneTimeRewards:
         """Unclaimed non-recurring rewards are NOT returned (filtered by repo)."""
         # The repo method only returns claimed=True, so if it returns nothing
         # for unclaimed progress, the service should return empty.
-        service.progress_repo.get_claimed_non_recurring_by_user.return_value = []
+        service.progress_repo.get_ever_claimed_by_user.return_value = []
 
-        result = await service.get_claimed_one_time_rewards("42")
+        result = await service.get_claimed_rewards("42")
 
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_recurring_claimed_excluded_by_repo(self, service):
-        """Recurring claimed rewards are excluded (filtered by repo query)."""
-        # The repo filters reward__is_recurring=False, so recurring rewards
-        # should never appear. We verify the service passes through correctly.
-        service.progress_repo.get_claimed_non_recurring_by_user.return_value = [
-            _make_progress(reward_id=1, claimed=True, pieces_required=5),
+    async def test_recurring_claimed_included(self, service):
+        """Recurring rewards with times_claimed > 0 are included."""
+        recurring_reward = _make_reward(reward_id=1, name="Recurring", is_recurring=True)
+        one_time_reward = _make_reward(reward_id=2, name="One-time", is_recurring=False)
+        service.progress_repo.get_ever_claimed_by_user.return_value = [
+            _make_progress(reward_id=1, claimed=False, times_claimed=3, reward=recurring_reward),
+            _make_progress(reward_id=2, claimed=True, times_claimed=1, reward=one_time_reward),
         ]
 
-        result = await service.get_claimed_one_time_rewards("42")
+        result = await service.get_claimed_rewards("42")
 
-        # Only the non-recurring one from the repo is returned
-        assert len(result) == 1
+        assert len(result) == 2
         assert result[0].reward_id == 1
+        assert result[1].reward_id == 2
 
 
 class TestFormatClaimedRewardsMessage:
@@ -319,7 +320,7 @@ class TestClaimedRewardsHandler:
         mock_user.is_active = True
         mock_user.language = 'en'
         mock_user_repo.get_by_telegram_id = AsyncMock(return_value=mock_user)
-        mock_reward_svc.get_claimed_one_time_rewards = AsyncMock(return_value=[])
+        mock_reward_svc.get_claimed_rewards = AsyncMock(return_value=[])
 
         from src.bot.handlers.reward_handlers import claimed_rewards_command
         await claimed_rewards_command(mock_update, mock_context)

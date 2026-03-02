@@ -467,21 +467,20 @@ class RewardProgressRepository:
         # Attach cached pieces_required to each progress object
         return [self._attach_cached_pieces_required(p) for p in achieved_list]
 
-    async def get_claimed_non_recurring_by_user(self, user_id: int | str) -> list[RewardProgress]:
-        """Get claimed one-time (non-recurring) rewards for a user.
+    async def get_ever_claimed_by_user(self, user_id: int | str) -> list[RewardProgress]:
+        """Get all rewards ever claimed by a user (times_claimed > 0).
 
         Args:
             user_id: User primary key
 
         Returns:
-            List of RewardProgress instances where claimed=True and reward.is_recurring=False
+            List of RewardProgress instances where times_claimed > 0
         """
         user_pk = int(user_id) if isinstance(user_id, str) else user_id
         claimed_list = await sync_to_async(list)(
             RewardProgress.objects.filter(
                 user_id=user_pk,
-                claimed=True,
-                reward__is_recurring=False,
+                times_claimed__gt=0,
             ).select_related("reward", "user").order_by("reward__name")
         )
         return [self._attach_cached_pieces_required(p) for p in claimed_list]
