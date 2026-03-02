@@ -434,6 +434,55 @@ class TestCumulativeProgress:
 
         mock_reward_repo.update.assert_called_once_with("r1", {"active": False})
 
+    def test_mark_non_recurring_reward_sets_claimed_true(
+        self, reward_service, mock_progress_repo, mock_reward_repo
+    ):
+        """Test one-time rewards get claimed=True when marked as claimed."""
+        achieved_progress = RewardProgress(
+            id="prog1",
+            user_id="user123",
+            reward_id="r1",
+            pieces_earned=10,
+            status=RewardStatus.ACHIEVED,
+            pieces_required=10,
+            claimed=False,
+        )
+        mock_progress_repo.get_by_user_and_reward.return_value = achieved_progress
+
+        def mock_update(progress_id, updates):
+            return RewardProgress(
+                id=progress_id,
+                user_id="user123",
+                reward_id="r1",
+                pieces_earned=0,
+                status=RewardStatus.CLAIMED,
+                pieces_required=10,
+                claimed=True,
+            )
+
+        mock_progress_repo.update.side_effect = mock_update
+
+        mock_reward_repo.get_by_id.return_value = Reward(
+            id="r1",
+            name="One-time Reward",
+            weight=10.0,
+            pieces_required=10,
+            is_recurring=False,
+        )
+
+        with patch.object(reward_service, 'progress_repo', mock_progress_repo), \
+             patch.object(reward_service, 'reward_repo', mock_reward_repo):
+            updated = reward_service.mark_reward_claimed("user123", "r1")
+
+        from django.db.models import F
+        call_args = mock_progress_repo.update.call_args
+        updates = call_args[0][1]
+        assert updates["claimed"] is True  # One-time: stays CLAIMED
+        assert updates["pieces_earned"] == 0
+        assert str(updates["times_claimed"]) == str(F("times_claimed") + 1)
+        assert updated.get_status() == RewardStatus.CLAIMED
+        assert updated.claimed is True
+
 
 class TestCreateReward:
     """Test reward creation helper."""

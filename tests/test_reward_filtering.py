@@ -94,6 +94,20 @@ class TestGetUserRewardProgress:
         assert result[0].reward_id == 2
 
     @pytest.mark.asyncio
+    async def test_recurring_reward_with_zero_pieces_visible(self, service):
+        """Recurring reward with claimed=False and pieces_earned=0 must appear (fresh cycle after claim)."""
+        service.progress_repo.get_all_by_user.return_value = [
+            _make_progress(pieces_earned=0, pieces_required=5, claimed=False, times_claimed=3, reward_id=1),
+            _make_progress(pieces_earned=4, pieces_required=10, reward_id=2),
+        ]
+
+        result = await service.get_user_reward_progress("1")
+
+        assert len(result) == 2
+        # Pending (40%) first, then never-won (0/5) last
+        assert [r.reward_id for r in result] == [2, 1]
+
+    @pytest.mark.asyncio
     async def test_repo_filters_inactive_rewards_at_db_level(self):
         """Integration test: get_all_by_user only returns progress for active rewards.
 
