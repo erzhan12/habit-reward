@@ -153,6 +153,7 @@ Higher streaks and habit weights increase your reward chances by reducing the no
     FORMAT_REWARD = "🎁 <b>Reward:</b> {reward_name}"
     FORMAT_PROGRESS = "📊 Progress: {progress_bar} {pieces_earned}/{pieces_required}"
     LABEL_PIECES = "pieces"
+    LABEL_TIMES_CLAIMED = "claimed {count} time(s)"
     FORMAT_STATUS = "Status: {status}"
     FORMAT_READY_TO_CLAIM = "⏳ <b>Ready to claim!</b>"
     FORMAT_NO_REWARDS_YET = "No rewards configured yet."
@@ -478,6 +479,7 @@ Use this key in your app with the header:
             'FORMAT_REWARD': "🎁 <b>Награда:</b> {reward_name}",
             'FORMAT_PROGRESS': "📊 Прогресс: {progress_bar} {pieces_earned}/{pieces_required}",
             'LABEL_PIECES': "частей",
+            'LABEL_TIMES_CLAIMED': "получено {count} раз(а)",
             'FORMAT_STATUS': "Статус: {status}",
             'FORMAT_READY_TO_CLAIM': "⏳ <b>Готово к получению!</b>",
             'FORMAT_NO_REWARDS_YET': "Награды ещё не настроены.",
@@ -800,6 +802,7 @@ Use this key in your app with the header:
             'FORMAT_REWARD': "🎁 <b>Сыйлық:</b> {reward_name}",
             'FORMAT_PROGRESS': "📊 Прогресс: {progress_bar} {pieces_earned}/{pieces_required}",
             'LABEL_PIECES': "бөліктер",
+            'LABEL_TIMES_CLAIMED': "{count} рет алынды",
             'FORMAT_STATUS': "Статус: {status}",
             'FORMAT_READY_TO_CLAIM': "⏳ <b>Алуға дайын!</b>",
             'FORMAT_NO_REWARDS_YET': "Сыйлықтар әлі конфигурацияланбаған.",

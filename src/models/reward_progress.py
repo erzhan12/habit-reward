@@ -21,6 +21,7 @@ class RewardProgress(BaseModel):
     pieces_earned: int = Field(default=0, description="Number of pieces earned so far")
     pieces_required: int | None = Field(default=None, description="Cached from reward for calculations")
     claimed: bool = Field(default=False, description="Whether user has claimed this reward")
+    times_claimed: int = Field(default=0, description="Number of times this reward has been claimed")
     reward: object | None = Field(default=None, description="Optional reward payload for convenience")
 
     # --- Computed fields (always derived, never set directly) ---

@@ -16,6 +16,7 @@ def _make_progress(
     pieces_earned: int = 0,
     pieces_required: int = 5,
     claimed: bool = False,
+    times_claimed: int = 0,
     reward_id: int = 1,
     user_id: int = 42,
     reward: Reward | None = None,
@@ -28,6 +29,7 @@ def _make_progress(
         pieces_earned=pieces_earned,
         pieces_required=pieces_required,
         claimed=claimed,
+        times_claimed=times_claimed,
         reward=reward,
     )
 
@@ -188,6 +190,46 @@ class TestFormatClaimedRewardsMessage:
         result = format_claimed_rewards_message([], {}, 'en')
 
         assert "<b>Claimed Rewards:</b>" in result
+
+    def test_shows_times_claimed_when_positive(self):
+        """Formatter shows 'claimed X time(s)' when times_claimed > 0."""
+        progress = _make_progress(
+            pieces_earned=0, pieces_required=5, claimed=True,
+            times_claimed=3, reward_id=1,
+        )
+        reward = _make_reward(reward_id=1, name="Coffee", pieces_required=5)
+        rewards_dict = {1: reward}
+
+        result = format_claimed_rewards_message([progress], rewards_dict, 'en')
+
+        assert "claimed 3 time(s)" in result
+
+    def test_hides_times_claimed_when_zero(self):
+        """Formatter does NOT show 'claimed X time(s)' when times_claimed is 0."""
+        progress = _make_progress(
+            pieces_earned=0, pieces_required=5, claimed=True,
+            times_claimed=0, reward_id=1,
+        )
+        reward = _make_reward(reward_id=1, name="Coffee", pieces_required=5)
+        rewards_dict = {1: reward}
+
+        result = format_claimed_rewards_message([progress], rewards_dict, 'en')
+
+        assert "claimed" not in result.split("\n")[1]  # skip header line
+        assert "time(s)" not in result
+
+    def test_times_claimed_russian_translation(self):
+        """Formatter shows Russian translation of times_claimed."""
+        progress = _make_progress(
+            pieces_earned=0, pieces_required=5, claimed=True,
+            times_claimed=2, reward_id=1,
+        )
+        reward = _make_reward(reward_id=1, name="Coffee", pieces_required=5)
+        rewards_dict = {1: reward}
+
+        result = format_claimed_rewards_message([progress], rewards_dict, 'ru')
+
+        assert "получено 2 раз(а)" in result
 
 
 class TestRewardsMenuKeyboard:

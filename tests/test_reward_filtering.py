@@ -12,6 +12,7 @@ def _make_progress(
     pieces_earned: int,
     pieces_required: int | None,
     claimed: bool = False,
+    times_claimed: int = 0,
     progress_id: int | None = None,
     reward_id: int = 99,
     user_id: int = 42,
@@ -24,6 +25,7 @@ def _make_progress(
         pieces_earned=pieces_earned,
         pieces_required=pieces_required,
         claimed=claimed,
+        times_claimed=times_claimed,
     )
 
 

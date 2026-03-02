@@ -35,6 +35,7 @@
         >
           <span class="text-accent">&#10003;</span>
           <span class="text-sm text-text-secondary">{{ reward.name }}</span>
+          <span v-if="reward.timesClaimed > 0" class="ml-auto text-xs text-text-secondary">&times;{{ reward.timesClaimed }}</span>
         </div>
       </div>
     </div>

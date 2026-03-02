@@ -378,11 +378,15 @@ class TestCumulativeProgress:
              patch.object(reward_service, 'reward_repo', mock_reward_repo):
             updated = reward_service.mark_reward_claimed("user123", "r1")
 
-        # Verify update was called with claimed=True AND pieces_earned=0
-        mock_progress_repo.update.assert_called_once_with(
-            "prog1",
-            {"claimed": True, "pieces_earned": 0}
-        )
+        # Verify update was called with claimed=True, pieces_earned=0, and times_claimed increment
+        from django.db.models import F
+        mock_progress_repo.update.assert_called_once()
+        call_args = mock_progress_repo.update.call_args
+        assert call_args[0][0] == "prog1"
+        updates = call_args[0][1]
+        assert updates["claimed"] is True
+        assert updates["pieces_earned"] == 0
+        assert str(updates["times_claimed"]) == str(F("times_claimed") + 1)
         # Status should be CLAIMED after claiming
         assert updated.get_status() == RewardStatus.CLAIMED
         assert updated.claimed is True

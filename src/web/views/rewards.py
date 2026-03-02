@@ -52,6 +52,7 @@ async def rewards_page(request):
             "id": reward.id,
             "name": reward.name,
             "claimedAt": progress.updated_at.isoformat() if progress.updated_at else None,
+            "timesClaimed": getattr(progress, 'times_claimed', 0),
         })
 
     return inertia_render(request, "Rewards", props={
