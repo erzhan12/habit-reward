@@ -444,11 +444,14 @@ class RewardService:
                 raise ValueError("Reward not found")
 
             # Update progress (reset pieces and mark claimed)
+            # Recurring rewards: claimed=False so they immediately return to
+            # PENDING status and remain visible for the next earning cycle.
+            # One-time rewards: claimed=True (then auto-deactivated below).
             updated_progress = await maybe_await(
                 self.progress_repo.update(
                     progress.id,
                     {
-                        "claimed": True,
+                        "claimed": not reward.is_recurring,
                         "pieces_earned": 0,  # Reset counter for fresh start
                         "times_claimed": F("times_claimed") + 1,
                     },

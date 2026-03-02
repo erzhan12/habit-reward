@@ -232,6 +232,14 @@ uv run pytest tests/ -v -m "not local_only"  # CI mode
 
 **Key methods**: `update_reward_progress()` (smart increment) | `mark_reward_claimed()` (reset + claim)
 
+### Recurring vs One-Time Rewards
+
+**Recurring** (`is_recurring=True`): After claiming, `mark_reward_claimed()` sets `claimed=False` so the reward immediately returns to PENDING status (fresh cycle). Stays visible in reward lists. `times_claimed` tracks total claims across cycles.
+
+**One-time** (`is_recurring=False`): After claiming, `mark_reward_claimed()` sets `claimed=True` (CLAIMED status) and auto-deactivates the reward (`active=False`). Disappears from active reward lists.
+
+**Key difference in code**: `"claimed": not reward.is_recurring` in `mark_reward_claimed()` (`src/services/reward_service.py`).
+
 ### Daily Frequency Control
 
 `Reward.max_daily_claims`: NULL/0=unlimited, 1+=limit. Counts individual pieces (claimed+unclaimed). Rewards at limit or completed are excluded from lottery selection.

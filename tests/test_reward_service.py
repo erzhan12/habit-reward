@@ -338,7 +338,7 @@ class TestCumulativeProgress:
         assert updated.get_status() == RewardStatus.ACHIEVED
 
     def test_mark_reward_claimed(self, reward_service, mock_progress_repo, mock_reward_repo):
-        """Test marking reward as claimed (Feature 0014: also resets pieces_earned)."""
+        """Test marking recurring reward as claimed resets to PENDING for next cycle."""
         achieved_progress = RewardProgress(
             id="prog1",
             user_id="user123",
@@ -351,20 +351,20 @@ class TestCumulativeProgress:
         mock_progress_repo.get_by_user_and_reward.return_value = achieved_progress
 
         def mock_update(progress_id, updates):
-            # When claimed=True is set and pieces_earned=0, status becomes CLAIMED
+            # Recurring rewards: claimed=False so they return to PENDING
             return RewardProgress(
                 id=progress_id,
                 user_id="user123",
                 reward_id="r1",
-                pieces_earned=0,  # Reset to 0 as per Feature 0014
-                status=RewardStatus.CLAIMED,
+                pieces_earned=0,
+                status=RewardStatus.PENDING,
                 pieces_required=10,
-                claimed=True
+                claimed=False
             )
 
         mock_progress_repo.update.side_effect = mock_update
 
-        # Mock reward repository to return a reward
+        # Mock reward repository to return a recurring reward
         mock_reward = Reward(
             id="r1",
             name="Test Reward",
@@ -378,18 +378,18 @@ class TestCumulativeProgress:
              patch.object(reward_service, 'reward_repo', mock_reward_repo):
             updated = reward_service.mark_reward_claimed("user123", "r1")
 
-        # Verify update was called with claimed=True, pieces_earned=0, and times_claimed increment
+        # Verify update was called with claimed=False (recurring), pieces_earned=0, and times_claimed increment
         from django.db.models import F
         mock_progress_repo.update.assert_called_once()
         call_args = mock_progress_repo.update.call_args
         assert call_args[0][0] == "prog1"
         updates = call_args[0][1]
-        assert updates["claimed"] is True
+        assert updates["claimed"] is False  # Recurring: immediately back to PENDING
         assert updates["pieces_earned"] == 0
         assert str(updates["times_claimed"]) == str(F("times_claimed") + 1)
-        # Status should be CLAIMED after claiming
-        assert updated.get_status() == RewardStatus.CLAIMED
-        assert updated.claimed is True
+        # Status should be PENDING for recurring rewards (fresh cycle)
+        assert updated.get_status() == RewardStatus.PENDING
+        assert updated.claimed is False
         assert updated.pieces_earned == 0  # Verify pieces reset
 
     def test_mark_non_recurring_reward_claimed_deactivates_reward(
@@ -433,6 +433,55 @@ class TestCumulativeProgress:
             reward_service.mark_reward_claimed("user123", "r1")
 
         mock_reward_repo.update.assert_called_once_with("r1", {"active": False})
+
+    def test_mark_non_recurring_reward_sets_claimed_true(
+        self, reward_service, mock_progress_repo, mock_reward_repo
+    ):
+        """Test one-time rewards get claimed=True when marked as claimed."""
+        achieved_progress = RewardProgress(
+            id="prog1",
+            user_id="user123",
+            reward_id="r1",
+            pieces_earned=10,
+            status=RewardStatus.ACHIEVED,
+            pieces_required=10,
+            claimed=False,
+        )
+        mock_progress_repo.get_by_user_and_reward.return_value = achieved_progress
+
+        def mock_update(progress_id, updates):
+            return RewardProgress(
+                id=progress_id,
+                user_id="user123",
+                reward_id="r1",
+                pieces_earned=0,
+                status=RewardStatus.CLAIMED,
+                pieces_required=10,
+                claimed=True,
+            )
+
+        mock_progress_repo.update.side_effect = mock_update
+
+        mock_reward_repo.get_by_id.return_value = Reward(
+            id="r1",
+            name="One-time Reward",
+            weight=10.0,
+            pieces_required=10,
+            is_recurring=False,
+        )
+
+        with patch.object(reward_service, 'progress_repo', mock_progress_repo), \
+             patch.object(reward_service, 'reward_repo', mock_reward_repo):
+            updated = reward_service.mark_reward_claimed("user123", "r1")
+
+        from django.db.models import F
+        call_args = mock_progress_repo.update.call_args
+        updates = call_args[0][1]
+        assert updates["claimed"] is True  # One-time: stays CLAIMED
+        assert updates["pieces_earned"] == 0
+        assert str(updates["times_claimed"]) == str(F("times_claimed") + 1)
+        assert updated.get_status() == RewardStatus.CLAIMED
+        assert updated.claimed is True
 
 
 class TestCreateReward:
