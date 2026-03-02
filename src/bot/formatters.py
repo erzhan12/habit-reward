@@ -266,8 +266,10 @@ def format_claimed_rewards_message(
             if pieces is None:
                 logger.warning(f"Missing pieces_required for progress {progress.id}")
                 pieces = 1
-            message_parts.append(
-                f"🏆 <b>{reward.name}</b> — {pieces} {msg('LABEL_PIECES', language)}"
-            )
+            line = f"🏆 <b>{reward.name}</b> — {pieces} {msg('LABEL_PIECES', language)}"
+            times_claimed = getattr(progress, 'times_claimed', 0)
+            if times_claimed > 0:
+                line += f" | {msg('LABEL_TIMES_CLAIMED', language, count=times_claimed)}"
+            message_parts.append(line)
 
     return "\n".join(message_parts)

@@ -288,6 +288,10 @@ class RewardProgress(models.Model):
         default=False,
         help_text="Whether user has claimed this reward"
     )
+    times_claimed = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of times this reward has been claimed"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

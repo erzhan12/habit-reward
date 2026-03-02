@@ -2139,3 +2139,21 @@ effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDU
 - `src/habit_reward_project/settings.py` — `STREAK_REDUCTION_RATE`, `MIN_NO_REWARD_PROBABILITY`
 
 **Migration note**: Old `STREAK_MULTIPLIER_RATE` setting is deprecated. Old `calculate_total_weight()` replaced by `calculate_effective_no_reward_probability()`. Migration `0026` resets all habit weights to 0. `HabitLog.total_weight_applied` now stores effective no-reward % (not the old multiplicative weight).
+
+## Claimed Rewards & `times_claimed` Counter
+
+### `times_claimed` Field
+`RewardProgress.times_claimed` (PositiveIntegerField, default=0) tracks how many times a user has claimed a reward. Incremented atomically via `F("times_claimed") + 1` in `reward_service.mark_reward_claimed()`.
+
+**Key files**:
+- `src/core/models.py` — Django model field
+- `src/models/reward_progress.py` — Pydantic model field
+- `src/services/reward_service.py` — `F()` increment in `mark_reward_claimed()`
+- `src/bot/formatters.py` — displays "claimed X time(s)" when `times_claimed > 0`
+- `src/bot/messages.py` — `LABEL_TIMES_CLAIMED` with EN/RU/KK translations
+- `src/web/views/rewards.py` — serializes `timesClaimed` to frontend
+- `frontend/src/pages/Rewards.vue` — shows `×N` badge
+- Migration: `0027_add_times_claimed_to_rewardprogress.py` (backfills `times_claimed=1` for existing `claimed=True` rows)
+
+### Claimed Rewards Query — No `active` Filter
+`get_claimed_non_recurring_by_user()` does NOT filter by `reward__active=True`. Non-recurring rewards auto-deactivate after claim, so filtering by active would hide them from the claimed list. The filter was intentionally removed.

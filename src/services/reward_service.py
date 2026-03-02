@@ -6,6 +6,8 @@ from datetime import date
 from typing import Awaitable
 from types import SimpleNamespace, MethodType
 
+from django.db.models import F
+
 from src.core.repositories import reward_repository, reward_progress_repository, habit_log_repository
 from src.core.models import Reward, RewardProgress
 from src.models.reward_progress import RewardProgress as RewardProgressModel
@@ -448,6 +450,7 @@ class RewardService:
                     {
                         "claimed": True,
                         "pieces_earned": 0,  # Reset counter for fresh start
+                        "times_claimed": F("times_claimed") + 1,
                     },
                 )
             )

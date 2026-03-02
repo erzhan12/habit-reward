@@ -482,7 +482,6 @@ class RewardProgressRepository:
                 user_id=user_pk,
                 claimed=True,
                 reward__is_recurring=False,
-                reward__active=True,
             ).select_related("reward", "user").order_by("reward__name")
         )
         return [self._attach_cached_pieces_required(p) for p in claimed_list]
