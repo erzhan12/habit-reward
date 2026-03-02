@@ -548,48 +548,72 @@ class RewardService:
     ) -> list[RewardProgress] | Awaitable[list[RewardProgress]]:
         """Get all reward progress for a user.
 
-        Only returns progress for rewards where reward.active=True.
-        Returns unclaimed rewards sorted by:
+        Returns all active rewards sorted by:
         1. Pending rewards (pieces > 0) sorted by fill percentage descending
         2. Achieved rewards (ready to claim)
         3. Never-won rewards (0 pieces earned)
+
+        Active rewards without a RewardProgress entry are included as never-won.
+        Recurring rewards with CLAIMED status are shown as never-won (fresh cycle).
         """
 
         async def _impl() -> list[RewardProgress]:
             results = await maybe_await(self.progress_repo.get_all_by_user(user_id))
             coerced = [self._coerce_progress(r) for r in results]
 
-            # Filter claimed and split unclaimed into 3 groups (single pass).
-            # Uses get_status() — the unified interface across Django and Pydantic models
-            # (Django RewardProgress has no .status field, only get_status() method).
+            # Track which rewards already have progress entries
+            progress_reward_ids = set()
+
+            # Split into 3 groups (single pass).
             pending = []
             achieved = []
             never_won = []
             for p in coerced:
+                progress_reward_ids.add(
+                    int(p.reward_id) if isinstance(p.reward_id, str) else p.reward_id
+                )
                 status = p.get_status()
                 if status == RewardStatus.CLAIMED:
+                    # Recurring rewards: treat as never-won (fresh cycle)
+                    reward_obj = getattr(p, "reward", None)
+                    if reward_obj and getattr(reward_obj, "is_recurring", False):
+                        never_won.append(p)
+                    # One-time claimed rewards: skip (they'll be auto-deactivated)
                     continue
                 elif status == RewardStatus.ACHIEVED:
                     achieved.append(p)
                 elif status == RewardStatus.PENDING:
                     # Never-won: no progress, or pieces_required unknown.
-                    # getattr sentinel avoids AttributeError on Django models
-                    # (which lack a pieces_required field — it lives on Reward).
                     pieces_req = getattr(p, "pieces_required", -1)
                     if p.pieces_earned == 0 or pieces_req is None:
                         never_won.append(p)
                     else:
                         pending.append(p)
                 else:
-                    # Unreachable with current Pydantic/Django models (status is
-                    # always CLAIMED/ACHIEVED/PENDING); guard for future status values.
                     logger.warning(
                         "Unexpected reward status %s for progress %s — skipping",
                         status, getattr(p, "id", "?"),
                     )
 
+            # Include active rewards that have no progress entry at all
+            active_rewards = await maybe_await(
+                self.reward_repo.get_all_active(user_id)
+            )
+            for reward in active_rewards:
+                if reward.id not in progress_reward_ids:
+                    synthetic = RewardProgressModel(
+                        id=None,
+                        user_id=user_id,
+                        reward_id=reward.id,
+                        pieces_earned=0,
+                        pieces_required=reward.pieces_required,
+                        claimed=False,
+                        times_claimed=0,
+                        reward=reward,
+                    )
+                    never_won.append(synthetic)
+
             # Sort pending by fill percentage descending.
-            # get_pieces_required() always returns >= 1 (falls back to 1 for None).
             pending.sort(
                 key=lambda rp: rp.pieces_earned / rp.get_pieces_required(),
                 reverse=True,

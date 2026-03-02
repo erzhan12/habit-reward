@@ -36,6 +36,9 @@ class TestGetUserRewardProgress:
     def service(self):
         svc = RewardService()
         svc.progress_repo = AsyncMock()
+        svc.reward_repo = AsyncMock()
+        # Default: no extra active rewards beyond those with progress
+        svc.reward_repo.get_all_active.return_value = []
         return svc
 
     # ------------------------------------------------------------------
@@ -106,6 +109,54 @@ class TestGetUserRewardProgress:
         assert len(result) == 2
         # Pending (40%) first, then never-won (0/5) last
         assert [r.reward_id for r in result] == [2, 1]
+
+    @pytest.mark.asyncio
+    async def test_claimed_recurring_reward_visible_as_never_won(self, service):
+        """Recurring reward with claimed=True (legacy data) must appear in never-won group."""
+        from unittest.mock import Mock
+
+        recurring_reward = Mock()
+        recurring_reward.is_recurring = True
+
+        claimed_progress = _make_progress(
+            pieces_earned=0, pieces_required=5, claimed=True, times_claimed=2, reward_id=1,
+        )
+        claimed_progress.reward = recurring_reward
+
+        service.progress_repo.get_all_by_user.return_value = [
+            claimed_progress,
+            _make_progress(pieces_earned=3, pieces_required=10, reward_id=2),
+        ]
+
+        result = await service.get_user_reward_progress("1")
+
+        assert len(result) == 2
+        # Pending (30%) first, then recurring claimed as never-won last
+        assert [r.reward_id for r in result] == [2, 1]
+
+    @pytest.mark.asyncio
+    async def test_active_reward_without_progress_visible(self, service):
+        """Active reward with no RewardProgress entry must appear as never-won."""
+        from unittest.mock import Mock
+
+        reward_no_progress = Mock()
+        reward_no_progress.id = 99
+        reward_no_progress.pieces_required = 3
+        reward_no_progress.is_recurring = True
+
+        service.progress_repo.get_all_by_user.return_value = [
+            _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),
+        ]
+        service.reward_repo.get_all_active.return_value = [reward_no_progress]
+
+        result = await service.get_user_reward_progress("1")
+
+        assert len(result) == 2
+        # Pending (50%) first, then never-won (no progress) last
+        assert result[0].reward_id == 1
+        assert result[1].reward_id == 99
+        assert result[1].pieces_earned == 0
+        assert result[1].pieces_required == 3
 
     @pytest.mark.asyncio
     async def test_repo_filters_inactive_rewards_at_db_level(self):
