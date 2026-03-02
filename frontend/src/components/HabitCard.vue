@@ -13,7 +13,7 @@
             {{ habit.name }}
           </h3>
           <span v-if="habit.weight > 0 && !habit.completedToday" class="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-text-secondary shrink-0">
-            {{ habit.weight }}w
+            +{{ habit.weight }}%
           </span>
           <span v-if="!habit.completedToday" class="text-xs px-1.5 py-0.5 rounded bg-accent/20 text-accent shrink-0">
             {{ habit.rewardChance }}%
