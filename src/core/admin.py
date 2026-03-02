@@ -4,6 +4,7 @@ import logging
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db import transaction
+from django.db.models import F
 from src.core.models import User, Habit, Reward, RewardProgress, HabitLog, BotAuditLog, APIKey
 
 logger = logging.getLogger(__name__)
@@ -239,13 +240,30 @@ class HabitLogAdmin(admin.ModelAdmin):
 
                             # Decrement pieces_earned
                             if progress.pieces_earned > 0:
-                                progress.pieces_earned -= 1
+                                new_pieces = progress.pieces_earned - 1
 
-                                # If was claimed, mark as unclaimed
                                 if progress.claimed:
-                                    progress.claimed = False
+                                    # Attempt atomic update with times_claimed decrement
+                                    updated = RewardProgress.objects.filter(
+                                        id=progress.id,
+                                        times_claimed__gt=0,
+                                    ).update(
+                                        pieces_earned=new_pieces,
+                                        claimed=False,
+                                        times_claimed=F("times_claimed") - 1,
+                                    )
+                                    if not updated:
+                                        # times_claimed was already 0, update without decrement
+                                        RewardProgress.objects.filter(id=progress.id).update(
+                                            pieces_earned=new_pieces,
+                                            claimed=False,
+                                        )
+                                else:
+                                    RewardProgress.objects.filter(id=progress.id).update(
+                                        pieces_earned=new_pieces,
+                                    )
 
-                                progress.save()
+                                progress.refresh_from_db()
                                 logger.info(
                                     f"📉 Decremented reward progress for '{reward.name}': "
                                     f"{progress.pieces_earned + 1} → {progress.pieces_earned}"

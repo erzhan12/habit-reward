@@ -302,6 +302,7 @@ class RewardProgress(models.Model):
             models.Index(fields=['user', 'reward']),
             models.Index(fields=['user']),
             models.Index(fields=['user', 'claimed']),
+            models.Index(fields=['user', 'times_claimed']),
         ]
         ordering = ['reward__name']
 

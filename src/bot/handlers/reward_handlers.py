@@ -247,11 +247,11 @@ async def claimed_rewards_command(update: Update, context: ContextTypes.DEFAULT_
 
     lang = user.language or lang
 
-    # Get claimed one-time rewards
+    # Get claimed rewards (any reward with times_claimed > 0)
     claimed_list = await maybe_await(
-        reward_service.get_claimed_one_time_rewards(user.id)
+        reward_service.get_claimed_rewards(user.id)
     )
-    logger.info(f"🔍 Found {len(claimed_list)} claimed one-time rewards for user {telegram_id}")
+    logger.info(f"🔍 Found {len(claimed_list)} claimed rewards for user {telegram_id}")
 
     if not claimed_list:
         logger.info(f"ℹ️ No claimed one-time rewards found for user {telegram_id}")

@@ -2,2158 +2,503 @@
 
 ## User Validation Pattern
 
-**CRITICAL**: All Telegram bot command handlers MUST validate that the user exists and is active before processing any commands.
+**CRITICAL**: All Telegram bot command handlers MUST validate user exists and is active before processing.
 
 ```python
-# At the top of any handler function
 telegram_id = str(update.effective_user.id)
-
-# Validate user exists
 user = user_repository.get_by_telegram_id(telegram_id)
 if not user:
     await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
     return
-
-# Check if user is active
 if not user.is_active:
     await update.message.reply_text(msg('ERROR_USER_INACTIVE', lang))
     return
 ```
 
-**Why**: Prevents crashes when non-registered users try to use the bot.
-
 ## Django Initialization for Entry Points
 
-**CRITICAL**: Any entry point (script, Streamlit app, bot main) that imports from `src.core.repositories` or `src.core.models` MUST configure Django before those imports.
+**CRITICAL**: Any entry point that imports from `src.core.repositories` or `src.core.models` MUST configure Django first. Without this: `django.core.exceptions.ImproperlyConfigured`.
 
-Django models require `DJANGO_SETTINGS_MODULE` to be set and `django.setup()` to be called before any Django modules are imported. Without this, you'll get `django.core.exceptions.ImproperlyConfigured`.
-
-**Required Pattern**:
 ```python
 """Entry point script."""
 # ruff: noqa: E402
-
-import os
-import django
-
-# Configure Django before any imports that use Django models
+import os, django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'src.habit_reward_project.settings')
 django.setup()
-
 # Now safe to import Django-dependent modules
-from src.core.repositories import user_repository
-from src.config import settings
 ```
 
-**Files that require this**:
-- `src/dashboard/app.py` - Streamlit dashboard entry point
-- `src/bot/main.py` - Telegram bot polling mode entry point
-- Any standalone script that uses repositories
-
-**Note**: The `# ruff: noqa: E402` comment is required because we're importing Django setup code before other imports, which violates PEP 8's import ordering rule. This is intentional and necessary.
-
-**Why**: The `src.core.repositories` module imports Django models (`from src.core.models import ...`), and Django models cannot be imported until Django is configured. This initialization must happen at the very top of the entry point file, before any other imports that might transitively import Django models.
+**Files requiring this**: `src/dashboard/app.py`, `src/bot/main.py`, any standalone script using repositories.
 
 ## Message Management & Multi-lingual Support
 
-**CRITICAL**: All user-facing strings MUST use message constants from `src/bot/messages.py`. Never use hardcoded strings.
+**CRITICAL**: All user-facing strings MUST use `msg()` from `src/bot/messages.py`. Never hardcode strings. Supported languages: `en`, `ru`, `kk`.
 
 ```python
 from src.bot.messages import msg
 from src.bot.language import get_message_language
-
-async def my_handler(update: Update, context):
-    telegram_id = str(update.effective_user.id)
-    lang = get_message_language(telegram_id, update)
-
-    # Simple message
-    await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
-
-    # Message with format variables
-    await update.message.reply_text(
-        msg('ERROR_REWARD_NOT_FOUND', lang, reward_name='Coffee')
-    )
+lang = get_message_language(telegram_id, update)
+await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
+await update.message.reply_text(msg('ERROR_REWARD_NOT_FOUND', lang, reward_name='Coffee'))
 ```
 
-**Language Detection**: User language is automatically detected from Telegram settings on `/start` and stored in User model. Supported: `en`, `ru`, `kk`.
-
-**Adding New Messages**:
-1. Add constant to `Messages` class in `src/bot/messages.py`
-2. Add translations to `_TRANSLATIONS` dictionary
-3. Use in handlers: `msg('MY_NEW_MESSAGE', lang)`
+**Adding new messages**: Add constant to `Messages` class → add translations to `_TRANSLATIONS` → use `msg('KEY', lang)`.
 
 ### Telegram Message Formatting
 
-**CRITICAL**: All messages MUST use HTML formatting (not Markdown). Always set `parse_mode="HTML"`.
-
-**HTML Tags**:
-- **Bold**: `<b>text</b>`
-- **Italic**: `<i>text</i>`
-- **Code**: `<code>text</code>`
-- **Links**: `<a href="URL">text</a>`
-
-**Escape HTML special characters**: `<` → `&lt;`, `>` → `&gt;`, `&` → `&amp;`
-
-```python
-# ✅ Good
-await update.message.reply_text(
-    msg('SUCCESS_HABIT_COMPLETED', lang, habit_name=habit.name),
-    parse_mode="HTML"
-)
-
-# ❌ Bad - Never use Markdown
-await update.message.reply_text("*Bold text*", parse_mode="Markdown")
-```
+**CRITICAL**: Always use HTML formatting with `parse_mode="HTML"`. Never use Markdown. Escape: `<` → `&lt;`, `>` → `&gt;`, `&` → `&amp;`.
 
 ### Date Formatting Standard
 
-**CRITICAL**: All user-facing dates MUST use the format **"09 Dec 2025"** (format string: `"%d %b %Y"`).
-
-```python
-from datetime import date
-
-# ✅ Good - Standard format
-target_date = date(2025, 12, 9)
-date_display = target_date.strftime("%d %b %Y")  # "09 Dec 2025"
-
-# ❌ Bad - Don't use verbose format
-date_display = target_date.strftime("%B %d, %Y")  # "December 09, 2025"
-
-# ❌ Bad - Don't show ISO format to users
-date_display = str(target_date)  # "2025-12-09"
-```
-
-**Why this format?**:
-- **Concise**: Takes less screen space on mobile
-- **International**: Day-first format is more globally recognized
-- **Unambiguous**: 3-letter month abbreviation (Dec) is clear in all languages
-- **Consistent**: Same format across all success/error messages
-
-**Where to apply**:
-- Habit completion success messages
-- Backdate confirmations
-- Duplicate entry error messages
-- Date picker displays
-- Any user-visible date output
-
-**Implementation locations**:
-- `src/bot/handlers/menu_handler.py` - Menu flow handlers
-- `src/bot/handlers/habit_done_handler.py` - Habit completion handlers
-- `src/bot/handlers/backdate_handler.py` - Backdate flow handlers
+**CRITICAL**: All user-facing dates: `"%d %b %Y"` → "09 Dec 2025". Concise, international, unambiguous.
 
 ## ConversationHandler Pattern Matching
 
-**CRITICAL**: When using `CallbackQueryHandler` with pattern matching in `ConversationHandler`, handler order matters. python-telegram-bot evaluates patterns in list order, and **first match wins**.
+**CRITICAL**: `CallbackQueryHandler` patterns are evaluated in list order — **first match wins**.
 
-### The Problem: Prefix Pattern Conflicts
+**Pitfall** (Feature 0029): If patterns share prefixes, the generic pattern matches before the specific one. E.g., `^claim_reward_` matches `"claim_reward_back"` before `^claim_reward_back$` is reached, causing "Reward progress not found" error.
 
-If you have callback patterns that share prefixes, the more generic pattern can incorrectly match before the specific pattern is evaluated.
+**Solution**: Order handlers from most specific to least specific:
+1. Exact matches (`^exact_string$`) first
+2. Specific prefixes before generic prefixes
+3. Use `$` anchor for exact matches
 
-**Example Bug** (Feature 0029):
 ```python
-# ❌ Bad - Generic pattern matches "claim_reward_back" before specific pattern
+# ✅ Specific pattern FIRST, generic SECOND
 states={
     AWAITING_REWARD_SELECTION: [
-        CallbackQueryHandler(claim_reward_callback, pattern="^claim_reward_"),  # Matches EVERYTHING starting with "claim_reward_"
-        CallbackQueryHandler(claim_back_callback, pattern="^claim_reward_back$")  # Never reached!
+        CallbackQueryHandler(claim_back_callback, pattern="^claim_reward_back$"),
+        CallbackQueryHandler(claim_reward_callback, pattern="^claim_reward_"),
     ]
 }
 ```
 
-**What happens**:
-1. User clicks Back button → callback_data = `"claim_reward_back"`
-2. First handler pattern `^claim_reward_` matches (it's a prefix of "claim_reward_back")
-3. `claim_reward_callback()` is invoked instead of `claim_back_callback()`
-4. Handler extracts reward_id: `"claim_reward_back".replace("claim_reward_", "") = "back"`
-5. Tries to find reward with ID "back" → Error: "Reward progress not found"
-
-### The Solution: Specific Patterns First
-
-**Always order handlers from most specific to least specific**:
-
-```python
-# ✅ Good - Specific pattern evaluated first
-states={
-    AWAITING_REWARD_SELECTION: [
-        CallbackQueryHandler(claim_back_callback, pattern="^claim_reward_back$"),  # Exact match - FIRST
-        CallbackQueryHandler(claim_reward_callback, pattern="^claim_reward_"),    # Prefix match - SECOND
-    ]
-}
-```
-
-**Pattern Ordering Rules**:
-1. **Exact matches** (`^exact_string$`) come first
-2. **Specific prefixes** (`^specific_prefix_with_more_`) come before generic prefixes
-3. **Generic prefixes** (`^generic_`) come last
-4. Use `$` anchor for exact matches to prevent prefix matching
-
-### Testing Pattern Matching
-
-**Always write tests** to verify callback routing, especially when patterns share prefixes:
-
-```python
-@pytest.mark.asyncio
-async def test_back_button_routes_correctly(mock_callback_update):
-    """Verify 'claim_reward_back' routes to back handler, not reward handler."""
-    mock_callback_update.callback_query.data = "claim_reward_back"
-
-    result = await claim_back_callback(mock_callback_update, context)
-
-    # Assert: Returns to menu (not trying to claim reward with id "back")
-    assert result == ConversationHandler.END
-    # Assert: No "not found" error shown
-    assert 'not found' not in message_text.lower()
-```
-
-**Why this matters**: Pattern matching bugs are subtle and easy to miss in manual testing. Without tests, reordering handlers during refactoring can reintroduce the bug.
-
-**Related**: Feature 0029 - Fix "Reward progress not found" error on Back button
+Always write tests to verify callback routing when patterns share prefixes.
 
 ## Logging Pattern
 
-**CRITICAL**: All Telegram bot command handlers MUST include comprehensive info-level logging to track user messages and bot reactions.
+**CRITICAL**: All handlers MUST include info-level logging. Use `logger = logging.getLogger(__name__)`.
 
-```python
-import logging
-
-logger = logging.getLogger(__name__)
-
-async def my_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /my_command."""
-    telegram_id = str(update.effective_user.id)
-    username = update.effective_user.username or "N/A"
-    logger.info(f"📨 Received /my_command from user {telegram_id} (@{username})")
-
-    # Log validation failures
-    if not user:
-        logger.warning(f"⚠️ User {telegram_id} not found in database")
-        await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
-        logger.info(f"📤 Sent ERROR_USER_NOT_FOUND message to {telegram_id}")
-        return
-
-    # Log processing steps
-    logger.info(f"⚙️ Processing command for user {telegram_id}")
-
-    # Log success
-    logger.info(f"✅ Command completed successfully for user {telegram_id}")
-
-    # Log outgoing messages
-    await update.message.reply_text(formatted_message)
-    logger.info(f"📤 Sent success message to {telegram_id}")
-```
-
-### Logging Emoji Legend
-
-Use these emojis consistently for easy log scanning:
-
-- 📨 - Incoming message/command from user
-- 🖱️ - User interaction (callback/button click)
-- ✏️ - User choosing text input
-- 🎯 - User selection (habit, reward, etc.)
-- 🎁 - User attempting to claim reward
-- 🔄 - User attempting to change status
-- 📝 - User input/parameters logged
-- 🔍 - Search/query results
-- 🤖 - AI/NLP processing
-- ⚙️ - Processing/operation in progress
-- ✅ - Success/completion
-- 🔥 - Streak information
-- ℹ️ - Informational message
-- ⚠️ - Warning (validation failure, not found, etc.)
-- ❌ - Error
-- 📤 - Outgoing message/response to user
+**Emoji Legend** (use consistently):
+- 📨 Incoming message | 🖱️ Callback/click | ✏️ Text input | 🎯 Selection
+- 🎁 Claim reward | 🔄 Status change | 📝 Parameters | 🔍 Query results
+- 🤖 AI/NLP | ⚙️ Processing | ✅ Success | 🔥 Streak | ℹ️ Info
+- ⚠️ Warning | ❌ Error | 📤 Outgoing response
 
 ## Repository Pattern
 
-All database operations go through repository classes in `src/core/repositories.py`. Never query Django ORM directly from handlers or services.
+All DB operations go through repository classes in `src/core/repositories.py`. Never query Django ORM directly from handlers or services.
 
-**Global Repository Instances**:
 ```python
 from src.core.repositories import (
-    user_repository,
-    habit_repository,
-    habit_log_repository,
-    reward_repository,
-    reward_progress_repository
+    user_repository, habit_repository, habit_log_repository,
+    reward_repository, reward_progress_repository
 )
 ```
 
 ### Django ORM Repository Pattern
 
-All repository methods use `sync_to_async` to bridge synchronous Django ORM with async handlers:
-
-```python
-from asgiref.sync import sync_to_async
-from src.core.models import User
-
-class UserRepository:
-    async def get_by_telegram_id(self, telegram_id: str) -> User | None:
-        try:
-            return await sync_to_async(User.objects.get)(telegram_id=telegram_id)
-        except User.DoesNotExist:
-            return None
-
-    async def create(self, user_data: dict) -> User:
-        return await sync_to_async(User.objects.create)(**user_data)
-```
+Repository methods use `sync_to_async` to bridge sync Django ORM with async handlers.
 
 ### Why `maybe_await` Is Used Everywhere
 
-Repository methods are `async def` and wrap Django ORM calls with `sync_to_async`. However, callers cannot always know at call time whether the return value is a coroutine or an already-resolved value — this depends on the execution context (sync Django view via `call_async`, async bot handler, background thread via `asyncio.run`, test harness). `maybe_await` (`src/utils/async_compat.py`) inspects the value at runtime: if it's awaitable, it awaits it; otherwise returns it directly. This lets a single service/handler codebase work across all three contexts without per-caller branching. Do NOT replace `await maybe_await(repo.method(...))` with bare `await repo.method(...)` — it will break in sync call sites.
+`maybe_await` (`src/utils/async_compat.py`) inspects if a value is awaitable and awaits it, or returns directly. This lets service code work across async handlers, sync Django views (`call_async`), and test harnesses. **Do NOT replace** `await maybe_await(repo.method(...))` with `await repo.method(...)` — it breaks sync call sites.
 
-**Performance**: Always use `select_related()` and `prefetch_related()` for ForeignKey relationships to avoid N+1 queries:
+### Performance: Always use `select_related()`/`prefetch_related()` for FK relationships to avoid N+1 queries.
 
-```python
-# ✅ Good - Prefetch related data
-async def get_by_user_and_reward(self, user_id: str, reward_id: str):
-    return await sync_to_async(
-        RewardProgress.objects.select_related('user', 'reward').get
-    )(user_id=user_id, reward_id=reward_id)
+### Django Model Instantiation
 
-# ❌ Bad - Causes N+1 queries
-async def get_by_user_and_reward(self, user_id: str, reward_id: str):
-    return await sync_to_async(RewardProgress.objects.get)(
-        user_id=user_id, reward_id=reward_id
-    )
-    # Accessing progress.reward.pieces_required triggers extra query!
-```
+**CRITICAL**: Pass dicts to repository `create()`, never instantiate Django models directly in services.
 
-### Django Model Instantiation Pattern
+**Auto-set fields** (never pass to create): `auto_now_add` timestamps, `auto_now` updated_at, `date_joined`, fields with defaults.
 
-**CRITICAL**: Always pass dictionaries to repository `create()` methods instead of instantiating Django model objects directly.
-
-```python
-# ✅ Good - Pass dict to repository
-progress = await self.progress_repo.create({
-    'user_id': user_id,
-    'reward_id': reward_id,
-    'pieces_earned': 0,
-    'claimed': False
-})
-
-# ❌ Bad - Don't instantiate models in services
-from src.core.models import RewardProgress
-progress = RewardProgress(user_id=user_id, reward_id=reward_id)  # Avoid this!
-```
-
-**Auto-set Fields** (Never pass these to create()):
-- `timestamp` fields with `auto_now_add=True`
-- `updated_at` fields with `auto_now=True`
-- `date_joined` field from `AbstractUser`
-- Fields with `default` values (can be omitted)
-
-**Django User Model Field Mappings**:
-```python
-# Old Airtable field → New Django field
-'active' → 'is_active'           # BooleanField from AbstractUser
-'created_at' → 'date_joined'     # DateTimeField from AbstractUser
-```
-
-**Note**: The system has fully migrated from Airtable to Django ORM. All Airtable code has been removed. The `src/airtable/` directory no longer exists, and all repositories use Django models (`src/core/repositories.py`). The field mappings above are for historical reference only.
+**Legacy mappings** (historical reference): `'active'` → `'is_active'`, `'created_at'` → `'date_joined'`. System fully migrated from Airtable to Django ORM.
 
 ### Computed Values Pattern
 
-**Use regular methods instead of `@property` for computed values.** This provides better async compatibility.
+Use regular methods, not `@property`, for computed values (async compatibility):
+- `get_status()` → RewardStatus | `get_pieces_required()` | `get_progress_percent()` | `get_status_emoji()`
 
-**RewardProgress Computed Methods**:
-- `get_status()` - Returns RewardStatus (CLAIMED, ACHIEVED, or PENDING)
-- `get_pieces_required()` - Gets pieces_required from linked reward
-- `get_progress_percent()` - Calculates percentage completion (0-100)
-- `get_status_emoji()` - Extracts emoji from status value
+Always `select_related('reward')` when querying RewardProgress.
 
-```python
-# ✅ Good - Use method calls
-if progress.get_status() == RewardStatus.ACHIEVED:
-    pieces_needed = progress.get_pieces_required()
-    percent = progress.get_progress_percent()
+### Async-Safe ForeignKey Access
 
-# ❌ Bad - Properties no longer exist
-if progress.status == RewardStatus.ACHIEVED:  # AttributeError!
-```
+**CRITICAL**: Model methods MUST NOT trigger sync DB queries in async contexts (`SynchronousOnlyOperation`).
 
-**Important**: Always use `select_related('reward')` when querying RewardProgress to avoid N+1 queries when calling `get_pieces_required()`.
-
-### Async-Safe ForeignKey Access Pattern
-
-**CRITICAL**: Django model methods that access ForeignKey relationships MUST NOT trigger synchronous database queries when called from async contexts.
-
-**The Problem**: When a Django model method accesses a ForeignKey field (e.g., `self.reward.pieces_required`), it triggers a database query if the related object is not loaded. In async contexts, this causes `SynchronousOnlyOperation` errors.
-
-**The Solution - Cache ForeignKey Values**:
-
-1. **In Repository Methods**: After fetching objects with `select_related()`, cache the needed FK values:
+**Solution**: Cache FK values in repositories after `select_related()`, then model methods use `_cached_*` attributes:
 
 ```python
-# In RewardProgressRepository
-@staticmethod
-def _attach_cached_pieces_required(progress: RewardProgress) -> RewardProgress:
-    """Attach cached pieces_required to avoid ForeignKey access in async contexts."""
-    if progress and hasattr(progress, 'reward'):
-        progress._cached_pieces_required = progress.reward.pieces_required
-    return progress
+# Repository: cache after select_related
+progress._cached_pieces_required = progress.reward.pieces_required
 
-async def get_by_user_and_reward(self, user_id, reward_id):
-    progress = await sync_to_async(
-        RewardProgress.objects.select_related('reward').get
-    )(user_id=user_id, reward_id=reward_id)
-    return self._attach_cached_pieces_required(progress)
+# Model: use cached value
+def _get_pieces_required_safe(self):
+    if hasattr(self, '_cached_pieces_required'):
+        return self._cached_pieces_required
+    if hasattr(self, '_state') and 'reward' in self._state.fields_cache:
+        return self.reward.pieces_required
+    raise ValueError("RewardProgress requires reward to be prefetched or cached")
 ```
-
-2. **In Model Methods**: Use the cached value instead of accessing the ForeignKey:
-
-```python
-# ✅ Good - Async-safe pattern
-class RewardProgress(models.Model):
-    def get_status(self):
-        pieces_required = self._get_pieces_required_safe()
-        if self.pieces_earned >= pieces_required:
-            return self.RewardStatus.ACHIEVED
-
-    def _get_pieces_required_safe(self):
-        # Check for cached value first
-        if hasattr(self, '_cached_pieces_required'):
-            return self._cached_pieces_required
-
-        # Check if FK is loaded in Django's cache
-        if hasattr(self, '_state') and 'reward' in self._state.fields_cache:
-            return self.reward.pieces_required
-
-        # Fallback with clear error message
-        raise ValueError(
-            "RewardProgress requires reward to be prefetched or cached"
-        )
-```
-
-**Why This Works**: Repository methods access ForeignKeys inside `sync_to_async()` wrappers (sync context), cache values as simple attributes, then model methods access cached attributes (no DB query).
 
 ## Service Layer
 
-Business logic lives in services (`src/services/`):
-- `habit_service.py` - Orchestrates habit completion flow
-- `streak_service.py` - Calculates streaks
-- `reward_service.py` - Handles reward selection and cumulative progress
-- `nlp_service.py` - NLP-based habit classification (optional)
-- `audit_log_service.py` - Bot interaction audit trail
-
-Services coordinate between repositories and contain no direct database calls.
+Business logic in `src/services/`: `habit_service.py`, `streak_service.py`, `reward_service.py`, `nlp_service.py`, `audit_log_service.py`. Services coordinate between repositories — no direct DB calls.
 
 ### Multi-User Service Pattern
 
-**CRITICAL**: After implementing multi-user support, many service methods now require `user_id` as a parameter. All handlers MUST pass the user ID when calling these methods.
+**CRITICAL**: Service methods require `user_id`. Always: get user → pass `user.id` to service methods.
 
-**Affected methods:**
-- `habit_service.get_all_active_habits(user_id)` - Requires user_id
-- `habit_service.get_active_habits_pending_for_today(user_id)` - Requires user_id
-- `habit_service.get_habit_by_name(user_id, habit_name)` - Requires user_id
-
-**Pattern when user object is available:**
 ```python
 user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
-if not user:
-    await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
-    return
-
 habits = await maybe_await(habit_service.get_all_active_habits(user.id))
 ```
-
-**Pattern when only telegram_id is available:**
-```python
-# Get user for multi-user support
-user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
-if not user:
-    logger.error(f"❌ User {telegram_id} not found")
-    await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
-    return
-
-habits = await maybe_await(habit_service.get_all_active_habits(user.id))
-```
-
-**Why**: Without user_id, service methods will fail with `TypeError: missing 1 required positional argument: 'user_id'`. This happens because the system now supports multiple users, and data must be filtered by user.
 
 ### NLP Service Optional Pattern
 
-The NLP service is optional and gracefully degrades when LLM_API_KEY is not configured:
-
-```python
-class NLPService:
-    def __init__(self):
-        self.enabled = False
-        self.client = None
-
-        if not settings.LLM_API_KEY:
-            logger.warning("⚠️ LLM_API_KEY not configured. NLP disabled.")
-            return
-
-        try:
-            self.client = OpenAI(api_key=settings.LLM_API_KEY)
-            self.enabled = True
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to initialize client: {e}")
-            return
-
-    def classify_habit_from_text(self, user_text: str, available_habits: list[str]) -> list[str]:
-        if not self.enabled or not self.client:
-            return []  # Return empty list when disabled
-        # Normal classification logic...
-```
+NLP gracefully degrades when `LLM_API_KEY` not configured — returns empty lists.
 
 ### Streak Service Pattern
 
-The `StreakService` has three key methods and one helper:
+Three methods + one helper:
+1. **`calculate_streak(user_id, habit_id)`** — For LOGGING: returns next streak value
+2. **`get_current_streak(user_id, habit_id, user_timezone)`** — For DISPLAYING: validates freshness, returns 0 if broken
+3. **`get_validated_streak_map(user_id, habits, user_timezone)`** — Batch display: one DB query, validates all
+4. **`_is_streak_alive()`** — Static helper shared by #2 and #3
 
-1. **`calculate_streak(user_id, habit_id)`** - Used when LOGGING a new habit
-   - Returns what the NEXT streak will be after logging
-   - If `last_completed_date == yesterday`: increments streak
-   - If `last_completed_date == today`: returns current streak
-   - If `last_completed_date < yesterday`: applies flexible streak logic (see below)
-
-2. **`get_current_streak(user_id, habit_id, user_timezone='UTC')`** - Used when DISPLAYING current streak
-   - Validates streak freshness via `_is_streak_alive()` before returning
-   - Returns **0** if the streak is broken (last completion too far in the past)
-   - Accepts `user_timezone` to compute "today" correctly
-
-3. **`get_validated_streak_map(user_id, habits, user_timezone='UTC')`** - Batch display for dashboards
-   - Fetches all habit streaks in **one** DB query
-   - Applies `_is_streak_alive()` per habit → returns 0 for broken streaks
-   - Replaces the old `habit_log_repository.get_latest_streak_counts()` direct call in views
-
-4. **`_is_streak_alive(last_completed_date, today, allowed_skip_days, exempt_weekdays)`** - Static helper
-   - Returns `True` if the streak is still alive (not broken)
-   - Shared logic used by both `get_current_streak()` and `get_validated_streak_map()`
-
-**Critical Pitfall**: `get_latest_streak_counts()` in the repository returns raw stored values — it does NOT validate freshness. Always go through `streak_service.get_validated_streak_map()` (for batch/dashboard) or `streak_service.get_current_streak()` (for single habit) when displaying streaks to users.
+**Critical Pitfall**: `get_latest_streak_counts()` returns raw stored values without freshness validation. Always use `streak_service.get_validated_streak_map()` (batch) or `get_current_streak()` (single).
 
 ### Streak Map Caching
 
-`get_validated_streak_map()` caches its result in Django's cache backend (default: `LocMemCache`) for **5 minutes** per user, keyed as `streaks:<user_id>`. The cache is invalidated on every write that affects streak data:
-
-- Habit completion (`process_habit_completion`) — invalidates immediately after `habit_log_repo.create()`
-- Habit revert via telegram ID (`revert_habit_completion`) — invalidates after `_revert_log_transaction()`
-- Habit revert via log ID (`revert_habit_completion_by_log_id`) — invalidates after `_revert_log_transaction()`
-
-**Cache key is centralized** in `StreakService.cache_key(user_id)` — always use this method instead of constructing the key manually, so invalidation sites stay in sync.
-
-**Django async cache API** (`cache.aget()`, `cache.aset()`, `cache.adelete()`) is used throughout since all write paths run inside async `_impl()` closures. Available from Django 4.1+.
-
-**Why Three Methods?**: Using `calculate_streak()` for display caused incorrect results when viewing streaks on Day 2 (habits not done today were incorrectly incremented). The `get_current_streak()` / `get_validated_streak_map()` methods validate the stored value against today's date before returning.
+Cached 5 min per user (`streaks:<user_id>`) via Django cache. Invalidated on: habit completion, revert (both variants). Cache key centralized in `StreakService.cache_key(user_id)`. Uses async cache API (`cache.aget()`, `cache.aset()`, `cache.adelete()`).
 
 ### Flexible Streak Tracking (Feature 0017)
 
-**CRITICAL**: Streaks now support grace days and exempt weekdays for more flexible tracking.
+**Habit Fields**: `allowed_skip_days` (int, default=0), `exempt_weekdays` (JSONField, default=[]), `category` (optional, NOT managed via Telegram — Feature 0024).
 
-**Habit Fields**:
-- `allowed_skip_days` (Integer, default=0): Number of consecutive days user can skip without breaking streak
-- `exempt_weekdays` (JSONField, default=[]): List of weekday numbers (1=Mon, 7=Sun) that don't count against streak
-- `category` (CharField, optional, null=True): Category field for analytical purposes. **NOT managed via Telegram** (Feature 0024). Habits created via Telegram have `category=None`. Category remains available via REST API and Django admin for external clients.
+**Algorithm**: If gap > 1 day: filter out exempt weekday dates from gap → count remaining missed days → if `missed_days <= allowed_skip_days`: preserve streak, else break. Weekday numbering: `isoweekday()` (1=Mon, 7=Sun). Weekends = `[6, 7]`.
 
-**Streak Calculation Algorithm**:
-1. If `last_date == today`: return current streak
-2. If `last_date == yesterday`: return current streak + 1
-3. If gap > 1 day:
-   - Calculate all dates in gap (exclusive)
-   - For each date, get weekday using `date.isoweekday()` (1=Mon, 7=Sun)
-   - Filter out dates that fall on `exempt_weekdays`
-   - Count remaining "missed" days
-   - If `missed_days <= allowed_skip_days`: **preserve streak** (return current + 1)
-   - Otherwise: **break streak** (return 1)
-
-**Example**: Habit with weekends exempt (6=Sat, 7=Sun), last done Friday, today is Monday
-- Gap: Saturday, Sunday
-- Weekdays: 6, 7
-- Both exempt → missed_days = 0
-- Result: Streak preserved ✅
-
-**Bot UI Flow** (Add/Edit Habit):
-- User enters habit name
-- User selects weight (10-100)
-- User selects grace days (0, 1, 2, or 3)
-- User selects exempt days (None or Weekends)
-- Settings displayed in confirmation
-- **Note**: Category selection was removed from Telegram in Feature 0024. The flow previously included category selection but this was simplified for better UX.
-
-**Implementation Notes**:
-- Weekday numbering: 1=Monday, 7=Sunday (Python's `isoweekday()`)
-- Exempt weekends stored as `[6, 7]` in database
-- Both fields are **always required** when creating/editing habits
+**Bot UI Flow**: name → weight → grace days (0-3) → exempt days (None/Weekends) → confirm.
 
 ## Import Pattern
 
-When importing repositories, always use:
-```python
-from src.core.repositories import user_repository, habit_repository, ...
-```
-
-These are singleton instances defined at the bottom of the repository file.
+Always use singleton instances: `from src.core.repositories import user_repository, habit_repository, ...`
 
 ## Django Transactions
 
-**CRITICAL**: Use Django transactions for operations that require multiple database changes to succeed or fail atomically.
+**CRITICAL**: Use `transaction.atomic()` for multi-table operations. Wrap in `sync_to_async` for async contexts.
 
-```python
-from django.db import transaction
-from asgiref.sync import sync_to_async
+### Habit Completion Transaction
 
-async def atomic_operation():
-    def _transaction():
-        with transaction.atomic():
-            # All operations inside this block are atomic
-            habit_log = HabitLog.objects.get(id=log_id)
-            habit_log.delete()
+**CRITICAL**: Wrap both reward progress updates AND habit log creation atomically. Without this: orphaned progress entries.
 
-            # Update related records
-            progress = RewardProgress.objects.get(id=progress_id)
-            progress.pieces_earned -= 1
-            progress.save()
+### Reward Progress Validation
 
-            # If any operation fails, ALL changes are rolled back
-
-    await sync_to_async(_transaction)()
-```
-
-### When to Use Transactions
-
-1. **Deleting records with side effects** (e.g., reverting habit completion)
-2. **Creating multiple related records** (e.g., user + initial settings)
-3. **Updating multiple tables** that must stay consistent
-4. **Financial operations** (e.g., claiming rewards with monetary value)
-
-### Habit Completion Transaction Pattern
-
-**CRITICAL**: Habit completion operations MUST wrap both reward progress updates and habit log creation in an atomic transaction.
-
-```python
-# Wrap both operations in atomic transaction
-async with self._atomic():
-    reward_progress = None
-    if got_reward:
-        # Update reward progress
-        reward_progress = await maybe_await(
-            self.reward_service.update_reward_progress(
-                user_id=user.id,
-                reward_id=selected_reward.id,
-            )
-        )
-
-    # Create habit log
-    habit_log = HabitLog(...)
-    await maybe_await(self.habit_log_repo.create(habit_log))
-```
-
-**Why**: Without atomic transaction, you can get orphaned progress entries (0 pieces, no logs) if one operation succeeds but the other fails.
-
-### Reward Progress Validation Notes
-
-**IMPORTANT**: Do NOT validate `pieces_earned` by counting total HabitLogs for recurring multi-piece rewards.
-
-**Why HabitLog count ≠ pieces_earned**: For recurring rewards (rewards that reset after claiming), HabitLogs accumulate across ALL cycles, while RewardProgress tracks only the CURRENT cycle.
-
-**Example**: "MacBook Pro" (10 pieces required)
-- Cycle 1: User earns 10 pieces → claims → pieces_earned=0, claimed=True
-- Cycle 2: User earns 3 pieces → pieces_earned=3
-- HabitLogs: 13 total (across all cycles)
-- ✅ `pieces_earned=3` is CORRECT (current cycle)
-- ❌ Counting total HabitLogs (13) would be WRONG
+**Do NOT** validate `pieces_earned` by counting HabitLogs — for recurring rewards, logs accumulate across cycles while progress tracks current cycle only.
 
 ## Code Quality & Linting
 
-**CRITICAL**: Before committing, ALWAYS run the review loop from CLAUDE.md:
-1. Run tests (`uv run python -m pytest --tb=short -q`)
-2. Self-review ALL changed files for: unused imports, duplicate code, stale docs, security issues, edge cases
-3. Fix any issues found
-4. Re-run tests
-5. Repeat until clean — then commit
+**CRITICAL**: Before committing: run tests → self-review → fix → re-run → repeat until clean.
 
-**Pitfall**: When a background agent creates files (e.g. splitting a large test file), it tends to copy-paste full import blocks into every file. Always review for unused imports after agent-generated code.
-
-**CRITICAL**: All code must pass the linting checks before committing.
-
-### Linting Requirements
-
-Run linting check:
 ```bash
-uv run ruff check src/
+uv run ruff check src/        # Check
+uv run ruff check src/ --fix   # Auto-fix
 ```
 
-Fix common issues automatically:
-```bash
-uv run ruff check src/ --fix
-```
+**Pitfall**: Background agents copy-paste full import blocks — always review for unused imports.
 
-### Common Linting Issues
-
-1. **Unused Imports**: Remove all unused imports
-   ```python
-   # ❌ Bad
-   from fastapi import Depends, Header  # Header not used
-
-   # ✅ Good
-   from fastapi import Depends
-   ```
-
-2. **Ambiguous Variable Names**: Avoid single letters that look like numbers (especially `l`, `O`, `I`)
-   ```python
-   # ❌ Bad - looks like number 1
-   habit_logs = [l for l in logs if l.habit_id == habit_id]
-
-   # ✅ Good
-   habit_logs = [log for log in logs if log.habit_id == habit_id]
-   ```
-
-3. **Whitespace & Formatting**: Follow PEP 8 standards (handled by ruff --fix)
-
-### Before Committing
-
-Always run:
-```bash
-uv run ruff check src/
-```
-
-Ensure output shows: `All checks passed!`
+**Common issues**: Unused imports, ambiguous variable names (`l`, `O`, `I`), PEP 8 whitespace.
 
 ## Testing
 
-### Running Tests
-
 ```bash
-# Run all tests
-uv run pytest tests/ -v
-
-# Run specific test file
-uv run pytest tests/test_bot_handlers.py -v
-
-# Run with coverage
-uv run pytest --cov=src tests/
+uv run pytest tests/ -v                    # All tests
+uv run pytest tests/test_file.py -v        # Specific file
+uv run pytest --cov=src tests/             # Coverage
+uv run pytest tests/ -v -m "not local_only"  # CI mode
 ```
 
-### Testing Bot Handlers Pattern
+**Bot handler tests**: Use `@patch` to mock repositories, `AsyncMock` for `reply_text`, `Mock(spec=Update)`.
 
-Use `@patch` to mock repositories and Telegram objects:
-
-```python
-import pytest
-from unittest.mock import Mock, AsyncMock, patch
-from telegram import Update, Message, User as TelegramUser
-
-@pytest.fixture
-def mock_telegram_update():
-    """Create mock Telegram update."""
-    telegram_user = TelegramUser(id=999999999, first_name="Test", is_bot=False)
-    message = Mock(spec=Message)
-    message.reply_text = AsyncMock()
-
-    update = Mock(spec=Update)
-    update.effective_user = telegram_user
-    update.message = message
-    return update
-
-@pytest.mark.asyncio
-@patch('src.bot.main.user_repository')
-async def test_start_command_user_not_found(mock_user_repo, mock_telegram_update):
-    """Test TC1.1: User not found."""
-    mock_user_repo.get_by_telegram_id.return_value = None
-
-    await start_command(mock_telegram_update, context=None)
-
-    mock_telegram_update.message.reply_text.assert_called_once_with(
-        "❌ User not found. Please contact admin to register."
-    )
-```
-
-### Local-Only Tests
-
-Some tests are marked with `@pytest.mark.local_only` to prevent execution in CI/CD:
-
-```python
-@pytest.mark.local_only
-@pytest.mark.asyncio
-async def test_audit_log_feature():
-    """This test ONLY runs locally, never in GitHub Actions."""
-    # Test implementation...
-```
-
-**Running tests:**
-```bash
-# Local: Run ALL tests (including local_only)
-uv run pytest tests/ -v
-
-# CI behavior: Skip local_only tests
-uv run pytest tests/ -v -m "not local_only"
-```
-
-**Why local-only tests?**: Complex integration tests, long-running tests, or tests for experimental features.
+**`@pytest.mark.local_only`**: Complex/long-running tests skipped in CI.
 
 ## Unified Reward System
 
-**CRITICAL**: All rewards use a unified cumulative approach. There is no distinction between "cumulative" and "non-cumulative" rewards.
+**CRITICAL**: All rewards are cumulative. `pieces_required=1` for instant, `>1` for multi-piece.
 
-### Core Concepts
+**3-State Workflow** (computed by `get_status()`, never set manually):
+1. **Pending**: `pieces_earned < pieces_required`
+2. **Achieved**: `pieces_earned >= pieces_required && !claimed` — counter frozen, cannot earn more
+3. **Claimed**: `claimed == true` — after `mark_reward_claimed()` resets to 0
 
-**All rewards track progress with `pieces_required`**:
-- Instant rewards: `pieces_required = 1`
-- Multi-piece rewards: `pieces_required > 1`
-
-**3-State Status Workflow**:
-1. **🕒 Pending**: `pieces_earned < pieces_required` - User is making progress
-2. **⏳ Achieved**: `pieces_earned >= pieces_required && !claimed` - Ready to claim
-3. **✅ Claimed**: `claimed == true` - User has claimed the reward
-
-**Status is fully computed in Python** via the `get_status()` method - Never set status manually.
-
-### Service Layer Pattern
-
-```python
-# Always use update_reward_progress() for ANY reward
-reward_progress = reward_service.update_reward_progress(
-    user_id=user.id,
-    reward_id=reward.id
-)
-
-# When user claims a reward
-reward_service.mark_reward_claimed(user_id, reward_id)
-# This resets pieces_earned to 0 and sets claimed=True
-```
-
-**Key methods**:
-- `update_reward_progress()` - Increments pieces_earned with smart status handling:
-  - **ACHIEVED status**: Will NOT increment (prevents over-counting)
-  - **CLAIMED status**: Resets `claimed=False` first, then increments
-  - **PENDING status**: Increments normally
-- `mark_reward_claimed()` - Resets pieces_earned to 0 and sets claimed=True
-
-**Proper reward cycle**:
-1. **Pending** (0/N) → User earns pieces → **Pending** (1/N, 2/N, etc.)
-2. **Achieved** (N/N) → User cannot earn more (counter frozen)
-3. **User claims** → `mark_reward_claimed()` → **Claimed** (0/N)
-4. **User earns next piece** → Resets claimed=False → **Pending** (1/N)
-5. Cycle repeats
+**Key methods**: `update_reward_progress()` (smart increment) | `mark_reward_claimed()` (reset + claim)
 
 ### Daily Frequency Control
 
-**Field**: `Reward.max_daily_claims`
-- `NULL` or `0` = unlimited (can be awarded multiple times per day)
-- `1` = once per day maximum
-- `2+` = that many pieces per day maximum
+`Reward.max_daily_claims`: NULL/0=unlimited, 1+=limit. Counts individual pieces (claimed+unclaimed). Rewards at limit or completed are excluded from lottery selection.
 
-**Key Behaviors**:
-1. **Piece-based counting**: Daily limit counts individual PIECES awarded, not completions
-2. **ALL pieces count**: Counts ALL pieces awarded today (claimed AND unclaimed)
-3. **Lottery exclusion**: Rewards at daily limit are excluded from selection
-4. **Completion blocking**: Rewards already completed (pieces_earned >= pieces_required) are also excluded
+### Piece Value Field
 
-**Implementation**:
-- `get_todays_pieces_by_reward(user_id, reward_id)`: Counts ALL pieces awarded today
-- `select_reward()`: Filters out completed rewards and rewards at daily limit
-- `mark_reward_claimed()`: Resets `pieces_earned=0` when claiming
+`piece_value` is optional analytics metadata. **Do NOT** expose in Telegram bot flows.
 
-**Example**: `max_daily_claims=1`, `pieces_required=5`
-- Day 1: Earn 1 piece → 1/5 (cannot earn more today)
-- Day 2: Earn 1 piece → 2/5 (cannot earn more today)
-- ...takes 5 days minimum to complete
+## Caddy Deployment
 
-### Piece Value (`piece_value`) Field
+**Architecture**: 2 containers — Web (Django+Bot+SQLite) + Caddy (auto HTTPS).
 
-The `Reward.piece_value` field is optional metadata used for analytics and dashboard views (e.g., total monetary value of earned rewards). It SHOULD NOT be managed through the Telegram bot reward flows for now:
+**Files**: `deployment/caddy/Caddyfile`, `deployment/docker/docker-compose.caddy.yml`, `.github/workflows/deploy-caddy.yml`.
 
-- ADD_REWARD and EDIT_REWARD command flows MUST NOT prompt the user to enter or edit any "piece price" / `piece_value` value.
-- When creating or editing rewards from the bot, rely on the model default (`NULL`/`None`) for `piece_value` unless explicitly set by backend/admin or API flows.
-- Future features may re-enable editing `piece_value` via bot or dashboard; keep implementation flexible but do not expose this field in current Telegram UX.
+**DB**: `/home/deploy/habit_reward_bot/data/db.sqlite3`. Backup: `cp data/db.sqlite3 backups/db_$(date +%Y%m%d).sqlite3`.
 
-## Caddy Deployment (Simplified)
+**Domain blocking**: Caddy catch-all (MUST come last) rejects non-configured domains with 444.
 
-**Architecture**: 2 containers (Web + Caddy)
-- **Web**: Django + Telegram Bot + SQLite
-- **Caddy**: Automatic HTTPS reverse proxy
-
-**Key Benefits**:
-- Automatic SSL (no certbot needed)
-- Simple 15-line Caddyfile
-- SQLite database (easy backups)
-- Bind mounts for data persistence
-
-**Files**:
-- `deployment/caddy/Caddyfile` - Caddy configuration
-- `deployment/docker/docker-compose.caddy.yml` - 2-service compose
-- `.github/workflows/deploy-caddy.yml` - Automated CI/CD
-
-**Deployment**:
-```bash
-# First-time
-cd /home/deploy/habit_reward_bot
-mkdir -p data staticfiles
-cd docker
-docker-compose --env-file ../.env -f docker-compose.caddy.yml up -d
-
-# Updates (automatic via GitHub Actions)
-git push origin main
-```
-
-**Data Persistence**:
-```yaml
-volumes:
-  - ./data:/app/data              # SQLite database
-  - ./staticfiles:/app/staticfiles
-```
-
-**Database Location**: `/home/deploy/habit_reward_bot/data/db.sqlite3`
-
-**Backup**: `cp data/db.sqlite3 backups/db_$(date +%Y%m%d).sqlite3`
-
-**SSL**: Fully automatic - Caddy obtains and renews certificates (no manual intervention).
-
-### Security: Domain Blocking
-
-Caddy catch-all block rejects all requests except legitimate domains:
-
-```caddy
-# Your legitimate domains first
-habitreward.org { ... }
-
-# Catch-all MUST come last
-:80, :443 {
-    respond "Domain not configured" 444
-    log {
-        output file /var/log/caddy/blocked.log
-    }
-}
-```
-
-Blocks: Direct IP access, unknown domains, router exploits, domain fronting.
-
-### Docker Health Check Configuration
-
-- **Files**: `deployment/docker/Dockerfile` (lines 71-72), `deployment/docker/docker-compose.yml` (lines 53-58)
-- **start_period**: Use `60s`, not `120s`. The entrypoint (migrations, collectstatic, superuser check, webhook setup) completes well within 60s. Excessive start periods hide real startup failures.
-- **curl timeout**: Always include `--max-time 5` in the curl health check command for faster failure detection.
-- Keep Dockerfile and docker-compose.yml health check settings consistent.
+**Health checks**: `start_period=60s`, `--max-time 5` in curl. Keep Dockerfile and compose consistent.
 
 ## Bot Audit Logging
 
-**CRITICAL**: All high-level Telegram bot interactions are logged to `BotAuditLog` model for debugging and user support.
-
-### When to Use Audit Logging
-
-Log these high-level events via `audit_log_service`:
-1. **Commands** - User executes bot commands
-2. **Habit Completions** - User completes habit and earns reward
-3. **Reward Claims** - User claims achieved reward
-4. **Reward Reverts** - Habit completion reverted
-5. **Button Clicks** - Significant state changes only
-6. **Errors** - Exceptions during user interactions
-
-**Do NOT log**: Low-level operations, database queries, intermediate states.
-
-### Implementation
+Log high-level events via `audit_log_service`: commands, habit completions, reward claims/reverts, significant clicks, errors. Do NOT log low-level operations.
 
 ```python
-from src.services.audit_log_service import audit_log_service
-from src.utils.async_compat import maybe_await
-
-# Log command
-await maybe_await(
-    audit_log_service.log_command(
-        user_id=user.id,
-        command="/start",
-        snapshot={"language": lang}
-    )
-)
-
-# Log habit completion
-await maybe_await(
-    audit_log_service.log_habit_completion(
-        user_id=user.id,
-        habit=habit,
-        reward=selected_reward if got_reward else None,
-        habit_log=habit_log,
-        snapshot={
-            "habit_name": habit.name,
-            "streak_count": streak_count,
-            "selected_reward_name": selected_reward.name if got_reward else None,
-            "reward_progress": {
-                "pieces_earned": progress.pieces_earned,
-                "pieces_required": progress.get_pieces_required(),
-            } if progress else None
-        }
-    )
-)
-
-# Log errors
-await maybe_await(
-    audit_log_service.log_error(
-        user_id=user.id,
-        error_message=f"Error claiming reward: {str(e)}",
-        context={"command": "claim_reward", "reward_id": reward_id}
-    )
-)
+await maybe_await(audit_log_service.log_command(user_id=user.id, command="/start", snapshot={...}))
+await maybe_await(audit_log_service.log_habit_completion(user_id=user.id, habit=habit, reward=reward, ...))
+await maybe_await(audit_log_service.log_error(user_id=user.id, error_message=str(e), context={...}))
 ```
 
-### Querying Audit Logs
+**Admin**: `/admin/core/botauditlog/` (read-only). **Retention**: 90 days (`cleanup_audit_logs` command).
+
+## Django Admin
+
+### ID Fields in Details View
+
+Add `'id'` to `readonly_fields` and first fieldset in `src/core/admin.py`.
+
+### Custom Actions
+
+**CRITICAL**: Admin runs in WSGI (sync). Never use `asyncio.run()` or async services — causes `RuntimeError: CurrentThreadExecutor`. Use pure Django ORM instead.
+
+**Consistency**: Admin actions mirroring bot functionality must use same event types, fields, and audit logging. Always use enum constants (`BotAuditLog.EventType.HABIT_REVERTED`), never strings (typos → NULL).
+
+**Best practices**: `select_related()`, `transaction.atomic()`, validate data, track success/failure counts, provide user feedback via Django messages.
+
+## Web Login Status: String Returns & Enum Comparisons
+
+- **Return values** from `check_status()`: plain strings for JSON serialization
+- **Comparisons** in handlers/queries: `WebLoginRequest.Status.PENDING.value` for type safety
+
+## HabitLog Ordering
+
+**CRITICAL**: Always order by `last_completed_date DESC`, never `timestamp DESC`. Backdated entries have newer timestamps but older completion dates — wrong ordering breaks streak display.
 
 ```python
-# Get user's event timeline (last 24 hours)
-timeline = await maybe_await(
-    audit_log_service.get_user_timeline(user_id=user.id, hours=24)
-)
-
-# Trace reward corruption
-events = await maybe_await(
-    audit_log_service.trace_reward_corruption(
-        user_id=user.id,
-        reward_id=reward.id
-    )
-)
-```
-
-**Django Admin**: Logs accessible at `/admin/core/botauditlog/` (read-only, filterable by event type/date).
-
-**Retention**: 90 days (automatic cleanup via `python manage.py cleanup_audit_logs`).
-
-**Why**: Trace data corruption, reconstruct user interactions, debug issues with state snapshots.
-
-## Django Admin Configuration
-
-### Displaying ID Fields in Details View
-
-To show the primary key (ID) field in Django admin details view:
-1. Add `'id'` to `readonly_fields` (primary keys are read-only)
-2. Add `'id'` to the appropriate fieldset (typically first field in the first fieldset)
-
-**Example** (`src/core/admin.py`):
-```python
-@admin.register(Habit)
-class HabitAdmin(admin.ModelAdmin):
-    readonly_fields = ['id', 'created_at', 'updated_at']
-    
-    fieldsets = (
-        ('Habit Information', {
-            'fields': ('id', 'user', 'name', 'weight', 'category', 'active')
-        }),
-        # ...
-    )
-```
-
-**Why**: ID fields are useful for debugging, API references, and cross-referencing records.
-
-## Django Admin Custom Actions
-
-**CRITICAL**: Django admin runs in WSGI (synchronous) context. Never use `asyncio.run()` or async service layer methods in admin actions.
-
-### Async/Sync Context Issue
-
-**Problem**: Our services use async methods (via `run_sync_or_async()`), but Django admin actions run in synchronous WSGI context. Using `asyncio.run()` causes:
-```
-RuntimeError: You cannot submit onto CurrentThreadExecutor from its own thread
-```
-
-**Solution**: Use pure Django ORM in admin actions instead of calling async services.
-
-```python
-# ❌ Bad - Causes CurrentThreadExecutor error
-@admin.action(description='Revert selected habit logs')
-def revert_selected_logs(self, request, queryset):
-    for log in queryset:
-        # Don't do this!
-        asyncio.run(habit_service.revert_habit_completion(
-            user_telegram_id=log.user.telegram_id,
-            habit_id=log.habit.id
-        ))
-
-# ✅ Good - Use synchronous Django ORM
-@admin.action(description='Revert selected habit logs')
-def revert_selected_logs(self, request, queryset):
-    from django.db import transaction
-
-    for log in queryset:
-        with transaction.atomic():
-            # Direct Django ORM operations
-            user = log.user
-            habit = log.habit
-            reward = log.reward
-
-            # Delete log
-            log.delete()
-
-            # Update related records if needed
-            if reward:
-                progress = RewardProgress.objects.get(user=user, reward=reward)
-                progress.pieces_earned -= 1
-                progress.save()
-
-            # Create audit log
-            BotAuditLog.objects.create(
-                user=user,
-                event_type=BotAuditLog.EventType.HABIT_REVERTED,
-                habit=habit,
-                reward=reward,
-                snapshot={...}
-            )
-```
-
-### Consistency with Bot Actions
-
-**CRITICAL**: When creating admin actions that mirror bot functionality (e.g., habit reversion), ensure consistent audit logging.
-
-**Key requirements**:
-1. Use the same event type (e.g., `HABIT_REVERTED` not `REWARD_REVERTED`)
-2. Populate the same fields (both `habit` and `reward`)
-3. Always create audit logs (not conditionally based on reward existence)
-4. Use the same business logic for related updates (e.g., reward progress decrement)
-
-**Example**: The "Revert selected habit logs" admin action creates audit logs identical to the `/revert_habit` bot command.
-
-### Admin Action Best Practices
-
-1. **Prefetch Related Objects**: Use `select_related()` to avoid N+1 queries
-   ```python
-   queryset = queryset.select_related('user', 'habit', 'reward')
-   ```
-
-2. **Use Transactions**: Wrap multi-step operations in `transaction.atomic()`
-
-3. **Validate Data**: Check for required relationships before processing
-   ```python
-   if not log.user or not log.habit:
-       error_messages.append(f"Log #{log.id}: Missing required data")
-       continue
-   ```
-
-4. **Provide User Feedback**: Use Django messages framework
-   ```python
-   self.message_user(
-       request,
-       f"Successfully processed {count} records.",
-       messages.SUCCESS
-   )
-   ```
-
-5. **Handle Errors Gracefully**: Track success/failure counts and show detailed errors
-   ```python
-   success_count = 0
-   failed_count = 0
-   error_messages = []
-
-   for item in queryset:
-       try:
-           # Process...
-           success_count += 1
-       except Exception as e:
-           failed_count += 1
-           error_messages.append(f"Item #{item.id}: {str(e)}")
-   ```
-
-### Event Type Enum Usage
-
-**CRITICAL**: Always use enum constants for event types, never strings.
-
-```python
-# ✅ Good - Type-safe enum
-BotAuditLog.objects.create(
-    event_type=BotAuditLog.EventType.HABIT_REVERTED,
-    ...
-)
-
-# ❌ Bad - Typos cause NULL values in database
-BotAuditLog.objects.create(
-    event_type='habit_revert',  # Typo! Field will be NULL
-    ...
-)
-```
-
-**Why**: Django's `TextChoices` validates enum values. Invalid strings are silently rejected, resulting in NULL database values.
-
-## Web Login Status: String Returns and Enum Comparisons
-
-**Convention**: Two rules for WebLoginRequest status handling:
-
-1. **Return values** from `check_status()` must be plain strings for JSON serialization. Use `str(login_request.status)` or string literals.
-2. **Comparisons** in handlers and repository queries should use `WebLoginRequest.Status.PENDING.value` (enum `.value`) for type safety and refactoring support.
-
-**Files**:
-- `src/web/services/web_login_service.py` — `check_status()` returns strings; constants `TOKEN_BYTES`, `TOKEN_GENERATION_MAX_RETRIES`, `_JITTER_MIN`, `_JITTER_MAX` are configurable
-- `src/bot/handlers/web_login_handler.py` — status comparisons use `Status.X.value`
-- `src/core/repositories.py` — filter/update queries use `Status.X.value`
-
-```python
-# ❌ Bad — returns enum member, breaks JSON serialization
-return WebLoginRequest.Status.PENDING
-
-# ✅ Good — consistent string return
-return "pending"
-return str(login_request.status)
-
-# ❌ Bad — string literals in queries (typo-prone)
-WebLoginRequest.objects.filter(status='pending')
-
-# ✅ Good — enum .value in queries
-WebLoginRequest.objects.filter(status=WebLoginRequest.Status.PENDING.value)
-```
-
-## IP Anonymization in Logs
-
-When logging IP addresses (e.g., rate limiting), use `_anonymize_ip()` from `src/web/views/auth.py` to hash IPs for GDPR compliance. Never log raw IP addresses in production.
-
-## Web Login Service: Error Handling Patterns
-
-- **Cache writes**: Use `cache_manager.set(key, value, timeout)` from `web_login_service/cache_operations.py` — never raw `cache.set()` with manual try/except. The `CacheManager` tracks consecutive failures and raises `CacheWriteError` after `CACHE_FAILURE_THRESHOLD` (default 10, configurable in settings.py).
-- **telegram_id**: Always validate with `try: int(user.telegram_id)` before passing to Telegram API — non-numeric values cause `ValueError`.
-- **ThreadPoolExecutor.submit()**: Wrap in try/except RuntimeError to release the semaphore if the executor is shut down.
-- **ThreadPoolExecutor queue bounding**: Do NOT replace `_work_queue` on the executor — it's a CPython private attribute that can break across Python versions. Use the semaphore-based circuit breaker (`_queue_slots`) for queue bounding instead. See `_get_executor()` in `src/web/services/web_login_service/__init__.py`.
-- **Timing jitter**: Always apply uniformly to ALL status check paths — selective jitter is itself a timing side-channel.
-- **Bot login handler race condition**: The handler in `web_login_handler.py` uses `transaction.atomic()` + `select_for_update()` for the status check+update to prevent TOCTOU races on concurrent button presses.
-- **Django system checks**: `web.E001`/`web.E002` (XFF trust errors) and `web.E004` (SQLite regex constraint) are **errors** that block startup. They were previously warnings.
-
-## Validation Pattern Sync
-
-The Telegram username regex exists in two places that MUST stay in sync:
-- **Backend**: `src/web/utils/validation.py` → `TELEGRAM_USERNAME_PATTERN`
-- **Frontend**: `frontend/src/pages/Login.vue` → `TELEGRAM_USERNAME_RE`
-- **Test**: `tests/web/test_auth_views.py::TestValidationPatternSync` asserts they match
-
-## HabitLog Ordering: Use `last_completed_date`, NOT `timestamp`
-
-**CRITICAL**: When querying for the "most recent" habit log, always order by `last_completed_date DESC`, never by `timestamp DESC`.
-
-**Why**: Backdated entries are created with `timestamp = now()` but `last_completed_date = past_date`. If a user logs today's habit first, then backdates yesterday's habit, the backdated entry has a **newer `timestamp`** but an **older `last_completed_date`**. Ordering by `timestamp` would wrongly return the yesterday log as "most recent," causing the streak to show the lower historical value.
-
-**Affected repository methods** (`src/core/repositories.py`):
-- `get_last_log_for_habit()` — uses `.latest("last_completed_date")`
-- `get_latest_streak_counts()` — subquery uses `.order_by("-last_completed_date")`
-
-```python
-# ❌ Bad — breaks when user backdates after logging today
-HabitLog.objects.filter(...).latest("timestamp")
-HabitLog.objects.filter(...).order_by("-timestamp")
-
-# ✅ Good — always returns the entry with the furthest-forward completion date
+# ✅ Good
 HabitLog.objects.filter(...).latest("last_completed_date")
-HabitLog.objects.filter(...).order_by("-last_completed_date")
+# ❌ Bad
+HabitLog.objects.filter(...).latest("timestamp")
 ```
 
 ## Backdate Habit Completion Pattern
 
-**Feature**: Allows users to log habits for past dates (up to 7 days back) through the Telegram bot.
+Users can log habits for past dates (up to 7 days back).
 
-### Implementation Architecture
+### Architecture
 
-**Three-layer approach**:
-
-1. **Repository Layer** (`src/core/repositories.py`):
-   - `get_log_for_habit_on_date()` - Check for duplicate completions on specific date
-   - `get_logs_for_habit_in_daterange()` - Get completions within date range (for calendar view)
-
-2. **Service Layer**:
-   - `HabitService.process_habit_completion(target_date=None)` - Accepts optional target_date parameter
-   - `StreakService.calculate_streak_for_date()` - Calculate streak for specific past date
-   - `HabitService.get_habit_completions_for_daterange()` - Get completion dates for calendar display
-
-3. **Bot Handler Layer** (`src/bot/handlers/backdate_handler.py`):
-   - ConversationHandler with three states: SELECTING_HABIT → SELECTING_DATE → CONFIRMING_COMPLETION
-   - Entry points: `/backdate` command or callback from other handlers
+- **Repository**: `get_log_for_habit_on_date()` (duplicate check), `get_logs_for_habit_in_daterange()` (calendar)
+- **Service**: `process_habit_completion(target_date=None)`, `calculate_streak_for_date()`
+- **Handler**: `src/bot/handlers/backdate_handler.py` (ConversationHandler: SELECTING_HABIT → SELECTING_DATE → CONFIRMING)
 
 ### Key Design Decisions
 
-**HabitLog Model Fields**:
-- `timestamp` (auto_now_add) - When the log was created (always "now")
-- `last_completed_date` (DateField) - The actual completion date (can be backdated)
+**HabitLog fields**: `timestamp` (auto_now_add, when logged) vs `last_completed_date` (actual completion date, can be backdated).
 
-**Why separate fields?**: Allows audit trail (when logged) while supporting backdating (when completed).
+**Validation**: 7-day limit, no future dates, no before-habit-creation, duplicate prevention per date.
 
-**Validation Rules** (7-day limit):
-```python
-# In HabitService.process_habit_completion()
-max_backdate_days = 7
-earliest_allowed = today - timedelta(days=max_backdate_days)
+**Streak**: `calculate_streak()` for today, `calculate_streak_for_date()` for backdated (different gap logic).
 
-if target_date > today:
-    raise ValueError("Cannot log habits for future dates")
-if target_date < earliest_allowed:
-    raise ValueError(f"Cannot backdate more than {max_backdate_days} days")
-if target_date < habit.created_at.date():
-    raise ValueError("Cannot backdate before habit was created")
-```
+**Date picker**: Shows 7-day calendar with checkmarks on completed dates.
 
-**Duplicate Prevention**:
-```python
-existing_log = await self.habit_log_repo.get_log_for_habit_on_date(
-    user.id, habit.id, target_date
-)
-if existing_log:
-    raise ValueError(f"Habit already completed on {target_date}")
-```
+**Error handling**: Map service `ValueError` messages to localized user messages in handlers.
 
-### Streak Calculation for Backdating
+### Duplicate Handler Pitfalls
 
-**Two methods in StreakService**:
+1. **Bridge vs ConversationHandler**: Callbacks handled by ConversationHandler entry points MUST NOT also appear in `bridge_command_callback` mapping in `menu_handler.py`. Already excluded: `menu_habits_edit`, `menu_rewards_claim`.
 
-1. `calculate_streak()` - For today's completions (normal flow)
-2. `calculate_streak_for_date()` - For backdated completions (checks gap between last completion and target date)
+2. **menu_handler.py vs habit_done_handler.py**: Habit completion flow exists in TWO places with different context key prefixes (`habit_id` vs `menu_habit_id`). **Update BOTH** when modifying yesterday/backdate flow.
 
-**Why two methods?**: Backdating into the middle of existing logs requires different logic than appending to the end.
-
-### UI/UX Patterns
-
-**Date Picker Keyboard** (`build_date_picker_keyboard()`):
-- Shows 7-day calendar (today and 6 days back)
-- Displays checkmarks (✓) on dates that already have completions
-- Dates with completions have different callback_data (disabled)
-- Organized in rows of 4 buttons
-
-**Confirmation Flow**:
-1. Select habit
-2. Select date from calendar
-3. Confirm with preview: "Log {habit} for {date}?"
-4. Process completion
-
-### Error Handling
-
-**User-friendly error mapping** in `confirm_backdate_completion()`:
-```python
-try:
-    result = await habit_service.process_habit_completion(
-        user_telegram_id=telegram_id,
-        habit_name=habit_name,
-        target_date=target_date
-    )
-except ValueError as e:
-    # Map service errors to localized user messages
-    if "already completed" in str(e).lower():
-        msg('ERROR_BACKDATE_DUPLICATE', lang, ...)
-    elif "future date" in str(e).lower():
-        msg('ERROR_BACKDATE_FUTURE', lang)
-    # ... etc
-```
-
-**Why map errors?**: Service layer raises generic ValueError with technical messages; handlers convert to user-friendly localized messages.
-
-### Multi-lingual Support
-
-**All backdate messages** in `src/bot/messages.py` with translations:
-- `HELP_BACKDATE_SELECT_HABIT`
-- `HELP_BACKDATE_SELECT_DATE`
-- `HELP_BACKDATE_CONFIRM`
-- `SUCCESS_BACKDATE_COMPLETED`
-- `ERROR_BACKDATE_DUPLICATE`
-- `ERROR_BACKDATE_TOO_OLD`
-- `ERROR_BACKDATE_FUTURE`
-- `ERROR_BACKDATE_BEFORE_CREATED`
-- `BUTTON_TODAY`, `BUTTON_YESTERDAY`, `BUTTON_SELECT_DATE`
-
-**Supported languages**: English, Russian, Kazakh
-
-### Context Management Pattern
-
-**Store intermediate state in `context.user_data`**:
-```python
-# Store after habit selection
-context.user_data['backdate_habit_id'] = habit_id
-context.user_data['backdate_habit_name'] = habit.name
-
-# Retrieve when confirming
-habit_name = context.user_data.get('backdate_habit_name')
-target_date = context.user_data.get('backdate_date')
-
-# Clean up on completion/cancellation
-context.user_data.pop('backdate_habit_id', None)
-context.user_data.pop('backdate_habit_name', None)
-context.user_data.pop('backdate_date', None)
-```
-
-**Why**: ConversationHandler states don't persist data between callbacks; use context.user_data for flow continuity.
-
-### Duplicate Handler Pitfall: Bridge Handler vs ConversationHandler
-
-**Critical**: When a callback (e.g., `menu_rewards_claim`) is handled by a `ConversationHandler` entry point, it must NOT also appear in the `bridge_command_callback` mapping or regex pattern in `menu_handler.py`. Both handlers will match the same callback, causing duplicate messages (one edited, one new).
-
-**Already excluded from bridge** (handled by ConversationHandlers):
-- `menu_habits_edit` — comment in mapping dict, line ~264
-- `menu_rewards_claim` — comment in mapping dict, line ~268
-
-**When adding new ConversationHandler entry points for menu callbacks**: remove the callback from both the `mapping` dict AND the `bridge_command_callback` regex pattern in `get_menu_handlers()`.
-
-### Duplicate Handler Pitfall: menu_handler.py vs habit_done_handler.py
-
-**Critical**: The habit completion flow exists in TWO places with different context key prefixes:
-
-1. **`habit_done_handler.py`** (ConversationHandler via `/habit_done` command)
-   - Context keys: `habit_id`, `habit_name`, `backdate_date`
-   - Uses conversation states: `CONFIRMING_BACKDATE`, etc.
-
-2. **`menu_handler.py`** (standalone CallbackQueryHandlers via menu buttons)
-   - Context keys: `menu_habit_id`, `menu_habit_name`, `menu_backdate_date`
-   - Returns `0` from all handlers (no conversation states)
-
-**When modifying the "yesterday" or "for date" flow, you MUST update BOTH handlers.** The menu flow is the one users typically interact with (via the main menu buttons), while the conversation handler is used via `/habit_done` command.
-
-### cancel_handler Must Handle Both Message and Callback
-
-The `cancel_handler` in `habit_done_handler.py` is used as both a `CommandHandler` fallback (`/cancel` message) and a `CallbackQueryHandler` (clicking "No" button). It must check `update.callback_query` to decide whether to use `edit_message_text()` or `reply_text()`.
+3. **cancel_handler**: Must check `update.callback_query` to decide between `edit_message_text()` or `reply_text()`.
 
 ### In-Memory Object Sync After DB Update in Loops
 
-**CRITICAL**: When iterating a list of DB objects and updating them inside the loop, always update the **in-memory object** immediately after the DB call. Otherwise, subsequent iterations that reference the updated object (e.g., `prev_log`) will see the stale pre-update value.
-
+**CRITICAL**: After DB update in a loop, sync the in-memory object too — otherwise subsequent iterations use stale values:
 ```python
-# ❌ Bad — DB updated but in-memory stale; next iteration uses wrong streak_count
-await maybe_await(self.habit_log_repo.update(log.id, {"streak_count": new_streak}))
-
-# ✅ Good — keep in-memory in sync
 await maybe_await(self.habit_log_repo.update(log.id, {"streak_count": new_streak}))
 log.streak_count = new_streak  # ← sync the object
 ```
-
-**Where this matters**: `recalculate_streaks_after_backdate()` in `src/services/habit_service.py`. If omitted, a streak chain of length N only propagates the first update correctly; all subsequent logs compute based on the stale value.
+Affects: `recalculate_streaks_after_backdate()` in `src/services/habit_service.py`.
 
 ### Known Limitations
 
-**Streak Propagation**: When a past completion is inserted via backdating, the system DOES NOT recalculate streak counts for existing future logs. This means:
-
-- **Example scenario**: User completes habit today (streak=1), then backdates same habit to yesterday
-  - The backdated log gets streak=2 (correct, based on yesterday being consecutive)
-  - Today's log KEEPS streak=1 (not recalculated)
-  - This is intentional to avoid expensive cascading updates across all future logs
-
-**Why this is acceptable**:
-- The most recent log still shows the correct current streak via `get_current_streak()`
-- Future completions will calculate correctly based on the most recent log
-- Backdating is designed for filling missed entries, not reconstructing historical data
-
-**Alternative considered**: Recalculating all logs after the backdated entry was deemed too complex and error-prone for the initial implementation. Future enhancement could add a "Recalculate Streaks" admin action if needed.
-
-### Testing Considerations
-
-**Manual test scenarios**:
-1. Backdate to yesterday - should work
-2. Backdate to 7 days ago - should work (boundary)
-3. Backdate to 8 days ago - should fail (too old)
-4. Backdate to future date - should fail
-5. Backdate same habit twice on same date - should fail (duplicate)
-6. Backdate before habit creation - should fail
-7. Backdate fills gap in streak - streak should recalculate correctly (for the backdated entry)
-8. Calendar should show checkmarks on completed dates
-9. **Known limitation**: Existing future logs keep their old streak counts (see above)
-
-**Unit test focus areas**:
-- `get_log_for_habit_on_date()` - duplicate detection
-- `get_last_log_before_date()` - querying logs before target date
-- `calculate_streak_for_date()` - gap handling with grace days and exempt weekdays
-- Validation logic in `process_habit_completion()`
+Backdating does NOT recalculate streak counts for existing future logs. Intentional — avoids expensive cascading updates. Current streak display via `get_current_streak()` is still correct.
 
 ## REST API (Feature 0022)
 
 ### Architecture
 
-The REST API uses FastAPI alongside the existing Django application:
+FastAPI alongside Django: `Mobile/Web Client → FastAPI (src/api/) → Service Layer → Django ORM → DB`. Combined ASGI entry point in `asgi.py`.
 
-```
-Mobile/Web Client
-    ↓ HTTP/JSON
-FastAPI REST API Layer (src/api/)
-    ↓
-Existing Service Layer (src/services/)
-    ↓
-Django ORM Repositories (src/core/repositories.py)
-    ↓
-PostgreSQL/SQLite
-```
+**Structure**: `src/api/main.py` (factory), `config.py` (JWT/CORS), `dependencies/auth.py` (JWT), `exceptions.py`, `v1/routers/` (endpoints).
 
-**Key Files**:
-- `src/api/main.py` - FastAPI application factory
-- `src/api/config.py` - API-specific settings (JWT, CORS)
-- `src/api/dependencies/auth.py` - JWT authentication
-- `src/api/v1/routers/` - Versioned API endpoints
-- `asgi.py` - Combined ASGI entry point for Django + FastAPI
-
-### Running the API
+### Running
 
 ```bash
-# Development
 uvicorn asgi:app --reload --port 8000
-
-# Access API docs
-# http://localhost:8000/api/docs (Swagger UI)
-# http://localhost:8000/api/redoc (ReDoc)
+# Docs: /docs (Swagger), /redoc
 ```
 
-### JWT Authentication Pattern
+### JWT Authentication
 
-**Token Flow**:
-1. Client calls `POST /api/v1/auth/login` with `telegram_id`
-2. Server returns `access_token` (15min) + `refresh_token` (7 days)
-3. Client includes `Authorization: Bearer <access_token>` header
-4. When access token expires, call `POST /api/v1/auth/refresh`
+Login → `access_token` (15min) + `refresh_token` (7d). Use `Authorization: Bearer <token>`. Refresh with `POST /v1/auth/refresh`. Logout doesn't blacklist tokens (TODO: Redis).
 
-**Token Payload**:
-```json
-{
-  "sub": "user_id",
-  "telegram_id": "123456789",
-  "exp": 1234567890,
-  "type": "access"
-}
-```
+**Dependency**: `current_user: Annotated[User, Depends(get_current_active_user)]`
 
-**Using Authentication Dependency**:
-```python
-from typing import Annotated
-from fastapi import Depends
-from src.api.dependencies.auth import get_current_active_user
-from src.core.models import User
+### Endpoints (27 total)
 
-@router.get("/protected")
-async def protected_route(
-    current_user: Annotated[User, Depends(get_current_active_user)]
-):
-    # current_user is the authenticated, active User instance
-    return {"user_id": current_user.id}
-```
+- **Auth** `/v1/auth`: login, refresh, logout
+- **Users** `/v1/users`: me, update, settings
+- **Habits** `/v1/habits`: CRUD, complete, batch-complete
+- **Habit Logs** `/v1/habit-logs`: list, get, revert (DELETE)
+- **Rewards** `/v1/rewards`: CRUD, progress, claim
+- **Streaks** `/v1/streaks`: list, detail
+- **Health**: `/health` (NOT `/v1/health`)
 
-### API Router Pattern
+### Error Responses
 
-All routers follow consistent patterns:
+Standardized: `{"error": {"code": "ERROR_CODE", "message": "...", "details": {}}}`. Custom exceptions: `UnauthorizedException` (401), `ForbiddenException` (403), `NotFoundException` (404), `ConflictException` (409), `ValidationException` (422).
 
-```python
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
-from src.api.dependencies.auth import get_current_active_user
-from src.api.exceptions import NotFoundException, ForbiddenException
+### Known Critical Issues
 
-router = APIRouter()
+1. **P0 — Habit Log Revert Bug** (`habit_logs.py:214-218`): Accepts `log_id` but calls service with `habit_id` → reverts wrong log
+2. **P0 — JWT Secret Regenerates** (`config.py:11`): Without `API_SECRET_KEY` env var, new key each restart invalidates all tokens
+3. **P1 — Broken Active Filter** (`habits.py:150-154`): `?active=false` still returns only active (both branches call `get_all_active()`)
+4. **P1 — Inefficient Log Lookup** (`habit_logs.py:150-151`): Fetches 1000 logs to find one by ID (needs `get_by_id()`)
 
-class ItemResponse(BaseModel):
-    id: int
-    name: str
+### Configuration (.env)
 
-    class Config:
-        from_attributes = True  # Enable ORM mode
-
-@router.get("/{item_id}", response_model=ItemResponse)
-async def get_item(
-    item_id: int,
-    current_user: Annotated[User, Depends(get_current_active_user)]
-) -> ItemResponse:
-    item = await maybe_await(item_repository.get_by_id(item_id))
-
-    if item is None:
-        raise NotFoundException(message=f"Item {item_id} not found")
-
-    if item.user_id != current_user.id:
-        raise ForbiddenException(message="Access denied")
-
-    return ItemResponse(id=item.id, name=item.name)
-```
-
-### Exception Handling
-
-Use custom exceptions that map to HTTP status codes:
-
-```python
-from src.api.exceptions import (
-    UnauthorizedException,  # 401
-    ForbiddenException,     # 403
-    NotFoundException,      # 404
-    ConflictException,      # 409
-    ValidationException,    # 422
-)
-
-# All exceptions return standardized JSON:
-{
-    "error": {
-        "code": "HABIT_NOT_FOUND",
-        "message": "Habit 'Running' not found",
-        "details": {}
-    }
-}
-```
-
-### API Endpoint Summary
-
-**Authentication** (`/api/v1/auth`):
-- `POST /login` - Login with telegram_id
-- `POST /refresh` - Refresh access token
-- `POST /logout` - Logout
-
-**Users** (`/api/v1/users`):
-- `GET /me` - Get current user
-- `PATCH /me` - Update user profile
-- `GET /me/settings` - Get user settings
-
-**Habits** (`/api/v1/habits`):
-- `GET /` - List habits
-- `GET /{id}` - Get habit
-- `POST /` - Create habit
-- `PATCH /{id}` - Update habit
-- `DELETE /{id}` - Soft delete habit
-- `POST /{id}/complete` - Complete habit
-- `POST /batch-complete` - Complete multiple habits
-
-**Habit Logs** (`/api/v1/habit-logs`):
-- `GET /` - List logs (with date filters)
-- `GET /{id}` - Get log
-- `DELETE /{id}` - Revert completion
-
-**Rewards** (`/api/v1/rewards`):
-- `GET /` - List rewards with progress
-- `GET /progress` - Get all progress
-- `GET /{id}` - Get reward with progress
-- `POST /` - Create reward
-- `PATCH /{id}` - Update reward
-- `DELETE /{id}` - Delete reward
-- `POST /{id}/claim` - Claim achieved reward
-
-**Streaks** (`/api/v1/streaks`):
-- `GET /` - Get all habit streaks
-- `GET /{habit_id}` - Get habit streak detail
-
-### Configuration
-
-API settings in `.env`:
-
-```bash
-# JWT Configuration
-API_SECRET_KEY=your-secret-key-here  # Auto-generated if not set
-API_ACCESS_TOKEN_EXPIRE_MINUTES=15
-API_REFRESH_TOKEN_EXPIRE_DAYS=7
-API_ALGORITHM=HS256
-
-# CORS
-API_CORS_ORIGINS=https://yourfrontend.com,https://app.example.com
-```
-
-### Testing API Endpoints
-
-```bash
-# Login
-curl -X POST http://localhost:8000/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"telegram_id": "123456789"}'
-
-# Use access token
-curl http://localhost:8000/api/v1/users/me \
-  -H "Authorization: Bearer <access_token>"
-
-# Complete a habit
-curl -X POST http://localhost:8000/api/v1/habits/1/complete \
-  -H "Authorization: Bearer <access_token>" \
-  -H "Content-Type: application/json" \
-  -d '{"target_date": "2025-12-10"}'
-```
-
-## REST API Implementation (Feature 0022)
-
-### Architecture Overview
-
-The REST API layer is in `src/api/` with the following structure:
-
-```
-src/api/
-├── main.py                 # FastAPI app factory
-├── config.py              # API configuration (JWT, CORS)
-├── exceptions.py          # Custom exception handlers
-├── dependencies/
-│   └── auth.py            # JWT utilities and auth dependencies
-├── middleware/
-│   ├── logging.py         # Request ID and timing logging
-│   └── rate_limiting.py   # Optional rate limiting (Phase 3)
-└── v1/
-    └── routers/
-        ├── auth.py        # Login, refresh, logout
-        ├── users.py       # User profile and settings
-        ├── habits.py      # Habit CRUD and completion
-        ├── rewards.py     # Reward CRUD and claiming
-        ├── habit_logs.py  # Habit log history and revert
-        └── streaks.py     # Streak information
-```
-
-### Key Implementation Notes
-
-**Authentication**: JWT-based with access tokens (15 min) and refresh tokens (7 days). All protected endpoints require `Authorization: Bearer <token>` header.
-
-**Endpoints**: 27 endpoints across 6 resource areas. Base path is `/v1/`. Health check available at `/health`.
-
-**Error Responses**: Standardized format:
-```json
-{
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "Human readable message",
-    "details": {}
-  }
-}
-```
-
-**Ownership Validation**: All endpoints validate that users can only access their own resources (habits, rewards, logs). Returns 403 Forbidden for cross-user access attempts.
-
-### Known Critical Issues (From 0022_REVIEW.md)
-
-**P0 - Critical (Fix Before Production):**
-
-1. **Habit Log Revert Bug** (`src/api/v1/routers/habit_logs.py:214-218`)
-   - Endpoint accepts `log_id` but calls `habit_service.revert_habit_completion()` with `habit_id`
-   - This reverts the MOST RECENT log for that habit, not the requested log
-   - If user has multiple logs for same habit, wrong one gets deleted
-   - Fix: Modify service to accept `log_id` parameter
-
-2. **JWT Secret Regenerates on Restart** (`src/api/config.py:11`)
-   - If `API_SECRET_KEY` env var not set, new random key generated each restart
-   - Invalidates all existing tokens on deployment
-   - Fix: Require explicit `API_SECRET_KEY` or persist to file
-
-**P1 - High (Fix Soon):**
-
-3. **Broken Active Filter** (`src/api/v1/routers/habits.py:150-154`)
-   - `GET /v1/habits?active=false` still returns only active habits
-   - Both branches call same `get_all_active()` method
-   - Fix: Add `get_all()` method to repository
-
-4. **Inefficient Log Lookup** (`src/api/v1/routers/habit_logs.py:150-151`)
-   - Fetches up to 1000 logs from DB just to find one by ID
-   - O(n) instead of O(1) operation
-   - Fix: Add `get_by_id()` method to `habit_log_repository`
+`API_SECRET_KEY`, `API_ACCESS_TOKEN_EXPIRE_MINUTES=15`, `API_REFRESH_TOKEN_EXPIRE_DAYS=7`, `API_ALGORITHM=HS256`, `API_CORS_ORIGINS`.
 
 ### API Test Script
 
-Comprehensive test suite at `scripts/test_api.sh`:
-- 70+ test assertions across all endpoints
-- Multi-user isolation testing
-- Error scenario validation
-- Edge case coverage
-
-**Run with:**
-```bash
-# Start API server
-uvicorn asgi:app --port 8000
-
-# In another terminal
-./scripts/test_api.sh
-```
-
-### Database Endpoint Locations (IMPORTANT!)
-
-- API endpoints: `/v1/*` (e.g., `/v1/habits`)
-- Health check: `/health` (NOT `/v1/health`)
-- OpenAPI docs: `/docs`
-- ReDoc: `/redoc`
-
-### Token Blacklist Not Implemented
-
-**Note**: The logout endpoint doesn't implement token blacklisting. Tokens remain valid until expiration (15 min for access, 7 days for refresh). This is noted as TODO in the code - implement with Redis for production.
-
-### Future Work (Phase 3)
-
-- Analytics endpoints (`/v1/analytics/*`)
-- Rate limiting middleware
-- API tests (`tests/api/`)
-- Webhook notifications (optional)
+`scripts/test_api.sh`: 70+ assertions, multi-user isolation, error scenarios. Run with `./scripts/test_api.sh`.
 
 ## Claimed Rewards Feature (Feature 0035)
 
-### Sorting Belongs in the Repository
-
-When a repository query already includes `.order_by()`, do NOT add a redundant sort in the service layer. The service should trust the repository's ordering.
-
-```python
-# ✅ Good - Repository handles sorting
-async def get_claimed_non_recurring_by_user(self, user_id):
-    return await sync_to_async(list)(
-        RewardProgress.objects.filter(
-            user_id=user_pk, claimed=True, reward__is_recurring=False,
-        ).select_related("reward", "user").order_by("reward__name")
-    )
-
-# Service just coerces, no re-sort needed
-async def _impl():
-    results = await maybe_await(self.progress_repo.get_claimed_non_recurring_by_user(user_id))
-    return [self._coerce_progress(r) for r in results]
-
-# ❌ Bad - Redundant sort in service
-coerced.sort(key=lambda rp: rp.reward.name if rp.reward else "")
-```
-
-### Language Detection Consistency
-
-When `lang` is already fetched via `get_message_language_async()` at the top of a handler, use that variable for ALL messages in the handler — including error messages. Do NOT call `detect_language_from_telegram(update)` separately for error paths.
-
-```python
-# ✅ Good - Use pre-fetched lang everywhere
-lang = await get_message_language_async(telegram_id, update)
-if not user:
-    await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
-
-# ❌ Bad - Redundant detection call
-if not user:
-    await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', detect_language_from_telegram(update)))
-```
-
-### Import Organization in Handlers
-
-Move all imports to the top of handler files. Avoid inline `from ... import ...` inside function bodies. This improves dependency visibility and avoids scattered duplicate imports.
-
-```python
-# ✅ Good - Top-level imports
-from src.bot.keyboards import build_back_to_menu_keyboard
-from src.bot.formatters import format_claimed_rewards_message
-
-# ❌ Bad - Inline imports repeated in multiple functions
-async def my_handler(...):
-    from src.bot.keyboards import build_back_to_menu_keyboard  # Repeated 6 times!
-```
-
-### Test Assertions: Use Exact Message Constants
-
-In handler tests, assert against exact `msg()` constants instead of loose substring matching. This catches unintended message changes and prevents false positives.
-
-```python
-from src.bot.messages import msg
-
-# ✅ Good - Exact match
-assert call_args[0][0] == msg('ERROR_USER_NOT_FOUND', 'en')
-
-# ❌ Bad - Loose substring matching (false positives possible)
-assert "not found" in call_args[0][0].lower() or "User not found" in call_args[0][0]
-```
-
-### Silent Fallbacks: Log Instead of Hiding
-
-When using fallback values (e.g., `or 1`), add a warning log so unexpected None values surface in logs rather than being silently swallowed.
-
-```python
-# ✅ Good - Defensive logging
-pieces = progress.get_pieces_required()
-if pieces is None:
-    logger.warning(f"Missing pieces_required for progress {progress.id}")
-    pieces = 1
-
-# ❌ Bad - Silent fallback hides bugs
-pieces = progress.get_pieces_required() or 1
-```
-
-### DB-Backed Repository Integration Tests
-
-For critical query filters (like `claimed=True AND reward__is_recurring=False`), always write a DB-backed integration test alongside unit tests. Unit tests with mocked repos cannot verify actual query filtering.
-
-**Pattern** (in `tests/services/test_reward_service_async.py`):
-- Create test data with `await Model.objects.acreate(...)`
-- Call the repository method directly
-- Assert only expected rows are returned
-- Clean up in a `finally` block with `await Model.objects.filter(...).adelete()`
+**Key patterns**:
+- **Sorting**: When repository query has `.order_by()`, don't re-sort in service layer
+- **Language detection**: Use pre-fetched `lang` everywhere — don't call `detect_language_from_telegram()` separately for errors
+- **Imports**: All imports at top of handler files, not inline in functions
+- **Test assertions**: Assert against exact `msg()` constants, not loose substrings
+- **Silent fallbacks**: Log warnings for unexpected None values instead of silent `or 1`
+- **DB-backed tests**: For critical query filters, write DB-backed integration tests alongside unit tests (mocked repos can't verify actual filtering)
 
 ## Web Interface Security Patterns (Feature 0036)
 
-### Security Headers (CSP and Hardening)
+### Security Headers
 
-**Middleware**: `src/web/middleware.py` — `ContentSecurityPolicyMiddleware` sets security headers in production (when `DEBUG=False`).
-
-**Headers applied**:
-- `Content-Security-Policy` — Restricts script/style/img/frame/connect sources.
-- `X-Content-Type-Options: nosniff` — Prevents MIME sniffing.
-- `X-Frame-Options: DENY` — Prevents clickjacking.
-- `Referrer-Policy: strict-origin-when-cross-origin` — Limits referrer leakage.
-
-**CSP nonce**: `style-src` uses a per-request nonce (`'nonce-{nonce}'`) generated by `ContentSecurityPolicyMiddleware`. The nonce is set on `request.csp_nonce` and passed to templates via the `csp_nonce` context processor (`src/web/context_processors.py`). The `<meta name="csp-nonce">` tag in `base.html` exposes the nonce to frontend code. Vue 3 runtime style injection does not natively support nonces, so component-scoped styles may require future work (hash-based or build-time extraction).
+`ContentSecurityPolicyMiddleware` (`src/web/middleware.py`) sets CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy in production (`DEBUG=False`). CSP nonce via `request.csp_nonce` → `csp_nonce` context processor → `<meta name="csp-nonce">`.
 
 ### Authentication Endpoint Hardening
 
-**Rate Limiting**: Auth endpoints MUST use `django-ratelimit` to prevent brute-force. The rate is configurable via `settings.AUTH_RATE_LIMIT` (env: `AUTH_RATE_LIMIT`, default `'10/m'`) so it can be tuned per environment without code changes. Every auth endpoint MUST have a rate limit — both POST endpoints use `settings.AUTH_RATE_LIMIT`, the GET status endpoint uses `"30/m"`.
-```python
-from django_ratelimit.decorators import ratelimit
-from django.conf import settings
-from django.views.decorators.http import require_GET, require_POST
+**Rate limiting**: All auth endpoints use `django-ratelimit`. Rate configurable via `settings.AUTH_RATE_LIMIT` (default `'10/m'`). Always pair `method=` with `@require_POST`/`@require_GET`. Dashboard actions: `settings.DASHBOARD_ACTION_RATE_LIMIT` (default `'60/m'`), shared `group="dashboard_action"`.
 
-@require_POST
-@ratelimit(key="ip", rate=settings.AUTH_RATE_LIMIT, method="POST", block=True)
-def bot_login_request(request):
-    ...
+**Anti-enumeration**: Bot-login endpoint MUST NOT leak username existence. Both paths return identical `{token, expires_at}` + 200. Background work (DB write + Telegram send) runs in `_login_executor` (bounded ThreadPoolExecutor). `check_status()` always performs both DB + cache lookups (no short-circuiting) with random jitter (100-500ms, `secrets.SystemRandom()`).
 
-@require_GET
-@ratelimit(key="ip", rate="30/m", method="GET", block=True)
-def bot_login_status(request, token):
-    ...
-```
+**Token replay prevention**: After confirmation, token status transitions `confirmed → used` atomically via `filter(token=..., status='confirmed').update(status='used')`.
 
-**Method restriction**: Always pair rate-limit `method=` with the corresponding `@require_POST`/`@require_GET` decorator. Without it, requests via other HTTP methods bypass the rate limiter entirely.
+**Token flow**: View receives POST → service looks up user (same path for known/unknown) → `secrets.token_urlsafe(32)` → `cache.set("wl_pending:{token}")` → for known users: `_login_executor.submit(DB write + Telegram send)` → return `{token, expires_at}` → frontend polls with additive backoff (2s→5s cap) → bot confirms → next poll returns "confirmed" → `POST /complete/` → session created.
 
-**Dashboard action rate limiting**: Complete/revert habit endpoints (`src/web/views/dashboard.py`) MUST be rate-limited per user to prevent rapid clicking, abuse, and race conditions. Use `django_ratelimit.core.is_ratelimited` with `group="dashboard_action"` and `key="user"` so both endpoints share one limit. Rate is configurable via `settings.DASHBOARD_ACTION_RATE_LIMIT` (env: `DASHBOARD_ACTION_RATE_LIMIT`, default `'60/m'`). Use the core API (not the decorator) so rate limiting works in async views.
+**Frontend polling** (`Login.vue`): Additive backoff via recursive `setTimeout` (NOT `setInterval`). Server's `expires_at` drives client-side expiry (floor 60s, cap 5min). Stops after 5 consecutive network failures.
 
-**Anti-Enumeration (Username Existence)**: The bot-login request endpoint MUST NOT leak whether a username exists. This requires identical behavior across all observable channels:
+**IP binding**: Tokens bound to originating IP via `LoginTokenIpBinding`. Both status and complete endpoints enforce IP matching. Session also stores `wl_origin_ip:{token}`.
 
-1. **Response body** — The service always returns `{token, expires_at}` for both paths; the view always returns `200` with the generic message. Never include a `sent` field or any boolean that distinguishes the two paths.
-2. **Response timing** — ALL DB writes (invalidate + create) AND the Telegram `send_message` MUST run in the bounded `_login_executor` (`ThreadPoolExecutor(max_workers=10)`), NOT raw `threading.Thread`. The service does only: user lookup → generate token → `cache.set(wl_pending:{token})` → return. Both paths execute the same work. The executor caps concurrent background threads to prevent resource exhaustion under load; excess submissions queue. See `web_login_service.py:_login_executor`.
-3. **Status polling (constant-time `check_status`)** — All tokens are cached as `wl_pending:` on creation. `check_status()` MUST always perform **both** the DB query and the cache lookup on every call (no short-circuiting) so that response timing is identical whether or not a DB record exists. A random jitter (`asyncio.sleep(_secure_random.uniform(0.1, 0.5))`) using `secrets.SystemRandom()` at the start masks any residual timing differences. **Cache TTL** must be derived from the same `expires_at` timestamp used for the DB record (not a separate constant) to prevent drift. **SQLite lock handling**: `check_status` catches `OperationalError` from the DB read (background thread may hold a write lock) and falls through to the cache, which always has the correct answer because it was set before the thread launched. See `web_login_service.py:check_status`.
-4. **Frontend polling** — `Login.vue` uses additive backoff (2s → 3s → 4s → 5s cap) via recursive `setTimeout`, NOT a fixed `setInterval`. The client-side expiry timeout MUST be 300,000ms (5 minutes) to match the server's `LOGIN_REQUEST_EXPIRY_MINUTES`. On network errors, `pollDelay` jumps to the 5s cap before retrying. Never use `setInterval` for polling — it doesn't wait for the previous request to complete.
-5. **JSON body validation** — Always `str()` user-supplied fields before calling `.strip()` (e.g. `str(data.get("username", "")).strip()`). Non-dict JSON bodies (`[]`, `"str"`, `123`) must be caught with `isinstance(data, dict)` after `json.loads`.
+**Thread pool**: `ThreadPoolExecutor(max_workers=WEB_LOGIN_THREAD_POOL_SIZE)` with semaphore-based circuit breaker (`_queue_slots`). HTTP 503 when queue full. Named done callback `_release_queue_slot`.
 
-```python
-# ✅ Good - Service always returns a dict, view has no branching
-result = call_async(web_login_service.create_login_request(username, device_info))
-result["message"] = "If this username is registered, ..."
-return JsonResponse(result)
-
-# ❌ Bad - Branching on result leaks timing (DB writes only for known users)
-if not result:
-    fake_token = secrets.token_urlsafe(32)  # different code path = timing leak
-```
-
-**Token Replay Prevention**: After a confirmed token is used to create a session, it MUST be atomically marked as `used` (status transition: `confirmed` → `used`). The `mark_as_used` repository method uses `filter(token=..., status='confirmed').update(status='used')` — if it returns 0, another request beat us. The same pattern applies to `update_status()` (`filter(token=..., status='pending')`). **Testing note**: SQLite + Django test transactions don't support true multi-threaded concurrency tests (table-level locking). Test atomicity by calling the operation twice sequentially and asserting the second call returns 0. See `TestLoginRaceConditions` in `tests/web/test_views.py`.
-
-**Token Flow (step-by-step)**:
-1. View receives POST `/request/` with username.
-2. Service looks up user (or `None` for unknown) — same code path either way.
-3. `secrets.token_urlsafe(32)` generates a unique token.  The DB's unique constraint on `token` catches the astronomically unlikely collision — a retry loop wraps the insert with `try/except IntegrityError`.
-4. `cache.set("wl_pending:{token}", True, timeout=<cache_ttl>)` — immediate.
-5. For known users: `_login_executor.submit(...)` dispatches DB write + Telegram send to the bounded thread pool. A circuit breaker rejects with `LoginServiceUnavailable` if the queue exceeds `WEB_LOGIN_MAX_QUEUED` (default 50).
-6. Service returns `{token, expires_at}` to the view — always 200.
-7. Frontend polls `GET /status/{token}/` with additive backoff (2s → 5s cap).
-8. `check_status()` performs DB lookup **and** cache lookup on every call (no short-circuit) with 100-500ms random jitter. If DB is locked (SQLite), falls back to cache.
-9. When user taps Confirm in Telegram, bot handler calls `repo.update_status(token, "confirmed")`.
-10. Next poll returns `"confirmed"` → frontend calls `POST /complete/` → session created.
-
-**Cache Fallback Behaviour (DB locked)**:
-SQLite write locks can block reads during the background thread's transactional writes. `check_status()` catches `OperationalError` and falls through to the cache. Because the `wl_pending:{token}` cache key was set **before** the thread pool submission, the cache always has the correct fallback. The cache TTL is derived from the same `expires_at` as the DB record.
-
-**ThreadPoolExecutor Concurrency Model**:
-`_login_executor = ThreadPoolExecutor(max_workers=WEB_LOGIN_THREAD_POOL_SIZE)` (default 10) runs DB writes + Telegram send in background threads so the HTTP response is constant-time. A semaphore-based circuit breaker (`_queue_slots = threading.Semaphore(_MAX_QUEUED_LOGINS)`) tracks in-flight work — when all slots are taken, the view returns HTTP 503. The semaphore is acquired before `_login_executor.submit()` and released in the `finally` block of `_process_login_background`. This avoids relying on `_work_queue.qsize()` which is a CPython implementation detail. Workers use `call_async()` (asgiref) instead of `asyncio.run()` for consistency. Connection pooling (`CONN_MAX_AGE=600`) reduces connection overhead in workers.
-
-**Background Thread Failure Graceful Degradation**: When `_process_login_background` fails (Telegram API down, DB error, etc.), specific exception handlers catch `TelegramError`, `DatabaseError`, and generic `Exception` with differentiated structured logging (extra fields: `user_id`, `token_prefix`, `error`). A `wl_failed:{token}` cache key is set so `check_status()` returns `'error'` instead of leaving the user polling `'pending'` indefinitely. All cache writes are wrapped in try/except — if the cache backend is also down, a warning is logged but the error doesn't propagate.
-
-**Cache Error Handling**: All `cache.set()` and `cache.get_many()` calls are wrapped in try/except. When the cache backend fails: `create_login_request` still returns a token (the DB-only path works once the background thread writes), `check_status` falls back to DB-only results, and `_process_login_background` logs a warning if the `wl_failed` cache key can't be set.
-
-**HTML Escaping Strategy**: Device info is stored *unescaped* in the DB (only truncated to 255 chars in `_parse_device_info`). HTML-escaping for Telegram's `parse_mode="HTML"` is done at the *output boundary* in `_send_login_notification`, not at the input boundary. This keeps the DB data context-neutral and avoids double-escaping.
-
-**Configurable Expiry**: `LOGIN_REQUEST_EXPIRY_MINUTES` reads from `settings.WEB_LOGIN_EXPIRY_MINUTES` (env: `WEB_LOGIN_EXPIRY_MINUTES`, default 5). Frontend's `LOGIN_EXPIRY_MS` in `Login.vue` must stay in sync.
-
-**Troubleshooting**:
-- *Telegram API timeouts*: Check `wl_failed:{token}` in cache; `check_status` returns `"error"`. The `TelegramError` handler logs the root cause.
-- *Cache eviction before DB write completes*: Shouldn't happen — cache TTL matches `expires_at` and is set before the thread launches. If it does, status returns `"expired"` (safe degradation).
-- *Thread pool queue full*: HTTP 503 is returned with a CRITICAL log. Increase `WEB_LOGIN_THREAD_POOL_SIZE` or `WEB_LOGIN_MAX_QUEUED`, or investigate slow Telegram API responses.
-
-**Database Indexes for WebLoginRequest**: The `(token, status)` composite index (`web_login_r_token_status_idx`) is required for the atomic `UPDATE ... WHERE token=? AND status=?` queries in `update_status()` and `mark_as_used()`. Without it, the DB uses the `token` unique index and does a row-level filter on `status`. See migration `0021_add_webloginrequest_token_status_index`.
-
-**IP Address Validation**: Client IPs are parsed and validated by `parse_ip_address()` in `src/web/utils/ip.py`. Malformed values (e.g. XSS payloads, garbage strings) fall back to `REMOTE_ADDR`. **X-Forwarded-For is only trusted when `settings.TRUST_X_FORWARDED_FOR=True`** (env: `TRUST_X_FORWARDED_FOR`, default `False`). A Django system check (`src/web/checks.py`, id `web.W001`) warns at startup if `TRUST_X_FORWARDED_FOR=True` but `SECURE_PROXY_SSL_HEADER` is not set, indicating the app may not be behind a proxy. Tests that need X-Forwarded-For parsing must `@patch("src.web.utils.ip.settings")` and set `mock_settings.TRUST_X_FORWARDED_FOR = True`.
-
-**Telegram Username Validation Constant**: The canonical regex for Telegram usernames lives in `src/web/utils/validation.py` as `TELEGRAM_USERNAME_PATTERN`. Both `src/web/views/auth.py` and `frontend/src/pages/Login.vue` must keep their copies in sync. Cross-referencing comments mark each location.
-
-**Server-Side Logging**: Always log the actual failure reason with client IP for ops visibility:
-```python
-client_ip = request.META.get("REMOTE_ADDR", "unknown")
-logger.warning("Login failed: telegram_id=%s not found, ip=%s", telegram_id, client_ip)
-```
+**Background failure**: `TelegramError` (temporary) → don't mark failed, let TTL expire. `InvalidToken`/`Forbidden` (permanent) → mark failed via `wl_failed:{token}` cache key. All cache writes wrapped in try/except.
 
 ### Repository Pattern in Web Views
 
-Web views (`src/web/views/`) MUST use repositories, not direct ORM. Use `run_sync_or_async` to bridge async repositories in sync Django views:
+Use repositories with `run_sync_or_async` in sync Django views. In tests, mock `run_sync_or_async` to avoid SQLite locking.
 
-```python
-from src.core.repositories import user_repository
-from src.utils.async_compat import run_sync_or_async
+### Other Web Patterns
 
-# ✅ Good - Repository pattern
-user = run_sync_or_async(user_repository.get_by_telegram_id(str(telegram_id)))
-
-# ❌ Bad - Direct ORM in view
-user = User.objects.get(telegram_id=str(telegram_id))
-```
-
-### Web View Test Pattern with `run_sync_or_async`
-
-When testing views that use `run_sync_or_async`, mock it to avoid SQLite locking issues in tests (async-to-sync bridging conflicts with test transactions):
-
-```python
-# Mock run_sync_or_async to return a specific value
-@patch("src.web.views.auth.run_sync_or_async", return_value=None)
-def test_user_not_found(self, mock_sync):
-    ...
-
-# Or mock with a specific return value
-@patch("src.web.views.auth.run_sync_or_async")
-def test_success(self, mock_sync, user):
-    mock_sync.return_value = user
-    ...
-```
-
-### Telegram Username Recycling
-
-Telegram usernames can be transferred between users. The `update_telegram_username` repository method (`src/core/repositories.py`) clears a username from any previous owner before assigning it to the current user. The `/start` handler (`src/bot/handlers/command_handlers.py`) always syncs the username (including `None` when removed). The `telegram_username` field has `unique=True` (NULLs are allowed in Postgres/SQLite).
-
-### CSRF Token Pattern
-
-Frontend reads CSRF token from a `<meta>` tag (set in `src/templates/base.html`), NOT from `document.cookie`:
-```javascript
-// ✅ Good - Meta tag (secure, works with HttpOnly cookies)
-const meta = document.querySelector('meta[name="csrf-token"]');
-return meta.content;
-
-// ❌ Bad - Cookie parsing (vulnerable to XSS token theft)
-return document.cookie.match(/csrftoken=([^;]+)/)[1];
-```
-
-**Note**: Do NOT set `CSRF_COOKIE_HTTPONLY=True` in Django settings — Inertia.js uses axios which reads the `XSRF-TOKEN` cookie internally for its own POST/PUT/DELETE requests.
-
-### Batch Query Pattern (N+1 Prevention)
-
-For dashboard-style views that display per-item aggregates, use batch queries instead of per-item lookups:
-
-```python
-# ✅ Good - Single query for all streaks
-streak_map = run_sync_or_async(habit_log_repository.get_latest_streak_counts(user.id))
-for habit in all_habits:
-    streak = streak_map.get(habit.id, 0)
-
-# ❌ Bad - N+1 queries
-for habit in all_habits:
-    streak = streak_service.get_current_streak(user.id, habit.id)  # 1 query per habit!
-```
-
-`get_latest_streak_counts()` uses Django `Subquery` to fetch latest streak per habit in one query. See `src/core/repositories.py`.
+- **Telegram username recycling**: `update_telegram_username` clears from previous owner before assigning. `/start` always syncs username.
+- **CSRF**: Frontend reads from `<meta name="csrf-token">`, NOT cookies. Do NOT set `CSRF_COOKIE_HTTPONLY=True` (Inertia.js/axios needs cookie).
+- **Batch queries**: Use batch queries for per-item aggregates. `get_latest_streak_counts()` uses Django `Subquery` for one-query streak fetch.
 
 ## Web Login Security Patterns
 
-### Token Length Validation
-`secrets.token_urlsafe(32)` always produces exactly 43 characters. The token validation in `src/web/views/auth.py` enforces `40 <= len(token) <= 50`. When updating `TOKEN_BYTES`, ensure the length range still covers the output. Tests that send tokens through `POST /auth/bot-login/complete/` must use 40-50 char tokens.
+### Token & Validation
+- `secrets.token_urlsafe(32)` → 43 chars. Validation: `TOKEN_MIN_LENGTH=40`, `TOKEN_MAX_LENGTH=50`.
+- Username regex synced between `src/web/utils/validation.py` and `frontend/src/pages/Login.vue`. Pre-commit hook verifies sync.
+- `CheckConstraint` (`user_telegram_username_format`) enforces format at DB level (bypasses `save()`).
 
-### Validation Pattern Sync (Frontend/Backend)
-The username regex pattern is duplicated in:
-- **Backend**: `src/web/utils/validation.py` (`TELEGRAM_USERNAME_PATTERN`)
-- **Frontend**: `frontend/src/pages/Login.vue` (`TELEGRAM_USERNAME_RE`)
+### IP & Proxy
+- X-Forwarded-For: take leftmost IP, validate with `ipaddress.ip_address()`. Only trusted when `settings.TRUST_X_FORWARDED_FOR=True`. Multi-proxy chains (>2) logged at WARNING.
+- `_anonymize_ip()`: 64-bit SHA-256 prefix for GDPR-safe logging.
 
-A pre-commit hook (`scripts/check_validation_sync.sh`) verifies they stay in sync. The frontend accepts uppercase for UX but lowercases before sending to the backend.
+### Timing & Caching
+- Jitter applied to ALL status paths (including confirmed/denied/used) — named constants `_JITTER_MIN`/`_JITTER_MAX`.
+- `_ensure_utc()` for datetime comparisons — Django may return naive datetimes.
+- `wl_pending` cache key set eagerly (before thread) by design — anti-enumeration.
+- Cache TTL: `_cache_ttl_seconds(expires_at, min_ttl=1)` — always use this helper.
+- `CacheManager.set` threshold check MUST be inside `_lock` to prevent race condition.
 
-### CheckConstraint vs save() Validation
-`User.save()` validates `telegram_username` format, but `bulk_create`/`bulk_update`/`QuerySet.update()` bypass `save()`. The DB-level `CheckConstraint` (`user_telegram_username_format`) in `src/core/models.py` enforces the format at the DB layer. Use `condition=` (not deprecated `check=`) for Django 6.0 compatibility.
+### Threading & Testing
+- Mock Django cache across threads: patch `LocMemCache` class, not the proxy (thread-local connections).
+- SQLite threading tests: use `RequestFactory` not `Client()`, mock `login()` and `call_async`.
+- Bounded queue: `queue.Queue(maxsize=_MAX_QUEUED_LOGINS)` complements semaphore.
 
-### X-Forwarded-For Multi-Proxy Chains
-`src/web/utils/ip.py` takes the leftmost IP from X-Forwarded-For regardless of chain length. Multi-proxy chains (CDN -> LB -> app) are legitimate and should not be rejected. Only the leftmost IP is validated with `ipaddress.ip_address()`.
+### DB Patterns
+- `mark_as_used()`: `SELECT FOR UPDATE` inside `transaction.atomic()` for row-level locking (PostgreSQL). SQLite: no-op but sequential via file lock.
+- Token collision: retry with `IntegrityError` catch, write pending cache for new token.
 
-### Timing Jitter
-Status polling jitter (`src/web/services/web_login_service/__init__.py`) is applied to **ALL** status check paths — including `"confirmed"`, `"denied"`, and `"used"`. Cache hits are measurably faster than DB lookups; without universal jitter, statistical timing analysis can distinguish code paths. Named constants `_JITTER_MIN`/`_JITTER_MAX` are configurable via Django settings (`WEB_LOGIN_JITTER_MIN` / `WEB_LOGIN_JITTER_MAX`).
+### Named Constants
+`TOKEN_BYTES=32`, `TOKEN_GENERATION_MAX_RETRIES=3`, `_MIN_FAILED_MARKER_TTL_SECONDS=60`, `_CACHE_FAILURE_THRESHOLD=10`.
 
-### IP Binding Protection
-Login tokens are bound to the originating IP via `LoginTokenIpBinding` (DB model, not sessions). The binding is created in `bot_login_request` BEFORE the JSON response. Both `bot_login_status` and `bot_login_complete` enforce IP matching — if no binding exists or IP mismatches, the request is rejected. See `SECURITY.md` § "IP Binding Protection" for the full threat model. Tests that hit status/complete endpoints must create a `_create_ip_binding()` record (see `tests/web/test_auth_views.py`).
-
-### UA Parsing Cache
-`_parse_ua_cached` in `src/web/views/auth.py` uses Django's cache framework (not `lru_cache`) with `hashlib.blake2b` (8-byte digest) for deterministic cache keys across process restarts and 1-hour TTL. `MAX_USER_AGENT_LENGTH` is configurable via `settings.MAX_USER_AGENT_LENGTH` (default 512). Oversized UAs are logged at WARNING before truncation. Both `cache.get()` and `cache.set()` are wrapped in try-except to gracefully degrade if the cache backend fails — the function falls back to direct UA parsing. Tests: `TestParseUaCachedCacheFailure` in `tests/web/test_auth_views.py`.
-
-### Timezone-Aware Comparisons
-Always use `_ensure_utc()` (defined in `web_login_service.py`) when comparing DB datetime fields with `datetime.now(timezone.utc)`. Django may return naive datetimes when `USE_TZ=False`. Always guard against `None` at call sites (e.g. `if login_request.expires_at is None or ...`) to handle corrupt DB rows gracefully. The handler in `web_login_handler.py` also imports and uses `_ensure_utc` for consistency.
-
-### Thread Pool Semaphore Pattern
-`_queue_slots` (Semaphore) tracks background queue depth. The done callback `_release_queue_slot` (a named function, not a lambda) releases the slot when the future completes. This ensures testability and avoids closure pitfalls. When `executor.submit` raises `RuntimeError`, the caller releases the slot manually.
-
-### Cache Failure Race Condition
-In `CacheManager.set`, the threshold check (`should_raise`) MUST be inside the `_lock` to prevent multiple threads from simultaneously reading the same count and all raising `CacheWriteError`. The threshold is 5 (configurable via `CACHE_FAILURE_THRESHOLD`) — high enough to tolerate transient cache blips during peak traffic without blocking all logins globally, low enough to surface issues faster.
+### Other
+- Temporary vs permanent Telegram errors: only permanent (`InvalidToken`, `Forbidden`) mark request failed.
+- SQLite system check: Warning for pool 2-10, Error for >10 (`web.E003`).
+- Per-token rate limiting on `bot_login_status`: 10/m using token from URL path.
+- `Login.vue` uses server's `expires_at` for client expiry (floor 60s, cap `LOGIN_EXPIRY_MS`).
+- HTML escaping: store unescaped in DB, escape at output boundary in `_send_login_notification`.
+- Exception chaining: `validate_iana_timezone` chains with `from e`.
+- Keep `SECURITY.md` in sync with login flow changes.
 
 ### Web Test File Organization
-`tests/web/test_views.py` was split into feature-area files:
-- `tests/web/conftest.py` — shared fixtures (`user`, `auth_client`, `_call_async_mock`) and helpers
-- `tests/web/test_middleware.py` — middleware and redirect tests
-- `tests/web/test_dashboard_views.py` — dashboard view tests
-- `tests/web/test_history_views.py` — streaks and history tests
-- `tests/web/test_rewards_views.py` — rewards view tests
+- `tests/web/conftest.py` — shared fixtures
+- `tests/web/test_middleware.py`, `test_dashboard_views.py`, `test_history_views.py`, `test_rewards_views.py`
 - `tests/web/test_auth_views.py` — all auth/login flow tests
-- `tests/web/test_cache_operations.py` — cache manager and cache-related tests
-
-### Mocking Django Cache in Threads (Pitfall)
-**DO NOT** use `patch("django.core.cache.cache.set", ...)` or `patch.object(django_cache, "set", ...)` when testing across threads. Django's cache proxy uses `ConnectionProxy` with thread-local connections, so mocks applied to the proxy only work in the main thread. **Instead**, patch the actual backend class: `patch.object(LocMemCache, "set", ...)` (from `django.core.cache.backends.locmem`). This patches at the class level so all instances see the mock.
-
-### Login.vue Server Expiry Sync
-`Login.vue` uses the server's `expires_at` from the `/auth/bot-login/request/` response to set the client-side expiry timer, avoiding client clock drift. Falls back to `LOGIN_EXPIRY_MS` (5 min) if not provided. Bounded: floor 60s (prevent premature expiry from moderate clock skew), cap `LOGIN_EXPIRY_MS`. `pollStatus()` handles HTTP 400/403 as permanent errors (stops polling immediately).
-
-### Login.vue Polling Retry Limit
-Frontend polling (`pollStatus`) stops after `POLL_MAX_CONSECUTIVE_ERRORS` (5) consecutive network failures and transitions to error state. The counter resets on any successful poll. `submitLogin` catch also logs to `console.error`.
-
-### Token Validation on Status Endpoint
-`bot_login_status()` in `auth.py` validates token format (`TOKEN_MIN_LENGTH`–`TOKEN_MAX_LENGTH` chars, URL-safe base64) before passing to the service. This matches the validation in `bot_login_complete()`. Both use named constants defined at module level. Tests using the `/auth/bot-login/status/` endpoint must use valid-length tokens (e.g. `"abcdefghij0123456789_ABCDEFGHIJ0123456789_ab"`).
-
-### Temporary vs Permanent Telegram Errors
-In `_process_login_background` (`web_login_service.py`), only **permanent** Telegram errors (`InvalidToken`, `Forbidden`) mark the request as failed via `_mark_failed_safely()`. **Temporary** errors (`TelegramError` — network, rate limit) do NOT mark as failed — the pending cache entry expires via TTL, allowing the user to retry.
-
-### SQLite System Check
-`src/web/checks.py` includes `check_sqlite_thread_pool_conflict`: Warning (`web.W002`) for pool size 2-10, Error (`web.E003`) for pool size >10 when using SQLite. SQLite's file-level locking causes deadlocks under high concurrency.
-
-### Cache Pending Key Race
-The `wl_pending` cache key is set eagerly (before background thread) by design. If the thread fails before DB write, the key remains until TTL — this is intentional for anti-enumeration (both known/unknown users see "pending" immediately). See comment in `create_login_request`.
-
-### Named Constants for Magic Numbers
-- `_MIN_FAILED_MARKER_TTL_SECONDS = 60` — floor TTL for `wl_failed` cache marker
-- `TOKEN_MIN_LENGTH = 40` / `TOKEN_MAX_LENGTH = 50` — token length bounds in `auth.py`
-- `_CACHE_FAILURE_THRESHOLD = 10` — consecutive cache failures before `CacheWriteError`
-- `TOKEN_BYTES = 32` — 256 bits of entropy for `secrets.token_urlsafe`
-- `TOKEN_GENERATION_MAX_RETRIES = 3` — collision retry limit
-- All constants have inline comments documenting their rationale in `web_login_service.py`
-
-### Cache TTL Helper
-`_cache_ttl_seconds(expires_at, min_ttl=1)` in `web_login_service.py` calculates cache TTL from an expiry datetime. Used by `create_login_request`, `_mark_failed_token`, and token collision retry. Always use this instead of inline `max(int(...), N)`.
-
-### IP Anonymization
-`_anonymize_ip()` in `auth.py` uses a 16-hex-char SHA-256 prefix (64 bits) for GDPR-safe logging. This provides ~4 billion unique buckets, virtually eliminating collision risk.
-
-### X-Forwarded-For Logging Level
-`ip.py` logs multi-proxy chains (>2 IPs) at WARNING level (not DEBUG) since they may indicate spoofing or misconfiguration in environments without a trusted proxy.
-
-### Exception Chaining
-`validate_iana_timezone` in `src/core/models.py` chains the original exception (`from e`) so the ValidationError includes the root cause for debugging.
-
-### SECURITY.md
-`SECURITY.md` documents the threat model and security properties. Keep it in sync with changes to the login flow.
-
-### Token Collision Cache Update
-When `_create_login_request_with_retry` handles an IntegrityError, it writes a pending cache entry for the new token via `_safe_cache_set`. This ensures the retried token is trackable via `check_status`.
-
-### mark_as_used Atomicity (SELECT FOR UPDATE)
-`repositories.py:mark_as_used()` uses `SELECT FOR UPDATE` inside `transaction.atomic()` instead of the old `filter().update()` pattern. This provides true row-level locking on PostgreSQL (prevents TOCTOU race). On SQLite, `SELECT FOR UPDATE` is a no-op, but the `save(update_fields=['status'])` after checking `lr.status` still provides sequential consistency via SQLite's file lock.
-
-### IP-Session Binding for Status Polling
-`bot_login_request` stores the requesting client's IP in `request.session[f"wl_origin_ip:{token}"]`. `bot_login_status` verifies the polling IP matches the originating IP. On mismatch, returns `{"status": "expired"}` (not an error) to prevent information leakage. This blocks attackers who intercept tokens from polling status from a different machine.
-
-### Per-Token Rate Limiting
-`bot_login_status` has two rate limiters: per-IP (`AUTH_STATUS_RATE_LIMIT`) and per-token (`_ratelimit_key_token`, 10/m). The per-token limiter uses the token extracted from the URL path as the rate-limit key.
-
-### Threading Tests with SQLite Pitfall
-SQLite's file-level locking causes `OperationalError("database table is locked")` in threading-based DB tests. For concurrent view tests, use `RequestFactory` (not `Client()`) to avoid session middleware DB access, and mock `login()` and `call_async` at the view level. See `TestConcurrentCompleteLoginThreading` in `tests/web/test_auth_views.py`.
-
-### Bounded Thread Pool Queue
-The login `ThreadPoolExecutor` uses `queue.Queue(maxsize=_MAX_QUEUED_LOGINS)` (replaces the default unbounded `SimpleQueue`) as a hard memory ceiling. This complements the semaphore-based circuit breaker.
-
-### Web Test Files (Updated)
-- `tests/web/test_timing_jitter.py` — timing jitter verification (range, variation, per-status behavior)
-- `tests/web/test_cleanup_command.py` — cleanup_expired_logins management command tests
+- `tests/web/test_cache_operations.py` — cache manager tests
+- `tests/web/test_timing_jitter.py`, `test_cleanup_command.py`
 
 ## Reward Probability Formula (Subtractive System)
-
-Habit weight and streak directly reduce the no-reward probability:
 
 ```
 effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDUCTION_RATE), MIN_NO_REWARD_PROBABILITY)
 ```
 
-- `base_no_reward`: User's `no_reward_probability` setting (default 50%)
-- `habit_weight`: 0-30, each point = 1% reduction (default 0 = no bonus)
+- `base_no_reward`: User's `no_reward_probability` (default 50%)
+- `habit_weight`: 0-30, each point = 1% reduction (default 0)
 - `STREAK_REDUCTION_RATE`: 2% per streak day (setting)
 - `MIN_NO_REWARD_PROBABILITY`: 10% floor (setting)
-- Reward chance shown to user = `round(100 - effective_no_reward)`
+- Reward chance = `round(100 - effective_no_reward)`
 
-**Key files**:
-- `src/services/reward_service.py` — `calculate_effective_no_reward_probability()` computes effective %, `select_reward()` uses it directly
-- `src/services/habit_service.py` — fetches `user.no_reward_probability`, calls the formula, passes result to `select_reward()`
-- `src/web/views/dashboard.py` — computes `rewardChance` per habit for frontend display
-- `frontend/src/components/HabitCard.vue` — shows reward chance badge
-- `src/bot/keyboards.py` — weight keyboard values: `[0, 5, 10, 15, 20, 25, 30]`
-- `src/habit_reward_project/settings.py` — `STREAK_REDUCTION_RATE`, `MIN_NO_REWARD_PROBABILITY`
+**Key files**: `src/services/reward_service.py` (formula), `src/services/habit_service.py` (caller), `src/web/views/dashboard.py` (frontend), `src/bot/keyboards.py` (weight values: `[0, 5, 10, 15, 20, 25, 30]`), `settings.py` (constants).
 
-**Migration note**: Old `STREAK_MULTIPLIER_RATE` setting is deprecated. Old `calculate_total_weight()` replaced by `calculate_effective_no_reward_probability()`. Migration `0026` resets all habit weights to 0. `HabitLog.total_weight_applied` now stores effective no-reward % (not the old multiplicative weight).
+**Migration note**: Old `STREAK_MULTIPLIER_RATE` deprecated. Migration `0026` resets weights to 0. `HabitLog.total_weight_applied` stores effective no-reward %.
 
 ## Claimed Rewards & `times_claimed` Counter
 
-### `times_claimed` Field
-`RewardProgress.times_claimed` (PositiveIntegerField, default=0) tracks how many times a user has claimed a reward. Incremented atomically via `F("times_claimed") + 1` in `reward_service.mark_reward_claimed()`.
+`RewardProgress.times_claimed` (PositiveIntegerField, default=0) tracks total claims. Incremented atomically via `F("times_claimed") + 1` in `mark_reward_claimed()`.
 
-**Key files**:
-- `src/core/models.py` — Django model field
-- `src/models/reward_progress.py` — Pydantic model field
-- `src/services/reward_service.py` — `F()` increment in `mark_reward_claimed()`
-- `src/bot/formatters.py` — displays "claimed X time(s)" when `times_claimed > 0`
-- `src/bot/messages.py` — `LABEL_TIMES_CLAIMED` with EN/RU/KK translations
-- `src/web/views/rewards.py` — serializes `timesClaimed` to frontend
-- `frontend/src/pages/Rewards.vue` — shows `×N` badge
-- Migration: `0027_add_times_claimed_to_rewardprogress.py` (backfills `times_claimed=1` for existing `claimed=True` rows)
+**Key files**: `src/core/models.py`, `src/models/reward_progress.py` (Pydantic), `src/services/reward_service.py`, `src/bot/formatters.py`, `src/bot/messages.py` (`LABEL_TIMES_CLAIMED`), `src/web/views/rewards.py`, `frontend/src/pages/Rewards.vue`. Migration: `0027` (backfills `times_claimed=1` for existing claimed rows).
 
-### Claimed Rewards Query — No `active` Filter
-`get_claimed_non_recurring_by_user()` does NOT filter by `reward__active=True`. Non-recurring rewards auto-deactivate after claim, so filtering by active would hide them from the claimed list. The filter was intentionally removed.
+**Decrement pattern**: Never check `progress.times_claimed > 0` on a stale Python object — use `filter(times_claimed__gt=0).update(times_claimed=F("times_claimed") - 1, ...)` to check and decrement atomically at the DB level. If 0 rows updated, fall back to update without decrement. Applied in `src/core/admin.py` (revert action) and `src/core/repositories.py` (`decrement_pieces_earned`).
+
+**Query**: `get_ever_claimed_by_user()` filters `times_claimed__gt=0` (not `claimed=True`) — ensures recurring rewards appear even when `claimed` reset to False. Does NOT filter by `reward__active` or `reward__is_recurring`.

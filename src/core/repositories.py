@@ -467,21 +467,20 @@ class RewardProgressRepository:
         # Attach cached pieces_required to each progress object
         return [self._attach_cached_pieces_required(p) for p in achieved_list]
 
-    async def get_claimed_non_recurring_by_user(self, user_id: int | str) -> list[RewardProgress]:
-        """Get claimed one-time (non-recurring) rewards for a user.
+    async def get_ever_claimed_by_user(self, user_id: int | str) -> list[RewardProgress]:
+        """Get all rewards ever claimed by a user (times_claimed > 0).
 
         Args:
             user_id: User primary key
 
         Returns:
-            List of RewardProgress instances where claimed=True and reward.is_recurring=False
+            List of RewardProgress instances where times_claimed > 0
         """
         user_pk = int(user_id) if isinstance(user_id, str) else user_id
         claimed_list = await sync_to_async(list)(
             RewardProgress.objects.filter(
                 user_id=user_pk,
-                claimed=True,
-                reward__is_recurring=False,
+                times_claimed__gt=0,
             ).select_related("reward", "user").order_by("reward__name")
         )
         return [self._attach_cached_pieces_required(p) for p in claimed_list]
@@ -495,18 +494,40 @@ class RewardProgressRepository:
             return None
 
         new_pieces = max(0, progress.pieces_earned - 1)
-        updates: dict[str, Any] = {}
 
-        if new_pieces != progress.pieces_earned:
-            updates["pieces_earned"] = new_pieces
-
-        if progress.claimed or new_pieces < progress.pieces_earned:
-            updates["claimed"] = False
-
-        if not updates:
+        if new_pieces == progress.pieces_earned:
             return progress
 
-        return await self.update(progress.id, updates)
+        if progress.claimed:
+            # Attempt atomic update with times_claimed decrement
+            updated = await sync_to_async(
+                RewardProgress.objects.filter(
+                    pk=progress.id,
+                    times_claimed__gt=0,
+                ).update
+            )(
+                pieces_earned=new_pieces,
+                claimed=False,
+                times_claimed=F("times_claimed") - 1,
+            )
+            if not updated:
+                # times_claimed was already 0, update without decrement
+                await sync_to_async(
+                    RewardProgress.objects.filter(pk=progress.id).update
+                )(
+                    pieces_earned=new_pieces,
+                    claimed=False,
+                )
+        else:
+            await sync_to_async(
+                RewardProgress.objects.filter(pk=progress.id).update
+            )(pieces_earned=new_pieces)
+
+        # Fetch and return updated progress
+        progress = await sync_to_async(
+            RewardProgress.objects.select_related("reward", "user").get
+        )(pk=progress.id)
+        return self._attach_cached_pieces_required(progress)
 
     async def create(self, progress: RewardProgress | dict) -> RewardProgress:
         """Create new progress entry.

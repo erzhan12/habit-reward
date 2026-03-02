@@ -38,9 +38,9 @@ async def rewards_page(request):
             "isRecurring": reward.is_recurring,
         })
 
-    # Get claimed one-time rewards
+    # Get claimed rewards (any reward with times_claimed > 0)
     claimed_list = await maybe_await(
-        reward_service.get_claimed_one_time_rewards(str(user.id))
+        reward_service.get_claimed_rewards(str(user.id))
     )
 
     claimed_rewards = []
