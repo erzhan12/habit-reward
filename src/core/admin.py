@@ -240,19 +240,27 @@ class HabitLogAdmin(admin.ModelAdmin):
 
                             # Decrement pieces_earned
                             if progress.pieces_earned > 0:
-                                progress.pieces_earned -= 1
+                                new_pieces = progress.pieces_earned - 1
 
-                                # If was claimed, mark as unclaimed
-                                was_claimed = progress.claimed
                                 if progress.claimed:
-                                    progress.claimed = False
-
-                                progress.save(update_fields=['pieces_earned', 'claimed'])
-
-                                # Atomic decrement of times_claimed to prevent race conditions
-                                if was_claimed and progress.times_claimed > 0:
+                                    # Attempt atomic update with times_claimed decrement
+                                    updated = RewardProgress.objects.filter(
+                                        id=progress.id,
+                                        times_claimed__gt=0,
+                                    ).update(
+                                        pieces_earned=new_pieces,
+                                        claimed=False,
+                                        times_claimed=F("times_claimed") - 1,
+                                    )
+                                    if not updated:
+                                        # times_claimed was already 0, update without decrement
+                                        RewardProgress.objects.filter(id=progress.id).update(
+                                            pieces_earned=new_pieces,
+                                            claimed=False,
+                                        )
+                                else:
                                     RewardProgress.objects.filter(id=progress.id).update(
-                                        times_claimed=F("times_claimed") - 1
+                                        pieces_earned=new_pieces,
                                     )
 
                                 progress.refresh_from_db()

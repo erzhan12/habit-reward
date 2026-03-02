@@ -494,20 +494,40 @@ class RewardProgressRepository:
             return None
 
         new_pieces = max(0, progress.pieces_earned - 1)
-        updates: dict[str, Any] = {}
 
-        if new_pieces != progress.pieces_earned:
-            updates["pieces_earned"] = new_pieces
-
-        if progress.claimed or new_pieces < progress.pieces_earned:
-            updates["claimed"] = False
-            if progress.claimed and progress.times_claimed > 0:
-                updates["times_claimed"] = F("times_claimed") - 1
-
-        if not updates:
+        if new_pieces == progress.pieces_earned:
             return progress
 
-        return await self.update(progress.id, updates)
+        if progress.claimed:
+            # Attempt atomic update with times_claimed decrement
+            updated = await sync_to_async(
+                RewardProgress.objects.filter(
+                    pk=progress.id,
+                    times_claimed__gt=0,
+                ).update
+            )(
+                pieces_earned=new_pieces,
+                claimed=False,
+                times_claimed=F("times_claimed") - 1,
+            )
+            if not updated:
+                # times_claimed was already 0, update without decrement
+                await sync_to_async(
+                    RewardProgress.objects.filter(pk=progress.id).update
+                )(
+                    pieces_earned=new_pieces,
+                    claimed=False,
+                )
+        else:
+            await sync_to_async(
+                RewardProgress.objects.filter(pk=progress.id).update
+            )(pieces_earned=new_pieces)
+
+        # Fetch and return updated progress
+        progress = await sync_to_async(
+            RewardProgress.objects.select_related("reward", "user").get
+        )(pk=progress.id)
+        return self._attach_cached_pieces_required(progress)
 
     async def create(self, progress: RewardProgress | dict) -> RewardProgress:
         """Create new progress entry.
