@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddIndex(
             model_name='rewardprogress',
-            index=models.Index(fields=['user', 'times_claimed'], name='reward_prog_user_id_d9b7c0_idx'),
+            index=models.Index(fields=['user', 'times_claimed'], name='core_rewardprogress_user_times_claimed_idx'),
         ),
     ]

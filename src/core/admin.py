@@ -4,6 +4,7 @@ import logging
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db import transaction
+from django.db.models import F
 from src.core.models import User, Habit, Reward, RewardProgress, HabitLog, BotAuditLog, APIKey
 
 logger = logging.getLogger(__name__)
@@ -242,12 +243,19 @@ class HabitLogAdmin(admin.ModelAdmin):
                                 progress.pieces_earned -= 1
 
                                 # If was claimed, mark as unclaimed
+                                was_claimed = progress.claimed
                                 if progress.claimed:
                                     progress.claimed = False
-                                    if progress.times_claimed > 0:
-                                        progress.times_claimed -= 1
 
-                                progress.save()
+                                progress.save(update_fields=['pieces_earned', 'claimed'])
+
+                                # Atomic decrement of times_claimed to prevent race conditions
+                                if was_claimed and progress.times_claimed > 0:
+                                    RewardProgress.objects.filter(id=progress.id).update(
+                                        times_claimed=F("times_claimed") - 1
+                                    )
+
+                                progress.refresh_from_db()
                                 logger.info(
                                     f"📉 Decremented reward progress for '{reward.name}': "
                                     f"{progress.pieces_earned + 1} → {progress.pieces_earned}"
