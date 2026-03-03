@@ -11,11 +11,15 @@
       v-if="visible"
       class="fixed bottom-24 lg:bottom-6 left-4 right-4 lg:left-auto lg:right-6 lg:w-80 z-50"
     >
-      <div class="bg-gray-800 rounded-xl p-4 shadow-lg border border-gray-700 flex items-center justify-between">
+      <div
+        class="p-4 shadow-lg border flex items-center justify-between"
+        :class="[tc.card.rounded, tc.card.bg, tc.card.border || 'border-gray-700', tc.card.extra]"
+      >
         <span class="text-sm text-text-primary">{{ message }}</span>
         <button
           @click="$emit('undo')"
-          class="ml-3 px-3 py-1 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-medium transition-colors shrink-0"
+          class="ml-3 text-sm font-medium transition-all shrink-0"
+          :class="[tc.button.rounded, 'px-3 py-1', tc.button.primary]"
         >
           Undo
         </button>
@@ -25,10 +29,16 @@
 </template>
 
 <script setup>
+import { computed } from "vue";
+import { useTheme } from "../composables/useTheme.js";
+
 defineProps({
   visible: { type: Boolean, default: false },
   message: { type: String, default: "Habit completed" },
 });
 
 defineEmits(["undo"]);
+
+const { themeConfig } = useTheme();
+const tc = computed(() => themeConfig.value.classes);
 </script>

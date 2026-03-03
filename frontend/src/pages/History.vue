@@ -7,7 +7,8 @@
       <select
         v-model="selectedHabit"
         @change="navigate"
-        class="w-full bg-bg-card border border-gray-800 rounded-lg px-3 py-2 text-sm text-text-primary appearance-none cursor-pointer"
+        class="w-full px-3 py-2 text-sm appearance-none cursor-pointer"
+        :class="tc.select.base"
       >
         <option value="">All habits</option>
         <option v-for="h in habits" :key="h.id" :value="h.id">
@@ -17,7 +18,7 @@
     </div>
 
     <!-- Calendar -->
-    <div class="bg-bg-card rounded-xl p-4">
+    <div class="p-4" :class="[tc.card.rounded, tc.card.shadow, tc.card.border, tc.card.bg, tc.card.extra]">
       <CalendarGrid
         :currentMonth="currentMonth"
         :completions="completions"
@@ -35,9 +36,10 @@
 </template>
 
 <script setup>
-import { ref, watch } from "vue";
+import { ref, watch, computed } from "vue";
 import { router } from "@inertiajs/vue3";
 import CalendarGrid from "../components/CalendarGrid.vue";
+import { useTheme } from "../composables/useTheme.js";
 
 const props = defineProps({
   currentMonth: { type: String, required: true },
@@ -52,6 +54,9 @@ const selectedHabit = ref(props.selectedHabit || "");
 watch(() => props.selectedHabit, (v) => {
   selectedHabit.value = v || "";
 });
+
+const { themeConfig } = useTheme();
+const tc = computed(() => themeConfig.value.classes);
 
 function navigate() {
   const params = new URLSearchParams();

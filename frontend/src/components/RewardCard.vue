@@ -1,10 +1,13 @@
 <template>
-  <div class="bg-bg-card rounded-xl p-4">
+  <div
+    class="p-4 transition-all"
+    :class="[tc.card.rounded, tc.card.shadow, tc.card.border, tc.card.bg, tc.card.extra]"
+  >
     <div class="flex items-center justify-between mb-2">
       <h3 class="font-medium text-text-primary truncate">{{ reward.name }}</h3>
       <span
-        class="text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
-        :class="statusClass"
+        class="text-xs px-2 py-0.5 font-medium shrink-0"
+        :class="[statusClass, tc.badge.base.includes('rounded-none') ? 'rounded-none' : 'rounded-full']"
       >
         {{ statusLabel }}
       </span>
@@ -19,33 +22,31 @@
       />
     </div>
 
-    <div class="grid grid-cols-3 items-center">
+    <div class="flex items-center justify-between">
       <span class="text-xs text-text-secondary">
         {{ reward.piecesEarned }} / {{ reward.piecesRequired }} pieces
       </span>
 
-      <div class="flex justify-center">
-        <button
-          v-if="reward.status === 'ACHIEVED'"
-          @click="$emit('claim', reward.id)"
-          :disabled="loading"
-          class="px-3 py-1 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-medium transition-colors disabled:opacity-50"
-        >
-          Claim
-        </button>
-      </div>
+      <button
+        v-if="reward.status === 'ACHIEVED'"
+        @click="$emit('claim', reward.id)"
+        :disabled="loading"
+        class="text-xs font-medium transition-all disabled:opacity-50"
+        :class="[tc.button.rounded, 'px-3 py-1', tc.button.primary]"
+      >
+        Claim
+      </button>
 
-      <div class="flex justify-end">
-        <span v-if="reward.isRecurring" class="text-xs text-text-secondary">
-          recurring
-        </span>
-      </div>
+      <span v-if="reward.isRecurring" class="text-xs text-text-secondary">
+        recurring
+      </span>
     </div>
   </div>
 </template>
 
 <script setup>
 import { computed } from "vue";
+import { useTheme } from "../composables/useTheme.js";
 
 const props = defineProps({
   reward: { type: Object, required: true },
@@ -53,6 +54,9 @@ const props = defineProps({
 });
 
 defineEmits(["claim"]);
+
+const { themeConfig } = useTheme();
+const tc = computed(() => themeConfig.value.classes);
 
 const progressPercent = computed(() => {
   if (props.reward.piecesRequired === 0) return 0;

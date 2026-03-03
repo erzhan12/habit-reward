@@ -4,7 +4,8 @@
     <div class="flex items-center justify-between mb-4">
       <button
         @click="$emit('navigate', prevMonth)"
-        class="p-2 rounded-lg hover:bg-bg-card-hover text-text-secondary transition-colors"
+        class="p-2 text-text-secondary transition-colors"
+        :class="[themeConfig.classes.card.rounded, 'hover:bg-bg-card-hover']"
       >
         &larr;
       </button>
@@ -12,7 +13,8 @@
       <button
         @click="$emit('navigate', nextMonth)"
         :disabled="isCurrentMonth"
-        class="p-2 rounded-lg hover:bg-bg-card-hover text-text-secondary transition-colors disabled:opacity-30"
+        class="p-2 text-text-secondary transition-colors disabled:opacity-30"
+        :class="[themeConfig.classes.card.rounded, 'hover:bg-bg-card-hover']"
       >
         &rarr;
       </button>
@@ -31,18 +33,16 @@
 
     <!-- Calendar days -->
     <div class="grid grid-cols-7 gap-1">
-      <!-- Empty cells for offset -->
       <div v-for="n in startOffset" :key="'empty-' + n" />
 
       <div
         v-for="day in daysInMonth"
         :key="day"
-        class="aspect-square flex flex-col items-center justify-center rounded-lg text-sm relative"
-        :class="dayClass(day)"
+        class="aspect-square flex flex-col items-center justify-center text-sm relative"
+        :class="[themeConfig.classes.card.rounded, dayClass(day)]"
         @click="$emit('selectDay', formatDate(day))"
       >
         <span>{{ day }}</span>
-        <!-- Completion dots -->
         <div v-if="getDayCompletions(day).length > 0" class="flex gap-0.5 mt-0.5">
           <span
             v-for="(_, i) in getDayCompletions(day).slice(0, 4)"
@@ -61,14 +61,17 @@
 
 <script setup>
 import { computed } from "vue";
+import { useTheme } from "../composables/useTheme.js";
 
 const props = defineProps({
-  currentMonth: { type: String, required: true }, // "2026-02"
-  completions: { type: Object, default: () => ({}) }, // { habitId: ["2026-02-01", ...] }
-  userToday: { type: String, default: null }, // "2026-02-21" (server timezone)
+  currentMonth: { type: String, required: true },
+  completions: { type: Object, default: () => ({}) },
+  userToday: { type: String, default: null },
 });
 
 defineEmits(["navigate", "selectDay"]);
+
+const { themeConfig } = useTheme();
 
 const year = computed(() => parseInt(props.currentMonth.split("-")[0]));
 const month = computed(() => parseInt(props.currentMonth.split("-")[1]));
@@ -83,7 +86,6 @@ const daysInMonth = computed(() => {
 });
 
 const startOffset = computed(() => {
-  // Monday = 0, Sunday = 6
   const firstDay = new Date(year.value, month.value - 1, 1).getDay();
   return firstDay === 0 ? 6 : firstDay - 1;
 });

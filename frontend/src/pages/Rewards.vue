@@ -31,11 +31,11 @@
         <div
           v-for="reward in claimedRewards"
           :key="reward.id"
-          class="bg-bg-card rounded-lg px-4 py-3 flex items-center gap-3"
+          class="px-4 py-3 flex items-center gap-3"
+          :class="[tc.card.rounded, tc.card.bg, tc.card.border, tc.card.extra]"
         >
           <span class="text-accent">&#10003;</span>
           <span class="text-sm text-text-secondary">{{ reward.name }}</span>
-          <span v-if="reward.timesClaimed > 0" class="ml-auto text-xs text-text-secondary">&times;{{ reward.timesClaimed }}</span>
         </div>
       </div>
     </div>
@@ -43,9 +43,10 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { router } from "@inertiajs/vue3";
 import RewardCard from "../components/RewardCard.vue";
+import { useTheme } from "../composables/useTheme.js";
 
 defineProps({
   rewards: { type: Array, default: () => [] },
@@ -54,6 +55,9 @@ defineProps({
 
 const loadingId = ref(null);
 const showClaimed = ref(false);
+
+const { themeConfig } = useTheme();
+const tc = computed(() => themeConfig.value.classes);
 
 function claimReward(rewardId) {
   loadingId.value = rewardId;

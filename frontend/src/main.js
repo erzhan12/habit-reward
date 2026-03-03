@@ -1,7 +1,19 @@
 import { createApp, h } from "vue";
 import { createInertiaApp, router } from "@inertiajs/vue3";
 import Layout from "./components/Layout.vue";
+import { getTheme, defaultTheme } from "./themes/index.js";
 import "./app.css";
+
+// Apply theme CSS variables immediately before Vue hydrates to avoid FOUC.
+// The server-rendered HTML has no inline styles, so we read the data-theme
+// attribute (if set by a prior page load) or fall back to the default.
+(function applyInitialTheme() {
+  const savedId = document.documentElement.getAttribute("data-theme") || defaultTheme;
+  const config = getTheme(savedId);
+  for (const [prop, value] of Object.entries(config.cssVars)) {
+    document.documentElement.style.setProperty(prop, value);
+  }
+})();
 
 // Inject Django CSRF token into every Inertia request
 function getCookie(name) {
