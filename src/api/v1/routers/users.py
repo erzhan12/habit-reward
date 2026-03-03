@@ -11,16 +11,11 @@ from src.bot.timezone_utils import validate_timezone
 from src.core.models import User
 from src.core.repositories import user_repository
 from src.utils.async_compat import maybe_await
+from src.web.views.theme import VALID_THEMES
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-VALID_THEMES = {
-    'dark_emerald', 'light_clean', 'neon_cyberpunk',
-    'warm_earth', 'ocean_gradient', 'ios_glass', 'minimal_ink',
-}
 
 
 class UserResponse(BaseModel):
