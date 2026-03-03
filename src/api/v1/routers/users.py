@@ -26,7 +26,7 @@ class UserResponse(BaseModel):
     name: str
     language: str
     is_active: bool
-    theme: str = "dark_emerald"
+    theme: str = "clean_modern"
 
     class Config:
         from_attributes = True
@@ -44,7 +44,7 @@ class UserSettingsResponse(BaseModel):
     """User settings response model."""
     language: str
     timezone: str = "UTC"
-    theme: str = "dark_emerald"
+    theme: str = "clean_modern"
 
 
 @router.get("/me", response_model=UserResponse)

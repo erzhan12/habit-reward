@@ -11,13 +11,15 @@
       </p>
     </div>
 
-    <!-- Habit list -->
-    <div class="space-y-3">
+    <!-- Habit list / grid -->
+    <div :class="listLayoutClass">
       <HabitCard
-        v-for="habit in habits"
+        v-for="(habit, idx) in habits"
         :key="habit.id"
+        :ref="(el) => setCardRef(habit.id, el)"
         :habit="habit"
         :loading="loadingId === habit.id"
+        :index="idx"
         @complete="completeHabit"
         @revert="revertHabit"
       />
@@ -37,10 +39,12 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted } from "vue";
+import { ref, computed, onUnmounted } from "vue";
 import { router } from "@inertiajs/vue3";
 import HabitCard from "../components/HabitCard.vue";
 import UndoToast from "../components/UndoToast.vue";
+import { useTheme } from "../composables/useTheme.js";
+import { useThemeAnimation } from "../composables/useThemeAnimation.js";
 
 defineProps({
   habits: { type: Array, default: () => [] },
@@ -48,6 +52,34 @@ defineProps({
   completionFlash: { type: Object, default: null },
 });
 
+const { themeConfig } = useTheme();
+const { triggerCompletionCelebration } = useThemeAnimation();
+
+// --- Layout ---
+const listLayoutClass = computed(() => {
+  const pl = themeConfig.value.pageLayout || {};
+  const layout = pl.habitList || 'list';
+  const density = pl.density || 'normal';
+
+  if (layout === 'grid-2') {
+    if (density === 'spacious') return 'grid grid-cols-2 gap-4';
+    if (density === 'compact') return 'grid grid-cols-2 gap-2';
+    return 'grid grid-cols-2 gap-3';
+  }
+  if (density === 'spacious') return 'space-y-4';
+  if (density === 'compact') return 'space-y-2';
+  return 'space-y-3';
+});
+
+// --- Card refs for celebration positioning ---
+const cardRefs = {};
+function setCardRef(habitId, componentInstance) {
+  if (componentInstance) {
+    cardRefs[habitId] = componentInstance;
+  }
+}
+
+// --- Loading / undo state ---
 const loadingId = ref(null);
 const undoVisible = ref(false);
 const undoMessage = ref("");
@@ -64,6 +96,13 @@ function completeHabit(habitId) {
     preserveScroll: true,
     onSuccess: (page) => {
       const flash = page.props.completionFlash;
+
+      // Trigger theme-specific celebration animation on the card
+      const cardComponent = cardRefs[habitId];
+      if (cardComponent?.cardRef) {
+        triggerCompletionCelebration(cardComponent.cardRef);
+      }
+
       showUndo(habitId, flash?.text || "Habit completed");
     },
     onFinish: () => {

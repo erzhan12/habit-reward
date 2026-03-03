@@ -36,12 +36,12 @@ class TestSaveTheme:
         mock_repo.update = AsyncMock(return_value=user)
         response = auth_client.post(
             "/theme/save/",
-            data=json.dumps({"theme": "neon_cyberpunk"}),
+            data=json.dumps({"theme": "gamified_arcade"}),
             content_type="application/json",
         )
         assert response.status_code == 302
         assert response.url == "/theme/"
-        mock_repo.update.assert_called_once_with(user.id, {"theme": "neon_cyberpunk"})
+        mock_repo.update.assert_called_once_with(user.id, {"theme": "gamified_arcade"})
 
     @patch("src.web.views.theme.user_repository")
     def test_save_invalid_theme_rejected(self, mock_repo, auth_client):
@@ -78,7 +78,7 @@ class TestSaveTheme:
         client = Client()
         response = client.post(
             "/theme/save/",
-            data=json.dumps({"theme": "neon_cyberpunk"}),
+            data=json.dumps({"theme": "gamified_arcade"}),
             content_type="application/json",
         )
         assert response.status_code == 302

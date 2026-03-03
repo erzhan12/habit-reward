@@ -13,6 +13,9 @@ import "./app.css";
   for (const [prop, value] of Object.entries(config.cssVars)) {
     document.documentElement.style.setProperty(prop, value);
   }
+  if (config.font && config.font.family) {
+    document.documentElement.style.setProperty("--font-family", config.font.family);
+  }
 })();
 
 // Inject Django CSRF token into every Inertia request

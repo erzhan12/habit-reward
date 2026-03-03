@@ -34,7 +34,7 @@
             class="flex-1 rounded-lg p-2 flex flex-col justify-between"
             :style="{
               background: theme.cssVars['--color-bg-card'],
-              border: id === 'minimal_ink' ? '0 0 1px 0 solid #e5e7eb' : 'none',
+              border: id === 'minimalist_zen' ? '0 0 1px 0 solid #e5e7eb' : 'none',
               backdropFilter: isGlass(id) ? 'blur(8px)' : 'none',
             }"
           >
@@ -117,7 +117,7 @@ import { router } from "@inertiajs/vue3";
 import { themes } from "../themes/index.js";
 
 const props = defineProps({
-  currentTheme: { type: String, default: "dark_emerald" },
+  currentTheme: { type: String, default: "clean_modern" },
 });
 
 const saving = ref(null);

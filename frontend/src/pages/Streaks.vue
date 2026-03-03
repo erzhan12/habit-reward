@@ -27,10 +27,11 @@
     <!-- Habit streaks list -->
     <div class="space-y-2">
       <div
-        v-for="habit in activeHabits"
+        v-for="(habit, idx) in activeHabits"
         :key="habit.id"
         class="p-4"
-        :class="[tc.card.rounded, tc.card.shadow, tc.card.border, tc.card.bg, tc.card.extra]"
+        :class="[tc.card.rounded, tc.card.shadow, tc.card.border, tc.card.bg, tc.card.extra, hoverClass]"
+        :style="getCardEntranceStyle(idx)"
       >
         <div class="flex items-center justify-between">
           <div class="flex-1 min-w-0">
@@ -45,8 +46,8 @@
             </div>
           </div>
           <div class="flex items-center gap-1.5 ml-3 shrink-0">
-            <span class="text-streak-fire text-lg">🔥</span>
-            <span class="text-xl font-bold" :class="habit.currentStreak > 0 ? 'text-streak-fire' : 'text-text-secondary'">
+            <span class="text-streak-fire text-lg" :class="getStreakFireClass(habit.currentStreak)">🔥</span>
+            <span class="text-xl font-bold" :class="[habit.currentStreak > 0 ? 'text-streak-fire' : 'text-text-secondary', getStreakFireClass(habit.currentStreak)]">
               {{ habit.currentStreak }}
             </span>
           </div>
@@ -63,6 +64,7 @@
 <script setup>
 import { computed } from "vue";
 import { useTheme } from "../composables/useTheme.js";
+import { useThemeAnimation } from "../composables/useThemeAnimation.js";
 
 const props = defineProps({
   habits: { type: Array, default: () => [] },
@@ -78,6 +80,8 @@ const props = defineProps({
 
 const { themeConfig } = useTheme();
 const tc = computed(() => themeConfig.value.classes);
+
+const { getCardEntranceStyle, getStreakFireClass, hoverClass } = useThemeAnimation();
 
 const activeHabits = computed(() => props.habits.filter((h) => h.currentStreak > 0));
 </script>

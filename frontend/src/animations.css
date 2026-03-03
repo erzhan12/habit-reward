@@ -1,0 +1,98 @@
+/* =========================================================
+   Theme animation keyframes and utility classes.
+   Imported by app.css — used by useThemeAnimation composable.
+   ========================================================= */
+
+/* ── Card entrance animations ──────────────────────────── */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Streak fire animations ────────────────────────────── */
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 0.85;
+    filter: brightness(1.3);
+  }
+}
+
+@keyframes flickerFlame {
+  0%, 100% {
+    transform: rotate(0deg) scale(1);
+  }
+  25% {
+    transform: rotate(-3deg) scale(1.05);
+  }
+  75% {
+    transform: rotate(3deg) scale(0.97);
+  }
+}
+
+@keyframes bounceFire {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+.streak-fire-pulse-glow {
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
+.streak-fire-flicker-flame {
+  animation: flickerFlame 1.5s ease-in-out infinite;
+  display: inline-block;
+}
+
+.streak-fire-bounce {
+  animation: bounceFire 1s ease-in-out infinite;
+  display: inline-block;
+}
+
+/* ── Hover micro-interactions ──────────────────────────── */
+
+.hover-micro-scale {
+  transition: transform 0.15s ease-out;
+}
+.hover-micro-scale:hover {
+  transform: scale(1.02);
+}
+
+.hover-micro-shadow-lift {
+  transition: box-shadow 0.15s ease-out, transform 0.15s ease-out;
+}
+.hover-micro-shadow-lift:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.hover-micro-glow-border {
+  transition: box-shadow 0.15s ease-out;
+}
+.hover-micro-glow-border:hover {
+  box-shadow: 0 0 0 2px var(--color-accent), 0 0 12px rgba(99, 102, 241, 0.15);
+}

@@ -85,7 +85,8 @@ class ContentSecurityPolicyMiddleware:
         # pipeline supports nonce injection for scoped styles.  Investigate
         # vite-plugin-css-injected-by-js or similar solutions.
         # See: https://github.com/erzhan12/habit-reward/issues/24
-        "style-src 'self' 'nonce-{nonce}' 'unsafe-inline'",
+        "style-src 'self' 'nonce-{nonce}' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
         "img-src 'self' data: https:",
         "connect-src 'self'",
     ])

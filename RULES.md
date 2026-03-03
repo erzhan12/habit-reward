@@ -1,36 +1,53 @@
 # Development Rules & Patterns
 
-## Theme System (Feature: Theme Templates)
+## Theme System (Feature: Advanced Theme Engine)
 
-The web UI supports 7 switchable design themes persisted on the User model.
+The web UI supports 8 theme personalities with full layout/interaction/animation control, persisted on the User model. Phase 1 ships infrastructure + 2 complete themes (`clean_modern`, `gamified_arcade`). Phase 2 adds components + remaining 6 themes.
+
+**8 Theme IDs**: `clean_modern` (default), `gamified_arcade`, `cozy_warm`, `minimalist_zen`, `ios_native`, `dark_focus`, `retro_terminal`, `nature_forest`.
 
 **Architecture**:
-- `User.theme` (CharField, default `'dark_emerald'`) — stored in DB, 7 choices defined in `User.THEME_CHOICES`
+- `User.theme` (CharField, default `'clean_modern'`) — stored in DB, 8 choices defined in `User.THEME_CHOICES`
 - `InertiaFlashMiddleware` in `src/web/middleware.py` shares `userTheme` as a global Inertia prop
-- `frontend/src/themes/index.js` — all 7 theme configs (cssVars + component classes)
-- `frontend/src/composables/useTheme.js` — reads `page.props.userTheme`, applies CSS vars to `<html>`, returns reactive `{ themeId, themeConfig }`
-- `frontend/src/app.css` — `@theme` default variables + `[data-theme="..."]` overrides for each theme
+- `frontend/src/themes/index.js` — theme configs with extended schema (cssVars, classes, font, interactions, animations, reward, pageLayout) + `DEFAULTS` object + `resolveTheme()` deep-merge + backward-compat aliases for old theme IDs
+- `frontend/src/composables/useTheme.js` — reads `page.props.userTheme`, applies CSS vars via View Transitions API (falls back to opacity cross-fade), loads theme fonts async
+- `frontend/src/composables/useThemeFont.js` — dynamic Google Fonts loading with in-memory cache, sets `--font-family` CSS var
+- `frontend/src/composables/useThemeInteraction.js` — resolves `interactions.habitComplete` to component (Phase 1: all map to `HabitDoneButton.vue`)
+- `frontend/src/composables/useThemeAnimation.js` — card entrance styles, streak fire classes, hover micro-interactions, completion celebrations
+- `frontend/src/utils/particles.js` — lightweight canvas-based particle burst (no deps)
+- `frontend/src/animations.css` — keyframes for fade/slide/pulse/flicker/bounce + hover utility classes
+- `frontend/src/app.css` — `@theme` default variables (clean_modern) + `[data-theme="gamified_arcade"]` override + `--font-family` + body font rule
+
+**Extended config keys per theme**:
+- `font`: `{ family, import (Google Fonts URL|null), weight, size }`
+- `interactions`: `{ habitComplete: 'button-right'|'checkbox'|'swipe-reveal' }`
+- `animations`: `{ cardEntrance, completionCelebration, hoverMicro, streakFire }`
+- `reward`: `{ displayMode: 'expand-from-card'|'toast', celebrationComponent }`
+- `pageLayout`: `{ habitList: 'list'|'grid-2', density: 'spacious'|'normal'|'compact', rewardList }`
 
 **Adding a new theme**:
-1. Add a choice to `User.THEME_CHOICES` in `src/core/models.py` and run `makemigrations` — `VALID_THEMES` (set on the class) auto-updates
-2. Add the theme definition object to `frontend/src/themes/index.js`
-3. Add the `[data-theme="..."]` CSS var override block to `frontend/src/app.css`
+1. Add a choice to `User.THEME_CHOICES` in `src/core/models.py` and run `makemigrations`
+2. Add theme definition to `frontend/src/themes/index.js` (any missing extended keys auto-filled by `resolveTheme()` via `DEFAULTS`)
+3. Add `[data-theme="..."]` CSS var override block to `frontend/src/app.css`
+4. If using external font: CSP already allows `fonts.googleapis.com` and `fonts.gstatic.com`
 
 **Theme class tokens** used by components: `card.{rounded,shadow,border,bg,hoverBg,extra}`, `button.{rounded,padding,primary,secondary}`, `input.base`, `badge.base`, `select.base`.
 
-**Layout variants**: `layout: 'sidebar'` (default) or `'topbar'` — controls whether the desktop nav is a left sidebar or a top horizontal bar.
+**Layout variants**: `layout: 'sidebar'` (default) or `'topbar'`.
 
-**Nav styles**: `'default'` | `'frosted'` (backdrop-blur glass) | `'underline'` (bottom border) | `'glow'` (accent shadow).
+**Nav styles**: `'default'` | `'frosted'` | `'underline'` | `'glow'`.
 
-**Theme views**: `src/web/views/theme.py` — `theme_page` (GET, Inertia render) and `save_theme` (POST, validates against `VALID_THEMES`, updates via `user_repository`). Routes: `/theme/` and `/theme/save/`.
+**Theme views**: `src/web/views/theme.py` — `theme_page` (GET) and `save_theme` (POST, validates against `VALID_THEMES`).
 
-**Tests**: `tests/web/test_theme_views.py` — covers page load, prop passing, valid/invalid/malformed saves, auth guards, method restrictions.
+**Tests**: `tests/web/test_theme_views.py` (backend), `frontend/tests/themes.spec.js` (config validation — all themes have required keys, validation constants, alias resolution).
 
-**HabitCard badge**: `frontend/src/components/HabitCard.vue` displays `weight + rewardChance%` (e.g. `10w · 60%`). The `rewardChance` prop is computed in `src/web/views/dashboard.py` via `reward_service.calculate_effective_no_reward_probability()`.
+**Backward compatibility**: Old theme IDs (`dark_emerald`, `light_clean`, etc.) are aliased in `themes/index.js` and migrated in DB migration `0030`. Frontend `getTheme()` resolves aliases transparently.
 
-**Theme transitions**: No global CSS transition rule. Instead, add `transition-colors duration-150` Tailwind classes to specific interactive elements (nav links, buttons, cards) in `Layout.vue` and other components.
+**VALID_THEMES**: Single source of truth is `User.VALID_THEMES` (derived from `THEME_CHOICES`).
 
-**VALID_THEMES**: Single source of truth is `User.VALID_THEMES` (class attribute on the model, derived from `THEME_CHOICES`). Both `src/web/views/theme.py` and `src/api/v1/routers/users.py` reference it from there.
+**CSP**: `style-src` includes `https://fonts.googleapis.com`, `font-src` includes `https://fonts.gstatic.com` (set in `ContentSecurityPolicyMiddleware`).
+
+**completionFlash**: Session flash dict includes `reward_name`, `pieces_earned`, `pieces_required` (for Phase 2 celebration components).
 
 **Glass detection**: `isGlass()` in `Theme.vue` checks `theme.classes.card.bg` for `backdrop-blur` — no hard-coded theme IDs.
 

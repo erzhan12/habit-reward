@@ -1,14 +1,18 @@
 <template>
   <div
-    class="p-4 transition-all"
+    ref="cardRef"
+    class="transition-all"
     :class="[
+      densityPadding,
       tc.card.rounded,
       tc.card.shadow,
       tc.card.border,
       tc.card.bg,
       tc.card.extra,
       habit.completedToday ? 'opacity-60' : tc.card.hoverBg,
+      habit.completedToday ? '' : hoverClass,
     ]"
+    :style="entranceStyle"
   >
     <div class="flex items-center justify-between">
       <div class="flex-1 min-w-0">
@@ -24,8 +28,8 @@
           </span>
         </div>
         <div v-if="habit.streak > 0" class="flex items-center gap-1 mt-1">
-          <span class="text-streak-fire text-sm">🔥</span>
-          <span class="text-xs text-streak-fire font-medium">{{ habit.streak }}-day streak</span>
+          <span class="text-streak-fire text-sm" :class="streakClass">🔥</span>
+          <span class="text-xs text-streak-fire font-medium" :class="streakClass">{{ habit.streak }}-day streak</span>
         </div>
       </div>
 
@@ -54,16 +58,33 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useTheme } from "../composables/useTheme.js";
+import { useThemeAnimation } from "../composables/useThemeAnimation.js";
 
-defineProps({
+const props = defineProps({
   habit: { type: Object, required: true },
   loading: { type: Boolean, default: false },
+  index: { type: Number, default: 0 },
 });
 
 defineEmits(["complete", "revert"]);
 
+const cardRef = ref(null);
+defineExpose({ cardRef });
+
 const { themeConfig } = useTheme();
 const tc = computed(() => themeConfig.value.classes);
+
+const { getCardEntranceStyle, getStreakFireClass, hoverClass } = useThemeAnimation();
+
+const entranceStyle = computed(() => getCardEntranceStyle(props.index));
+const streakClass = computed(() => getStreakFireClass(props.habit.streak));
+
+const densityPadding = computed(() => {
+  const density = themeConfig.value.pageLayout?.density;
+  if (density === 'spacious') return 'p-5';
+  if (density === 'compact') return 'p-3';
+  return 'p-4';
+});
 </script>
