@@ -100,7 +100,7 @@
           v-if="saving === id"
           class="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm"
         >
-          <div class="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin no-theme-transition" />
+          <div class="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
         </div>
       </button>
     </div>
@@ -154,6 +154,7 @@ function previewFooterBg(id) {
 }
 
 function isGlass(id) {
-  return id === "ios_glass" || id === "ocean_gradient";
+  const t = themes[id];
+  return t.classes.card.bg?.includes("backdrop-blur") || false;
 }
 </script>

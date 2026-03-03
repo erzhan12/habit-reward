@@ -19,7 +19,7 @@ from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
 
-VALID_THEMES = {choice[0] for choice in User.THEME_CHOICES}
+VALID_THEMES = User.VALID_THEMES
 
 
 def _theme_action_ratelimited(request):
@@ -61,11 +61,12 @@ async def save_theme(request):
 
     try:
         await maybe_await(user_repository.update(request.user.id, {"theme": theme}))
-    except Exception:
-        logger.exception("Failed to update theme for user %s", request.user.id)
+    except (ValueError, TypeError) as e:
+        logger.exception("Failed to update theme for user %s: %s", request.user.id, e)
         messages.error(request, "Failed to save theme. Please try again.")
         return redirect("/theme/")
 
     logger.info("User %s switched theme to '%s'", request.user.id, theme)
+    messages.success(request, "Theme updated successfully.")
 
     return redirect("/theme/")

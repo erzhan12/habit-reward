@@ -12,7 +12,7 @@
           v-for="item in navItems"
           :key="item.href"
           :href="item.href"
-          class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150"
           :class="topbarNavItemClass(item.href)"
         >
           <span>{{ item.icon }}</span>
@@ -24,7 +24,7 @@
         href="/auth/logout/"
         method="post"
         as="button"
-        class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all text-text-secondary hover:text-text-primary hover:bg-bg-card-hover shrink-0"
+        class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 text-text-secondary hover:text-text-primary hover:bg-bg-card-hover shrink-0"
       >
         <span>↩</span>
         Logout
@@ -58,7 +58,7 @@
           v-for="item in navItems"
           :key="item.href"
           :href="item.href"
-          class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150"
           :class="sidebarNavItemClass(item.href)"
         >
           <span class="text-lg">{{ item.icon }}</span>
@@ -71,7 +71,7 @@
           href="/auth/logout/"
           method="post"
           as="button"
-          class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all w-full text-text-secondary hover:text-text-primary hover:bg-bg-card-hover"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150 w-full text-text-secondary hover:text-text-primary hover:bg-bg-card-hover"
         >
           <span class="text-lg">↩</span>
           Logout

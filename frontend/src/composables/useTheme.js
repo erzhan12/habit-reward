@@ -18,14 +18,17 @@ export function useTheme() {
   function applyTheme(id) {
     const config = getTheme(id);
 
-    // Apply CSS custom properties to the root element
-    const root = document.documentElement;
-    for (const [prop, value] of Object.entries(config.cssVars)) {
-      root.style.setProperty(prop, value);
-    }
+    // Batch CSS custom property updates in a single animation frame
+    // to avoid layout thrashing from setting properties one by one
+    requestAnimationFrame(() => {
+      const root = document.documentElement;
+      for (const [prop, value] of Object.entries(config.cssVars)) {
+        root.style.setProperty(prop, value);
+      }
 
-    // Set data-theme attribute for CSS-level overrides
-    root.setAttribute("data-theme", id);
+      // Set data-theme attribute for CSS-level overrides
+      root.setAttribute("data-theme", id);
+    });
   }
 
   // Apply immediately (works on initial render via main.js call too)

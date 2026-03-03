@@ -72,6 +72,7 @@ class User(AbstractUser):
         ('ios_glass', 'iOS Glass'),
         ('minimal_ink', 'Minimal Ink'),
     ]
+    VALID_THEMES = {choice[0] for choice in THEME_CHOICES}
 
     theme = models.CharField(
         max_length=20,
