@@ -53,6 +53,8 @@ class InertiaFlashMiddleware:
             for m in get_messages(request)
         ]
         share(request, flash=flash)
+        if request.user.is_authenticated:
+            share(request, userTheme=request.user.theme)
         return self.get_response(request)
 
 

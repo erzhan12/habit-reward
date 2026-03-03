@@ -1,5 +1,36 @@
 # Development Rules & Patterns
 
+## Theme System (Feature: Theme Templates)
+
+The web UI supports 7 switchable design themes persisted on the User model.
+
+**Architecture**:
+- `User.theme` (CharField, default `'dark_emerald'`) — stored in DB, 7 choices defined in `User.THEME_CHOICES`
+- `InertiaFlashMiddleware` in `src/web/middleware.py` shares `userTheme` as a global Inertia prop
+- `frontend/src/themes/index.js` — all 7 theme configs (cssVars + component classes)
+- `frontend/src/composables/useTheme.js` — reads `page.props.userTheme`, applies CSS vars to `<html>`, returns reactive `{ themeId, themeConfig }`
+- `frontend/src/app.css` — `@theme` default variables + `[data-theme="..."]` overrides for each theme
+
+**Adding a new theme**:
+1. Add a choice to `User.THEME_CHOICES` in `src/core/models.py` and run `makemigrations`
+2. Add the theme ID to `VALID_THEMES` in `src/web/views/theme.py` and `src/api/v1/routers/users.py`
+3. Add the theme definition object to `frontend/src/themes/index.js`
+4. Add the `[data-theme="..."]` CSS var override block to `frontend/src/app.css`
+
+**Theme class tokens** used by components: `card.{rounded,shadow,border,bg,hoverBg,extra}`, `button.{rounded,padding,primary,secondary}`, `input.base`, `badge.base`, `select.base`.
+
+**Layout variants**: `layout: 'sidebar'` (default) or `'topbar'` — controls whether the desktop nav is a left sidebar or a top horizontal bar.
+
+**Nav styles**: `'default'` | `'frosted'` (backdrop-blur glass) | `'underline'` (bottom border) | `'glow'` (accent shadow).
+
+**Theme views**: `src/web/views/theme.py` — `theme_page` (GET, Inertia render) and `save_theme` (POST, validates against `VALID_THEMES`, updates via `user_repository`). Routes: `/theme/` and `/theme/save/`.
+
+**Tests**: `tests/web/test_theme_views.py` — covers page load, prop passing, valid/invalid/malformed saves, auth guards, method restrictions.
+
+**HabitCard badge**: `frontend/src/components/HabitCard.vue` displays `weight + rewardChance%` (e.g. `10w · 60%`). The `rewardChance` prop is computed in `src/web/views/dashboard.py` via `reward_service.calculate_effective_no_reward_probability()`.
+
+**Pitfall**: The global CSS transition `transition-property: background-color, border-color, color` in `app.css` applies to all elements. Add `no-theme-transition` class to opt out (e.g. spinners, animated elements).
+
 ## User Validation Pattern
 
 **CRITICAL**: All Telegram bot command handlers MUST validate user exists and is active before processing.
@@ -483,6 +514,7 @@ Use repositories with `run_sync_or_async` in sync Django views. In tests, mock `
 - `tests/web/test_middleware.py`, `test_dashboard_views.py`, `test_history_views.py`, `test_rewards_views.py`
 - `tests/web/test_auth_views.py` — all auth/login flow tests
 - `tests/web/test_cache_operations.py` — cache manager tests
+- `tests/web/test_theme_views.py` — theme page & save tests
 - `tests/web/test_timing_jitter.py`, `test_cleanup_command.py`
 
 ## Reward Probability Formula (Subtractive System)

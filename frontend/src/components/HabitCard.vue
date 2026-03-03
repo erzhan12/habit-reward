@@ -20,7 +20,7 @@
             {{ habit.name }}
           </h3>
           <span class="text-xs px-1.5 py-0.5 shrink-0" :class="tc.badge.base">
-            {{ habit.weight }}w
+            {{ habit.weight }}w · {{ habit.rewardChance }}%
           </span>
         </div>
         <div v-if="habit.streak > 0" class="flex items-center gap-1 mt-1">

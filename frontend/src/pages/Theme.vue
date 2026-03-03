@@ -133,6 +133,9 @@ function selectTheme(id) {
       onFinish: () => {
         saving.value = null;
       },
+      onError: (errors) => {
+        console.error("Theme save failed:", errors);
+      },
     }
   );
 }

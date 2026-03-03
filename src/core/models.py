@@ -63,6 +63,22 @@ class User(AbstractUser):
         validators=[validate_iana_timezone],
         help_text="User's IANA timezone (e.g. Asia/Almaty, Europe/Moscow)"
     )
+    THEME_CHOICES = [
+        ('dark_emerald', 'Dark Emerald'),
+        ('light_clean', 'Light Clean'),
+        ('neon_cyberpunk', 'Neon Cyberpunk'),
+        ('warm_earth', 'Warm Earth'),
+        ('ocean_gradient', 'Ocean Gradient'),
+        ('ios_glass', 'iOS Glass'),
+        ('minimal_ink', 'Minimal Ink'),
+    ]
+
+    theme = models.CharField(
+        max_length=20,
+        choices=THEME_CHOICES,
+        default='dark_emerald',
+        help_text="User's selected UI theme"
+    )
     no_reward_probability = models.FloatField(
         default=50.0,
         validators=[MinValueValidator(0.01), MaxValueValidator(99.99)],

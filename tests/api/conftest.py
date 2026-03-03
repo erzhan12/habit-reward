@@ -22,6 +22,7 @@ def mock_user():
     user.is_active = True
     user.username = "tg_123456789"
     user.no_reward_probability = 50.0
+    user.theme = "dark_emerald"
     return user
 
 
