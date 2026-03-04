@@ -74,10 +74,22 @@ The web UI supports 8 theme personalities with full layout/interaction/animation
 
 **Glass detection**: `isGlass()` in `Theme.vue` checks `theme.classes.card.bg` for `backdrop-blur` — no hard-coded theme IDs.
 
+**Z-index layering**: UndoToast `z-40`, RewardCelebration `z-50`. Celebration always renders above undo toast.
+
+**RewardCelebration positioning**: Uses `marginTop` offset from flex center (not absolute positioning). Card content div has `@click.stop` to prevent backdrop click-dismiss when tapping the card itself.
+
+**RewardCard**: Includes `hoverClass` from `useThemeAnimation()` for theme-specific hover micro-interactions.
+
 **Pitfalls**:
 - `applyDomUpdates()` in `useTheme.js` must be synchronous — View Transitions API requires it
 - Tailwind dynamic classes (e.g. `space-y-${n}`) don't work with JIT — use explicit static class strings in if/else branches
 - Theme picker live preview must revert on `onUnmounted` if the user navigates away without saving
+- Theme.vue preview helpers must use `getTheme(id)` (safe fallback) not `themes[id]` (crashes on unknown ID)
+- No `--color-border` CSS var exists — use `--color-accent` with hex opacity suffix (e.g. `+ '30'`) for preview borders
+- `HabitDoneToggle` uses inline style `var(--color-bg-card-hover)` for inactive track — `bg-bg-card-hover` Tailwind class may not be generated (only `hover:bg-bg-card-hover` is scanned)
+- `HabitDoneSwipe` has NO `position` prop (unlike Button/Toggle/Checkbox) — it wraps the entire card
+- Touch handlers in `HabitDoneSwipe` must guard `e.touches?.length` before accessing `e.touches[0]`
+- Inertia does a full page reload on POST redirects (`redirect("/")`) — module-level state, sessionStorage hacks, and `preserveState: true` do NOT survive. Cannot delay UI changes across the reload boundary
 
 ## User Validation Pattern
 
