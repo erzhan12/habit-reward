@@ -27,8 +27,13 @@
         {{ reward.piecesEarned }} / {{ reward.piecesRequired }} pieces
       </span>
 
+      <svg v-if="reward.isRecurring" class="w-3.5 h-3.5 text-text-secondary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M5.1 15A7 7 0 0118.9 9M18.9 9L20 4M18.9 15a7 7 0 01-13.8 0M5.1 15L4 20" />
+      </svg>
+    </div>
+
+    <div v-if="reward.status === 'ACHIEVED'" class="flex justify-center mt-2">
       <button
-        v-if="reward.status === 'ACHIEVED'"
         @click="$emit('claim', reward.id)"
         :disabled="loading"
         class="text-xs font-medium transition-all disabled:opacity-50"
@@ -36,10 +41,6 @@
       >
         Claim
       </button>
-
-      <span v-if="reward.isRecurring" class="text-xs text-text-secondary">
-        recurring
-      </span>
     </div>
   </div>
 </template>
