@@ -2,6 +2,14 @@
 
 import os
 import pytest
+from django.test import override_settings
+
+# Use plain StaticFilesStorage in tests to avoid needing collectstatic/manifest
+_test_storages = override_settings(STORAGES={
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+})
+_test_storages.enable()
 
 
 def pytest_collection_modifyitems(items):
