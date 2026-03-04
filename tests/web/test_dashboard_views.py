@@ -41,7 +41,9 @@ class TestDashboard:
     @patch("src.web.views.dashboard.habit_service")
     def test_complete_habit_redirects(self, mock_hs, auth_client):
         mock_hs.get_habit_by_id.return_value = _mock_habit()
-        mock_hs.process_habit_completion.return_value = MagicMock()
+        mock_hs.process_habit_completion.return_value = MagicMock(
+            got_reward=False, reward=None, cumulative_progress=None
+        )
         response = auth_client.post("/habits/1/complete/")
         assert response.status_code == 302
         assert response.url == "/"
