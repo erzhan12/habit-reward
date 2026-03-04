@@ -2,7 +2,6 @@
 
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
-from datetime import date
 
 from src.services.habit_service import HabitService
 
@@ -26,7 +25,7 @@ def _setup_mocks(service):
     mock_habit.user_id = 1
     mock_habit.active = True
     mock_habit.created_at = MagicMock()
-    mock_habit.created_at.date.return_value = date(2024, 1, 1)
+    mock_habit.created_at.date.return_value = __import__("datetime").date(2024, 1, 1)
 
     service.user_repo = MagicMock()
     service.user_repo.get_by_telegram_id = MagicMock(return_value=mock_user)
@@ -59,10 +58,10 @@ async def test_completion_triggers_notification():
     with patch("src.services.habit_service.connection_manager") as mock_cm:
         mock_cm.notify_user = AsyncMock()
 
-        # Patch cache.adelete and _atomic
         with (
             patch("src.services.habit_service.cache") as mock_cache,
             patch("src.services.habit_service.streak_service"),
+            patch("asyncio.create_task") as mock_create_task,
         ):
             mock_cache.adelete = AsyncMock()
             result = await service.process_habit_completion(
@@ -71,7 +70,7 @@ async def test_completion_triggers_notification():
                 user_timezone="UTC",
             )
 
-        mock_cm.notify_user.assert_awaited_once_with(mock_user.id)
+        mock_create_task.assert_called_once()
         assert result.habit_confirmed is True
 
 
@@ -118,6 +117,7 @@ async def test_revert_triggers_notification():
         with (
             patch("src.services.habit_service.cache") as mock_cache,
             patch("src.services.habit_service.streak_service"),
+            patch("asyncio.create_task") as mock_create_task,
         ):
             mock_cache.adelete = AsyncMock()
             result = await service.revert_habit_completion(
@@ -125,7 +125,7 @@ async def test_revert_triggers_notification():
                 habit_id=10,
             )
 
-        mock_cm.notify_user.assert_awaited_once_with(mock_user.id)
+        mock_create_task.assert_called_once()
         assert result.success is True
 
 
@@ -150,6 +150,7 @@ async def test_revert_by_log_id_triggers_notification():
         with (
             patch("src.services.habit_service.cache") as mock_cache,
             patch("src.services.habit_service.streak_service"),
+            patch("asyncio.create_task") as mock_create_task,
         ):
             mock_cache.adelete = AsyncMock()
             result = await service.revert_habit_completion_by_log_id(
@@ -157,5 +158,5 @@ async def test_revert_by_log_id_triggers_notification():
                 log_id=100,
             )
 
-        mock_cm.notify_user.assert_awaited_once_with(1)
+        mock_create_task.assert_called_once()
         assert result.success is True

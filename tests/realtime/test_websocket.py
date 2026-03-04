@@ -42,6 +42,14 @@ def _patch_auth_invalid():
     )
 
 
+def _patch_origin_valid():
+    """Context manager that makes _validate_origin return True."""
+    return patch(
+        "src.realtime.websocket._validate_origin",
+        return_value=True,
+    )
+
+
 def _build_test_app():
     """Build a minimal FastAPI app with just the ws router for testing."""
     from fastapi import FastAPI
@@ -172,7 +180,7 @@ def test_endpoint_rejects_unauthenticated():
     """Unauthenticated WebSocket should be closed with code 4401."""
     app = _build_test_app()
 
-    with _patch_auth_invalid():
+    with _patch_auth_invalid(), _patch_origin_valid():
         client = TestClient(app)
         with pytest.raises(WebSocketDisconnect) as exc_info:
             with client.websocket_connect("/ws/updates/"):
@@ -187,6 +195,7 @@ def test_endpoint_accepts_authenticated():
 
     with (
         _patch_auth_valid(user_id=7),
+        _patch_origin_valid(),
         patch("src.realtime.websocket.connection_manager", manager),
     ):
         client = TestClient(app)
@@ -211,6 +220,7 @@ def test_endpoint_sends_ping():
 
     with (
         _patch_auth_valid(user_id=8),
+        _patch_origin_valid(),
         patch("src.realtime.websocket.connection_manager", manager),
         patch("src.realtime.websocket.PING_INTERVAL_SECONDS", 0),
     ):
@@ -227,6 +237,7 @@ def test_endpoint_cleans_up_on_disconnect():
 
     with (
         _patch_auth_valid(user_id=9),
+        _patch_origin_valid(),
         patch("src.realtime.websocket.connection_manager", manager),
     ):
         client = TestClient(app)

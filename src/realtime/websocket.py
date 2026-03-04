@@ -26,12 +26,28 @@ _RATE_LIMIT_WINDOW_SECONDS = 60
 # In-memory rate limiter: IP -> list of timestamps
 _connection_attempts: dict[str, list[float]] = defaultdict(list)
 
+# Message rate limiting: max messages per user per window
+_MESSAGE_RATE_LIMIT = 10  # messages per window
+_MESSAGE_RATE_WINDOW = 60  # seconds
+_message_counts: dict[int, list[float]] = defaultdict(list)
+
 
 def _get_client_ip(websocket: WebSocket) -> str:
-    """Extract client IP from WebSocket connection."""
-    forwarded = websocket.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    """Extract client IP from WebSocket connection.
+
+    Only trusts X-Forwarded-For if explicitly configured in settings.
+    """
+    try:
+        from django.conf import settings
+        trust_proxy = getattr(settings, "TRUST_PROXY_HEADERS", False)
+
+        if trust_proxy:
+            forwarded = websocket.headers.get("x-forwarded-for")
+            if forwarded:
+                return forwarded.split(",")[0].strip()
+    except ImportError:
+        pass
+
     client = websocket.client
     return client.host if client else "unknown"
 
@@ -52,6 +68,20 @@ def _check_rate_limit(ip: str) -> bool:
     return True
 
 
+def _check_message_rate_limit(user_id: int) -> bool:
+    """Check if user is within message rate limit."""
+    now = time.monotonic()
+    cutoff = now - _MESSAGE_RATE_WINDOW
+
+    _message_counts[user_id] = [t for t in _message_counts[user_id] if t > cutoff]
+
+    if len(_message_counts[user_id]) >= _MESSAGE_RATE_LIMIT:
+        return False
+
+    _message_counts[user_id].append(now)
+    return True
+
+
 def _validate_origin(websocket: WebSocket) -> bool:
     """Validate the Origin header against Django's ALLOWED_HOSTS.
 
@@ -60,8 +90,8 @@ def _validate_origin(websocket: WebSocket) -> bool:
     """
     origin = websocket.headers.get("origin")
     if not origin:
-        # Non-browser clients may not send Origin header
-        return True
+        logger.warning("WebSocket connection rejected: missing Origin header")
+        return False
 
     try:
         from django.conf import settings
@@ -165,6 +195,10 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             # Wait for client messages (keeps connection alive)
             await websocket.receive_text()
+            if not _check_message_rate_limit(user_id):
+                logger.warning("Message rate limit exceeded for user %s", user_id)
+                await websocket.close(code=1008)
+                break
     except WebSocketDisconnect:
         pass
     finally:

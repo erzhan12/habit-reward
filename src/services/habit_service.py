@@ -1,5 +1,6 @@
 """Habit completion orchestration service."""
 
+import asyncio
 import logging
 import inspect
 from datetime import datetime, date, timedelta
@@ -330,11 +331,11 @@ class HabitService:
                 )
             )
 
-            # Notify connected WebSocket clients for real-time dashboard updates
+            # Notify connected WebSocket clients (non-blocking)
             try:
-                await connection_manager.notify_user(user.id)
+                asyncio.create_task(connection_manager.notify_user(user.id))
             except Exception:
-                logger.warning("WebSocket notification failed for user %s", user.id, exc_info=True)
+                logger.warning("Failed to schedule WebSocket notification for user %s", user.id, exc_info=True)
 
             return HabitCompletionResult(
                 habit_confirmed=True,
@@ -583,11 +584,11 @@ class HabitService:
                 )
             )
 
-            # Notify connected WebSocket clients for real-time dashboard updates
+            # Notify connected WebSocket clients (non-blocking)
             try:
-                await connection_manager.notify_user(user.id)
+                asyncio.create_task(connection_manager.notify_user(user.id))
             except Exception:
-                logger.warning("WebSocket notification failed for user %s", user.id, exc_info=True)
+                logger.warning("Failed to schedule WebSocket notification for user %s", user.id, exc_info=True)
 
             return HabitRevertResult(
                 habit_name=habit.name,
@@ -717,11 +718,11 @@ class HabitService:
                 )
             )
 
-            # Notify connected WebSocket clients for real-time dashboard updates
+            # Notify connected WebSocket clients (non-blocking)
             try:
-                await connection_manager.notify_user(log.user_id)
+                asyncio.create_task(connection_manager.notify_user(log.user_id))
             except Exception:
-                logger.warning("WebSocket notification failed for user %s", log.user_id, exc_info=True)
+                logger.warning("Failed to schedule WebSocket notification for user %s", log.user_id, exc_info=True)
 
             return HabitRevertResult(
                 habit_name=habit.name,

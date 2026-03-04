@@ -15,6 +15,7 @@ class ConnectionManager:
     """
 
     MAX_CONNECTIONS_PER_USER = 10
+    MAX_TOTAL_CONNECTIONS = 100
 
     def __init__(self) -> None:
         self._connections: dict[int, set[WebSocket]] = {}
@@ -24,6 +25,16 @@ class ConnectionManager:
 
         Returns True if accepted, False if rejected (connection limit).
         """
+        # Check global limit first
+        total = sum(len(conns) for conns in self._connections.values())
+        if total >= self.MAX_TOTAL_CONNECTIONS:
+            logger.warning(
+                "Global WebSocket connection limit reached (%d), rejecting user %s",
+                self.MAX_TOTAL_CONNECTIONS, user_id
+            )
+            await websocket.close(code=1008)
+            return False
+
         existing = self._connections.get(user_id)
         if existing and len(existing) >= self.MAX_CONNECTIONS_PER_USER:
             logger.warning(
