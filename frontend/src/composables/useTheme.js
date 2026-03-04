@@ -74,5 +74,5 @@ export function useTheme() {
     }
   }, { immediate: false });
 
-  return { themeId, themeConfig };
+  return { themeId, themeConfig, applyTheme };
 }
