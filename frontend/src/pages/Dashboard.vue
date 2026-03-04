@@ -29,6 +29,16 @@
       </div>
     </div>
 
+    <!-- Reward celebration overlay -->
+    <RewardCelebration
+      :visible="celebrationVisible"
+      :reward-name="celebrationData.rewardName"
+      :pieces-earned="celebrationData.piecesEarned"
+      :pieces-required="celebrationData.piecesRequired"
+      :card-rect="celebrationData.cardRect"
+      @dismiss="celebrationVisible = false"
+    />
+
     <!-- Undo toast -->
     <UndoToast
       :visible="undoVisible"
@@ -39,10 +49,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from "vue";
+import { ref, reactive, computed, onUnmounted } from "vue";
 import { router } from "@inertiajs/vue3";
 import HabitCard from "../components/HabitCard.vue";
 import UndoToast from "../components/UndoToast.vue";
+import RewardCelebration from "../components/rewards/RewardCelebration.vue";
 import { useTheme } from "../composables/useTheme.js";
 import { useThemeAnimation } from "../composables/useThemeAnimation.js";
 
@@ -79,6 +90,15 @@ function setCardRef(habitId, componentInstance) {
   }
 }
 
+// --- Celebration state ---
+const celebrationVisible = ref(false);
+const celebrationData = reactive({
+  rewardName: "",
+  piecesEarned: null,
+  piecesRequired: null,
+  cardRect: null,
+});
+
 // --- Loading / undo state ---
 const loadingId = ref(null);
 const undoVisible = ref(false);
@@ -97,10 +117,20 @@ function completeHabit(habitId) {
     onSuccess: (page) => {
       const flash = page.props.completionFlash;
 
-      // Trigger theme-specific celebration animation on the card
+      // Trigger card animation (scale-up / particles on the card itself)
       const cardComponent = cardRefs[habitId];
-      if (cardComponent?.cardRef) {
-        triggerCompletionCelebration(cardComponent.cardRef);
+      const cardEl = cardComponent?.cardRef;
+      if (cardEl) {
+        triggerCompletionCelebration(cardEl);
+      }
+
+      // Show reward celebration if a reward was earned
+      if (flash?.got_reward && flash?.reward_name) {
+        celebrationData.rewardName = flash.reward_name;
+        celebrationData.piecesEarned = flash.pieces_earned ?? null;
+        celebrationData.piecesRequired = flash.pieces_required ?? null;
+        celebrationData.cardRect = cardEl?.getBoundingClientRect?.() ?? null;
+        celebrationVisible.value = true;
       }
 
       showUndo(habitId, flash?.text || "Habit completed");

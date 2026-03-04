@@ -3,12 +3,13 @@
     <h1 class="text-2xl font-bold text-text-primary mb-6">Rewards</h1>
 
     <!-- Active rewards -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8">
+    <div :class="rewardLayoutClass" class="mb-8">
       <RewardCard
-        v-for="reward in rewards"
+        v-for="(reward, idx) in rewards"
         :key="reward.id"
         :reward="reward"
         :loading="loadingId === reward.id"
+        :style="getCardEntranceStyle(idx)"
         @claim="claimReward"
       />
 
@@ -29,10 +30,11 @@
 
       <div v-if="showClaimed" class="space-y-2">
         <div
-          v-for="reward in claimedRewards"
+          v-for="(reward, idx) in claimedRewards"
           :key="reward.id"
           class="px-4 py-3 flex items-center gap-3"
           :class="[tc.card.rounded, tc.card.bg, tc.card.border, tc.card.extra]"
+          :style="getCardEntranceStyle(idx)"
         >
           <span class="text-accent">&#10003;</span>
           <span class="text-sm text-text-secondary">{{ reward.name }}</span>
@@ -47,6 +49,7 @@ import { ref, computed } from "vue";
 import { router } from "@inertiajs/vue3";
 import RewardCard from "../components/RewardCard.vue";
 import { useTheme } from "../composables/useTheme.js";
+import { useThemeAnimation } from "../composables/useThemeAnimation.js";
 
 defineProps({
   rewards: { type: Array, default: () => [] },
@@ -58,6 +61,23 @@ const showClaimed = ref(false);
 
 const { themeConfig } = useTheme();
 const tc = computed(() => themeConfig.value.classes);
+const { getCardEntranceStyle } = useThemeAnimation();
+
+// --- Layout ---
+const rewardLayoutClass = computed(() => {
+  const pl = themeConfig.value.pageLayout || {};
+  const layout = pl.rewardList || 'list';
+  const density = pl.density || 'normal';
+
+  if (layout === 'grid-2') {
+    if (density === 'spacious') return 'grid grid-cols-2 gap-4';
+    if (density === 'compact') return 'grid grid-cols-2 gap-2';
+    return 'grid grid-cols-2 gap-3';
+  }
+  if (density === 'spacious') return 'space-y-4';
+  if (density === 'compact') return 'space-y-2';
+  return 'space-y-3';
+});
 
 function claimReward(rewardId) {
   loadingId.value = rewardId;

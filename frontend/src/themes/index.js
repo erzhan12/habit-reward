@@ -23,7 +23,7 @@
 
 // ── Validation constant sets ────────────────────────────────────────
 export const VALID_INTERACTIONS = new Set([
-  'button-right', 'checkbox', 'swipe-reveal',
+  'button-right', 'checkbox', 'toggle', 'swipe-reveal',
 ]);
 
 export const VALID_CARD_ENTRANCES = new Set([
@@ -361,7 +361,7 @@ export const themes = {
       size: '16px',
     },
     interactions: {
-      habitComplete: 'button-right',
+      habitComplete: 'toggle',
     },
     animations: {
       cardEntrance: 'fade-in',
@@ -633,7 +633,7 @@ export const themes = {
       size: '16px',
     },
     interactions: {
-      habitComplete: 'button-right',
+      habitComplete: 'checkbox',
     },
     animations: {
       cardEntrance: 'none',

@@ -1,14 +1,16 @@
 /**
- * Theme interaction resolver (Phase 1 infrastructure).
+ * Theme interaction resolver.
  *
  * Reads `themeConfig.interactions.habitComplete` and resolves it to
- * a component reference + props. In Phase 1, all interaction types
- * map to HabitDoneButton.vue.
+ * a component reference + props for the HabitCard dynamic slot.
  */
 
 import { computed } from "vue";
 import { useTheme } from "./useTheme.js";
 import HabitDoneButton from "../components/interactions/HabitDoneButton.vue";
+import HabitDoneCheckbox from "../components/interactions/HabitDoneCheckbox.vue";
+import HabitDoneToggle from "../components/interactions/HabitDoneToggle.vue";
+import HabitDoneSwipe from "../components/interactions/HabitDoneSwipe.vue";
 
 /**
  * Detect coarse-pointer (touch) device.
@@ -21,10 +23,6 @@ function isTouchDevice() {
 
 /**
  * Composable returning the resolved interaction component and config.
- *
- * @returns {{ interactionType: import('vue').ComputedRef<string>,
- *             interactionComponent: import('vue').ComputedRef<object>,
- *             interactionProps: import('vue').ComputedRef<object> }}
  */
 export function useThemeInteraction() {
   const { themeConfig } = useTheme();
@@ -38,12 +36,32 @@ export function useThemeInteraction() {
     return configured;
   });
 
-  // Phase 1: all types resolve to HabitDoneButton
-  const interactionComponent = computed(() => HabitDoneButton);
+  const interactionComponent = computed(() => {
+    switch (interactionType.value) {
+      case "checkbox":
+        return HabitDoneCheckbox;
+      case "swipe-reveal":
+        return HabitDoneSwipe;
+      case "toggle":
+        return HabitDoneToggle;
+      default:
+        return HabitDoneButton;
+    }
+  });
 
-  const interactionProps = computed(() => ({
-    position: interactionType.value === "checkbox" ? "left" : "right",
-  }));
+  const interactionProps = computed(() => {
+    switch (interactionType.value) {
+      case "checkbox":
+        return { position: "left" };
+      case "toggle":
+        return { position: "right" };
+      default:
+        return { position: "right" };
+    }
+  });
 
-  return { interactionType, interactionComponent, interactionProps };
+  // Swipe wraps the entire card — the layout must be different
+  const isSwipeMode = computed(() => interactionType.value === "swipe-reveal");
+
+  return { interactionType, interactionComponent, interactionProps, isSwipeMode };
 }
