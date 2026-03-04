@@ -35,7 +35,7 @@
             class="flex-1 rounded-lg p-2 flex flex-col justify-between"
             :style="{
               background: theme.cssVars['--color-bg-card'],
-              border: hasBorder(id) ? `1px solid ${theme.cssVars['--color-border']}` : 'none',
+              border: hasBorder(id) ? `1px solid ${theme.cssVars['--color-accent']}30` : 'none',
               backdropFilter: isGlass(id) ? 'blur(8px)' : 'none',
             }"
           >
@@ -242,28 +242,28 @@ function interactionIcon(id) {
 }
 
 function buttonRadius(id) {
-  const t = themes[id];
-  const r = t.classes.button.rounded;
+  const config = getTheme(id);
+  const r = config.classes.button.rounded;
   if (r === 'rounded-full') return '9999px';
   if (r === 'rounded-none') return '0';
   return '6px';
 }
 
 function previewBgStyle(id) {
-  const t = themes[id];
-  return { background: t.cssVars["--color-bg-primary"], minHeight: "6rem" };
+  const config = getTheme(id);
+  return { background: config.cssVars["--color-bg-primary"], minHeight: "6rem" };
 }
 
 function previewFooterBg(id) {
-  return themes[id].cssVars["--color-bg-card"];
+  return getTheme(id).cssVars["--color-bg-card"];
 }
 
 function isGlass(id) {
-  return themes[id].classes.card.bg?.includes("backdrop-blur") || false;
+  return getTheme(id).classes.card.bg?.includes("backdrop-blur") || false;
 }
 
 function hasBorder(id) {
-  const border = themes[id].classes.card.border;
+  const border = getTheme(id).classes.card.border;
   return border && border !== 'border-transparent' && border !== '';
 }
 

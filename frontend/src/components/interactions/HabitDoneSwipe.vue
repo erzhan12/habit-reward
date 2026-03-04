@@ -52,11 +52,6 @@ const SWIPE_THRESHOLD = 100;
 const props = defineProps({
   habit: { type: Object, required: true },
   loading: { type: Boolean, default: false },
-  position: {
-    type: String,
-    default: "right",
-    validator: (v) => ["left", "right", "bottom"].includes(v),
-  },
 });
 
 const emit = defineEmits(["complete", "revert"]);
@@ -73,12 +68,14 @@ const revealOpacity = computed(() =>
 
 function onTouchStart(e) {
   if (props.habit.completedToday || props.loading) return;
+  if (!e.touches?.length) return;
   isAnimating.value = false;
   startX.value = e.touches[0].clientX;
 }
 
 function onTouchMove(e) {
   if (props.habit.completedToday || props.loading) return;
+  if (!e.touches?.length) return;
   const delta = e.touches[0].clientX - startX.value;
   // Only allow right swipe
   offsetX.value = Math.max(0, delta);

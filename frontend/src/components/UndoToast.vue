@@ -9,7 +9,7 @@
   >
     <div
       v-if="visible"
-      class="fixed bottom-24 lg:bottom-6 left-4 right-4 lg:left-auto lg:right-6 lg:w-80 z-50"
+      class="fixed bottom-24 lg:bottom-6 left-4 right-4 lg:left-auto lg:right-6 lg:w-80 z-40"
     >
       <div
         class="p-4 shadow-lg border flex items-center justify-between"

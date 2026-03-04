@@ -4,7 +4,8 @@
       @click="handleToggle"
       :disabled="loading"
       class="relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
-      :class="habit.completedToday ? 'bg-accent' : 'bg-gray-600'"
+      :class="habit.completedToday ? 'bg-accent' : ''"
+      :style="!habit.completedToday ? { backgroundColor: 'var(--color-bg-card-hover)' } : {}"
       role="switch"
       :aria-checked="habit.completedToday"
     >

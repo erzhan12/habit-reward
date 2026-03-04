@@ -1,7 +1,7 @@
 <template>
   <div
     class="p-4 transition-all"
-    :class="[tc.card.rounded, tc.card.shadow, tc.card.border, tc.card.bg, tc.card.extra]"
+    :class="[tc.card.rounded, tc.card.shadow, tc.card.border, tc.card.bg, tc.card.extra, hoverClass]"
   >
     <div class="flex items-center justify-between mb-2">
       <h3 class="font-medium text-text-primary truncate">{{ reward.name }}</h3>
@@ -47,6 +47,7 @@
 <script setup>
 import { computed } from "vue";
 import { useTheme } from "../composables/useTheme.js";
+import { useThemeAnimation } from "../composables/useThemeAnimation.js";
 
 const props = defineProps({
   reward: { type: Object, required: true },
@@ -57,6 +58,7 @@ defineEmits(["claim"]);
 
 const { themeConfig } = useTheme();
 const tc = computed(() => themeConfig.value.classes);
+const { hoverClass } = useThemeAnimation();
 
 const progressPercent = computed(() => {
   if (props.reward.piecesRequired === 0) return 0;

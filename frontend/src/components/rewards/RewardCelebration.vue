@@ -31,6 +31,7 @@
         <div
           class="relative z-10 max-w-sm w-full mx-4"
           :style="cardPositionStyle"
+          @click.stop
         >
           <component
             :is="celebrationComponent"
@@ -82,16 +83,11 @@ const celebrationComponent = computed(() => {
 
 const cardPositionStyle = computed(() => {
   if (!props.cardRect) return {};
-  const top = Math.min(
-    props.cardRect.top + props.cardRect.height / 2 - 60,
-    window.innerHeight - 200
-  );
-  return {
-    position: "absolute",
-    top: `${Math.max(20, top)}px`,
-    left: "50%",
-    transform: "translateX(-50%)",
-  };
+  // Offset from viewport center toward the source card's vertical position
+  const cardCenter = props.cardRect.top + props.cardRect.height / 2;
+  const viewportCenter = window.innerHeight / 2;
+  const offset = Math.max(-viewportCenter + 80, Math.min(cardCenter - viewportCenter, viewportCenter - 200));
+  return { marginTop: `${offset}px` };
 });
 
 // Auto-dismiss after 3s
