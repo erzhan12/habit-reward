@@ -64,7 +64,8 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=4401)
         return
 
-    await connection_manager.connect(user_id, websocket)
+    if not await connection_manager.connect(user_id, websocket):
+        return
 
     # Background task for keep-alive pings
     ping_task = asyncio.create_task(_ping_loop(websocket))

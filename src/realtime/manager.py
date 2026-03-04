@@ -14,16 +14,30 @@ class ConnectionManager:
     connected browsers for that user.
     """
 
+    MAX_CONNECTIONS_PER_USER = 10
+
     def __init__(self) -> None:
         self._connections: dict[int, set[WebSocket]] = {}
 
-    async def connect(self, user_id: int, websocket: WebSocket) -> None:
-        """Accept and register a WebSocket connection."""
+    async def connect(self, user_id: int, websocket: WebSocket) -> bool:
+        """Accept and register a WebSocket connection.
+
+        Returns True if accepted, False if rejected (connection limit).
+        """
+        existing = self._connections.get(user_id)
+        if existing and len(existing) >= self.MAX_CONNECTIONS_PER_USER:
+            logger.warning(
+                "User %s exceeded max WebSocket connections (%d), rejecting",
+                user_id, self.MAX_CONNECTIONS_PER_USER,
+            )
+            await websocket.close(code=4429)
+            return False
         await websocket.accept()
         if user_id not in self._connections:
             self._connections[user_id] = set()
         self._connections[user_id].add(websocket)
         logger.info("WebSocket connected for user %s (total: %d)", user_id, len(self._connections[user_id]))
+        return True
 
     async def disconnect(self, user_id: int, websocket: WebSocket) -> None:
         """Remove a WebSocket connection."""

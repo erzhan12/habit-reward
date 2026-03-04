@@ -95,6 +95,25 @@ async def test_notify_only_target_user():
 
 
 @pytest.mark.asyncio
+async def test_connect_rejects_over_limit():
+    """Exceeding MAX_CONNECTIONS_PER_USER should close the websocket."""
+    manager = ConnectionManager()
+    manager.MAX_CONNECTIONS_PER_USER = 2
+
+    ws1 = _make_mock_ws()
+    ws2 = _make_mock_ws()
+    ws3 = _make_mock_ws()
+
+    assert await manager.connect(1, ws1) is True
+    assert await manager.connect(1, ws2) is True
+    assert await manager.connect(1, ws3) is False
+
+    ws3.close.assert_awaited_once_with(code=4429)
+    ws3.accept.assert_not_awaited()
+    assert len(manager._connections[1]) == 2
+
+
+@pytest.mark.asyncio
 async def test_disconnect_nonexistent_user():
     """Disconnecting a user that was never connected should not raise."""
     manager = ConnectionManager()
