@@ -23,6 +23,7 @@ from src.models.habit_completion_result import HabitCompletionResult
 from src.models.habit_revert_result import HabitRevertResult
 from src.models.reward_progress import RewardProgress as RewardProgressModel
 from src.utils.async_compat import run_sync_or_async, maybe_await
+from src.realtime.manager import connection_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -329,6 +330,12 @@ class HabitService:
                 )
             )
 
+            # Notify connected WebSocket clients for real-time dashboard updates
+            try:
+                await connection_manager.notify_user(user.id)
+            except Exception:
+                logger.debug("WebSocket notification failed for user %s", user.id)
+
             return HabitCompletionResult(
                 habit_confirmed=True,
                 habit_name=habit.name,
@@ -576,6 +583,12 @@ class HabitService:
                 )
             )
 
+            # Notify connected WebSocket clients for real-time dashboard updates
+            try:
+                await connection_manager.notify_user(user.id)
+            except Exception:
+                logger.debug("WebSocket notification failed for user %s", user.id)
+
             return HabitRevertResult(
                 habit_name=habit.name,
                 reward_reverted=reward_reverted,
@@ -703,6 +716,12 @@ class HabitService:
                     progress_snapshot=revert_snapshot,
                 )
             )
+
+            # Notify connected WebSocket clients for real-time dashboard updates
+            try:
+                await connection_manager.notify_user(log.user_id)
+            except Exception:
+                logger.debug("WebSocket notification failed for user %s", log.user_id)
 
             return HabitRevertResult(
                 habit_name=habit.name,

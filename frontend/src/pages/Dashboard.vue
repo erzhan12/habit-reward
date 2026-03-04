@@ -56,6 +56,7 @@ import UndoToast from "../components/UndoToast.vue";
 import RewardCelebration from "../components/rewards/RewardCelebration.vue";
 import { useTheme } from "../composables/useTheme.js";
 import { useThemeAnimation } from "../composables/useThemeAnimation.js";
+import { useRealtimeSync } from "../composables/useRealtimeSync.js";
 
 defineProps({
   habits: { type: Array, default: () => [] },
@@ -65,6 +66,7 @@ defineProps({
 
 const { themeConfig } = useTheme();
 const { triggerCompletionCelebration } = useThemeAnimation();
+useRealtimeSync();
 
 // --- Layout ---
 const listLayoutClass = computed(() => {
