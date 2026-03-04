@@ -2,9 +2,11 @@
 
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import RedirectView
 from src.bot.webhook_handler import telegram_webhook
 
 urlpatterns = [
+    path('favicon.ico', RedirectView.as_view(url='/static/favicon.ico', permanent=True)),
     path('admin/', admin.site.urls),
     path('webhook/telegram', telegram_webhook, name='telegram_webhook'),
     # Web interface
