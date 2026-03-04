@@ -1,7 +1,7 @@
 """In-memory WebSocket connection manager for real-time updates."""
 
 import logging
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class ConnectionManager:
         for ws in list(connections):
             try:
                 await ws.send_json(message)
-            except Exception:
+            except (RuntimeError, ConnectionError, WebSocketDisconnect):
                 logger.debug("Removing dead WebSocket for user %s", user_id)
                 dead.append(ws)
 

@@ -2,11 +2,13 @@
 
 import asyncio
 import logging
+import time
+from collections import defaultdict
 from importlib import import_module
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from asgiref.sync import sync_to_async
-
 from src.realtime.manager import connection_manager
 from src.core.repositories import user_repository
 from src.utils.async_compat import maybe_await
@@ -16,6 +18,77 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 PING_INTERVAL_SECONDS = 30
+
+# Rate limiting: max connection attempts per IP per window
+_RATE_LIMIT_MAX = 10
+_RATE_LIMIT_WINDOW_SECONDS = 60
+
+# In-memory rate limiter: IP -> list of timestamps
+_connection_attempts: dict[str, list[float]] = defaultdict(list)
+
+
+def _get_client_ip(websocket: WebSocket) -> str:
+    """Extract client IP from WebSocket connection."""
+    forwarded = websocket.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    client = websocket.client
+    return client.host if client else "unknown"
+
+
+def _check_rate_limit(ip: str) -> bool:
+    """Check if IP is within rate limit. Returns True if allowed."""
+    now = time.monotonic()
+    cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+
+    # Prune old entries
+    attempts = _connection_attempts[ip]
+    _connection_attempts[ip] = [t for t in attempts if t > cutoff]
+
+    if len(_connection_attempts[ip]) >= _RATE_LIMIT_MAX:
+        return False
+
+    _connection_attempts[ip].append(now)
+    return True
+
+
+def _validate_origin(websocket: WebSocket) -> bool:
+    """Validate the Origin header against Django's ALLOWED_HOSTS.
+
+    Returns True if origin is allowed or absent (non-browser clients).
+    Returns False if origin is present but not in allowed hosts.
+    """
+    origin = websocket.headers.get("origin")
+    if not origin:
+        # Non-browser clients may not send Origin header
+        return True
+
+    try:
+        from django.conf import settings
+
+        parsed = urlparse(origin)
+        origin_host = parsed.hostname
+        if not origin_host:
+            return False
+
+        allowed_hosts = getattr(settings, "ALLOWED_HOSTS", [])
+        for host in allowed_hosts:
+            if host == "*":
+                return True
+            if host.startswith(".") and (
+                origin_host == host[1:] or origin_host.endswith(host)
+            ):
+                return True
+            if origin_host == host:
+                return True
+
+        logger.warning(
+            "WebSocket connection rejected: origin %s not in ALLOWED_HOSTS", origin
+        )
+        return False
+    except ImportError:
+        logger.error("Django settings not available for origin validation")
+        return False
 
 
 async def _authenticate_websocket(websocket: WebSocket) -> int | None:
@@ -47,8 +120,14 @@ async def _authenticate_websocket(websocket: WebSocket) -> int | None:
             return None
 
         return user_id
+    except (ValueError, KeyError, TypeError) as e:
+        logger.warning("WebSocket authentication failed: %s: %s", type(e).__name__, e)
+        return None
+    except ImportError:
+        logger.error("Django session engine not available for WebSocket auth")
+        return None
     except Exception:
-        logger.exception("WebSocket authentication error")
+        logger.exception("Unexpected WebSocket authentication error")
         return None
 
 
@@ -59,6 +138,18 @@ async def websocket_endpoint(websocket: WebSocket):
     Authenticates via Django session cookie, then keeps the connection
     open and forwards notification signals from the ConnectionManager.
     """
+    # Rate limit check (before accept)
+    client_ip = _get_client_ip(websocket)
+    if not _check_rate_limit(client_ip):
+        logger.warning("WebSocket rate limit exceeded for IP %s", client_ip)
+        await websocket.close(code=1008)
+        return
+
+    # Origin validation (before accept)
+    if not _validate_origin(websocket):
+        await websocket.close(code=4403)
+        return
+
     user_id = await _authenticate_websocket(websocket)
     if user_id is None:
         await websocket.close(code=4401)
@@ -87,5 +178,5 @@ async def _ping_loop(websocket: WebSocket) -> None:
         while True:
             await asyncio.sleep(PING_INTERVAL_SECONDS)
             await websocket.send_json({"type": "ping"})
-    except Exception:
-        pass  # Connection closed, task will be cancelled
+    except (RuntimeError, ConnectionError, WebSocketDisconnect, asyncio.CancelledError):
+        pass  # Connection closed or task cancelled
