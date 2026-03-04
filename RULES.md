@@ -1,8 +1,8 @@
 # Development Rules & Patterns
 
-## Theme System (Feature: Advanced Theme Engine)
+## Theme System (Feature 0037: Advanced Theme Engine)
 
-The web UI supports 8 theme personalities with full layout/interaction/animation control, persisted on the User model. Phase 1 ships infrastructure + 2 complete themes (`clean_modern`, `gamified_arcade`). Phase 2 adds components + remaining 6 themes.
+The web UI supports 8 theme personalities with full layout/interaction/animation control, persisted on the User model. Each theme is a distinct experience: different layouts, interaction patterns, animations, fonts, and reward celebrations.
 
 **8 Theme IDs**: `clean_modern` (default), `gamified_arcade`, `cozy_warm`, `minimalist_zen`, `ios_native`, `dark_focus`, `retro_terminal`, `nature_forest`.
 
@@ -10,20 +10,43 @@ The web UI supports 8 theme personalities with full layout/interaction/animation
 - `User.theme` (CharField, default `'clean_modern'`) — stored in DB, 8 choices defined in `User.THEME_CHOICES`
 - `InertiaFlashMiddleware` in `src/web/middleware.py` shares `userTheme` as a global Inertia prop
 - `frontend/src/themes/index.js` — theme configs with extended schema (cssVars, classes, font, interactions, animations, reward, pageLayout) + `DEFAULTS` object + `resolveTheme()` deep-merge + backward-compat aliases for old theme IDs
-- `frontend/src/composables/useTheme.js` — reads `page.props.userTheme`, applies CSS vars via View Transitions API (falls back to opacity cross-fade), loads theme fonts async
+- `frontend/src/composables/useTheme.js` — reads `page.props.userTheme`, applies CSS vars via View Transitions API (falls back to opacity cross-fade), loads theme fonts async. Exposes `applyTheme(id)` for live preview in Theme.vue.
 - `frontend/src/composables/useThemeFont.js` — dynamic Google Fonts loading with in-memory cache, sets `--font-family` CSS var
-- `frontend/src/composables/useThemeInteraction.js` — resolves `interactions.habitComplete` to component (Phase 1: all map to `HabitDoneButton.vue`)
+- `frontend/src/composables/useThemeInteraction.js` — resolves `interactions.habitComplete` to real components: `HabitDoneButton`, `HabitDoneCheckbox`, `HabitDoneToggle`, `HabitDoneSwipe`. Swipe falls back to button on non-touch devices via `matchMedia('(pointer: coarse)')`.
 - `frontend/src/composables/useThemeAnimation.js` — card entrance styles, streak fire classes, hover micro-interactions, completion celebrations
 - `frontend/src/utils/particles.js` — lightweight canvas-based particle burst (no deps)
 - `frontend/src/animations.css` — keyframes for fade/slide/pulse/flicker/bounce + hover utility classes
-- `frontend/src/app.css` — `@theme` default variables (clean_modern) + `[data-theme="gamified_arcade"]` override + `--font-family` + body font rule
+- `frontend/src/app.css` — `@theme` default variables (clean_modern) + 7 `[data-theme="..."]` override blocks + `--font-family` + body font rule
 
 **Extended config keys per theme**:
 - `font`: `{ family, import (Google Fonts URL|null), weight, size }`
-- `interactions`: `{ habitComplete: 'button-right'|'checkbox'|'swipe-reveal' }`
+- `interactions`: `{ habitComplete: 'button-right'|'checkbox'|'toggle'|'swipe-reveal' }`
 - `animations`: `{ cardEntrance, completionCelebration, hoverMicro, streakFire }`
-- `reward`: `{ displayMode: 'expand-from-card'|'toast', celebrationComponent }`
+- `reward`: `{ displayMode: 'expand-from-card'|'toast' }`
 - `pageLayout`: `{ habitList: 'list'|'grid-2', density: 'spacious'|'normal'|'compact', rewardList }`
+
+**Interaction components** (`frontend/src/components/interactions/`):
+- `HabitDoneButton.vue` — standard button with `position` prop (left/right/bottom)
+- `HabitDoneCheckbox.vue` — styled checkbox (used by `minimalist_zen`)
+- `HabitDoneToggle.vue` — iOS-style toggle switch (used by `ios_native`)
+- `HabitDoneSwipe.vue` — swipe-to-reveal with 100px threshold (used by `gamified_arcade` on touch devices)
+
+**HabitCard.vue**: Uses `<component :is>` dynamic slot via `useThemeInteraction`. Swipe mode wraps entire card in `HabitDoneSwipe`. Standard mode places interaction component at configured position. Shared content extracted to `HabitCardContent.vue`.
+
+**Reward celebration** (`frontend/src/components/rewards/`):
+- `RewardCelebration.vue` — orchestrator: Teleport to body, toast vs expand-from-card modes, auto-dismiss 3s
+- `RewardDefault.vue` — scale-up entrance with progress bar
+- `RewardParticles.vue` — scale-up + canvas particle burst
+- `RewardQuiet.vue` — simple opacity fade-in
+- `RewardToast.vue` — slide-in from right, compact
+
+**Theme picker** (`frontend/src/pages/Theme.vue`):
+- Live preview: tapping a theme applies it instantly via `applyTheme()`, debounced save (600ms), reverts on error or page leave
+- Mini previews show actual interaction type (button/checkbox/toggle/swipe arrow)
+- Personality tags: accent-colored pills showing interaction, layout, density, animation, custom font
+- Staggered entrance animations
+
+**Page animations**: Dashboard, Streaks, Rewards, History all use `useThemeAnimation` for card entrance styles, hover micro-interactions, and streak fire classes. Dashboard and Rewards read `pageLayout` for grid/list and density variants.
 
 **Adding a new theme**:
 1. Add a choice to `User.THEME_CHOICES` in `src/core/models.py` and run `makemigrations`
@@ -47,9 +70,14 @@ The web UI supports 8 theme personalities with full layout/interaction/animation
 
 **CSP**: `style-src` includes `https://fonts.googleapis.com`, `font-src` includes `https://fonts.gstatic.com` (set in `ContentSecurityPolicyMiddleware`).
 
-**completionFlash**: Session flash dict includes `reward_name`, `pieces_earned`, `pieces_required` (for Phase 2 celebration components).
+**completionFlash**: Session flash dict in `src/web/views/dashboard.py` includes `reward_name`, `pieces_earned`, `pieces_required` — used by `RewardCelebration` component on habit completion.
 
 **Glass detection**: `isGlass()` in `Theme.vue` checks `theme.classes.card.bg` for `backdrop-blur` — no hard-coded theme IDs.
+
+**Pitfalls**:
+- `applyDomUpdates()` in `useTheme.js` must be synchronous — View Transitions API requires it
+- Tailwind dynamic classes (e.g. `space-y-${n}`) don't work with JIT — use explicit static class strings in if/else branches
+- Theme picker live preview must revert on `onUnmounted` if the user navigates away without saving
 
 ## User Validation Pattern
 
