@@ -1,5 +1,96 @@
 # Development Rules & Patterns
 
+## Theme System (Feature 0037: Advanced Theme Engine)
+
+The web UI supports 8 theme personalities with full layout/interaction/animation control, persisted on the User model. Each theme is a distinct experience: different layouts, interaction patterns, animations, fonts, and reward celebrations.
+
+**8 Theme IDs**: `clean_modern` (default), `gamified_arcade`, `cozy_warm`, `minimalist_zen`, `ios_native`, `dark_focus`, `retro_terminal`, `nature_forest`.
+
+**Architecture**:
+- `User.theme` (CharField, default `'clean_modern'`) — stored in DB, 8 choices defined in `User.THEME_CHOICES`
+- `InertiaFlashMiddleware` in `src/web/middleware.py` shares `userTheme` as a global Inertia prop
+- `frontend/src/themes/index.js` — theme configs with extended schema (cssVars, classes, font, interactions, animations, reward, pageLayout) + `DEFAULTS` object + `resolveTheme()` deep-merge + backward-compat aliases for old theme IDs
+- `frontend/src/composables/useTheme.js` — reads `page.props.userTheme`, applies CSS vars via View Transitions API (falls back to opacity cross-fade), loads theme fonts async. Exposes `applyTheme(id)` for live preview in Theme.vue.
+- `frontend/src/composables/useThemeFont.js` — dynamic Google Fonts loading with in-memory cache, sets `--font-family` CSS var
+- `frontend/src/composables/useThemeInteraction.js` — resolves `interactions.habitComplete` to real components: `HabitDoneButton`, `HabitDoneCheckbox`, `HabitDoneToggle`, `HabitDoneSwipe`. Swipe falls back to button on non-touch devices via `matchMedia('(pointer: coarse)')`.
+- `frontend/src/composables/useThemeAnimation.js` — card entrance styles, streak fire classes, hover micro-interactions, completion celebrations
+- `frontend/src/utils/particles.js` — lightweight canvas-based particle burst (no deps)
+- `frontend/src/animations.css` — keyframes for fade/slide/pulse/flicker/bounce + hover utility classes
+- `frontend/src/app.css` — `@theme` default variables (clean_modern) + 7 `[data-theme="..."]` override blocks + `--font-family` + body font rule
+
+**Extended config keys per theme**:
+- `font`: `{ family, import (Google Fonts URL|null), weight, size }`
+- `interactions`: `{ habitComplete: 'button-right'|'checkbox'|'toggle'|'swipe-reveal' }`
+- `animations`: `{ cardEntrance, completionCelebration, hoverMicro, streakFire }`
+- `reward`: `{ displayMode: 'expand-from-card'|'toast' }`
+- `pageLayout`: `{ habitList: 'list'|'grid-2', density: 'spacious'|'normal'|'compact', rewardList }`
+
+**Interaction components** (`frontend/src/components/interactions/`):
+- `HabitDoneButton.vue` — standard button with `position` prop (left/right/bottom)
+- `HabitDoneCheckbox.vue` — styled checkbox (used by `minimalist_zen`)
+- `HabitDoneToggle.vue` — iOS-style toggle switch (used by `ios_native`)
+- `HabitDoneSwipe.vue` — swipe-to-reveal with 100px threshold (used by `gamified_arcade` on touch devices)
+
+**HabitCard.vue**: Uses `<component :is>` dynamic slot via `useThemeInteraction`. Swipe mode wraps entire card in `HabitDoneSwipe`. Standard mode places interaction component at configured position. Shared content extracted to `HabitCardContent.vue`.
+
+**Reward celebration** (`frontend/src/components/rewards/`):
+- `RewardCelebration.vue` — orchestrator: Teleport to body, toast vs expand-from-card modes, auto-dismiss 3s
+- `RewardDefault.vue` — scale-up entrance with progress bar
+- `RewardParticles.vue` — scale-up + canvas particle burst
+- `RewardQuiet.vue` — simple opacity fade-in
+- `RewardToast.vue` — slide-in from right, compact
+
+**Theme picker** (`frontend/src/pages/Theme.vue`):
+- Live preview: tapping a theme applies it instantly via `applyTheme()`, debounced save (600ms), reverts on error or page leave
+- Mini previews show actual interaction type (button/checkbox/toggle/swipe arrow)
+- Personality tags: accent-colored pills showing interaction, layout, density, animation, custom font
+- Staggered entrance animations
+
+**Page animations**: Dashboard, Streaks, Rewards, History all use `useThemeAnimation` for card entrance styles, hover micro-interactions, and streak fire classes. Dashboard and Rewards read `pageLayout` for grid/list and density variants.
+
+**Adding a new theme**:
+1. Add a choice to `User.THEME_CHOICES` in `src/core/models.py` and run `makemigrations`
+2. Add theme definition to `frontend/src/themes/index.js` (any missing extended keys auto-filled by `resolveTheme()` via `DEFAULTS`)
+3. Add `[data-theme="..."]` CSS var override block to `frontend/src/app.css`
+4. If using external font: CSP already allows `fonts.googleapis.com` and `fonts.gstatic.com`
+
+**Theme class tokens** used by components: `card.{rounded,shadow,border,bg,hoverBg,extra}`, `button.{rounded,padding,primary,secondary}`, `input.base`, `badge.base`, `select.base`.
+
+**Layout variants**: `layout: 'sidebar'` (default) or `'topbar'`.
+
+**Nav styles**: `'default'` | `'frosted'` | `'underline'` | `'glow'`.
+
+**Theme views**: `src/web/views/theme.py` — `theme_page` (GET) and `save_theme` (POST, validates against `VALID_THEMES`).
+
+**Tests**: `tests/web/test_theme_views.py` (backend), `frontend/tests/themes.spec.js` (config validation — all themes have required keys, validation constants, alias resolution).
+
+**Backward compatibility**: Old theme IDs (`dark_emerald`, `light_clean`, etc.) are aliased in `themes/index.js` and migrated in DB migration `0030`. Frontend `getTheme()` resolves aliases transparently.
+
+**VALID_THEMES**: Single source of truth is `User.VALID_THEMES` (derived from `THEME_CHOICES`).
+
+**CSP**: `style-src` includes `https://fonts.googleapis.com`, `font-src` includes `https://fonts.gstatic.com` (set in `ContentSecurityPolicyMiddleware`).
+
+**completionFlash**: Session flash dict in `src/web/views/dashboard.py` includes `reward_name`, `pieces_earned`, `pieces_required` — used by `RewardCelebration` component on habit completion.
+
+**Glass detection**: `isGlass()` in `Theme.vue` checks `theme.classes.card.bg` for `backdrop-blur` — no hard-coded theme IDs.
+
+**Z-index layering**: UndoToast `z-40`, RewardCelebration `z-50`. Celebration always renders above undo toast.
+
+**RewardCelebration positioning**: Uses `marginTop` offset from flex center (not absolute positioning). Card content div has `@click.stop` to prevent backdrop click-dismiss when tapping the card itself.
+
+**RewardCard**: Includes `hoverClass` from `useThemeAnimation()` for theme-specific hover micro-interactions.
+
+**Pitfalls**:
+- `applyDomUpdates()` in `useTheme.js` must be synchronous — View Transitions API requires it
+- Tailwind dynamic classes (e.g. `space-y-${n}`) don't work with JIT — use explicit static class strings in if/else branches
+- Theme picker live preview must revert on `onUnmounted` if the user navigates away without saving
+- Theme.vue preview helpers must use `getTheme(id)` (safe fallback) not `themes[id]` (crashes on unknown ID)
+- No `--color-border` CSS var exists — use `--color-accent` with hex opacity suffix (e.g. `+ '30'`) for preview borders
+- `HabitDoneToggle` uses inline style `var(--color-bg-card-hover)` for inactive track — `bg-bg-card-hover` Tailwind class may not be generated (only `hover:bg-bg-card-hover` is scanned)
+- `HabitDoneSwipe` has NO `position` prop (unlike Button/Toggle/Checkbox) — it wraps the entire card
+- Touch handlers in `HabitDoneSwipe` must guard `e.touches?.length` before accessing `e.touches[0]`
+- Inertia does a full page reload on POST redirects (`redirect("/")`) — module-level state, sessionStorage hacks, and `preserveState: true` do NOT survive. Cannot delay UI changes across the reload boundary
+
 ## User Validation Pattern
 
 **CRITICAL**: All Telegram bot command handlers MUST validate user exists and is active before processing.
@@ -483,6 +574,7 @@ Use repositories with `run_sync_or_async` in sync Django views. In tests, mock `
 - `tests/web/test_middleware.py`, `test_dashboard_views.py`, `test_history_views.py`, `test_rewards_views.py`
 - `tests/web/test_auth_views.py` — all auth/login flow tests
 - `tests/web/test_cache_operations.py` — cache manager tests
+- `tests/web/test_theme_views.py` — theme page & save tests
 - `tests/web/test_timing_jitter.py`, `test_cleanup_command.py`
 
 ## Reward Probability Formula (Subtractive System)

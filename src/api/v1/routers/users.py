@@ -12,6 +12,8 @@ from src.core.models import User
 from src.core.repositories import user_repository
 from src.utils.async_compat import maybe_await
 
+VALID_THEMES = User.VALID_THEMES
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -24,6 +26,7 @@ class UserResponse(BaseModel):
     name: str
     language: str
     is_active: bool
+    theme: str = "clean_modern"
 
     class Config:
         from_attributes = True
@@ -34,12 +37,14 @@ class UserUpdateRequest(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     language: str | None = Field(default=None, pattern="^(en|ru|kk)$")
     timezone: str | None = Field(default=None, max_length=50)
+    theme: str | None = Field(default=None, max_length=20)
 
 
 class UserSettingsResponse(BaseModel):
     """User settings response model."""
     language: str
     timezone: str = "UTC"
+    theme: str = "clean_modern"
 
 
 @router.get("/me", response_model=UserResponse)
@@ -58,7 +63,8 @@ async def get_current_user_info(
         telegram_id=current_user.telegram_id,
         name=current_user.name,
         language=current_user.language,
-        is_active=current_user.is_active
+        is_active=current_user.is_active,
+        theme=current_user.theme,
     )
 
 
@@ -92,6 +98,14 @@ async def update_current_user(
                 code="INVALID_TIMEZONE",
             )
         update_dict["timezone"] = updates.timezone
+    if updates.theme is not None:
+        if updates.theme not in VALID_THEMES:
+            from src.api.exceptions import ValidationException
+            raise ValidationException(
+                message=f"Invalid theme: {updates.theme}",
+                code="INVALID_THEME",
+            )
+        update_dict["theme"] = updates.theme
 
     if update_dict:
         updated_user = await maybe_await(
@@ -107,7 +121,8 @@ async def update_current_user(
         telegram_id=updated_user.telegram_id,
         name=updated_user.name,
         language=updated_user.language,
-        is_active=updated_user.is_active
+        is_active=updated_user.is_active,
+        theme=updated_user.theme,
     )
 
 
@@ -125,4 +140,5 @@ async def get_user_settings(
     return UserSettingsResponse(
         language=current_user.language,
         timezone=current_user.timezone or "UTC",
+        theme=current_user.theme,
     )

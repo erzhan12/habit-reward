@@ -63,6 +63,24 @@ class User(AbstractUser):
         validators=[validate_iana_timezone],
         help_text="User's IANA timezone (e.g. Asia/Almaty, Europe/Moscow)"
     )
+    THEME_CHOICES = [
+        ('clean_modern', 'Clean Modern'),
+        ('gamified_arcade', 'Gamified Arcade'),
+        ('cozy_warm', 'Cozy Warm'),
+        ('minimalist_zen', 'Minimalist Zen'),
+        ('ios_native', 'iOS Native'),
+        ('dark_focus', 'Dark Focus'),
+        ('retro_terminal', 'Retro Terminal'),
+        ('nature_forest', 'Nature Forest'),
+    ]
+    VALID_THEMES = {choice[0] for choice in THEME_CHOICES}
+
+    theme = models.CharField(
+        max_length=20,
+        choices=THEME_CHOICES,
+        default='clean_modern',
+        help_text="User's selected UI theme"
+    )
     no_reward_probability = models.FloatField(
         default=50.0,
         validators=[MinValueValidator(0.01), MaxValueValidator(99.99)],

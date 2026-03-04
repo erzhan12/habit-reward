@@ -1,57 +1,104 @@
 <template>
+  <!-- Swipe mode: the swipe component wraps everything -->
+  <HabitDoneSwipe
+    v-if="isSwipeMode"
+    ref="cardRef"
+    :habit="habit"
+    :loading="loading"
+    @complete="$emit('complete', $event)"
+    @revert="$emit('revert', $event)"
+  >
+    <div
+      class="transition-all"
+      :class="[
+        densityPadding,
+        tc.card.bg,
+        tc.card.extra,
+        habit.completedToday ? 'opacity-60' : '',
+      ]"
+      :style="entranceStyle"
+    >
+      <HabitCardContent :habit="habit" :tc="tc" :streakClass="streakClass" />
+    </div>
+  </HabitDoneSwipe>
+
+  <!-- Standard mode: card with interaction component on left/right -->
   <div
-    class="bg-bg-card rounded-xl p-4 transition-all"
-    :class="habit.completedToday ? 'opacity-60' : 'hover:bg-bg-card-hover'"
+    v-else
+    ref="cardRef"
+    class="transition-all"
+    :class="[
+      densityPadding,
+      tc.card.rounded,
+      tc.card.shadow,
+      tc.card.border,
+      tc.card.bg,
+      tc.card.extra,
+      habit.completedToday ? 'opacity-60' : tc.card.hoverBg,
+      habit.completedToday ? '' : hoverClass,
+    ]"
+    :style="entranceStyle"
   >
     <div class="flex items-center justify-between">
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2">
-          <h3
-            class="font-medium truncate"
-            :class="habit.completedToday ? 'line-through text-text-secondary' : 'text-text-primary'"
-          >
-            {{ habit.name }}
-          </h3>
-          <span v-if="habit.weight > 0 && !habit.completedToday" class="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-text-secondary shrink-0">
-            +{{ habit.weight }}%
-          </span>
-          <span v-if="!habit.completedToday" class="text-xs px-1.5 py-0.5 rounded bg-accent/20 text-accent shrink-0">
-            {{ habit.rewardChance }}%
-          </span>
-        </div>
-        <div v-if="habit.streak > 0" class="flex items-center gap-1 mt-1">
-          <span class="text-streak-fire text-sm">&#128293;</span>
-          <span class="text-xs text-streak-fire font-medium">{{ habit.streak }}-day streak</span>
-        </div>
-      </div>
+      <!-- Left interaction (checkbox) -->
+      <component
+        v-if="interactionProps.position === 'left'"
+        :is="interactionComponent"
+        :habit="habit"
+        :loading="loading"
+        v-bind="interactionProps"
+        @complete="$emit('complete', $event)"
+        @revert="$emit('revert', $event)"
+      />
 
-      <div class="ml-3 shrink-0">
-        <button
-          v-if="!habit.completedToday"
-          @click="$emit('complete', habit.id)"
-          :disabled="loading"
-          class="px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-medium transition-colors disabled:opacity-50"
-        >
-          Done
-        </button>
-        <button
-          v-else
-          @click="$emit('revert', habit.id)"
-          :disabled="loading"
-          class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-text-secondary text-sm font-medium transition-colors disabled:opacity-50"
-        >
-          Undo
-        </button>
-      </div>
+      <HabitCardContent :habit="habit" :tc="tc" :streakClass="streakClass" />
+
+      <!-- Right interaction (button, toggle) -->
+      <component
+        v-if="interactionProps.position === 'right'"
+        :is="interactionComponent"
+        :habit="habit"
+        :loading="loading"
+        v-bind="interactionProps"
+        @complete="$emit('complete', $event)"
+        @revert="$emit('revert', $event)"
+      />
     </div>
   </div>
 </template>
 
 <script setup>
-defineProps({
+import { computed, ref } from "vue";
+import { useTheme } from "../composables/useTheme.js";
+import { useThemeAnimation } from "../composables/useThemeAnimation.js";
+import { useThemeInteraction } from "../composables/useThemeInteraction.js";
+import HabitDoneSwipe from "./interactions/HabitDoneSwipe.vue";
+import HabitCardContent from "./HabitCardContent.vue";
+
+const props = defineProps({
   habit: { type: Object, required: true },
   loading: { type: Boolean, default: false },
+  index: { type: Number, default: 0 },
 });
 
 defineEmits(["complete", "revert"]);
+
+const cardRef = ref(null);
+defineExpose({ cardRef });
+
+const { themeConfig } = useTheme();
+const tc = computed(() => themeConfig.value.classes);
+
+const { getCardEntranceStyle, getStreakFireClass, hoverClass } = useThemeAnimation();
+const { interactionComponent, interactionProps, isSwipeMode } = useThemeInteraction();
+
+const entranceStyle = computed(() => getCardEntranceStyle(props.index));
+const streakClass = computed(() => getStreakFireClass(props.habit.streak));
+
+const densityPadding = computed(() => {
+  const density = themeConfig.value.pageLayout?.density;
+  if (density === 'spacious') return 'p-5';
+  if (density === 'compact') return 'p-3';
+  return 'p-4';
+});
 </script>

@@ -11,8 +11,8 @@
       <div
         v-for="(msg, i) in visible"
         :key="i"
-        class="px-4 py-3 rounded-lg text-sm shadow-lg"
-        :class="badgeClass(msg.type)"
+        class="px-4 py-3 text-sm shadow-lg"
+        :class="[themeConfig.classes.card.rounded, badgeClass(msg.type)]"
       >
         {{ msg.text }}
       </div>
@@ -22,11 +22,13 @@
 
 <script setup>
 import { ref, watch, onMounted } from "vue";
+import { useTheme } from "../composables/useTheme.js";
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },
 });
 
+const { themeConfig } = useTheme();
 const visible = ref([]);
 
 function show(msgs) {

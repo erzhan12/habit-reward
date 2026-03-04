@@ -129,6 +129,8 @@ async def complete_habit(request, habit_id):
         ))
         if result.got_reward and result.reward:
             reward_message = f"Reward: {result.reward.name}"
+            pieces_earned = None
+            pieces_required = None
             if result.cumulative_progress:
                 pieces_required = (
                     result.cumulative_progress.get_pieces_required()
@@ -141,10 +143,16 @@ async def complete_habit(request, habit_id):
                         f"{reward_message} ({pieces_earned}/{pieces_required})"
                     )
 
-            request.session["_completion_flash"] = {
+            flash_data = {
                 "text": f"Habit completed. {reward_message}",
                 "got_reward": True,
+                "reward_name": result.reward.name,
             }
+            if pieces_earned is not None:
+                flash_data["pieces_earned"] = pieces_earned
+            if pieces_required is not None:
+                flash_data["pieces_required"] = pieces_required
+            request.session["_completion_flash"] = flash_data
         else:
             request.session["_completion_flash"] = {
                 "text": "Habit completed. No reward this time.",

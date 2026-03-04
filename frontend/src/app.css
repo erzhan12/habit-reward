@@ -1,6 +1,73 @@
 @import "tailwindcss";
+@import "./animations.css";
 
+/* =========================================================
+   Default theme variables (Clean Modern)
+   All other themes override these at runtime via JS (useTheme
+   composable) and via the [data-theme] selectors below for
+   any pure-CSS usage.
+   ========================================================= */
 @theme {
+  --color-bg-primary: #f8fafc;
+  --color-bg-card: #ffffff;
+  --color-bg-card-hover: #f1f5f9;
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #64748b;
+  --color-accent: #6366f1;
+  --color-accent-hover: #4f46e5;
+  --color-danger: #ef4444;
+  --color-streak-fire: #f97316;
+  --font-family: system-ui, -apple-system, sans-serif;
+}
+
+body {
+  font-family: var(--font-family);
+}
+
+/* =========================================================
+   Per-theme CSS variable overrides (data-theme attribute).
+   These mirror the cssVars in themes/index.js and ensure the
+   variables are available before JS hydrates (SSR / flash).
+   clean_modern is the default — its values live in @theme above.
+   ========================================================= */
+
+[data-theme="gamified_arcade"] {
+  --color-bg-primary: #0a0e27;
+  --color-bg-card: #0d1240;
+  --color-bg-card-hover: #111650;
+  --color-text-primary: #e2e8f0;
+  --color-text-secondary: #94a3b8;
+  --color-accent: #06b6d4;
+  --color-accent-hover: #22d3ee;
+  --color-danger: #f43f5e;
+  --color-streak-fire: #ec4899;
+}
+
+[data-theme="cozy_warm"] {
+  --color-bg-primary: #1c1917;
+  --color-bg-card: #292524;
+  --color-bg-card-hover: #3a3532;
+  --color-text-primary: #d6d3d1;
+  --color-text-secondary: #a8a29e;
+  --color-accent: #f59e0b;
+  --color-accent-hover: #fbbf24;
+  --color-danger: #ef4444;
+  --color-streak-fire: #fb923c;
+}
+
+[data-theme="ios_native"] {
+  --color-bg-primary: #1c1c2e;
+  --color-bg-card: rgba(255, 255, 255, 0.07);
+  --color-bg-card-hover: rgba(255, 255, 255, 0.12);
+  --color-text-primary: #f2f2f7;
+  --color-text-secondary: #aeaeb2;
+  --color-accent: #007aff;
+  --color-accent-hover: #3395ff;
+  --color-danger: #ff3b30;
+  --color-streak-fire: #ff9500;
+}
+
+[data-theme="dark_focus"] {
   --color-bg-primary: #030712;
   --color-bg-card: #111827;
   --color-bg-card-hover: #1f2937;
@@ -11,3 +78,40 @@
   --color-danger: #ef4444;
   --color-streak-fire: #f97316;
 }
+
+[data-theme="retro_terminal"] {
+  --color-bg-primary: #0a0a0a;
+  --color-bg-card: #121212;
+  --color-bg-card-hover: #1a1a1a;
+  --color-text-primary: #00ff41;
+  --color-text-secondary: #00cc33;
+  --color-accent: #00ff41;
+  --color-accent-hover: #33ff66;
+  --color-danger: #ff1744;
+  --color-streak-fire: #ffab00;
+}
+
+[data-theme="nature_forest"] {
+  --color-bg-primary: #0f1a0f;
+  --color-bg-card: #1a2e1a;
+  --color-bg-card-hover: #243824;
+  --color-text-primary: #d4e7d4;
+  --color-text-secondary: #8faa8f;
+  --color-accent: #4ade80;
+  --color-accent-hover: #22c55e;
+  --color-danger: #f87171;
+  --color-streak-fire: #fb923c;
+}
+
+[data-theme="minimalist_zen"] {
+  --color-bg-primary: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-card-hover: #f9fafb;
+  --color-text-primary: #111111;
+  --color-text-secondary: #6b7280;
+  --color-accent: #111111;
+  --color-accent-hover: #374151;
+  --color-danger: #dc2626;
+  --color-streak-fire: #d97706;
+}
+
