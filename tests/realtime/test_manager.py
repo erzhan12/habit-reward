@@ -133,6 +133,28 @@ async def test_default_event_type():
 
 
 @pytest.mark.asyncio
+async def test_notify_dead_connection_after_disconnect_no_negative_counter():
+    """Verify _total_connections doesn't go negative when disconnect() and
+    notify_user() both try to remove the same dead WebSocket."""
+    manager = ConnectionManager()
+    ws = _make_mock_ws()
+    ws.send_json.side_effect = RuntimeError("connection closed")
+
+    await manager.connect(1, ws)
+    assert manager._total_connections == 1
+
+    # disconnect removes ws first
+    await manager.disconnect(1, ws)
+    assert manager._total_connections == 0
+
+    # Re-add user with empty set to simulate timing window
+    # notify_user should not decrement because ws is no longer in the set
+    manager._connections[1] = set()
+    await manager.notify_user(1)
+    assert manager._total_connections == 0  # must NOT be -1
+
+
+@pytest.mark.asyncio
 async def test_connect_rejects_over_global_limit():
     """Exceeding MAX_TOTAL_CONNECTIONS should reject connections for any user."""
     manager = ConnectionManager()

@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 PING_INTERVAL_SECONDS = 30
+FIRST_MESSAGE_TIMEOUT_SECONDS = 60
 
 # Rate limiting: max connection attempts per IP per window
 # NOTE: In-memory rate limiters are per-process. In multi-server deployments,
@@ -227,6 +228,21 @@ async def websocket_endpoint(websocket: WebSocket):
     ping_task = asyncio.create_task(_ping_loop(websocket))
 
     try:
+        # First message must arrive within timeout to prevent idle resource exhaustion
+        try:
+            await asyncio.wait_for(
+                websocket.receive_text(),
+                timeout=FIRST_MESSAGE_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("WebSocket first message timeout for user %s", user_id)
+            await websocket.close(code=1008)
+            return
+        if not _check_message_rate_limit(user_id):
+            logger.warning("Message rate limit exceeded for user %s", user_id)
+            await websocket.close(code=1008)
+            return
+
         while True:
             # Wait for client messages (keeps connection alive)
             await websocket.receive_text()

@@ -67,25 +67,30 @@ class ConnectionManager:
         logger.info("WebSocket disconnected for user %s", user_id)
 
     async def notify_user(self, user_id: int, event_type: str = "dashboard_update") -> None:
-        """Send a refresh signal to all connections for a user."""
-        connections = self._connections.get(user_id)
-        if not connections:
-            return
+        """Send a refresh signal to all connections for a user.
 
-        dead: list[WebSocket] = []
-        message = {"type": event_type}
-
-        for ws in list(connections):
-            try:
-                await ws.send_json(message)
-            except (RuntimeError, ConnectionError, WebSocketDisconnect):
-                logger.debug("Removing dead WebSocket for user %s", user_id)
-                dead.append(ws)
-
+        Acquires the lock for the entire method to prevent race conditions
+        with concurrent disconnect() calls that could corrupt _total_connections.
+        """
         async with self._lock:
+            connections = self._connections.get(user_id)
+            if not connections:
+                return
+
+            dead: list[WebSocket] = []
+            message = {"type": event_type}
+
+            for ws in list(connections):
+                try:
+                    await ws.send_json(message)
+                except (RuntimeError, ConnectionError, WebSocketDisconnect):
+                    logger.debug("Removing dead WebSocket for user %s", user_id)
+                    dead.append(ws)
+
             for ws in dead:
-                connections.discard(ws)
-                self._total_connections -= 1
+                if ws in connections:
+                    connections.discard(ws)
+                    self._total_connections -= 1
             if not connections:
                 self._connections.pop(user_id, None)
 
