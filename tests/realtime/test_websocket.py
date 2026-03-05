@@ -100,6 +100,7 @@ async def test_authenticate_valid_session():
     mock_engine = MagicMock()
     mock_session = MagicMock()
     mock_session.load.return_value = {"_auth_user_id": "42"}
+    mock_session.get_expiry_age.return_value = 3600
     mock_engine.SessionStore.return_value = mock_session
 
     with (
@@ -125,6 +126,7 @@ async def test_authenticate_inactive_user():
     mock_engine = MagicMock()
     mock_session = MagicMock()
     mock_session.load.return_value = {"_auth_user_id": "42"}
+    mock_session.get_expiry_age.return_value = 3600
     mock_engine.SessionStore.return_value = mock_session
 
     with (
@@ -147,6 +149,7 @@ async def test_authenticate_user_not_found():
     mock_engine = MagicMock()
     mock_session = MagicMock()
     mock_session.load.return_value = {"_auth_user_id": "42"}
+    mock_session.get_expiry_age.return_value = 3600
     mock_engine.SessionStore.return_value = mock_session
 
     with (

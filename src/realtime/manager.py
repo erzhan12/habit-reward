@@ -19,15 +19,15 @@ class ConnectionManager:
 
     def __init__(self) -> None:
         self._connections: dict[int, set[WebSocket]] = {}
+        self._total_connections: int = 0
 
     async def connect(self, user_id: int, websocket: WebSocket) -> bool:
         """Accept and register a WebSocket connection.
 
         Returns True if accepted, False if rejected (connection limit).
         """
-        # Check global limit first
-        total = sum(len(conns) for conns in self._connections.values())
-        if total >= self.MAX_TOTAL_CONNECTIONS:
+        # Check global limit first (O(1) via maintained counter)
+        if self._total_connections >= self.MAX_TOTAL_CONNECTIONS:
             logger.warning(
                 "Global WebSocket connection limit reached (%d), rejecting user %s",
                 self.MAX_TOTAL_CONNECTIONS, user_id
@@ -47,13 +47,16 @@ class ConnectionManager:
         if user_id not in self._connections:
             self._connections[user_id] = set()
         self._connections[user_id].add(websocket)
+        self._total_connections += 1
         logger.info("WebSocket connected for user %s (total: %d)", user_id, len(self._connections[user_id]))
         return True
 
     async def disconnect(self, user_id: int, websocket: WebSocket) -> None:
         """Remove a WebSocket connection."""
         if user_id in self._connections:
-            self._connections[user_id].discard(websocket)
+            if websocket in self._connections[user_id]:
+                self._connections[user_id].discard(websocket)
+                self._total_connections -= 1
             if not self._connections[user_id]:
                 del self._connections[user_id]
         logger.info("WebSocket disconnected for user %s", user_id)
@@ -76,6 +79,7 @@ class ConnectionManager:
 
         for ws in dead:
             connections.discard(ws)
+            self._total_connections -= 1
         if not connections:
             del self._connections[user_id]
 

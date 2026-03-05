@@ -20,6 +20,9 @@ router = APIRouter()
 PING_INTERVAL_SECONDS = 30
 
 # Rate limiting: max connection attempts per IP per window
+# NOTE: In-memory rate limiters are per-process. In multi-server deployments,
+# each server tracks independently — effective limits are multiplied by server count.
+# Use Redis-backed rate limiting (e.g. django-ratelimit) for shared state if needed.
 _RATE_LIMIT_MAX = 10
 _RATE_LIMIT_WINDOW_SECONDS = 60
 
@@ -151,6 +154,13 @@ async def _authenticate_websocket(websocket: WebSocket) -> int | None:
 
         # Load session data (sync ORM call)
         session_data = await sync_to_async(session.load)()
+
+        # Reject expired sessions
+        expiry_age = await sync_to_async(session.get_expiry_age)()
+        if expiry_age <= 0:
+            logger.warning("WebSocket connection rejected: expired session")
+            return None
+
         user_id_str = session_data.get("_auth_user_id")
         if not user_id_str:
             return None

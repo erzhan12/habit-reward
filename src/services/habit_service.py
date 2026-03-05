@@ -333,7 +333,10 @@ class HabitService:
 
             # Notify connected WebSocket clients (non-blocking)
             try:
-                asyncio.create_task(connection_manager.notify_user(user.id))
+                loop = asyncio.get_running_loop()
+                loop.create_task(connection_manager.notify_user(user.id))
+            except RuntimeError:
+                pass  # No running event loop (sync context)
             except Exception:
                 logger.warning("Failed to schedule WebSocket notification for user %s", user.id, exc_info=True)
 
@@ -586,7 +589,10 @@ class HabitService:
 
             # Notify connected WebSocket clients (non-blocking)
             try:
-                asyncio.create_task(connection_manager.notify_user(user.id))
+                loop = asyncio.get_running_loop()
+                loop.create_task(connection_manager.notify_user(user.id))
+            except RuntimeError:
+                pass  # No running event loop (sync context)
             except Exception:
                 logger.warning("Failed to schedule WebSocket notification for user %s", user.id, exc_info=True)
 
@@ -720,7 +726,10 @@ class HabitService:
 
             # Notify connected WebSocket clients (non-blocking)
             try:
-                asyncio.create_task(connection_manager.notify_user(log.user_id))
+                loop = asyncio.get_running_loop()
+                loop.create_task(connection_manager.notify_user(log.user_id))
+            except RuntimeError:
+                pass  # No running event loop (sync context)
             except Exception:
                 logger.warning("Failed to schedule WebSocket notification for user %s", log.user_id, exc_info=True)
 
