@@ -57,12 +57,13 @@ class ConnectionManager:
 
     async def disconnect(self, user_id: int, websocket: WebSocket) -> None:
         """Remove a WebSocket connection."""
-        if user_id in self._connections:
-            if websocket in self._connections[user_id]:
-                self._connections[user_id].discard(websocket)
-                self._total_connections -= 1
-            if not self._connections[user_id]:
-                del self._connections[user_id]
+        async with self._lock:
+            if user_id in self._connections:
+                if websocket in self._connections[user_id]:
+                    self._connections[user_id].discard(websocket)
+                    self._total_connections -= 1
+                if not self._connections[user_id]:
+                    del self._connections[user_id]
         logger.info("WebSocket disconnected for user %s", user_id)
 
     async def notify_user(self, user_id: int, event_type: str = "dashboard_update") -> None:
@@ -81,11 +82,12 @@ class ConnectionManager:
                 logger.debug("Removing dead WebSocket for user %s", user_id)
                 dead.append(ws)
 
-        for ws in dead:
-            connections.discard(ws)
-            self._total_connections -= 1
-        if not connections:
-            del self._connections[user_id]
+        async with self._lock:
+            for ws in dead:
+                connections.discard(ws)
+                self._total_connections -= 1
+            if not connections:
+                self._connections.pop(user_id, None)
 
 
 connection_manager = ConnectionManager()

@@ -6,7 +6,13 @@ from unittest.mock import patch, AsyncMock, MagicMock
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from src.realtime.websocket import _authenticate_websocket, router
+from src.realtime.websocket import (
+    _authenticate_websocket,
+    _check_rate_limit,
+    _connection_attempts,
+    _MAX_RATE_LIMITER_ENTRIES,
+    router,
+)
 from src.realtime.manager import ConnectionManager
 
 
@@ -165,6 +171,26 @@ async def test_authenticate_user_not_found():
 
 
 @pytest.mark.asyncio
+async def test_authenticate_expired_session():
+    """Expired session (expiry_age <= 0) should return None."""
+    ws = _make_mock_websocket(session_cookie="expired-session-key")
+
+    mock_engine = MagicMock()
+    mock_session = MagicMock()
+    mock_session.load.return_value = {"_auth_user_id": "42"}
+    mock_session.get_expiry_age.return_value = 0
+    mock_engine.SessionStore.return_value = mock_session
+
+    with (
+        patch("src.realtime.websocket.import_module", return_value=mock_engine),
+        patch("src.realtime.websocket.sync_to_async", side_effect=lambda fn: AsyncMock(return_value=fn())),
+    ):
+        result = await _authenticate_websocket(ws)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test_authenticate_exception_returns_none():
     """Any exception during auth should return None, not crash."""
     ws = _make_mock_websocket(session_cookie="valid-session-key")
@@ -249,3 +275,35 @@ def test_endpoint_cleans_up_on_disconnect():
 
         # After context exit (disconnect), connection should be cleaned up
         assert 9 not in manager._connections
+
+
+# ---------------------------------------------------------------------------
+# Rate limiter eviction tests
+# ---------------------------------------------------------------------------
+
+def test_rate_limiter_evicts_oldest_entry():
+    """When _connection_attempts reaches _MAX_RATE_LIMITER_ENTRIES, oldest entry is evicted."""
+    import time
+    # Clear global state
+    _connection_attempts.clear()
+
+    try:
+        # Fill rate limiter to capacity with unique IPs
+        base_time = time.monotonic()
+        for i in range(_MAX_RATE_LIMITER_ENTRIES):
+            ip = f"10.0.{i // 256}.{i % 256}"
+            _connection_attempts[ip] = [base_time + i]
+
+        oldest_ip = "10.0.0.0"
+        assert oldest_ip in _connection_attempts
+
+        # One more connection should trigger eviction of the oldest
+        new_ip = "192.168.1.1"
+        result = _check_rate_limit(new_ip)
+
+        assert result is True
+        assert new_ip in _connection_attempts
+        assert oldest_ip not in _connection_attempts
+        assert len(_connection_attempts) <= _MAX_RATE_LIMITER_ENTRIES
+    finally:
+        _connection_attempts.clear()

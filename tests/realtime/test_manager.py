@@ -130,3 +130,27 @@ async def test_default_event_type():
     await manager.notify_user(1)  # No event_type arg
 
     ws.send_json.assert_awaited_once_with({"type": "dashboard_update"})
+
+
+@pytest.mark.asyncio
+async def test_connect_rejects_over_global_limit():
+    """Exceeding MAX_TOTAL_CONNECTIONS should reject connections for any user."""
+    manager = ConnectionManager()
+    manager.MAX_TOTAL_CONNECTIONS = 3
+
+    ws1 = _make_mock_ws()
+    ws2 = _make_mock_ws()
+    ws3 = _make_mock_ws()
+    ws4 = _make_mock_ws()
+
+    # Three different users fill the global limit
+    assert await manager.connect(1, ws1) is True
+    assert await manager.connect(2, ws2) is True
+    assert await manager.connect(3, ws3) is True
+    assert manager._total_connections == 3
+
+    # Fourth connection (new user) should be rejected
+    assert await manager.connect(4, ws4) is False
+    ws4.close.assert_awaited_once_with(code=1008)
+    ws4.accept.assert_not_awaited()
+    assert manager._total_connections == 3
