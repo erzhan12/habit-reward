@@ -57,11 +57,14 @@ def _check_rate_limit(ip: str) -> bool:
     now = time.monotonic()
     cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
 
-    # Prune old entries
-    attempts = _connection_attempts[ip]
-    _connection_attempts[ip] = [t for t in attempts if t > cutoff]
+    # Prune old entries and remove empty keys to prevent memory leak
+    pruned = [t for t in _connection_attempts.get(ip, []) if t > cutoff]
+    if not pruned:
+        _connection_attempts.pop(ip, None)
+    else:
+        _connection_attempts[ip] = pruned
 
-    if len(_connection_attempts[ip]) >= _RATE_LIMIT_MAX:
+    if len(pruned) >= _RATE_LIMIT_MAX:
         return False
 
     _connection_attempts[ip].append(now)
@@ -73,9 +76,14 @@ def _check_message_rate_limit(user_id: int) -> bool:
     now = time.monotonic()
     cutoff = now - _MESSAGE_RATE_WINDOW
 
-    _message_counts[user_id] = [t for t in _message_counts[user_id] if t > cutoff]
+    # Prune old entries and remove empty keys to prevent memory leak
+    pruned = [t for t in _message_counts.get(user_id, []) if t > cutoff]
+    if not pruned:
+        _message_counts.pop(user_id, None)
+    else:
+        _message_counts[user_id] = pruned
 
-    if len(_message_counts[user_id]) >= _MESSAGE_RATE_LIMIT:
+    if len(pruned) >= _MESSAGE_RATE_LIMIT:
         return False
 
     _message_counts[user_id].append(now)
@@ -104,6 +112,11 @@ def _validate_origin(websocket: WebSocket) -> bool:
         allowed_hosts = getattr(settings, "ALLOWED_HOSTS", [])
         for host in allowed_hosts:
             if host == "*":
+                if not getattr(settings, "DEBUG", False):
+                    logger.warning(
+                        "WebSocket origin check: wildcard '*' in ALLOWED_HOSTS ignored in production"
+                    )
+                    continue
                 return True
             if host.startswith(".") and (
                 origin_host == host[1:] or origin_host.endswith(host)

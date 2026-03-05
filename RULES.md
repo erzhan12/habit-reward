@@ -602,3 +602,22 @@ effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDU
 **Decrement pattern**: Never check `progress.times_claimed > 0` on a stale Python object — use `filter(times_claimed__gt=0).update(times_claimed=F("times_claimed") - 1, ...)` to check and decrement atomically at the DB level. If 0 rows updated, fall back to update without decrement. Applied in `src/core/admin.py` (revert action) and `src/core/repositories.py` (`decrement_pieces_earned`).
 
 **Query**: `get_ever_claimed_by_user()` filters `times_claimed__gt=0` (not `claimed=True`) — ensures recurring rewards appear even when `claimed` reset to False. Does NOT filter by `reward__active` or `reward__is_recurring`.
+
+## Real-Time WebSocket (Feature 0038)
+
+**Architecture**: FastAPI WebSocket endpoint at `/ws/updates/` with Django session auth. `ConnectionManager` (in-memory) maps `user_id → set[WebSocket]`. Habit service fires `asyncio.create_task(connection_manager.notify_user(user_id))` after completions/reverts (non-blocking).
+
+**Key files**: `src/realtime/websocket.py` (endpoint, auth, rate limiting), `src/realtime/manager.py` (connection manager), `src/services/habit_service.py` (notification calls).
+
+**Security layers**:
+- Origin validation: missing Origin header → reject (no pass-through for non-browser clients)
+- IP extraction: `_get_client_ip` only trusts `X-Forwarded-For` when `settings.TRUST_PROXY_HEADERS=True`
+- Connection rate limiting: 10 connections/60s per IP
+- Message rate limiting: 10 messages/60s per user (`_check_message_rate_limit`)
+- Per-user limit: `MAX_CONNECTIONS_PER_USER=10`, global limit: `MAX_TOTAL_CONNECTIONS=100`
+
+**Testing pitfalls**:
+- Integration tests using `TestClient.websocket_connect()` don't send Origin headers — must patch `_validate_origin` to return True
+- Non-blocking `asyncio.create_task` notifications: test with `patch("asyncio.create_task")` and `assert_called_once()`, not `assert_awaited_once_with`
+
+**Tests**: `tests/realtime/test_websocket.py` (endpoint + auth), `tests/realtime/test_manager.py` (connection manager), `tests/realtime/test_service_notifications.py` (service integration).
