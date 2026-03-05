@@ -30,6 +30,14 @@ from src.realtime.manager import connection_manager
 logger = logging.getLogger(__name__)
 
 
+async def _safe_notify_user(user_id: int) -> None:
+    """Send WebSocket notification, swallowing any errors."""
+    try:
+        await connection_manager.notify_user(user_id)
+    except Exception:
+        logger.warning("WebSocket notification failed for user %s", user_id, exc_info=True)
+
+
 class HabitService:
     """Service for orchestrating habit completion flow."""
 
@@ -334,11 +342,9 @@ class HabitService:
             # Notify connected WebSocket clients (non-blocking)
             try:
                 loop = asyncio.get_running_loop()
-                loop.create_task(connection_manager.notify_user(user.id))
+                loop.create_task(_safe_notify_user(user.id))
             except RuntimeError:
                 pass  # No running event loop (sync context)
-            except Exception:
-                logger.warning("Failed to schedule WebSocket notification for user %s", user.id, exc_info=True)
 
             return HabitCompletionResult(
                 habit_confirmed=True,
@@ -590,11 +596,9 @@ class HabitService:
             # Notify connected WebSocket clients (non-blocking)
             try:
                 loop = asyncio.get_running_loop()
-                loop.create_task(connection_manager.notify_user(user.id))
+                loop.create_task(_safe_notify_user(user.id))
             except RuntimeError:
                 pass  # No running event loop (sync context)
-            except Exception:
-                logger.warning("Failed to schedule WebSocket notification for user %s", user.id, exc_info=True)
 
             return HabitRevertResult(
                 habit_name=habit.name,
@@ -727,11 +731,9 @@ class HabitService:
             # Notify connected WebSocket clients (non-blocking)
             try:
                 loop = asyncio.get_running_loop()
-                loop.create_task(connection_manager.notify_user(log.user_id))
+                loop.create_task(_safe_notify_user(log.user_id))
             except RuntimeError:
                 pass  # No running event loop (sync context)
-            except Exception:
-                logger.warning("Failed to schedule WebSocket notification for user %s", log.user_id, exc_info=True)
 
             return HabitRevertResult(
                 habit_name=habit.name,

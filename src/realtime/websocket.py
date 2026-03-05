@@ -27,6 +27,7 @@ _RATE_LIMIT_MAX = 10
 _RATE_LIMIT_WINDOW_SECONDS = 60
 
 # In-memory rate limiter: IP -> list of timestamps
+_MAX_RATE_LIMITER_ENTRIES = 10_000  # Max tracked IPs/users to cap memory usage
 _connection_attempts: dict[str, list[float]] = defaultdict(list)
 
 # Message rate limiting: max messages per user per window
@@ -70,6 +71,11 @@ def _check_rate_limit(ip: str) -> bool:
     if len(pruned) >= _RATE_LIMIT_MAX:
         return False
 
+    # Evict oldest entries if dict grows too large
+    if len(_connection_attempts) >= _MAX_RATE_LIMITER_ENTRIES:
+        oldest_key = min(_connection_attempts, key=lambda k: _connection_attempts[k][-1])
+        del _connection_attempts[oldest_key]
+
     _connection_attempts[ip].append(now)
     return True
 
@@ -89,6 +95,11 @@ def _check_message_rate_limit(user_id: int) -> bool:
     if len(pruned) >= _MESSAGE_RATE_LIMIT:
         return False
 
+    # Evict oldest entries if dict grows too large
+    if len(_message_counts) >= _MAX_RATE_LIMITER_ENTRIES:
+        oldest_key = min(_message_counts, key=lambda k: _message_counts[k][-1])
+        del _message_counts[oldest_key]
+
     _message_counts[user_id].append(now)
     return True
 
@@ -96,8 +107,9 @@ def _check_message_rate_limit(user_id: int) -> bool:
 def _validate_origin(websocket: WebSocket) -> bool:
     """Validate the Origin header against Django's ALLOWED_HOSTS.
 
-    Returns True if origin is allowed or absent (non-browser clients).
-    Returns False if origin is present but not in allowed hosts.
+    Returns True if origin is present and matches an allowed host.
+    Returns False if origin is missing, invalid, or not in allowed hosts.
+    Wildcard '*' in ALLOWED_HOSTS is only accepted when DEBUG=True.
     """
     origin = websocket.headers.get("origin")
     if not origin:

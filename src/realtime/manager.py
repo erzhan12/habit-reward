@@ -1,5 +1,6 @@
 """In-memory WebSocket connection manager for real-time updates."""
 
+import asyncio
 import logging
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -20,36 +21,39 @@ class ConnectionManager:
     def __init__(self) -> None:
         self._connections: dict[int, set[WebSocket]] = {}
         self._total_connections: int = 0
+        self._lock = asyncio.Lock()
 
     async def connect(self, user_id: int, websocket: WebSocket) -> bool:
         """Accept and register a WebSocket connection.
 
         Returns True if accepted, False if rejected (connection limit).
+        Uses asyncio.Lock to ensure atomic check-and-mutate of counters.
         """
-        # Check global limit first (O(1) via maintained counter)
-        if self._total_connections >= self.MAX_TOTAL_CONNECTIONS:
-            logger.warning(
-                "Global WebSocket connection limit reached (%d), rejecting user %s",
-                self.MAX_TOTAL_CONNECTIONS, user_id
-            )
-            await websocket.close(code=1008)
-            return False
+        async with self._lock:
+            # Check global limit first (O(1) via maintained counter)
+            if self._total_connections >= self.MAX_TOTAL_CONNECTIONS:
+                logger.warning(
+                    "Global WebSocket connection limit reached (%d), rejecting user %s",
+                    self.MAX_TOTAL_CONNECTIONS, user_id
+                )
+                await websocket.close(code=1008)
+                return False
 
-        existing = self._connections.get(user_id)
-        if existing and len(existing) >= self.MAX_CONNECTIONS_PER_USER:
-            logger.warning(
-                "User %s exceeded max WebSocket connections (%d), rejecting",
-                user_id, self.MAX_CONNECTIONS_PER_USER,
-            )
-            await websocket.close(code=4429)
-            return False
-        await websocket.accept()
-        if user_id not in self._connections:
-            self._connections[user_id] = set()
-        self._connections[user_id].add(websocket)
-        self._total_connections += 1
-        logger.info("WebSocket connected for user %s (total: %d)", user_id, len(self._connections[user_id]))
-        return True
+            existing = self._connections.get(user_id)
+            if existing and len(existing) >= self.MAX_CONNECTIONS_PER_USER:
+                logger.warning(
+                    "User %s exceeded max WebSocket connections (%d), rejecting",
+                    user_id, self.MAX_CONNECTIONS_PER_USER,
+                )
+                await websocket.close(code=4429)
+                return False
+            await websocket.accept()
+            if user_id not in self._connections:
+                self._connections[user_id] = set()
+            self._connections[user_id].add(websocket)
+            self._total_connections += 1
+            logger.info("WebSocket connected for user %s (total: %d)", user_id, len(self._connections[user_id]))
+            return True
 
     async def disconnect(self, user_id: int, websocket: WebSocket) -> None:
         """Remove a WebSocket connection."""
