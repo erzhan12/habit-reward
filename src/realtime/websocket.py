@@ -23,16 +23,24 @@ PING_INTERVAL_SECONDS = 30
 # NOTE: In-memory rate limiters are per-process. In multi-server deployments,
 # each server tracks independently — effective limits are multiplied by server count.
 # Use Redis-backed rate limiting (e.g. django-ratelimit) for shared state if needed.
-_RATE_LIMIT_MAX = 10
-_RATE_LIMIT_WINDOW_SECONDS = 60
+# Configurable via Django settings with sensible defaults.
+def _get_setting(name: str, default: int) -> int:
+    try:
+        from django.conf import settings
+        return getattr(settings, name, default)
+    except ImportError:
+        return default
+
+_RATE_LIMIT_MAX = _get_setting("WEBSOCKET_CONNECTION_RATE_LIMIT", 10)
+_RATE_LIMIT_WINDOW_SECONDS = _get_setting("WEBSOCKET_CONNECTION_RATE_WINDOW", 60)
 
 # In-memory rate limiter: IP -> list of timestamps (OrderedDict for O(1) FIFO eviction)
 _MAX_RATE_LIMITER_ENTRIES = 10_000  # Max tracked IPs/users to cap memory usage
 _connection_attempts: OrderedDict[str, list[float]] = OrderedDict()
 
 # Message rate limiting: max messages per user per window
-_MESSAGE_RATE_LIMIT = 10  # messages per window
-_MESSAGE_RATE_WINDOW = 60  # seconds
+_MESSAGE_RATE_LIMIT = _get_setting("WEBSOCKET_MESSAGE_RATE_LIMIT", 10)
+_MESSAGE_RATE_WINDOW = _get_setting("WEBSOCKET_MESSAGE_RATE_WINDOW", 60)
 _message_counts: OrderedDict[int, list[float]] = OrderedDict()
 
 

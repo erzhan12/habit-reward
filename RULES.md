@@ -616,8 +616,13 @@ effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDU
 - Message rate limiting: 10 messages/60s per user (`_check_message_rate_limit`)
 - Per-user limit: `MAX_CONNECTIONS_PER_USER=10`, global limit: `MAX_TOTAL_CONNECTIONS=100`
 
+**Rate limit configuration**: Connection and message rate limits are configurable via Django settings with defaults: `WEBSOCKET_CONNECTION_RATE_LIMIT=10`, `WEBSOCKET_CONNECTION_RATE_WINDOW=60`, `WEBSOCKET_MESSAGE_RATE_LIMIT=10`, `WEBSOCKET_MESSAGE_RATE_WINDOW=60`.
+
+**Monitoring**: `ConnectionManager.get_stats()` returns `{"total_connections": ..., "users_connected": ...}` for health checks.
+
 **Testing pitfalls**:
 - Integration tests using `TestClient.websocket_connect()` don't send Origin headers — must patch `_validate_origin` to return True
-- Non-blocking `asyncio.create_task` notifications: test with `patch("asyncio.create_task")` and `assert_called_once()`, not `assert_awaited_once_with`
+- Non-blocking `asyncio.create_task` notifications: verify coroutine identity via `coro.cr_code is _safe_notify_user.__code__` and user_id via `coro.cr_frame.f_locals["user_id"]`. Always `coro.close()` after inspection.
+- Ping response from frontend uses `{type: "pong"}` structured format (not empty `{}`)
 
 **Tests**: `tests/realtime/test_websocket.py` (endpoint + auth), `tests/realtime/test_manager.py` (connection manager), `tests/realtime/test_service_notifications.py` (service integration).

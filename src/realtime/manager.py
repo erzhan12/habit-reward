@@ -101,4 +101,12 @@ class ConnectionManager:
                         self._connections.pop(user_id, None)
 
 
+    def get_stats(self) -> dict[str, int]:
+        """Return connection statistics for monitoring and debugging."""
+        return {
+            "total_connections": self._total_connections,
+            "users_connected": len(self._connections),
+        }
+
+
 connection_manager = ConnectionManager()

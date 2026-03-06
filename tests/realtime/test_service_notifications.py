@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
-from src.services.habit_service import HabitService
+from src.services.habit_service import HabitService, _safe_notify_user
 
 
 def _setup_mocks(service):
@@ -80,6 +80,12 @@ async def test_completion_triggers_notification():
             )
 
         loop.create_task.assert_called_once()
+        # Verify _safe_notify_user was called with the correct user_id
+        coro = loop.create_task.call_args[0][0]
+        assert coro.cr_code is _safe_notify_user.__code__
+        # cr_frame.f_locals contains the user_id argument
+        assert coro.cr_frame.f_locals["user_id"] == mock_user.id
+        coro.close()
         assert result.habit_confirmed is True
 
 
@@ -137,6 +143,10 @@ async def test_revert_triggers_notification():
             )
 
         loop.create_task.assert_called_once()
+        coro = loop.create_task.call_args[0][0]
+        assert coro.cr_code is _safe_notify_user.__code__
+        assert coro.cr_frame.f_locals["user_id"] == mock_user.id
+        coro.close()
         assert result.success is True
 
 
@@ -172,4 +182,9 @@ async def test_revert_by_log_id_triggers_notification():
             )
 
         loop.create_task.assert_called_once()
+        coro = loop.create_task.call_args[0][0]
+        assert coro.cr_code is _safe_notify_user.__code__
+        # revert_by_log_id uses log.user_id
+        assert coro.cr_frame.f_locals["user_id"] == 1
+        coro.close()
         assert result.success is True

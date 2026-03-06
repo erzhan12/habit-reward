@@ -45,7 +45,7 @@ export function useRealtimeSync() {
       try {
         const data = JSON.parse(event.data);
         if (data.type === "ping") {
-          ws.send("{}");
+          ws.send(JSON.stringify({ type: "pong" }));
           return;
         }
         if (data.type === "dashboard_update") {

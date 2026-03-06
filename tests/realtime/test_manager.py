@@ -155,6 +155,29 @@ async def test_notify_dead_connection_after_disconnect_no_negative_counter():
 
 
 @pytest.mark.asyncio
+async def test_notify_user_removes_only_dead_connections():
+    """Dead connections are removed during notify while live ones remain."""
+    manager = ConnectionManager()
+    ws_live = _make_mock_ws()
+    ws_dead = _make_mock_ws()
+    ws_dead.send_json.side_effect = RuntimeError("connection closed")
+
+    await manager.connect(1, ws_live)
+    await manager.connect(1, ws_dead)
+    assert len(manager._connections[1]) == 2
+
+    await manager.notify_user(1)
+
+    # Only the dead connection should be removed
+    assert ws_live in manager._connections[1]
+    assert ws_dead not in manager._connections[1]
+    assert len(manager._connections[1]) == 1
+    assert manager._total_connections == 1
+    # Live connection received the message
+    ws_live.send_json.assert_awaited_once_with({"type": "dashboard_update"})
+
+
+@pytest.mark.asyncio
 async def test_connect_rejects_over_global_limit():
     """Exceeding MAX_TOTAL_CONNECTIONS should reject connections for any user."""
     manager = ConnectionManager()
