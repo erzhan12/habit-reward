@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import time
-from collections import defaultdict
+from collections import OrderedDict
 from importlib import import_module
 from urllib.parse import urlparse
 
@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 PING_INTERVAL_SECONDS = 30
-FIRST_MESSAGE_TIMEOUT_SECONDS = 60
 
 # Rate limiting: max connection attempts per IP per window
 # NOTE: In-memory rate limiters are per-process. In multi-server deployments,
@@ -27,14 +26,14 @@ FIRST_MESSAGE_TIMEOUT_SECONDS = 60
 _RATE_LIMIT_MAX = 10
 _RATE_LIMIT_WINDOW_SECONDS = 60
 
-# In-memory rate limiter: IP -> list of timestamps
+# In-memory rate limiter: IP -> list of timestamps (OrderedDict for O(1) FIFO eviction)
 _MAX_RATE_LIMITER_ENTRIES = 10_000  # Max tracked IPs/users to cap memory usage
-_connection_attempts: dict[str, list[float]] = defaultdict(list)
+_connection_attempts: OrderedDict[str, list[float]] = OrderedDict()
 
 # Message rate limiting: max messages per user per window
 _MESSAGE_RATE_LIMIT = 10  # messages per window
 _MESSAGE_RATE_WINDOW = 60  # seconds
-_message_counts: dict[int, list[float]] = defaultdict(list)
+_message_counts: OrderedDict[int, list[float]] = OrderedDict()
 
 
 def _get_client_ip(websocket: WebSocket) -> str:
@@ -72,11 +71,14 @@ def _check_rate_limit(ip: str) -> bool:
     if len(pruned) >= _RATE_LIMIT_MAX:
         return False
 
-    # Evict oldest entries if dict grows too large
+    # Evict oldest entry (O(1) FIFO) if dict grows too large
     if len(_connection_attempts) >= _MAX_RATE_LIMITER_ENTRIES:
-        oldest_key = min(_connection_attempts, key=lambda k: _connection_attempts[k][-1])
-        del _connection_attempts[oldest_key]
+        _connection_attempts.popitem(last=False)
 
+    if ip not in _connection_attempts:
+        _connection_attempts[ip] = []
+    # Move to end on access to maintain LRU order
+    _connection_attempts.move_to_end(ip)
     _connection_attempts[ip].append(now)
     return True
 
@@ -96,11 +98,14 @@ def _check_message_rate_limit(user_id: int) -> bool:
     if len(pruned) >= _MESSAGE_RATE_LIMIT:
         return False
 
-    # Evict oldest entries if dict grows too large
+    # Evict oldest entry (O(1) FIFO) if dict grows too large
     if len(_message_counts) >= _MAX_RATE_LIMITER_ENTRIES:
-        oldest_key = min(_message_counts, key=lambda k: _message_counts[k][-1])
-        del _message_counts[oldest_key]
+        _message_counts.popitem(last=False)
 
+    if user_id not in _message_counts:
+        _message_counts[user_id] = []
+    # Move to end on access to maintain LRU order
+    _message_counts.move_to_end(user_id)
     _message_counts[user_id].append(now)
     return True
 
@@ -228,21 +233,6 @@ async def websocket_endpoint(websocket: WebSocket):
     ping_task = asyncio.create_task(_ping_loop(websocket))
 
     try:
-        # First message must arrive within timeout to prevent idle resource exhaustion
-        try:
-            await asyncio.wait_for(
-                websocket.receive_text(),
-                timeout=FIRST_MESSAGE_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("WebSocket first message timeout for user %s", user_id)
-            await websocket.close(code=1008)
-            return
-        if not _check_message_rate_limit(user_id):
-            logger.warning("Message rate limit exceeded for user %s", user_id)
-            await websocket.close(code=1008)
-            return
-
         while True:
             # Wait for client messages (keeps connection alive)
             await websocket.receive_text()

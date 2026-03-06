@@ -69,30 +69,36 @@ class ConnectionManager:
     async def notify_user(self, user_id: int, event_type: str = "dashboard_update") -> None:
         """Send a refresh signal to all connections for a user.
 
-        Acquires the lock for the entire method to prevent race conditions
-        with concurrent disconnect() calls that could corrupt _total_connections.
+        Copies connections under lock, sends messages outside lock to avoid
+        blocking connect/disconnect during potentially slow network I/O.
+        Re-acquires lock only to clean up dead connections.
         """
         async with self._lock:
             connections = self._connections.get(user_id)
             if not connections:
                 return
+            snapshot = list(connections)
 
-            dead: list[WebSocket] = []
-            message = {"type": event_type}
+        dead: list[WebSocket] = []
+        message = {"type": event_type}
 
-            for ws in list(connections):
-                try:
-                    await ws.send_json(message)
-                except (RuntimeError, ConnectionError, WebSocketDisconnect):
-                    logger.debug("Removing dead WebSocket for user %s", user_id)
-                    dead.append(ws)
+        for ws in snapshot:
+            try:
+                await ws.send_json(message)
+            except (RuntimeError, ConnectionError, WebSocketDisconnect):
+                logger.debug("Removing dead WebSocket for user %s", user_id)
+                dead.append(ws)
 
-            for ws in dead:
-                if ws in connections:
-                    connections.discard(ws)
-                    self._total_connections -= 1
-            if not connections:
-                self._connections.pop(user_id, None)
+        if dead:
+            async with self._lock:
+                connections = self._connections.get(user_id)
+                if connections:
+                    for ws in dead:
+                        if ws in connections:
+                            connections.discard(ws)
+                            self._total_connections -= 1
+                    if not connections:
+                        self._connections.pop(user_id, None)
 
 
 connection_manager = ConnectionManager()

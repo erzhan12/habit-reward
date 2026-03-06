@@ -44,10 +44,13 @@ export function useRealtimeSync() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        if (data.type === "ping") {
+          ws.send("{}");
+          return;
+        }
         if (data.type === "dashboard_update") {
           router.reload();
         }
-        // Ignore pings and unknown types
       } catch {
         // Ignore malformed messages
       }
