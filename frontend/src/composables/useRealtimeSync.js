@@ -13,7 +13,7 @@ const RECONNECT_MAX_MS = 16000;
 // Server close codes that mean "don't reconnect"
 const TERMINAL_CLOSE_CODES = new Set([4401, 4429, 1008]);
 
-export function useRealtimeSync() {
+export function useRealtimeSync({ paused } = {}) {
   const isConnected = ref(false);
 
   let ws = null;
@@ -49,7 +49,9 @@ export function useRealtimeSync() {
           return;
         }
         if (data.type === "dashboard_update") {
-          router.reload();
+          if (!paused?.value) {
+            router.reload();
+          }
         }
       } catch {
         // Ignore malformed messages

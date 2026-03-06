@@ -66,7 +66,12 @@ defineProps({
 
 const { themeConfig } = useTheme();
 const { triggerCompletionCelebration } = useThemeAnimation();
-useRealtimeSync();
+
+// Pause realtime sync during celebration to prevent router.reload() from
+// resetting celebrationVisible before the user sees the reward popup.
+const realtimePaused = ref(false);
+let realtimePauseTimer = null;
+useRealtimeSync({ paused: realtimePaused });
 
 // --- Layout ---
 const listLayoutClass = computed(() => {
@@ -110,10 +115,20 @@ const undoTimer = ref(null);
 
 onUnmounted(() => {
   if (undoTimer.value) clearTimeout(undoTimer.value);
+  if (realtimePauseTimer) clearTimeout(realtimePauseTimer);
 });
 
 function completeHabit(habitId) {
   loadingId.value = habitId;
+
+  // Pause WebSocket reloads so the celebration popup isn't wiped out
+  realtimePaused.value = true;
+  if (realtimePauseTimer) clearTimeout(realtimePauseTimer);
+  realtimePauseTimer = setTimeout(() => {
+    realtimePaused.value = false;
+    realtimePauseTimer = null;
+  }, 4000);
+
   router.post(`/habits/${habitId}/complete/`, {}, {
     preserveScroll: true,
     onSuccess: (page) => {
