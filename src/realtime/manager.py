@@ -36,7 +36,7 @@ class ConnectionManager:
                     "Global WebSocket connection limit reached (%d), rejecting user %s",
                     self.MAX_TOTAL_CONNECTIONS, user_id
                 )
-                await websocket.close(code=1008)
+                await websocket.close(code=4429)
                 return False
 
             existing = self._connections.get(user_id)

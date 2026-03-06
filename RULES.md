@@ -613,8 +613,10 @@ effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDU
 - Origin validation: missing Origin header → reject (no pass-through for non-browser clients)
 - IP extraction: `_get_client_ip` only trusts `X-Forwarded-For` when `settings.TRUST_PROXY_HEADERS=True`
 - Connection rate limiting: 10 connections/60s per IP
-- Message rate limiting: 10 messages/60s per user (`_check_message_rate_limit`)
+- Message rate limiting: 10 messages/60s per user (`_check_message_rate_limit`). Pong responses to server pings are excluded from rate limiting.
 - Per-user limit: `MAX_CONNECTIONS_PER_USER=10`, global limit: `MAX_TOTAL_CONNECTIONS=100`
+
+**Close codes**: `4401` (unauthenticated), `4403` (bad origin), `4429` (connection limit — both per-user and global), `1008` (message rate limit exceeded). Frontend `TERMINAL_CLOSE_CODES` includes `4401`, `4429`, `1008` to prevent reconnect attempts.
 
 **Rate limit configuration**: Connection and message rate limits are configurable via Django settings with defaults: `WEBSOCKET_CONNECTION_RATE_LIMIT=10`, `WEBSOCKET_CONNECTION_RATE_WINDOW=60`, `WEBSOCKET_MESSAGE_RATE_LIMIT=10`, `WEBSOCKET_MESSAGE_RATE_WINDOW=60`.
 

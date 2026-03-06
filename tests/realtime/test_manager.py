@@ -196,6 +196,6 @@ async def test_connect_rejects_over_global_limit():
 
     # Fourth connection (new user) should be rejected
     assert await manager.connect(4, ws4) is False
-    ws4.close.assert_awaited_once_with(code=1008)
+    ws4.close.assert_awaited_once_with(code=4429)
     ws4.accept.assert_not_awaited()
     assert manager._total_connections == 3

@@ -1,6 +1,7 @@
 """FastAPI WebSocket endpoint with Django session authentication."""
 
 import asyncio
+import json
 import logging
 import time
 from collections import OrderedDict
@@ -243,7 +244,16 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             # Wait for client messages (keeps connection alive)
-            await websocket.receive_text()
+            raw = await websocket.receive_text()
+
+            # Skip rate limiting for pong responses to server pings
+            try:
+                msg = json.loads(raw)
+                if isinstance(msg, dict) and msg.get("type") == "pong":
+                    continue
+            except (json.JSONDecodeError, TypeError):
+                pass
+
             if not _check_message_rate_limit(user_id):
                 logger.warning("Message rate limit exceeded for user %s", user_id)
                 await websocket.close(code=1008)
