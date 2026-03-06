@@ -45,6 +45,25 @@ _MESSAGE_RATE_WINDOW = _get_setting("WEBSOCKET_MESSAGE_RATE_WINDOW", 60)
 _message_counts: OrderedDict[int, list[float]] = OrderedDict()
 
 
+def _warn_if_multiprocess():
+    """Log a warning if running multiple workers with in-memory rate limiting."""
+    try:
+        from django.conf import settings
+
+        web_concurrency = int(getattr(settings, "WEB_CONCURRENCY", 1))
+        if web_concurrency > 1:
+            logger.warning(
+                "WebSocket rate limiting is per-process. In multi-worker deployments, "
+                "effective limits multiply by worker count. Consider using Redis-backed "
+                "rate limiting for production."
+            )
+    except Exception:
+        pass
+
+
+_warn_if_multiprocess()
+
+
 def _get_client_ip(websocket: WebSocket) -> str:
     """Extract client IP from WebSocket connection.
 
