@@ -10,8 +10,10 @@ from src.realtime.websocket import (
     _authenticate_websocket,
     _check_rate_limit,
     _connection_attempts,
+    _message_counts,
     _validate_origin,
     _MAX_RATE_LIMITER_ENTRIES,
+    _MESSAGE_RATE_LIMIT,
     router,
 )
 from src.realtime.manager import ConnectionManager
@@ -413,6 +415,65 @@ def test_endpoint_origin_and_auth_rejects_bad_origin(settings):
             pass
     assert exc_info.value.code == 4403
 
+
+# ---------------------------------------------------------------------------
+# Message rate limiting tests
+# ---------------------------------------------------------------------------
+
+def test_message_rate_limit_closes_connection():
+    """Sending more messages than _MESSAGE_RATE_LIMIT closes with code 1008."""
+    app = _build_test_app()
+    manager = ConnectionManager()
+
+    with (
+        _patch_auth_valid(user_id=20),
+        _patch_origin_valid(),
+        patch("src.realtime.websocket.connection_manager", manager),
+    ):
+        _message_counts.clear()
+        try:
+            client = TestClient(app)
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with client.websocket_connect("/ws/updates/") as ws:
+                    for _ in range(_MESSAGE_RATE_LIMIT + 1):
+                        ws.send_text('{"type": "hello"}')
+                    # Server closed after rate limit exceeded; receive to detect it
+                    ws.receive_text()
+            assert exc_info.value.code == 1008
+        finally:
+            _message_counts.clear()
+
+
+def test_pong_messages_excluded_from_rate_limit():
+    """Pong responses to server pings should not count toward message rate limit."""
+    app = _build_test_app()
+    manager = ConnectionManager()
+
+    with (
+        _patch_auth_valid(user_id=21),
+        _patch_origin_valid(),
+        patch("src.realtime.websocket.connection_manager", manager),
+        patch("src.realtime.websocket.PING_INTERVAL_SECONDS", 0),
+    ):
+        _message_counts.clear()
+        try:
+            client = TestClient(app)
+            with client.websocket_connect("/ws/updates/") as ws:
+                # Send more pong messages than the rate limit allows
+                for _ in range(_MESSAGE_RATE_LIMIT + 5):
+                    # Receive a ping first (interval is 0 so they come fast)
+                    data = ws.receive_json()
+                    assert data == {"type": "ping"}
+                    ws.send_text('{"type": "pong"}')
+                # Connection should still be open — pongs don't count
+                assert 21 in manager._connections
+        finally:
+            _message_counts.clear()
+
+
+# ---------------------------------------------------------------------------
+# Rate limiter eviction tests
+# ---------------------------------------------------------------------------
 
 def test_rate_limiter_evicts_oldest_entry():
     """When _connection_attempts reaches _MAX_RATE_LIMITER_ENTRIES, oldest entry is evicted."""

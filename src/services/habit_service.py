@@ -38,6 +38,16 @@ async def _safe_notify_user(user_id: int) -> None:
         logger.warning("WebSocket notification failed for user %s", user_id, exc_info=True)
 
 
+def _try_schedule_notify(user_id: int) -> None:
+    """Schedule a WebSocket notification if an event loop is running."""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_safe_notify_user(user_id))
+    except RuntimeError as exc:
+        if "no running event loop" not in str(exc).lower():
+            raise
+
+
 class HabitService:
     """Service for orchestrating habit completion flow."""
 
@@ -340,11 +350,7 @@ class HabitService:
             )
 
             # Notify connected WebSocket clients (non-blocking)
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(_safe_notify_user(user.id))
-            except RuntimeError:
-                pass  # No running event loop (sync context)
+            _try_schedule_notify(user.id)
 
             return HabitCompletionResult(
                 habit_confirmed=True,
@@ -594,11 +600,7 @@ class HabitService:
             )
 
             # Notify connected WebSocket clients (non-blocking)
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(_safe_notify_user(user.id))
-            except RuntimeError:
-                pass  # No running event loop (sync context)
+            _try_schedule_notify(user.id)
 
             return HabitRevertResult(
                 habit_name=habit.name,
@@ -729,11 +731,7 @@ class HabitService:
             )
 
             # Notify connected WebSocket clients (non-blocking)
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(_safe_notify_user(log.user_id))
-            except RuntimeError:
-                pass  # No running event loop (sync context)
+            _try_schedule_notify(log.user_id)
 
             return HabitRevertResult(
                 habit_name=habit.name,
