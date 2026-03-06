@@ -10,6 +10,8 @@ import { router } from "@inertiajs/vue3";
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 16000;
+const PING_TIMEOUT_MS = 60000;
+const PING_CHECK_INTERVAL_MS = 10000;
 // Server close codes that mean "don't reconnect"
 const TERMINAL_CLOSE_CODES = new Set([4401, 4429, 1008]);
 
@@ -20,6 +22,8 @@ export function useRealtimeSync({ paused } = {}) {
   let reconnectTimer = null;
   let reconnectDelay = RECONNECT_BASE_MS;
   let unmounted = false;
+  let lastPingTime = 0;
+  let pingCheckInterval = null;
 
   function getWsUrl() {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -39,12 +43,15 @@ export function useRealtimeSync({ paused } = {}) {
     ws.onopen = () => {
       isConnected.value = true;
       reconnectDelay = RECONNECT_BASE_MS;
+      lastPingTime = Date.now();
+      startPingCheck();
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         if (data.type === "ping") {
+          lastPingTime = Date.now();
           ws.send(JSON.stringify({ type: "pong" }));
           return;
         }
@@ -61,6 +68,7 @@ export function useRealtimeSync({ paused } = {}) {
     ws.onclose = (event) => {
       isConnected.value = false;
       ws = null;
+      stopPingCheck();
       if (!TERMINAL_CLOSE_CODES.has(event.code)) {
         scheduleReconnect();
       }
@@ -69,6 +77,22 @@ export function useRealtimeSync({ paused } = {}) {
     ws.onerror = () => {
       // onclose will fire after onerror, which handles reconnect
     };
+  }
+
+  function startPingCheck() {
+    stopPingCheck();
+    pingCheckInterval = setInterval(() => {
+      if (ws && Date.now() - lastPingTime > PING_TIMEOUT_MS) {
+        ws.close();
+      }
+    }, PING_CHECK_INTERVAL_MS);
+  }
+
+  function stopPingCheck() {
+    if (pingCheckInterval) {
+      clearInterval(pingCheckInterval);
+      pingCheckInterval = null;
+    }
   }
 
   function scheduleReconnect() {
@@ -82,6 +106,7 @@ export function useRealtimeSync({ paused } = {}) {
 
   function cleanup() {
     unmounted = true;
+    stopPingCheck();
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
