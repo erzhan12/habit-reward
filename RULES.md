@@ -605,7 +605,7 @@ effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDU
 
 ## Real-Time WebSocket (Feature 0038)
 
-**Architecture**: FastAPI WebSocket endpoint at `/ws/updates/` with Django session auth. `ConnectionManager` (in-memory) maps `user_id → set[WebSocket]`. Habit service fires `asyncio.create_task(connection_manager.notify_user(user_id))` after completions/reverts (non-blocking).
+**Architecture**: FastAPI WebSocket endpoint at `/ws/updates/` with Django session auth. `ConnectionManager` (in-memory) maps `user_id → set[WebSocket]`. Habit service fires notifications via `_try_schedule_notify(user_id)` after completions/reverts (non-blocking).
 
 **Key files**: `src/realtime/websocket.py` (endpoint, auth, rate limiting), `src/realtime/manager.py` (connection manager), `src/services/habit_service.py` (notification calls).
 
@@ -618,13 +618,20 @@ effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDU
 
 **Close codes**: `4401` (unauthenticated), `4403` (bad origin), `4429` (connection limit — both per-user and global), `1008` (message rate limit exceeded). Frontend `TERMINAL_CLOSE_CODES` includes `4401`, `4429`, `1008` to prevent reconnect attempts.
 
-**Rate limit configuration**: Connection and message rate limits are configurable via Django settings with defaults: `WEBSOCKET_CONNECTION_RATE_LIMIT=10`, `WEBSOCKET_CONNECTION_RATE_WINDOW=60`, `WEBSOCKET_MESSAGE_RATE_LIMIT=10`, `WEBSOCKET_MESSAGE_RATE_WINDOW=60`.
+**Rate limit configuration**: Connection and message rate limits are configurable via Django settings with defaults: `WEBSOCKET_CONNECTION_RATE_LIMIT=10`, `WEBSOCKET_CONNECTION_RATE_WINDOW=60`, `WEBSOCKET_MESSAGE_RATE_LIMIT=10`, `WEBSOCKET_MESSAGE_RATE_WINDOW=60`. Also documented in `.env.example` along with `TRUST_PROXY_HEADERS`.
+
+**Multi-process warning**: `_warn_if_multiprocess()` in `websocket.py` logs a warning on startup if `settings.WEB_CONCURRENCY > 1` — in-memory rate limiters are per-process and effective limits multiply by worker count.
+
+**Frontend ping timeout**: `useRealtimeSync.js` tracks `lastPingTime` on ping receipt and checks every 10s — closes the connection if no ping received within 60s (triggers reconnect via `onclose`).
 
 **Monitoring**: `ConnectionManager.get_stats()` returns `{"total_connections": ..., "users_connected": ...}` for health checks.
+
+**Notification scheduling**: `_try_schedule_notify()` in `habit_service.py` wraps `asyncio.get_running_loop()` — catches `RuntimeError` only for missing event loop (sync context), re-raises unrelated `RuntimeError`s. Do NOT use broad `except RuntimeError: pass`.
 
 **Testing pitfalls**:
 - Integration tests using `TestClient.websocket_connect()` don't send Origin headers — must patch `_validate_origin` to return True
 - Non-blocking `asyncio.create_task` notifications: verify coroutine identity via `coro.cr_code is _safe_notify_user.__code__` and user_id via `coro.cr_frame.f_locals["user_id"]`. Always `coro.close()` after inspection.
 - Ping response from frontend uses `{type: "pong"}` structured format (not empty `{}`)
+- Message rate limit test: after sending messages exceeding the limit, call `ws.receive_text()` to detect the server-side close (TestClient doesn't auto-raise on server close)
 
 **Tests**: `tests/realtime/test_websocket.py` (endpoint + auth), `tests/realtime/test_manager.py` (connection manager), `tests/realtime/test_service_notifications.py` (service integration).
