@@ -42,10 +42,9 @@ def _try_schedule_notify(user_id: int) -> None:
     """Schedule a WebSocket notification if an event loop is running."""
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(_safe_notify_user(user_id))
-    except RuntimeError as exc:
-        if "no running event loop" not in str(exc).lower():
-            raise
+    except RuntimeError:
+        return  # No event loop running — nothing to schedule
+    loop.create_task(_safe_notify_user(user_id))
 
 
 class HabitService:
