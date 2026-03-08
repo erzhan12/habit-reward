@@ -1,5 +1,6 @@
 """Habit completion orchestration service."""
 
+import asyncio
 import logging
 import inspect
 from datetime import datetime, date, timedelta
@@ -23,9 +24,27 @@ from src.models.habit_completion_result import HabitCompletionResult
 from src.models.habit_revert_result import HabitRevertResult
 from src.models.reward_progress import RewardProgress as RewardProgressModel
 from src.utils.async_compat import run_sync_or_async, maybe_await
+from src.realtime.manager import connection_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+async def _safe_notify_user(user_id: int) -> None:
+    """Send WebSocket notification, swallowing any errors."""
+    try:
+        await connection_manager.notify_user(user_id)
+    except Exception:
+        logger.warning("WebSocket notification failed for user %s", user_id, exc_info=True)
+
+
+def _try_schedule_notify(user_id: int) -> None:
+    """Schedule a WebSocket notification if an event loop is running."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # No event loop running — nothing to schedule
+    loop.create_task(_safe_notify_user(user_id))
 
 
 class HabitService:
@@ -329,6 +348,9 @@ class HabitService:
                 )
             )
 
+            # Notify connected WebSocket clients (non-blocking)
+            _try_schedule_notify(user.id)
+
             return HabitCompletionResult(
                 habit_confirmed=True,
                 habit_name=habit.name,
@@ -576,6 +598,9 @@ class HabitService:
                 )
             )
 
+            # Notify connected WebSocket clients (non-blocking)
+            _try_schedule_notify(user.id)
+
             return HabitRevertResult(
                 habit_name=habit.name,
                 reward_reverted=reward_reverted,
@@ -703,6 +728,9 @@ class HabitService:
                     progress_snapshot=revert_snapshot,
                 )
             )
+
+            # Notify connected WebSocket clients (non-blocking)
+            _try_schedule_notify(log.user_id)
 
             return HabitRevertResult(
                 habit_name=habit.name,

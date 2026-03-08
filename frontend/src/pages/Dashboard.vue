@@ -56,6 +56,7 @@ import UndoToast from "../components/UndoToast.vue";
 import RewardCelebration from "../components/rewards/RewardCelebration.vue";
 import { useTheme } from "../composables/useTheme.js";
 import { useThemeAnimation } from "../composables/useThemeAnimation.js";
+import { useRealtimeSync } from "../composables/useRealtimeSync.js";
 
 defineProps({
   habits: { type: Array, default: () => [] },
@@ -65,6 +66,12 @@ defineProps({
 
 const { themeConfig } = useTheme();
 const { triggerCompletionCelebration } = useThemeAnimation();
+
+// Pause realtime sync during celebration to prevent router.reload() from
+// resetting celebrationVisible before the user sees the reward popup.
+const realtimePaused = ref(false);
+let realtimePauseTimer = null;
+useRealtimeSync({ paused: realtimePaused });
 
 // --- Layout ---
 const listLayoutClass = computed(() => {
@@ -108,10 +115,20 @@ const undoTimer = ref(null);
 
 onUnmounted(() => {
   if (undoTimer.value) clearTimeout(undoTimer.value);
+  if (realtimePauseTimer) clearTimeout(realtimePauseTimer);
 });
 
 function completeHabit(habitId) {
   loadingId.value = habitId;
+
+  // Pause WebSocket reloads so the celebration popup isn't wiped out
+  realtimePaused.value = true;
+  if (realtimePauseTimer) clearTimeout(realtimePauseTimer);
+  realtimePauseTimer = setTimeout(() => {
+    realtimePaused.value = false;
+    realtimePauseTimer = null;
+  }, 4000);
+
   router.post(`/habits/${habitId}/complete/`, {}, {
     preserveScroll: true,
     onSuccess: (page) => {

@@ -602,3 +602,29 @@ effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDU
 **Decrement pattern**: Never check `progress.times_claimed > 0` on a stale Python object — use `filter(times_claimed__gt=0).update(times_claimed=F("times_claimed") - 1, ...)` to check and decrement atomically at the DB level. If 0 rows updated, fall back to update without decrement. Applied in `src/core/admin.py` (revert action) and `src/core/repositories.py` (`decrement_pieces_earned`).
 
 **Query**: `get_ever_claimed_by_user()` filters `times_claimed__gt=0` (not `claimed=True`) — ensures recurring rewards appear even when `claimed` reset to False. Does NOT filter by `reward__active` or `reward__is_recurring`.
+
+## Real-Time WebSocket (Feature 0038)
+
+**Architecture**: FastAPI WebSocket endpoint at `/ws/updates/` with Django session auth. `ConnectionManager` (in-memory) maps `user_id → set[WebSocket]`. Habit service fires `asyncio.create_task(connection_manager.notify_user(user_id))` after completions/reverts (non-blocking).
+
+**Key files**: `src/realtime/websocket.py` (endpoint, auth, rate limiting), `src/realtime/manager.py` (connection manager), `src/services/habit_service.py` (notification calls).
+
+**Security layers**:
+- Origin validation: missing Origin header → reject (no pass-through for non-browser clients)
+- IP extraction: `_get_client_ip` only trusts `X-Forwarded-For` when `settings.TRUST_PROXY_HEADERS=True`
+- Connection rate limiting: 10 connections/60s per IP
+- Message rate limiting: 10 messages/60s per user (`_check_message_rate_limit`). Pong responses to server pings are excluded from rate limiting.
+- Per-user limit: `MAX_CONNECTIONS_PER_USER=10`, global limit: `MAX_TOTAL_CONNECTIONS=100`
+
+**Close codes**: `4401` (unauthenticated), `4403` (bad origin), `4429` (connection limit — both per-user and global), `1008` (message rate limit exceeded). Frontend `TERMINAL_CLOSE_CODES` includes `4401`, `4429`, `1008` to prevent reconnect attempts.
+
+**Rate limit configuration**: Connection and message rate limits are configurable via Django settings with defaults: `WEBSOCKET_CONNECTION_RATE_LIMIT=10`, `WEBSOCKET_CONNECTION_RATE_WINDOW=60`, `WEBSOCKET_MESSAGE_RATE_LIMIT=10`, `WEBSOCKET_MESSAGE_RATE_WINDOW=60`.
+
+**Monitoring**: `ConnectionManager.get_stats()` returns `{"total_connections": ..., "users_connected": ...}` for health checks.
+
+**Testing pitfalls**:
+- Integration tests using `TestClient.websocket_connect()` don't send Origin headers — must patch `_validate_origin` to return True
+- Non-blocking `asyncio.create_task` notifications: verify coroutine identity via `coro.cr_code is _safe_notify_user.__code__` and user_id via `coro.cr_frame.f_locals["user_id"]`. Always `coro.close()` after inspection.
+- Ping response from frontend uses `{type: "pong"}` structured format (not empty `{}`)
+
+**Tests**: `tests/realtime/test_websocket.py` (endpoint + auth), `tests/realtime/test_manager.py` (connection manager), `tests/realtime/test_service_notifications.py` (service integration).

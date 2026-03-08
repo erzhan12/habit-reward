@@ -24,7 +24,7 @@ from src.api.main import app as fastapi_app  # noqa: E402
 
 ASGIApp = Callable[[dict, Callable[[], Awaitable[dict]], Callable[[dict], Awaitable[None]]], Awaitable[None]]
 
-FASTAPI_PREFIXES = ("/v1/",)
+FASTAPI_PREFIXES = ("/v1/", "/ws/")
 FASTAPI_EXACT_PATHS = {"/v1", "/health", "/docs", "/redoc", "/openapi.json"}
 
 
