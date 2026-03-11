@@ -98,8 +98,11 @@ import { Link, usePage } from "@inertiajs/vue3";
 import BottomNav from "./BottomNav.vue";
 import FlashMessages from "./FlashMessages.vue";
 import { useTheme } from "../composables/useTheme.js";
+import { useDayChange } from "../composables/useDayChange.js";
 
 const page = usePage();
+
+useDayChange();
 const flash = computed(() => page.props.flash || []);
 
 const { themeConfig } = useTheme();
