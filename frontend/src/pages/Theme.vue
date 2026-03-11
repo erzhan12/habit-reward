@@ -12,7 +12,7 @@
         @click="selectTheme(id)"
         :disabled="saving === id"
         :style="getCardEntranceStyle(idx)"
-        class="relative text-left rounded-2xl overflow-hidden transition-all duration-200 focus:outline-none disabled:opacity-60"
+        class="relative text-left rounded-2xl overflow-hidden transition-all duration-200 focus:outline-none disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
         :class="[
           activeId === id
             ? 'ring-2 ring-accent scale-[1.02]'
