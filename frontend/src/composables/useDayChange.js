@@ -18,11 +18,16 @@ function today() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+const VISIBILITY_DEBOUNCE_MS = 500;
+
 export function useDayChange() {
   let lastKnownDate = null;
   let midnightTimer = null;
+  let unmounted = false;
+  let visibilityDebounceTimer = null;
 
   function scheduleMidnightTimer() {
+    if (unmounted) return;
     clearTimeout(midnightTimer);
     const now = new Date();
     const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
@@ -31,17 +36,33 @@ export function useDayChange() {
   }
 
   function onDayChange() {
+    if (unmounted) return;
     lastKnownDate = today();
-    router.reload();
+    try {
+      router.reload();
+    } catch (err) {
+      console.error("useDayChange: reload failed on midnight timer", err);
+    }
     scheduleMidnightTimer();
   }
 
   function onVisibilityChange() {
+    if (unmounted) return;
     if (document.visibilityState !== "visible") return;
+    clearTimeout(visibilityDebounceTimer);
+    visibilityDebounceTimer = setTimeout(checkDayChange, VISIBILITY_DEBOUNCE_MS);
+  }
+
+  function checkDayChange() {
+    if (unmounted) return;
     const current = today();
     if (current === lastKnownDate) return;
     lastKnownDate = current;
-    router.reload();
+    try {
+      router.reload();
+    } catch (err) {
+      console.error("useDayChange: reload failed on visibility change", err);
+    }
     scheduleMidnightTimer();
   }
 
@@ -52,8 +73,11 @@ export function useDayChange() {
   }
 
   function cleanup() {
+    unmounted = true;
     clearTimeout(midnightTimer);
     midnightTimer = null;
+    clearTimeout(visibilityDebounceTimer);
+    visibilityDebounceTimer = null;
     document.removeEventListener("visibilitychange", onVisibilityChange);
   }
 
