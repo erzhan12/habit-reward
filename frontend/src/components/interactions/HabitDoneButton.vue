@@ -4,7 +4,7 @@
       v-if="!habit.completedToday"
       @click="$emit('complete', habit.id)"
       :disabled="loading"
-      class="text-sm font-medium transition-all disabled:opacity-50"
+      class="text-sm font-medium transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
       :class="[tc.button.rounded, tc.button.padding, tc.button.primary]"
     >
       Done
@@ -13,7 +13,7 @@
       v-else
       @click="$emit('revert', habit.id)"
       :disabled="loading"
-      class="text-sm font-medium transition-all disabled:opacity-50"
+      class="text-sm font-medium transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
       :class="[tc.button.rounded, tc.button.padding, tc.button.secondary]"
     >
       Undo

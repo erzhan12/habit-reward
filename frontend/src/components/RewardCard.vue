@@ -36,7 +36,7 @@
       <button
         @click="$emit('claim', reward.id)"
         :disabled="loading"
-        class="text-xs font-medium transition-all disabled:opacity-50"
+        class="text-xs font-medium transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
         :class="[tc.button.rounded, 'px-3 py-1', tc.button.primary]"
       >
         Claim
