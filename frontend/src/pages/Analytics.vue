@@ -117,7 +117,7 @@
 </template>
 
 <script setup>
-import { computed, watch, ref } from "vue";
+import { computed } from "vue";
 import { router } from "@inertiajs/vue3";
 import { Bar } from "vue-chartjs";
 import { Chart, BarElement, CategoryScale, LinearScale, Tooltip } from "chart.js";
@@ -156,31 +156,13 @@ function formatPercent(rate) {
   return `${(rate * 100).toFixed(0)}%`;
 }
 
-// Chart.js reads CSS colors reactively for theme compatibility
-function readCssVar(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
-const accentColor = ref(readCssVar("--color-accent"));
-const textSecondaryColor = ref(readCssVar("--color-text-secondary"));
-
-watch(
-  () => themeConfig.value,
-  () => {
-    // Double-rAF ensures CSS vars are applied before reading — useTheme applies
-    // vars in its own rAF, so we need to wait one more frame.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        accentColor.value = readCssVar("--color-accent");
-        textSecondaryColor.value = readCssVar("--color-text-secondary");
-      });
-    });
-  },
-);
+// Read chart colors directly from theme config — no DOM reads or timing hacks needed
+const accentColor = computed(() => themeConfig.value.cssVars["--color-accent"]);
+const textSecondaryColor = computed(() => themeConfig.value.cssVars["--color-text-secondary"]);
 
 function formatWeekLabel(dateStr) {
   // Parse YYYY-MM-DD without Date constructor to avoid timezone shifts
-  const [, m, d] = dateStr.split("-").map(Number);
+  const [_year, m, d] = dateStr.split("-").map(Number);
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return `${months[m - 1]} ${d}`;
 }
@@ -191,7 +173,7 @@ const chartData = computed(() => ({
     {
       label: "Completion Rate",
       data: props.trends.weekly.map((w) => +(w.rate * 100).toFixed(1)),
-      backgroundColor: accentColor.value || "#6366f1",
+      backgroundColor: accentColor.value,
       borderRadius: 4,
     },
   ],

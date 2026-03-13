@@ -32,6 +32,10 @@ vi.mock("../src/composables/useTheme.js", () => ({
           button: { primary: "btn-primary", secondary: "btn-secondary" },
           select: { base: "select-base" },
         },
+        cssVars: {
+          "--color-accent": "#6366f1",
+          "--color-text-secondary": "#9ca3af",
+        },
       },
     },
   }),
