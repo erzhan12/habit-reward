@@ -1,5 +1,6 @@
 """Analytics page view."""
 
+import asyncio
 import logging
 from datetime import timedelta
 
@@ -29,9 +30,11 @@ async def analytics_page(request):
     start_date = today - timedelta(days=offset)
     end_date = today
 
-    rates = await maybe_await(analytics_service.get_habit_completion_rates(user.id, start_date, end_date))
-    rankings = await maybe_await(analytics_service.get_habit_rankings(user.id, start_date, end_date, user_timezone=tz))
-    trends = await maybe_await(analytics_service.get_habit_trends(user.id, start_date, end_date))
+    rates, rankings, trends = await asyncio.gather(
+        maybe_await(analytics_service.get_habit_completion_rates(user.id, start_date, end_date)),
+        maybe_await(analytics_service.get_habit_rankings(user.id, start_date, end_date, user_timezone=tz)),
+        maybe_await(analytics_service.get_habit_trends(user.id, start_date, end_date)),
+    )
 
     # Compute summary stats
     if rates:
