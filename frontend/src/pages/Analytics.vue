@@ -167,16 +167,22 @@ const textSecondaryColor = ref(readCssVar("--color-text-secondary"));
 watch(
   () => themeConfig.value,
   () => {
+    // Double-rAF ensures CSS vars are applied before reading — useTheme applies
+    // vars in its own rAF, so we need to wait one more frame.
     requestAnimationFrame(() => {
-      accentColor.value = readCssVar("--color-accent");
-      textSecondaryColor.value = readCssVar("--color-text-secondary");
+      requestAnimationFrame(() => {
+        accentColor.value = readCssVar("--color-accent");
+        textSecondaryColor.value = readCssVar("--color-text-secondary");
+      });
     });
   },
 );
 
 function formatWeekLabel(dateStr) {
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  // Parse YYYY-MM-DD without Date constructor to avoid timezone shifts
+  const [, m, d] = dateStr.split("-").map(Number);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[m - 1]} ${d}`;
 }
 
 const chartData = computed(() => ({
