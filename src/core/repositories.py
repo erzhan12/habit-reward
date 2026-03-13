@@ -976,6 +976,167 @@ class HabitLogRepository:
 
         return {habit_id: (streak, last_date) for habit_id, streak, last_date in rows}
 
+    async def get_completion_counts_by_date(
+        self,
+        user_id: int | str,
+        start_date: date,
+        end_date: date,
+        habit_id: int | None = None,
+        active_only: bool = False,
+    ) -> list[dict]:
+        """Get completion counts grouped by date for a user in a date range.
+
+        Uses a single aggregation query — no full log objects loaded.
+
+        Args:
+            user_id: User primary key
+            start_date: Start of range (inclusive)
+            end_date: End of range (inclusive)
+            habit_id: Optional habit ID to filter by
+            active_only: If True, only count logs from currently active habits
+
+        Returns:
+            List of dicts: [{"last_completed_date": date, "count": int}, ...]
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        queryset = HabitLog.objects.filter(
+            user_id=user_pk,
+            last_completed_date__gte=start_date,
+            last_completed_date__lte=end_date,
+        )
+        if habit_id is not None:
+            queryset = queryset.filter(habit_id=habit_id)
+        if active_only:
+            queryset = queryset.filter(habit__active=True)
+
+        return await sync_to_async(list)(
+            queryset.values("last_completed_date").annotate(count=Count("id")).order_by("last_completed_date")
+        )
+
+    async def get_longest_streak_in_range(
+        self,
+        user_id: int | str,
+        habit_id: int,
+        start_date: date,
+        end_date: date,
+    ) -> int:
+        """Get the maximum streak_count from logs in a date range for a habit.
+
+        Args:
+            user_id: User primary key
+            habit_id: Habit primary key
+            start_date: Start of range (inclusive)
+            end_date: End of range (inclusive)
+
+        Returns:
+            Maximum streak count, or 0 if no logs found
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        result = await sync_to_async(
+            HabitLog.objects.filter(
+                user_id=user_pk,
+                habit_id=habit_id,
+                last_completed_date__gte=start_date,
+                last_completed_date__lte=end_date,
+            ).aggregate
+        )(max_streak=Max("streak_count"))
+        return result["max_streak"] or 0
+
+    async def get_total_completions_in_range(
+        self,
+        user_id: int | str,
+        habit_id: int,
+        start_date: date,
+        end_date: date,
+    ) -> int:
+        """Get total number of completions for a habit in a date range.
+
+        Args:
+            user_id: User primary key
+            habit_id: Habit primary key
+            start_date: Start of range (inclusive)
+            end_date: End of range (inclusive)
+
+        Returns:
+            Total completion count
+        """
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        return await sync_to_async(
+            HabitLog.objects.filter(
+                user_id=user_pk,
+                habit_id=habit_id,
+                last_completed_date__gte=start_date,
+                last_completed_date__lte=end_date,
+            ).count
+        )()
+
+
+    async def get_longest_streaks_in_range_bulk(
+        self,
+        user_id: int | str,
+        habit_ids: list[int],
+        start_date: date,
+        end_date: date,
+    ) -> dict[int, int]:
+        """Get max streak_count per habit in a date range in one query.
+
+        Args:
+            user_id: User primary key
+            habit_ids: List of habit primary keys
+            start_date: Start of range (inclusive)
+            end_date: End of range (inclusive)
+
+        Returns:
+            Dict mapping habit_id to max streak count (missing = 0)
+        """
+        if not habit_ids:
+            return {}
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        rows = await sync_to_async(list)(
+            HabitLog.objects.filter(
+                user_id=user_pk,
+                habit_id__in=habit_ids,
+                last_completed_date__gte=start_date,
+                last_completed_date__lte=end_date,
+            )
+            .values("habit_id")
+            .annotate(max_streak=Max("streak_count"))
+        )
+        return {row["habit_id"]: row["max_streak"] or 0 for row in rows}
+
+    async def get_total_completions_in_range_bulk(
+        self,
+        user_id: int | str,
+        habit_ids: list[int],
+        start_date: date,
+        end_date: date,
+    ) -> dict[int, int]:
+        """Get total completions per habit in a date range in one query.
+
+        Args:
+            user_id: User primary key
+            habit_ids: List of habit primary keys
+            start_date: Start of range (inclusive)
+            end_date: End of range (inclusive)
+
+        Returns:
+            Dict mapping habit_id to completion count (missing = 0)
+        """
+        if not habit_ids:
+            return {}
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        rows = await sync_to_async(list)(
+            HabitLog.objects.filter(
+                user_id=user_pk,
+                habit_id__in=habit_ids,
+                last_completed_date__gte=start_date,
+                last_completed_date__lte=end_date,
+            )
+            .values("habit_id")
+            .annotate(total=Count("id"))
+        )
+        return {row["habit_id"]: row["total"] for row in rows}
+
 
 class AuthCodeRepository:
     """Auth code repository for one-time login codes."""

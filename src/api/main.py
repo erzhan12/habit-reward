@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.config import api_settings
 from src.api.exceptions import setup_exception_handlers
 from src.api.middleware.logging import LoggingMiddleware
-from src.api.v1.routers import auth, users, habits, rewards, habit_logs, streaks
+from src.api.v1.routers import auth, users, habits, rewards, habit_logs, streaks, analytics
 from src.realtime.websocket import router as ws_router
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,11 @@ def create_app() -> FastAPI:
         streaks.router,
         prefix="/v1/streaks",
         tags=["Streaks"]
+    )
+    app.include_router(
+        analytics.router,
+        prefix="/v1/analytics",
+        tags=["Analytics"]
     )
 
     # WebSocket endpoint (no prefix — path defined in router as /ws/updates/)
