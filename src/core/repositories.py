@@ -1071,6 +1071,73 @@ class HabitLogRepository:
         )()
 
 
+    async def get_longest_streaks_in_range_bulk(
+        self,
+        user_id: int | str,
+        habit_ids: list[int],
+        start_date: date,
+        end_date: date,
+    ) -> dict[int, int]:
+        """Get max streak_count per habit in a date range in one query.
+
+        Args:
+            user_id: User primary key
+            habit_ids: List of habit primary keys
+            start_date: Start of range (inclusive)
+            end_date: End of range (inclusive)
+
+        Returns:
+            Dict mapping habit_id to max streak count (missing = 0)
+        """
+        if not habit_ids:
+            return {}
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        rows = await sync_to_async(list)(
+            HabitLog.objects.filter(
+                user_id=user_pk,
+                habit_id__in=habit_ids,
+                last_completed_date__gte=start_date,
+                last_completed_date__lte=end_date,
+            )
+            .values("habit_id")
+            .annotate(max_streak=Max("streak_count"))
+        )
+        return {row["habit_id"]: row["max_streak"] or 0 for row in rows}
+
+    async def get_total_completions_in_range_bulk(
+        self,
+        user_id: int | str,
+        habit_ids: list[int],
+        start_date: date,
+        end_date: date,
+    ) -> dict[int, int]:
+        """Get total completions per habit in a date range in one query.
+
+        Args:
+            user_id: User primary key
+            habit_ids: List of habit primary keys
+            start_date: Start of range (inclusive)
+            end_date: End of range (inclusive)
+
+        Returns:
+            Dict mapping habit_id to completion count (missing = 0)
+        """
+        if not habit_ids:
+            return {}
+        user_pk = int(user_id) if isinstance(user_id, str) else user_id
+        rows = await sync_to_async(list)(
+            HabitLog.objects.filter(
+                user_id=user_pk,
+                habit_id__in=habit_ids,
+                last_completed_date__gte=start_date,
+                last_completed_date__lte=end_date,
+            )
+            .values("habit_id")
+            .annotate(total=Count("id"))
+        )
+        return {row["habit_id"]: row["total"] for row in rows}
+
+
 class AuthCodeRepository:
     """Auth code repository for one-time login codes."""
 

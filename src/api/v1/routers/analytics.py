@@ -56,6 +56,8 @@ def _resolve_date_range(
     if start_date and end_date:
         if start_date > end_date:
             raise HTTPException(status_code=400, detail="start_date must be <= end_date")
+        if end_date > today:
+            raise HTTPException(status_code=400, detail="end_date cannot be in the future")
         # Inclusive day count: end - start + 1
         inclusive_days = (end_date - start_date).days + 1
         if inclusive_days > MAX_RANGE_DAYS:

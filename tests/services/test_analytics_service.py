@@ -15,6 +15,7 @@ def _make_habit(
     exempt_weekdays=None,
     allowed_skip_days=0,
     created_at=None,
+    user_id=1,
 ):
     """Helper to build a mock Habit."""
     h = MagicMock()
@@ -24,6 +25,7 @@ def _make_habit(
     h.allowed_skip_days = allowed_skip_days
     h.created_at = created_at or datetime(2025, 1, 1, tzinfo=timezone.utc)
     h.active = True
+    h.user_id = user_id
     return h
 
 
@@ -224,9 +226,15 @@ class TestGetHabitRankings:
             ]
 
         svc.habit_log_repo.get_completion_counts_by_date = mock_counts
-        svc.streak_svc.get_current_streak = AsyncMock(return_value=5)
-        svc.habit_log_repo.get_longest_streak_in_range = AsyncMock(return_value=8)
-        svc.habit_log_repo.get_total_completions_in_range = AsyncMock(side_effect=[9, 3])
+        svc.streak_svc.get_validated_streak_map = AsyncMock(
+            return_value={1: 5, 2: 2}
+        )
+        svc.habit_log_repo.get_longest_streaks_in_range_bulk = AsyncMock(
+            return_value={1: 8, 2: 4}
+        )
+        svc.habit_log_repo.get_total_completions_in_range_bulk = AsyncMock(
+            return_value={1: 9, 2: 3}
+        )
 
         result = await svc.get_habit_rankings(
             1, date(2026, 3, 1), date(2026, 3, 10), user_timezone="UTC"
@@ -237,8 +245,11 @@ class TestGetHabitRankings:
         assert result[0].habit_name == "High"
         assert result[0].current_streak == 5
         assert result[0].longest_streak_in_range == 8
+        assert result[0].total_completions == 9
         assert result[1].rank == 2
         assert result[1].habit_name == "Low"
+        assert result[1].current_streak == 2
+        assert result[1].total_completions == 3
 
 
 class TestGetHabitTrends:
