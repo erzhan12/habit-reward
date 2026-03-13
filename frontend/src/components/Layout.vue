@@ -112,6 +112,7 @@ const navItems = [
   { href: "/streaks/", icon: "🔥", label: "Streaks" },
   { href: "/history/", icon: "📅", label: "History" },
   { href: "/rewards/", icon: "🎁", label: "Rewards" },
+  { href: "/analytics/", icon: "📊", label: "Analytics" },
   { href: "/theme/", icon: "🎨", label: "Theme" },
 ];
 
