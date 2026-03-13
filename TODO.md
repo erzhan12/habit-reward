@@ -53,29 +53,7 @@ This document tracks planned features, improvements, and enhancements for the Ha
     - `src/bot/messages.py` - Update reward presentation messages
   - **Related**: User motivation and reward system enhancement
 
-- [ ] **Add Confirmation Message for "Yesterday" Habit Completion**
-  - When a user marks a habit as done for "yesterday", there is no confirmation message — it logs immediately
-  - The "for date" option already shows a confirmation message before logging
-  - **Problem**: Inconsistent UX — "for date" has confirmation but "yesterday" does not, which can lead to accidental logging
-  - **Solution**: Add the same confirmation message used by "for date" to the "yesterday" option
-    - Show confirmation only for past dates (not for today)
-    - Use the same message format and flow as the existing "for date" confirmation
-    - After user confirms, proceed with the same reward calculation and success flow as "for date"
-  - **Files**:
-    - `src/bot/handlers/habit_done_handler.py` - Add confirmation step for "yesterday" option
-    - `src/bot/messages.py` - Reuse existing "for date" confirmation message
-
 ### Medium Priority
-
-- [ ] **Claimed Rewards Menu Button**
-  - Add a "Claimed Rewards" button to the Rewards menu
-  - Shows a simple list of one-time (`is_recurring=False`) claimed rewards
-  - Recurring rewards reset after claiming and appear in normal My Rewards list, so only non-recurring claimed rewards need this separate view
-  - **Files**:
-    - `src/bot/keyboards.py` - Add button to `build_rewards_menu_keyboard()`
-    - `src/bot/handlers/reward_handlers.py` - New handler for claimed rewards list
-    - `src/bot/messages.py` - Add message constants
-    - `src/bot/handlers/menu_handler.py` - Register callback
 
 - [ ] **Auto-delete Habit Name Message on Creation, Reward Name on creation and API Key name on creation**
   - When a user creates a new habit, the message that shows the habit name/title should be auto-deleted or replaced
