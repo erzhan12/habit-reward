@@ -4,6 +4,8 @@ import asyncio
 import logging
 from datetime import timedelta
 
+from django.contrib import messages
+from django.shortcuts import redirect
 from inertia import render as inertia_render
 
 from src.bot.timezone_utils import get_user_today
@@ -30,11 +32,16 @@ async def analytics_page(request):
     start_date = today - timedelta(days=offset)
     end_date = today
 
-    rates, rankings, trends = await asyncio.gather(
-        maybe_await(analytics_service.get_habit_completion_rates(user.id, start_date, end_date)),
-        maybe_await(analytics_service.get_habit_rankings(user.id, start_date, end_date, user_timezone=tz)),
-        maybe_await(analytics_service.get_habit_trends(user.id, start_date, end_date)),
-    )
+    try:
+        rates, rankings, trends = await asyncio.gather(
+            maybe_await(analytics_service.get_habit_completion_rates(user.id, start_date, end_date)),
+            maybe_await(analytics_service.get_habit_rankings(user.id, start_date, end_date, user_timezone=tz)),
+            maybe_await(analytics_service.get_habit_trends(user.id, start_date, end_date)),
+        )
+    except Exception:
+        logger.exception("Failed to load analytics for user %s", user.id)
+        messages.error(request, "Failed to load analytics. Please try again.")
+        return redirect("/")
 
     # Compute summary stats
     if rates:

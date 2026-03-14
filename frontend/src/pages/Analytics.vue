@@ -1,11 +1,13 @@
 <template>
   <div class="px-4 pt-6 pb-4 max-w-2xl mx-auto">
     <!-- Period selector -->
-    <div class="flex gap-2 mb-6" :style="getCardEntranceStyle(0)">
+    <div class="flex gap-2 mb-6" role="group" aria-label="Time period" :style="getCardEntranceStyle(0)">
       <button
         v-for="p in periods"
         :key="p"
         @click="switchPeriod(p)"
+        :aria-label="`Show analytics for ${p}`"
+        :aria-pressed="p === currentPeriod"
         class="px-4 py-1.5 text-sm font-medium rounded-full transition-colors"
         :class="p === currentPeriod ? tc.button.primary : tc.button.secondary"
       >
