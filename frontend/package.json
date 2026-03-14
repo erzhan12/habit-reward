@@ -9,16 +9,18 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@inertiajs/vue3": "^2.0.0",
+    "chart.js": "^4.5.1",
     "vue": "^3.5.0",
-    "@inertiajs/vue3": "^2.0.0"
+    "vue-chartjs": "^5.3.3"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
     "@vitejs/plugin-vue": "^5.0.0",
     "@vue/test-utils": "^2.4.0",
     "jsdom": "^26.0.0",
-    "vite": "^6.0.0",
-    "vitest": "^3.0.0",
     "tailwindcss": "^4.0.0",
-    "@tailwindcss/vite": "^4.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
   }
 }
