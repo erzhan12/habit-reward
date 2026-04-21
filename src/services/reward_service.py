@@ -553,8 +553,11 @@ class RewardService:
            ``pieces_required`` unknown (includes synthetic entries for active
            rewards without a progress row, and recurring CLAIMED rewards which
            are treated as a fresh cycle).
-        2. Non-zero rewards sorted by ``pieces_earned`` ascending. Both
-           PENDING and ACHIEVED rewards share this bucket.
+        2. PENDING rewards with partial progress, sorted by ``pieces_earned``
+           ascending.
+        3. ACHIEVED (ready-to-claim) rewards last, sorted by ``pieces_earned``
+           ascending. They sit just above the separate claimed-rewards section
+           rendered by the web UI.
 
         One-time CLAIMED rewards are excluded; they surface via
         ``get_claimed_rewards`` and are rendered separately in the web UI.
@@ -567,7 +570,8 @@ class RewardService:
             progress_reward_ids = set()
 
             zero_piece: list[RewardProgress] = []
-            non_zero: list[RewardProgress] = []
+            pending: list[RewardProgress] = []
+            ready_to_claim: list[RewardProgress] = []
             for p in coerced:
                 progress_reward_ids.add(
                     int(p.reward_id) if isinstance(p.reward_id, str) else p.reward_id
@@ -582,8 +586,10 @@ class RewardService:
                 pieces_req = getattr(p, "pieces_required", -1)
                 if p.pieces_earned == 0 or pieces_req is None:
                     zero_piece.append(p)
+                elif status == RewardStatus.ACHIEVED:
+                    ready_to_claim.append(p)
                 else:
-                    non_zero.append(p)
+                    pending.append(p)
 
             active_rewards = await maybe_await(
                 self.reward_repo.get_all_active(user_id)
@@ -602,9 +608,10 @@ class RewardService:
                     )
                     zero_piece.append(synthetic)
 
-            non_zero.sort(key=lambda rp: rp.pieces_earned)
+            pending.sort(key=lambda rp: rp.pieces_earned)
+            ready_to_claim.sort(key=lambda rp: rp.pieces_earned)
 
-            return zero_piece + non_zero
+            return zero_piece + pending + ready_to_claim
 
         return run_sync_or_async(_impl())
 
