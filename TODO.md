@@ -102,17 +102,17 @@ This document tracks planned features, improvements, and enhancements for the Ha
 
 ## 📊 Analytics & Reporting
 
-- [ ] **User Analytics Dashboard**
+- [x] **User Analytics Dashboard**
   - Completion rates over time
   - Reward claim patterns
   - Streak analysis
-  - **File**: New `src/dashboard/analytics.py`
+  - **File**: `src/web/views/analytics.py`, `frontend/src/pages/Analytics.vue`
 
-- [ ] **Habit Performance Metrics**
+- [x] **Habit Performance Metrics**
   - Which habits are most/least completed
   - Average completion time
   - Drop-off rates
-  - **File**: New service `src/services/analytics_service.py`
+  - **File**: `src/services/analytics_service.py`
 
 - [ ] **Reward Effectiveness Analysis**
   - Which rewards motivate users most
@@ -171,6 +171,11 @@ This document tracks planned features, improvements, and enhancements for the Ha
   - Visual calendar showing completion history
   - Click to mark habits as done
   - **File**: `src/dashboard/components/calendar.py`
+
+- [x] **Change rewards sorting on Rewards page (web app)**
+  - **Now**: rewards with >1 won pieces, then claimed, then 0 won pieces
+  - **Need**: 0 won pieces first, then >1 won pieces (ascending by won pieces), then claimed last
+  - **File**: Rewards page (web)
 
 - [ ] **Reward Progress Visualization**
   - Progress bars, charts for reward progress

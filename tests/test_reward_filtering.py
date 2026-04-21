@@ -107,8 +107,8 @@ class TestGetUserRewardProgress:
         result = await service.get_user_reward_progress("1")
 
         assert len(result) == 2
-        # Pending (40%) first, then never-won (0/5) last
-        assert [r.reward_id for r in result] == [2, 1]
+        # Zero-piece (0/5) first, then non-zero (4/10)
+        assert [r.reward_id for r in result] == [1, 2]
 
     @pytest.mark.asyncio
     async def test_claimed_recurring_reward_visible_as_never_won(self, service):
@@ -131,8 +131,8 @@ class TestGetUserRewardProgress:
         result = await service.get_user_reward_progress("1")
 
         assert len(result) == 2
-        # Pending (30%) first, then recurring claimed as never-won last
-        assert [r.reward_id for r in result] == [2, 1]
+        # Recurring claimed treated as zero-piece (fresh cycle) → first
+        assert [r.reward_id for r in result] == [1, 2]
 
     @pytest.mark.asyncio
     async def test_active_reward_without_progress_visible(self, service):
@@ -152,11 +152,11 @@ class TestGetUserRewardProgress:
         result = await service.get_user_reward_progress("1")
 
         assert len(result) == 2
-        # Pending (50%) first, then never-won (no progress) last
-        assert result[0].reward_id == 1
-        assert result[1].reward_id == 99
-        assert result[1].pieces_earned == 0
-        assert result[1].pieces_required == 3
+        # Synthetic zero-piece reward (no progress row) first, then non-zero (5/10)
+        assert result[0].reward_id == 99
+        assert result[0].pieces_earned == 0
+        assert result[0].pieces_required == 3
+        assert result[1].reward_id == 1
 
     @pytest.mark.asyncio
     async def test_repo_filters_inactive_rewards_at_db_level(self):
@@ -213,21 +213,21 @@ class TestGetUserRewardProgress:
     # ------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_sort_by_percentage_descending(self, service):
-        """Pending rewards sorted by fill percentage high → low."""
+    async def test_non_zero_sorted_by_pieces_earned_ascending(self, service):
+        """Non-zero rewards sorted by pieces_earned ascending (1, 3, 7)."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=3, pieces_required=10, reward_id=1),   # 30%
-            _make_progress(pieces_earned=7, pieces_required=10, reward_id=2),   # 70%
-            _make_progress(pieces_earned=1, pieces_required=2, reward_id=3),    # 50%
+            _make_progress(pieces_earned=7, pieces_required=10, reward_id=1),
+            _make_progress(pieces_earned=3, pieces_required=10, reward_id=2),
+            _make_progress(pieces_earned=1, pieces_required=10, reward_id=3),
         ]
 
         result = await service.get_user_reward_progress("1")
 
-        assert [r.reward_id for r in result] == [2, 3, 1]
+        assert [r.reward_id for r in result] == [3, 2, 1]
 
     @pytest.mark.asyncio
-    async def test_achieved_after_pending(self, service):
-        """Achieved rewards come after all pending rewards."""
+    async def test_achieved_and_pending_share_non_zero_bucket(self, service):
+        """Achieved and pending both belong to the non-zero bucket, sorted by pieces_earned."""
         service.progress_repo.get_all_by_user.return_value = [
             _make_progress(pieces_earned=10, pieces_required=10, reward_id=1),  # achieved
             _make_progress(pieces_earned=5, pieces_required=10, reward_id=2),   # pending
@@ -235,84 +235,104 @@ class TestGetUserRewardProgress:
 
         result = await service.get_user_reward_progress("1")
 
-        assert result[0].reward_id == 2   # pending first
-        assert result[1].reward_id == 1   # achieved second
+        # pending (5) before achieved (10) because 5 < 10
+        assert [r.reward_id for r in result] == [2, 1]
 
     @pytest.mark.asyncio
-    async def test_never_won_at_bottom(self, service):
-        """Rewards with 0 pieces earned appear last."""
+    async def test_zero_piece_rewards_appear_first(self, service):
+        """Rewards with 0 pieces earned appear first in the list."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=0, pieces_required=10, reward_id=1),   # never won
-            _make_progress(pieces_earned=5, pieces_required=10, reward_id=2),   # pending
+            _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),   # non-zero
+            _make_progress(pieces_earned=0, pieces_required=10, reward_id=2),   # zero-piece
         ]
 
         result = await service.get_user_reward_progress("1")
 
-        assert result[0].reward_id == 2   # pending first
-        assert result[1].reward_id == 1   # never-won last
+        assert result[0].reward_id == 2   # zero-piece first
+        assert result[1].reward_id == 1   # non-zero last
 
     @pytest.mark.asyncio
     async def test_mixed_ordering_all_groups(self, service):
-        """Full ordering: pending (by %) → achieved → never-won."""
+        """Full ordering: zero-piece first → non-zero ascending by pieces_earned; claimed excluded."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=0, pieces_required=5, reward_id=1),    # never won
-            _make_progress(pieces_earned=10, pieces_required=10, reward_id=2),  # achieved
-            _make_progress(pieces_earned=3, pieces_required=10, reward_id=3),   # 30%
-            _make_progress(pieces_earned=7, pieces_required=10, reward_id=4),   # 70%
+            _make_progress(pieces_earned=7, pieces_required=10, reward_id=1),   # non-zero
+            _make_progress(pieces_earned=0, pieces_required=5, reward_id=2),    # zero-piece
+            _make_progress(pieces_earned=10, pieces_required=10, reward_id=3),  # achieved (non-zero)
+            _make_progress(pieces_earned=3, pieces_required=10, reward_id=4),   # non-zero
             _make_progress(pieces_earned=5, pieces_required=5, claimed=True, reward_id=5),  # claimed
         ]
 
         result = await service.get_user_reward_progress("1")
 
         ids = [r.reward_id for r in result]
-        # claimed (id=5) excluded; order: 70% → 30% → achieved → never-won
-        assert ids == [4, 3, 2, 1]
+        # claimed (id=5) excluded; zero-piece (id=2) first;
+        # non-zero ascending by pieces_earned: 3 → 7 → 10
+        assert ids == [2, 4, 1, 3]
 
     # ------------------------------------------------------------------
     # Edge cases
     # ------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_one_piece_away_is_pending_not_achieved(self, service):
-        """Reward at pieces_required-1 stays in pending group, not achieved."""
+    async def test_one_piece_away_is_ordered_by_pieces_earned(self, service):
+        """Achieved and nearly-achieved entries order by pieces_earned alongside zero-piece first."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=9, pieces_required=10, reward_id=1),  # 90% pending
+            _make_progress(pieces_earned=9, pieces_required=10, reward_id=1),   # non-zero
             _make_progress(pieces_earned=10, pieces_required=10, reward_id=2),  # achieved
-            _make_progress(pieces_earned=0, pieces_required=1, reward_id=3),    # never-won (0/1)
+            _make_progress(pieces_earned=0, pieces_required=1, reward_id=3),    # zero-piece
         ]
 
         result = await service.get_user_reward_progress("1")
 
         ids = [r.reward_id for r in result]
-        # 90% pending first, then achieved, then never-won
-        assert ids == [1, 2, 3]
+        # zero-piece (id=3) first; then non-zero ascending: 9 → 10
+        assert ids == [3, 1, 2]
 
     @pytest.mark.asyncio
-    async def test_equal_percentage_preserves_repo_order(self, service):
-        """Rewards with the same fill % keep their repository order (stable sort)."""
+    async def test_equal_pieces_earned_preserves_repo_order(self, service):
+        """Rewards with the same pieces_earned keep their repository order (stable sort)."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),   # 50%
-            _make_progress(pieces_earned=1, pieces_required=2, reward_id=2),    # 50%
-            _make_progress(pieces_earned=3, pieces_required=6, reward_id=3),    # 50%
+            _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),
+            _make_progress(pieces_earned=5, pieces_required=20, reward_id=2),
+            _make_progress(pieces_earned=5, pieces_required=7, reward_id=3),
         ]
 
         result = await service.get_user_reward_progress("1")
 
-        # Python's stable sort preserves insertion order for equal keys
         assert [r.reward_id for r in result] == [1, 2, 3]
 
     @pytest.mark.asyncio
-    async def test_pieces_required_none_goes_to_never_won(self, service):
-        """Reward with pieces_required=None is bucketed into never-won, not pending."""
+    async def test_pieces_required_none_goes_to_zero_piece_group(self, service):
+        """Reward with pieces_required=None is bucketed into zero-piece (first)."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),     # pending 50%
-            _make_progress(pieces_earned=3, pieces_required=None, reward_id=2),   # never-won
+            _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),     # non-zero
+            _make_progress(pieces_earned=3, pieces_required=None, reward_id=2),   # zero-piece (no required)
         ]
 
         result = await service.get_user_reward_progress("1")
 
-        # pending first, then never-won (pieces_required=None)
-        assert [r.reward_id for r in result] == [1, 2]
+        # zero-piece (pieces_required=None) first, then non-zero
+        assert [r.reward_id for r in result] == [2, 1]
+
+    @pytest.mark.asyncio
+    async def test_synthetic_active_reward_appears_in_zero_piece_group(self, service):
+        """An active reward without a progress row is synthesized as zero-piece and appears first."""
+        from unittest.mock import Mock
+
+        reward_no_progress = Mock()
+        reward_no_progress.id = 42
+        reward_no_progress.pieces_required = 4
+        reward_no_progress.is_recurring = False
+
+        service.progress_repo.get_all_by_user.return_value = [
+            _make_progress(pieces_earned=2, pieces_required=10, reward_id=1),  # non-zero
+        ]
+        service.reward_repo.get_all_active.return_value = [reward_no_progress]
+
+        result = await service.get_user_reward_progress("1")
+
+        assert [r.reward_id for r in result] == [42, 1]
+        assert result[0].pieces_earned == 0
 
     @pytest.mark.asyncio
     async def test_empty_list_returns_empty(self, service):

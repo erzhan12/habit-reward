@@ -549,53 +549,42 @@ class RewardService:
         """Get all reward progress for a user.
 
         Returns all active rewards sorted by:
-        1. Pending rewards (pieces > 0) sorted by fill percentage descending
-        2. Achieved rewards (ready to claim)
-        3. Never-won rewards (0 pieces earned)
+        1. Zero-piece rewards first — ``pieces_earned == 0`` or
+           ``pieces_required`` unknown (includes synthetic entries for active
+           rewards without a progress row, and recurring CLAIMED rewards which
+           are treated as a fresh cycle).
+        2. Non-zero rewards sorted by ``pieces_earned`` ascending. Both
+           PENDING and ACHIEVED rewards share this bucket.
 
-        Active rewards without a RewardProgress entry are included as never-won.
-        Recurring rewards with CLAIMED status are shown as never-won (fresh cycle).
+        One-time CLAIMED rewards are excluded; they surface via
+        ``get_claimed_rewards`` and are rendered separately in the web UI.
         """
 
         async def _impl() -> list[RewardProgress]:
             results = await maybe_await(self.progress_repo.get_all_by_user(user_id))
             coerced = [self._coerce_progress(r) for r in results]
 
-            # Track which rewards already have progress entries
             progress_reward_ids = set()
 
-            # Split into 3 groups (single pass).
-            pending = []
-            achieved = []
-            never_won = []
+            zero_piece: list[RewardProgress] = []
+            non_zero: list[RewardProgress] = []
             for p in coerced:
                 progress_reward_ids.add(
                     int(p.reward_id) if isinstance(p.reward_id, str) else p.reward_id
                 )
                 status = p.get_status()
                 if status == RewardStatus.CLAIMED:
-                    # Recurring rewards: treat as never-won (fresh cycle)
                     reward_obj = getattr(p, "reward", None)
                     if reward_obj and getattr(reward_obj, "is_recurring", False):
-                        never_won.append(p)
-                    # One-time claimed rewards: skip (they'll be auto-deactivated)
+                        zero_piece.append(p)
                     continue
-                elif status == RewardStatus.ACHIEVED:
-                    achieved.append(p)
-                elif status == RewardStatus.PENDING:
-                    # Never-won: no progress, or pieces_required unknown.
-                    pieces_req = getattr(p, "pieces_required", -1)
-                    if p.pieces_earned == 0 or pieces_req is None:
-                        never_won.append(p)
-                    else:
-                        pending.append(p)
-                else:
-                    logger.warning(
-                        "Unexpected reward status %s for progress %s — skipping",
-                        status, getattr(p, "id", "?"),
-                    )
 
-            # Include active rewards that have no progress entry at all
+                pieces_req = getattr(p, "pieces_required", -1)
+                if p.pieces_earned == 0 or pieces_req is None:
+                    zero_piece.append(p)
+                else:
+                    non_zero.append(p)
+
             active_rewards = await maybe_await(
                 self.reward_repo.get_all_active(user_id)
             )
@@ -611,15 +600,11 @@ class RewardService:
                         times_claimed=0,
                         reward=reward,
                     )
-                    never_won.append(synthetic)
+                    zero_piece.append(synthetic)
 
-            # Sort pending by fill percentage descending.
-            pending.sort(
-                key=lambda rp: rp.pieces_earned / rp.get_pieces_required(),
-                reverse=True,
-            )
+            non_zero.sort(key=lambda rp: rp.pieces_earned)
 
-            return pending + achieved + never_won
+            return zero_piece + non_zero
 
         return run_sync_or_async(_impl())
 
