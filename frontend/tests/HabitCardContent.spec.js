@@ -43,6 +43,7 @@ describe("HabitCardContent", () => {
     expect(text.classes()).toContain("streak-fire-bounce");
     expect(emoji.classes()).not.toContain("text-text-muted");
     expect(text.classes()).not.toContain("text-text-muted");
+    expect(emoji.attributes("style")).toBeFalsy();
   });
 
   it("uses muted streak styling for completed habits", () => {
@@ -58,6 +59,7 @@ describe("HabitCardContent", () => {
     expect(text.classes()).toContain("text-text-muted");
     expect(emoji.classes()).toContain("streak-fire-bounce");
     expect(text.classes()).toContain("streak-fire-bounce");
+    expect(emoji.attributes("style")).toContain("filter: grayscale(1) opacity(0.5)");
   });
 
   it("does not render the streak block when there is no streak", () => {

@@ -15,7 +15,7 @@
       <span
         class="text-sm"
         :class="streakColorClasses"
-        :style="habit.completedToday ? 'filter: grayscale(1) opacity(0.5)' : null"
+        :style="emojiFilterStyle"
       >
         🔥
       </span>
@@ -39,4 +39,8 @@ const streakColorClasses = computed(() => [
   props.habit.completedToday ? "text-text-muted" : "text-streak-fire",
   props.streakClass,
 ]);
+
+const emojiFilterStyle = computed(() =>
+  props.habit.completedToday ? { filter: "grayscale(1) opacity(0.5)" } : null,
+);
 </script>
