@@ -324,8 +324,8 @@ class TestGetUserRewardProgress:
     # ------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_one_piece_away_is_ordered_by_pieces_earned(self, service):
-        """Zero-piece rewards appear first, then pending sorted by pieces_earned, then achieved rewards last."""
+    async def test_groups_bucketed_correctly_across_zero_pending_achieved(self, service):
+        """Group rank takes precedence: zero-piece first, then pending, then achieved last."""
         service.progress_repo.get_all_by_user.return_value = [
             _make_progress(pieces_earned=9, pieces_required=10, reward_id=1),   # pending
             _make_progress(pieces_earned=10, pieces_required=10, reward_id=2),  # achieved
