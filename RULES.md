@@ -506,6 +506,8 @@ Standardized: `{"error": {"code": "ERROR_CODE", "message": "...", "details": {}}
 
 `filter: grayscale(1) opacity(0.5);` in source CSS minifies to `filter:grayscale()opacity(.5)` (no space) in the built bundle, which is invalid CSS — browsers silently drop the rule. Symptom: filter has no visual effect in production but works in dev (Vite serves un-minified source). Fix: split combined filter+opacity into separate properties — `filter: grayscale(1); opacity: 0.5;`. Verified with playwright/Chromium on the built bundle. (Encountered while implementing the muted streak emoji.)
 
+Note: Vue 3's `:style` binding uses CSSOM property setting (`el.style[key] = value`), not parser-inserted `style=""` HTML attributes — so it's NOT subject to CSP `style-src-attr`. Existing `:style` bindings (progress bars, animations, transforms) work fine under our production CSP.
+
 ### Authentication Endpoint Hardening
 
 **Rate limiting**: All auth endpoints use `django-ratelimit`. Rate configurable via `settings.AUTH_RATE_LIMIT` (default `'10/m'`). Always pair `method=` with `@require_POST`/`@require_GET`. Dashboard actions: `settings.DASHBOARD_ACTION_RATE_LIMIT` (default `'60/m'`), shared `group="dashboard_action"`.
