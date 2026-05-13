@@ -214,7 +214,7 @@ class TestGetUserRewardProgress:
 
     @pytest.mark.asyncio
     async def test_non_zero_sorted_by_pieces_earned_ascending(self, service):
-        """Non-zero rewards sorted by pieces_earned ascending (1, 3, 7)."""
+        """PENDING rewards sorted by pieces_earned ascending (1, 3, 7)."""
         service.progress_repo.get_all_by_user.return_value = [
             _make_progress(pieces_earned=7, pieces_required=10, reward_id=1),
             _make_progress(pieces_earned=3, pieces_required=10, reward_id=2),
@@ -226,16 +226,18 @@ class TestGetUserRewardProgress:
         assert [r.reward_id for r in result] == [3, 2, 1]
 
     @pytest.mark.asyncio
-    async def test_achieved_and_pending_share_non_zero_bucket(self, service):
-        """Achieved and pending both belong to the non-zero bucket, sorted by pieces_earned."""
+    async def test_achieved_appears_after_pending(self, service):
+        """ACHIEVED rewards are ordered last, after all PENDING rewards,
+        regardless of pieces_earned. They sit just before the separate
+        claimed-rewards block in the UI."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=10, pieces_required=10, reward_id=1),  # achieved
-            _make_progress(pieces_earned=5, pieces_required=10, reward_id=2),   # pending
+            _make_progress(pieces_earned=5, pieces_required=5, reward_id=1),     # achieved (low pieces_earned)
+            _make_progress(pieces_earned=20, pieces_required=100, reward_id=2),  # pending (high pieces_earned)
         ]
 
         result = await service.get_user_reward_progress("1")
 
-        # pending (5) before achieved (10) because 5 < 10
+        # pending comes first even though pieces_earned (20) > achieved's (5)
         assert [r.reward_id for r in result] == [2, 1]
 
     @pytest.mark.asyncio
@@ -253,12 +255,12 @@ class TestGetUserRewardProgress:
 
     @pytest.mark.asyncio
     async def test_mixed_ordering_all_groups(self, service):
-        """Full ordering: zero-piece first → non-zero ascending by pieces_earned; claimed excluded."""
+        """Full ordering: zero-piece → pending (ascending by pieces_earned) → achieved; claimed excluded."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=7, pieces_required=10, reward_id=1),   # non-zero
+            _make_progress(pieces_earned=7, pieces_required=10, reward_id=1),   # pending
             _make_progress(pieces_earned=0, pieces_required=5, reward_id=2),    # zero-piece
-            _make_progress(pieces_earned=10, pieces_required=10, reward_id=3),  # achieved (non-zero)
-            _make_progress(pieces_earned=3, pieces_required=10, reward_id=4),   # non-zero
+            _make_progress(pieces_earned=10, pieces_required=10, reward_id=3),  # achieved
+            _make_progress(pieces_earned=3, pieces_required=10, reward_id=4),   # pending
             _make_progress(pieces_earned=5, pieces_required=5, claimed=True, reward_id=5),  # claimed
         ]
 
@@ -266,8 +268,56 @@ class TestGetUserRewardProgress:
 
         ids = [r.reward_id for r in result]
         # claimed (id=5) excluded; zero-piece (id=2) first;
-        # non-zero ascending by pieces_earned: 3 → 7 → 10
+        # pending ascending by pieces_earned (3 → 7), then achieved last (id=3)
         assert ids == [2, 4, 1, 3]
+
+    @pytest.mark.asyncio
+    async def test_achieved_low_pieces_after_pending_high_pieces(self, service):
+        """Regression: an achieved reward with a small pieces_earned must still
+        appear after a pending reward with a larger pieces_earned — the
+        group rank takes precedence over numeric pieces_earned."""
+        service.progress_repo.get_all_by_user.return_value = [
+            _make_progress(pieces_earned=2, pieces_required=2, reward_id=1),    # achieved
+            _make_progress(pieces_earned=50, pieces_required=100, reward_id=2), # pending
+            _make_progress(pieces_earned=0, pieces_required=10, reward_id=3),   # zero-piece
+        ]
+
+        result = await service.get_user_reward_progress("1")
+
+        # zero-piece first, then pending, then achieved — regardless of pieces_earned magnitude
+        assert [r.reward_id for r in result] == [3, 2, 1]
+
+    @pytest.mark.asyncio
+    async def test_multiple_achieved_sorted_by_pieces_earned(self, service):
+        """Multiple ACHIEVED rewards inside the ready_to_claim bucket are sorted
+        by pieces_earned ascending."""
+        service.progress_repo.get_all_by_user.return_value = [
+            _make_progress(pieces_earned=10, pieces_required=10, reward_id=1),  # achieved
+            _make_progress(pieces_earned=2, pieces_required=2, reward_id=2),    # achieved
+            _make_progress(pieces_earned=5, pieces_required=5, reward_id=3),    # achieved
+        ]
+
+        result = await service.get_user_reward_progress("1")
+
+        # all achieved, ascending by pieces_earned: 2 → 5 → 10
+        assert [r.reward_id for r in result] == [2, 3, 1]
+
+    @pytest.mark.asyncio
+    async def test_instant_reward_zero_required_goes_to_zero_bucket(self, service):
+        """An instant ACHIEVED reward (pieces_earned=0, pieces_required=0)
+        belongs to the zero-piece bucket, not ready_to_claim — the zero-piece
+        check takes precedence over status."""
+        service.progress_repo.get_all_by_user.return_value = [
+            _make_progress(pieces_earned=0, pieces_required=0, reward_id=1),    # instant achieved
+            _make_progress(pieces_earned=4, pieces_required=10, reward_id=2),   # pending
+            _make_progress(pieces_earned=10, pieces_required=10, reward_id=3),  # achieved
+        ]
+
+        result = await service.get_user_reward_progress("1")
+
+        # instant reward (id=1) goes to zero-piece bucket → comes first,
+        # ahead of both pending and ready_to_claim
+        assert [r.reward_id for r in result] == [1, 2, 3]
 
     # ------------------------------------------------------------------
     # Edge cases
@@ -275,9 +325,9 @@ class TestGetUserRewardProgress:
 
     @pytest.mark.asyncio
     async def test_one_piece_away_is_ordered_by_pieces_earned(self, service):
-        """Achieved and nearly-achieved entries order by pieces_earned alongside zero-piece first."""
+        """Zero-piece rewards appear first, then pending sorted by pieces_earned, then achieved rewards last."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=9, pieces_required=10, reward_id=1),   # non-zero
+            _make_progress(pieces_earned=9, pieces_required=10, reward_id=1),   # pending
             _make_progress(pieces_earned=10, pieces_required=10, reward_id=2),  # achieved
             _make_progress(pieces_earned=0, pieces_required=1, reward_id=3),    # zero-piece
         ]
@@ -285,7 +335,7 @@ class TestGetUserRewardProgress:
         result = await service.get_user_reward_progress("1")
 
         ids = [r.reward_id for r in result]
-        # zero-piece (id=3) first; then non-zero ascending: 9 → 10
+        # zero-piece (id=3) first, then pending (id=1), then achieved (id=2)
         assert ids == [3, 1, 2]
 
     @pytest.mark.asyncio
