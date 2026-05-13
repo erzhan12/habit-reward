@@ -7,13 +7,39 @@ Verifies the split-directive CSP policy: strict ``style-src-elem`` for
 directives.
 """
 
-import re
+from html.parser import HTMLParser
 
 import pytest
 from django.http import HttpResponse
 from django.test import Client, RequestFactory, override_settings
 
 from src.web.middleware import ContentSecurityPolicyMiddleware
+
+
+class _CSPNonceMetaExtractor(HTMLParser):
+    """Extract the ``content`` of ``<meta name="csp-nonce">`` from HTML.
+
+    Robust against attribute-order changes in ``base.html`` — using a
+    real HTML parser instead of a regex avoids false negatives if the
+    template is reformatted.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.nonce: str | None = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "meta":
+            return
+        attr_map = dict(attrs)
+        if attr_map.get("name") == "csp-nonce":
+            self.nonce = attr_map.get("content")
+
+
+def _extract_csp_nonce_meta(html: str) -> str | None:
+    parser = _CSPNonceMetaExtractor()
+    parser.feed(html)
+    return parser.nonce
 
 
 # -----------------------------------------------------------------------------
@@ -215,18 +241,18 @@ class TestCSPNonceTemplateIntegration:
         same per-request nonce.
 
         Uses ``/auth/login/`` because it renders ``base.html`` without
-        requiring authentication or heavy view-layer mocks.
+        requiring authentication or heavy view-layer mocks.  If
+        ``/auth/login/`` is ever removed or stops rendering ``base.html``,
+        replace this fixture with another unauthenticated endpoint that
+        does — or add a minimal test-only view in ``tests/web/conftest.py``.
         """
         response = Client().get("/auth/login/")
         assert response.status_code == 200
         assert "Content-Security-Policy" in response
 
         body = response.content.decode("utf-8")
-        match = re.search(
-            r'<meta\s+name="csp-nonce"\s+content="([^"]*)"', body
-        )
-        assert match is not None, "csp-nonce meta tag not found in response"
-        meta_nonce = match.group(1)
+        meta_nonce = _extract_csp_nonce_meta(body)
+        assert meta_nonce is not None, "csp-nonce meta tag not found in response"
         assert meta_nonce, "csp-nonce meta tag has empty content"
 
         parsed = _parse_csp(response["Content-Security-Policy"])
