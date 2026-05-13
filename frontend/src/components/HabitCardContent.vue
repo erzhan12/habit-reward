@@ -12,7 +12,11 @@
       </span>
     </div>
     <div v-if="habit.streak > 0" class="flex items-center gap-1 mt-1">
-      <span class="text-sm" :class="streakColorClasses">
+      <span
+        class="text-sm"
+        :class="streakColorClasses"
+        :style="habit.completedToday ? 'filter: grayscale(1) opacity(0.5)' : null"
+      >
         🔥
       </span>
       <span class="text-xs font-medium" :class="streakColorClasses">
