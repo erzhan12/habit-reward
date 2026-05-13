@@ -90,6 +90,7 @@ body {
   --color-bg-card-hover: #1a1a1a;
   --color-text-primary: #00ff41;
   --color-text-secondary: #00cc33;
+  /* Desaturated green (not gray) to match terminal aesthetic */
   --color-text-muted: #66806b;
   --color-accent: #00ff41;
   --color-accent-hover: #33ff66;

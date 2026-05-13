@@ -41,6 +41,8 @@ describe("HabitCardContent", () => {
     expect(text.classes()).toContain("text-streak-fire");
     expect(emoji.classes()).toContain("streak-fire-bounce");
     expect(text.classes()).toContain("streak-fire-bounce");
+    expect(emoji.classes()).not.toContain("text-text-muted");
+    expect(text.classes()).not.toContain("text-text-muted");
   });
 
   it("uses muted streak styling for completed habits", () => {
@@ -64,5 +66,15 @@ describe("HabitCardContent", () => {
 
     expect(spans.some((span) => span.text() === "🔥")).toBe(false);
     expect(wrapper.text()).not.toContain("day streak");
+  });
+
+  it("renders without stray empty class tokens when streakClass is empty", () => {
+    const wrapper = mountComponent({}, { streakClass: "" });
+    const { emoji, text } = findStreakElements(wrapper);
+
+    expect(emoji).toBeDefined();
+    expect(text).toBeDefined();
+    expect(emoji.classes()).not.toContain("");
+    expect(text.classes()).not.toContain("");
   });
 });

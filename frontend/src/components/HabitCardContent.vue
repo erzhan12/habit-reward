@@ -12,16 +12,10 @@
       </span>
     </div>
     <div v-if="habit.streak > 0" class="flex items-center gap-1 mt-1">
-      <span
-        class="text-sm"
-        :class="[habit.completedToday ? 'text-text-muted' : 'text-streak-fire', streakClass]"
-      >
+      <span class="text-sm" :class="streakColorClasses">
         🔥
       </span>
-      <span
-        class="text-xs font-medium"
-        :class="[habit.completedToday ? 'text-text-muted' : 'text-streak-fire', streakClass]"
-      >
+      <span class="text-xs font-medium" :class="streakColorClasses">
         {{ habit.streak }}-day streak
       </span>
     </div>
@@ -29,9 +23,16 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from "vue";
+
+const props = defineProps({
   habit: { type: Object, required: true },
   tc: { type: Object, required: true },
   streakClass: { type: String, default: "" },
 });
+
+const streakColorClasses = computed(() => [
+  props.habit.completedToday ? "text-text-muted" : "text-streak-fire",
+  props.streakClass,
+]);
 </script>
