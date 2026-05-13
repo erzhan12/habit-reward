@@ -365,6 +365,52 @@ class TestGetUserRewardProgress:
         assert [r.reward_id for r in result] == [2, 1]
 
     @pytest.mark.asyncio
+    async def test_django_model_pieces_required_via_safe_getter(self, service):
+        """Regression: real Django RewardProgress has no `pieces_required` field
+        directly — it lives on the related Reward and is exposed via
+        `_get_pieces_required_safe()`. Service must read through that method,
+        not assume `p.pieces_required` is a direct attribute, or every reward
+        falls into the zero-piece bucket and the order collapses to the
+        repository's alphabetical sort.
+        """
+        from types import SimpleNamespace
+        from src.models.reward_progress import RewardStatus
+
+        def _django_like(*, pieces_earned, pieces_required, reward_id, claimed=False):
+            obj = SimpleNamespace(
+                user_id=42,
+                reward_id=reward_id,
+                pieces_earned=pieces_earned,
+                claimed=claimed,
+                times_claimed=0,
+                _cached_pieces_required=pieces_required,
+                reward=SimpleNamespace(id=reward_id, pieces_required=pieces_required, is_recurring=False),
+            )
+            obj._get_pieces_required_safe = lambda: obj._cached_pieces_required
+            obj.get_status = lambda: (
+                RewardStatus.CLAIMED if obj.claimed
+                else RewardStatus.ACHIEVED if obj.pieces_earned >= obj._cached_pieces_required
+                else RewardStatus.PENDING
+            )
+            return obj
+
+        service.progress_repo.get_all_by_user.return_value = [
+            _django_like(pieces_earned=10, pieces_required=10, reward_id=1),  # achieved
+            _django_like(pieces_earned=5, pieces_required=7, reward_id=2),    # pending
+            _django_like(pieces_earned=5, pieces_required=5, reward_id=3),    # achieved
+            _django_like(pieces_earned=8, pieces_required=20, reward_id=4),   # pending
+        ]
+
+        result = await service.get_user_reward_progress("1")
+        ids = [r.reward_id for r in result]
+        # pending sorted by pieces_earned ASC: id=2 (5), id=4 (8)
+        # then ready_to_claim sorted by pieces_earned ASC: id=3 (5), id=1 (10)
+        assert ids == [2, 4, 3, 1], (
+            "Service must bucket Django-style RewardProgress correctly; "
+            f"got alphabetical/insertion order {ids}"
+        )
+
+    @pytest.mark.asyncio
     async def test_synthetic_active_reward_appears_in_zero_piece_group(self, service):
         """An active reward without a progress row is synthesized as zero-piece and appears first."""
         from unittest.mock import Mock

@@ -585,9 +585,18 @@ class RewardService:
                         zero_piece.append(p)
                     continue
 
-                # Defensive: pieces_required may be missing on partially-
-                # constructed mocks; treat absent and None as "unknown".
-                pieces_req = getattr(p, "pieces_required", None)
+                # pieces_required lives on the linked Reward in the Django
+                # model (cached by the repository) and as a direct field on the
+                # Pydantic model used in tests. Try both before treating as
+                # unknown.
+                pieces_req = None
+                if hasattr(p, "_get_pieces_required_safe"):
+                    try:
+                        pieces_req = p._get_pieces_required_safe()
+                    except (ValueError, AttributeError):
+                        pieces_req = None
+                if pieces_req is None:
+                    pieces_req = getattr(p, "pieces_required", None)
                 if p.pieces_earned == 0 or pieces_req is None:
                     zero_piece.append(p)
                 elif status == RewardStatus.ACHIEVED:
