@@ -213,17 +213,17 @@ class TestGetUserRewardProgress:
     # ------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_non_zero_sorted_by_pieces_earned_ascending(self, service):
-        """PENDING rewards sorted by pieces_earned ascending (1, 3, 7)."""
+    async def test_pending_sorted_by_completion_ratio_descending(self, service):
+        """PENDING rewards sorted by completion ratio descending (closest-to-ready first)."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=7, pieces_required=10, reward_id=1),
-            _make_progress(pieces_earned=3, pieces_required=10, reward_id=2),
-            _make_progress(pieces_earned=1, pieces_required=10, reward_id=3),
+            _make_progress(pieces_earned=7, pieces_required=10, reward_id=1),  # 70%
+            _make_progress(pieces_earned=3, pieces_required=10, reward_id=2),  # 30%
+            _make_progress(pieces_earned=1, pieces_required=10, reward_id=3),  # 10%
         ]
 
         result = await service.get_user_reward_progress("1")
 
-        assert [r.reward_id for r in result] == [3, 2, 1]
+        assert [r.reward_id for r in result] == [1, 2, 3]
 
     @pytest.mark.asyncio
     async def test_achieved_appears_after_pending(self, service):
@@ -255,12 +255,12 @@ class TestGetUserRewardProgress:
 
     @pytest.mark.asyncio
     async def test_mixed_ordering_all_groups(self, service):
-        """Full ordering: zero-piece → pending (ascending by pieces_earned) → achieved; claimed excluded."""
+        """Full ordering: zero-piece → pending (descending by completion ratio) → achieved; claimed excluded."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=7, pieces_required=10, reward_id=1),   # pending
+            _make_progress(pieces_earned=7, pieces_required=10, reward_id=1),   # pending 70%
             _make_progress(pieces_earned=0, pieces_required=5, reward_id=2),    # zero-piece
             _make_progress(pieces_earned=10, pieces_required=10, reward_id=3),  # achieved
-            _make_progress(pieces_earned=3, pieces_required=10, reward_id=4),   # pending
+            _make_progress(pieces_earned=3, pieces_required=10, reward_id=4),   # pending 30%
             _make_progress(pieces_earned=5, pieces_required=5, claimed=True, reward_id=5),  # claimed
         ]
 
@@ -268,8 +268,8 @@ class TestGetUserRewardProgress:
 
         ids = [r.reward_id for r in result]
         # claimed (id=5) excluded; zero-piece (id=2) first;
-        # pending ascending by pieces_earned (3 → 7), then achieved last (id=3)
-        assert ids == [2, 4, 1, 3]
+        # pending descending by ratio (70% → 30%), then achieved last (id=3)
+        assert ids == [2, 1, 4, 3]
 
     @pytest.mark.asyncio
     async def test_achieved_low_pieces_after_pending_high_pieces(self, service):
@@ -339,12 +339,12 @@ class TestGetUserRewardProgress:
         assert ids == [3, 1, 2]
 
     @pytest.mark.asyncio
-    async def test_equal_pieces_earned_preserves_repo_order(self, service):
-        """Rewards with the same pieces_earned keep their repository order (stable sort)."""
+    async def test_equal_completion_ratio_preserves_repo_order(self, service):
+        """Rewards with the same completion ratio keep their repository order (stable sort)."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),
-            _make_progress(pieces_earned=5, pieces_required=20, reward_id=2),
-            _make_progress(pieces_earned=5, pieces_required=7, reward_id=3),
+            _make_progress(pieces_earned=5, pieces_required=10, reward_id=1),  # 50%
+            _make_progress(pieces_earned=2, pieces_required=4, reward_id=2),   # 50%
+            _make_progress(pieces_earned=3, pieces_required=6, reward_id=3),   # 50%
         ]
 
         result = await service.get_user_reward_progress("1")
@@ -403,7 +403,7 @@ class TestGetUserRewardProgress:
 
         result = await service.get_user_reward_progress("1")
         ids = [r.reward_id for r in result]
-        # pending sorted by pieces_earned ASC: id=2 (5), id=4 (8)
+        # pending sorted by completion ratio DESC: id=2 (5/7=71%), id=4 (8/20=40%)
         # then ready_to_claim sorted by pieces_earned ASC: id=3 (5), id=1 (10)
         assert ids == [2, 4, 3, 1], (
             "Service must bucket Django-style RewardProgress correctly; "
