@@ -35,13 +35,15 @@ await page.waitForTimeout(1000);
 const css = await page.evaluate(() => window.__capturedCSS);
 if (!css) {
     console.error('No nprogress CSS captured');
-    process.exit(1);
+    process.exitCode = 1;
+} else {
+    await writeFile(OUT, css);
+    console.log(`Captured ${css.length} chars → ${OUT}`);
+    console.log(`\nFirst 300 chars:\n${css.slice(0, 300)}`);
 }
-
-await writeFile(OUT, css);
-console.log(`Captured ${css.length} chars → ${OUT}`);
-console.log(`\nFirst 300 chars:\n${css.slice(0, 300)}`);
 
 } finally {
     await browser.close();
 }
+process.exit(process.exitCode ?? 0);
+

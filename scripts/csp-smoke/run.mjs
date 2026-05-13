@@ -14,6 +14,13 @@ import { chromium } from 'playwright';
 
 const URL = process.argv[2] || 'https://habitreward.org/auth/login/';
 
+// Negative probe: poll for the synchronously-fired CSP violation, cap so
+// a misconfigured (no-violation) policy doesn't hang the test.
+const VIOLATION_POLL_TIMEOUT_MS = 2000;
+// Positive probe: absence-of-event must be a fixed wait — long enough for
+// a violation to have fired if it was going to.
+const STYLE_ATTR_ABSENCE_WAIT_MS = 500;
+
 function fail(msg) {
     console.error(`FAIL: ${msg}`);
     process.exitCode = 1;
@@ -90,7 +97,7 @@ if (!cspHeader) {
 }
 
 // --- Check 3: NEGATIVE — JS-injected <style> without nonce must violate ---
-const violations = await page.evaluate(() => {
+const violations = await page.evaluate((pollLimitMs) => {
     return new Promise((resolve) => {
         const events = [];
         const handler = (e) => events.push({
@@ -109,10 +116,10 @@ const violations = await page.evaluate(() => {
         } catch (e) {}
 
         // Poll for the violation event; short-circuit as soon as it lands.
-        // Hard cap at 2 s to keep the test bounded on a slow browser.
+        // Hard cap (pollLimitMs) keeps the test bounded on a slow browser.
         const start = Date.now();
         const tick = () => {
-            if (events.length > 0 || Date.now() - start > 2000) {
+            if (events.length > 0 || Date.now() - start > pollLimitMs) {
                 document.removeEventListener('securitypolicyviolation', handler);
                 resolve(events);
             } else {
@@ -121,7 +128,7 @@ const violations = await page.evaluate(() => {
         };
         tick();
     });
-});
+}, VIOLATION_POLL_TIMEOUT_MS);
 
 const styleElemViolation = violations.find(
     (v) => v.effectiveDirective?.startsWith('style-src-elem') || v.violatedDirective?.startsWith('style-src-elem'),
@@ -132,7 +139,7 @@ else
     fail(`<style> injection NOT blocked — violations seen: ${JSON.stringify(violations)}`);
 
 // --- Check 4: POSITIVE — element.style.X assignment must NOT violate ---
-const attrViolations = await page.evaluate(() => {
+const attrViolations = await page.evaluate((absenceWaitMs) => {
     return new Promise((resolve) => {
         const events = [];
         const handler = (e) => events.push({
@@ -147,15 +154,16 @@ const attrViolations = await page.evaluate(() => {
         document.body.appendChild(d);
 
         // Positive probe: absence of an event has no natural completion
-        // signal, so we must wait a deterministic window.  500 ms is enough
-        // for a violation to have fired if it was going to.
+        // signal, so we must wait a deterministic window
+        // (STYLE_ATTR_ABSENCE_WAIT_MS) for a violation to have fired if it
+        // was going to.
         setTimeout(() => {
             document.removeEventListener('securitypolicyviolation', handler);
             d.remove();
             resolve(events);
-        }, 500);
+        }, absenceWaitMs);
     });
-});
+}, STYLE_ATTR_ABSENCE_WAIT_MS);
 
 const attrViolation = attrViolations.find(
     (v) => v.effectiveDirective?.startsWith('style-src-attr') || v.violatedDirective?.startsWith('style-src-attr'),
