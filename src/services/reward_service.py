@@ -587,7 +587,7 @@ class RewardService:
 
                 # Defensive: pieces_required may be missing on partially-
                 # constructed mocks; treat absent and None as "unknown".
-                pieces_req = getattr(p, "pieces_required", -1)
+                pieces_req = getattr(p, "pieces_required", None)
                 if p.pieces_earned == 0 or pieces_req is None:
                     zero_piece.append(p)
                 elif status == RewardStatus.ACHIEVED:
