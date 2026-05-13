@@ -557,7 +557,9 @@ class RewardService:
            ascending.
         3. ACHIEVED (ready-to-claim) rewards last, sorted by ``pieces_earned``
            ascending. They sit just above the separate claimed-rewards section
-           rendered by the web UI.
+           rendered by the web UI. An ACHIEVED reward with ``pieces_earned == 0``
+           (e.g. an instant 0/0 reward) belongs to bucket 1 instead — the
+           zero-piece check takes precedence over status.
 
         One-time CLAIMED rewards are excluded; they surface via
         ``get_claimed_rewards`` and are rendered separately in the web UI.
@@ -583,6 +585,8 @@ class RewardService:
                         zero_piece.append(p)
                     continue
 
+                # Defensive: pieces_required may be missing on partially-
+                # constructed mocks; treat absent and None as "unknown".
                 pieces_req = getattr(p, "pieces_required", -1)
                 if p.pieces_earned == 0 or pieces_req is None:
                     zero_piece.append(p)

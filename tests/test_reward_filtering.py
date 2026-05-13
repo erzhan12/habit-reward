@@ -302,6 +302,23 @@ class TestGetUserRewardProgress:
         # all achieved, ascending by pieces_earned: 2 → 5 → 10
         assert [r.reward_id for r in result] == [2, 3, 1]
 
+    @pytest.mark.asyncio
+    async def test_instant_reward_zero_required_goes_to_zero_bucket(self, service):
+        """An instant ACHIEVED reward (pieces_earned=0, pieces_required=0)
+        belongs to the zero-piece bucket, not ready_to_claim — the zero-piece
+        check takes precedence over status."""
+        service.progress_repo.get_all_by_user.return_value = [
+            _make_progress(pieces_earned=0, pieces_required=0, reward_id=1),    # instant achieved
+            _make_progress(pieces_earned=4, pieces_required=10, reward_id=2),   # pending
+            _make_progress(pieces_earned=10, pieces_required=10, reward_id=3),  # achieved
+        ]
+
+        result = await service.get_user_reward_progress("1")
+
+        # instant reward (id=1) goes to zero-piece bucket → comes first,
+        # ahead of both pending and ready_to_claim
+        assert [r.reward_id for r in result] == [1, 2, 3]
+
     # ------------------------------------------------------------------
     # Edge cases
     # ------------------------------------------------------------------
