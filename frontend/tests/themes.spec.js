@@ -22,6 +22,7 @@ describe("Theme config schema", () => {
     "--color-bg-card-hover",
     "--color-text-primary",
     "--color-text-secondary",
+    "--color-text-muted",
     "--color-accent",
     "--color-accent-hover",
     "--color-danger",

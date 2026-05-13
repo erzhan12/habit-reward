@@ -12,8 +12,18 @@
       </span>
     </div>
     <div v-if="habit.streak > 0" class="flex items-center gap-1 mt-1">
-      <span class="text-streak-fire text-sm" :class="streakClass">🔥</span>
-      <span class="text-xs text-streak-fire font-medium" :class="streakClass">{{ habit.streak }}-day streak</span>
+      <span
+        class="text-sm"
+        :class="[habit.completedToday ? 'text-text-muted' : 'text-streak-fire', streakClass]"
+      >
+        🔥
+      </span>
+      <span
+        class="text-xs font-medium"
+        :class="[habit.completedToday ? 'text-text-muted' : 'text-streak-fire', streakClass]"
+      >
+        {{ habit.streak }}-day streak
+      </span>
     </div>
   </div>
 </template>
