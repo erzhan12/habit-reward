@@ -1,17 +1,5 @@
-/*
- * Bundled nprogress styling for the Inertia.js page-load progress bar.
- *
- * Originally injected at runtime by @inertiajs/vue3 via
- * document.head.appendChild(<style>...) without a CSP nonce.  Our
- * strict CSP (style-src-elem: 'self' 'nonce-...' — no 'unsafe-inline')
- * blocks the runtime injection, so we disable it by passing
- *   progress: { includeCSS: false }
- * to createInertiaApp() (see main.js) and ship the same rules here,
- * loaded via <link rel="stylesheet"> through the Vite bundle.
- *
- * Verbatim copy of nprogress 0.2.0 defaults — colour #29d, 2px bar at
- * top, spinner top-right — to match prior visual behaviour exactly.
- */
+/* Verbatim nprogress 0.2.0 CSS — bundled so the strict style-src-elem
+   CSP blocks the runtime injection from @inertiajs/vue3.  See main.js. */
 
 #nprogress {
   pointer-events: none;

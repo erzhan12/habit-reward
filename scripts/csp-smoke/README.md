@@ -9,6 +9,8 @@ on habitreward.org. Created during the rollout of [issue #24][issue-24]
 
 ## Setup
 
+Requires Node.js >= 18 (native ESM, native fetch).
+
 ```bash
 cd scripts/csp-smoke
 npm install        # installs playwright 1.55

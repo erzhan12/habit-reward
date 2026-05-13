@@ -34,11 +34,8 @@ router.on("before", (event) => {
 });
 
 createInertiaApp({
-  // Inertia's nprogress loader would otherwise document.head.appendChild
-  // a <style> block at runtime with no nonce — blocked by our strict CSP
-  // (style-src-elem: nonce + allowlist, no 'unsafe-inline').  Ship the
-  // same CSS bundled via app.css instead — see frontend/src/nprogress.css.
-  // The `includeCSS` option requires @inertiajs/vue3 >= 2.0.0.
+  // Disable nprogress's runtime <style> injection (blocked by our CSP);
+  // bundled in app.css instead.  Requires @inertiajs/vue3 >= 2.0.0.
   progress: { includeCSS: false },
   resolve: (name) => {
     const pages = import.meta.glob("./pages/**/*.vue", { eager: true });

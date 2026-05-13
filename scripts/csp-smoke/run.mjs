@@ -89,7 +89,11 @@ if (!cspHeader) {
 
     // --- Check 2: meta nonce == header nonce ---
     const headerNonceTok = directives['style-src-elem']?.find((t) => t.startsWith("'nonce-"));
-    const headerNonce = headerNonceTok ? headerNonceTok.slice("'nonce-".length, -1) : null;
+    // Token must be quoted on BOTH sides — fail to null if the format
+    // ever changes rather than silently slice off something legitimate.
+    const headerNonce = headerNonceTok?.startsWith("'nonce-") && headerNonceTok.endsWith("'")
+        ? headerNonceTok.slice("'nonce-".length, -1)
+        : null;
     const metaNonce = await page.evaluate(() => {
         const m = document.querySelector('meta[name="csp-nonce"]');
         return m ? m.getAttribute('content') : null;
