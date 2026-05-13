@@ -41,7 +41,7 @@ None.
 
 ### Suggestion
 
-1. **Duplicated `:class` array on the two streak spans** — [HabitCardContent.vue:17](frontend/src/components/HabitCardContent.vue#L17) and [:23](frontend/src/components/HabitCardContent.vue#L23) repeat `[habit.completedToday ? 'text-text-muted' : 'text-streak-fire', streakClass]` verbatim. Extract to a `computed` (e.g. `streakColorClasses`) so a future third state changes one location. Trivially DRY-able; current form is not wrong, just repetitive.
+1. **Duplicated `:class` array on the two streak spans** — *Resolved in `eb28e42`: extracted to the `streakColorClasses` computed in [HabitCardContent.vue](frontend/src/components/HabitCardContent.vue).*
 
 2. **`retro_terminal` muted token is desaturated green, not gray** — [themes/index.js:466](frontend/src/themes/index.js#L466) / [app.css:93](frontend/src/app.css#L93) use `#66806b`. This is intentional to match the terminal aesthetic, but a future contributor "normalizing" the muted palette could break it. One-line comment next to the value would lock the intent.
 
