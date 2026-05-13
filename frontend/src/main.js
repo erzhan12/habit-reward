@@ -34,6 +34,9 @@ router.on("before", (event) => {
 });
 
 createInertiaApp({
+  // Disable nprogress's runtime <style> injection (blocked by our CSP);
+  // bundled in app.css instead.  Requires @inertiajs/vue3 >= 2.0.0.
+  progress: { includeCSS: false },
   resolve: (name) => {
     const pages = import.meta.glob("./pages/**/*.vue", { eager: true });
     const page = pages[`./pages/${name}.vue`];
