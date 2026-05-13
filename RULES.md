@@ -502,6 +502,8 @@ Standardized: `{"error": {"code": "ERROR_CODE", "message": "...", "details": {}}
 
 `ContentSecurityPolicyMiddleware` (`src/web/middleware.py`) sets CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy in production (`DEBUG=False`). CSP nonce via `request.csp_nonce` → `csp_nonce` context processor → `<meta name="csp-nonce">`.
 
+**Vue inline `:style` is blocked in production**: `style-src` includes both `nonce-...` and `'unsafe-inline'`. Per CSP Level 3, when a nonce is present, `'unsafe-inline'` is IGNORED, so any `style=""` attribute without the nonce is dropped. Vue's `:style` binding emits nonce-less inline styles → no visual effect in prod (but works in dev/Vitest). Put the rule in a CSS class (`frontend/src/animations.css` or a `<style>` block) and toggle with `:class` instead.
+
 ### Authentication Endpoint Hardening
 
 **Rate limiting**: All auth endpoints use `django-ratelimit`. Rate configurable via `settings.AUTH_RATE_LIMIT` (default `'10/m'`). Always pair `method=` with `@require_POST`/`@require_GET`. Dashboard actions: `settings.DASHBOARD_ACTION_RATE_LIMIT` (default `'60/m'`), shared `group="dashboard_action"`.

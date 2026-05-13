@@ -14,8 +14,7 @@
     <div v-if="habit.streak > 0" class="flex items-center gap-1 mt-1">
       <span
         class="text-sm"
-        :class="streakColorClasses"
-        :style="emojiFilterStyle"
+        :class="[streakColorClasses, { 'streak-emoji-muted': habit.completedToday }]"
       >
         🔥
       </span>
@@ -39,8 +38,4 @@ const streakColorClasses = computed(() => [
   props.habit.completedToday ? "text-text-muted" : "text-streak-fire",
   props.streakClass,
 ]);
-
-const emojiFilterStyle = computed(() =>
-  props.habit.completedToday ? { filter: "grayscale(1) opacity(0.5)" } : null,
-);
 </script>

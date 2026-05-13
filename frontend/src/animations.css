@@ -73,6 +73,10 @@
   display: inline-block;
 }
 
+.streak-emoji-muted {
+  filter: grayscale(1) opacity(0.5);
+}
+
 /* ── Hover micro-interactions ──────────────────────────── */
 
 .hover-micro-scale {
