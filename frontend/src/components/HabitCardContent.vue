@@ -36,6 +36,6 @@ const props = defineProps({
 
 const streakColorClasses = computed(() => [
   props.habit.completedToday ? "text-text-muted" : "text-streak-fire",
-  props.streakClass,
+  props.habit.completedToday ? "" : props.streakClass,
 ]);
 </script>

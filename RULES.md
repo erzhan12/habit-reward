@@ -508,6 +508,10 @@ Standardized: `{"error": {"code": "ERROR_CODE", "message": "...", "details": {}}
 
 Note: Vue 3's `:style` binding uses CSSOM property setting (`el.style[key] = value`), not parser-inserted `style=""` HTML attributes — so it's NOT subject to CSP `style-src-attr`. Existing `:style` bindings (progress bars, animations, transforms) work fine under our production CSP.
 
+### CSS animation keyframes outrank static class properties on the same property
+
+If a class sets `filter` / `opacity` / `transform` and another class on the same element runs an animation that also touches that property, the animation wins for as long as it's running (the user-agent treats `running animation` as a higher cascade origin). Symptom: `.foo { filter: grayscale(1) }` ignored because `.bar { animation: pulseGlow ... }` keyframes set `filter: brightness(...)`. Fix is to either drop the conflicting animation class on the same element (preferred) or design keyframes to not touch the property the static class needs. The streak-emoji muted state in `HabitCardContent.vue` drops `streakClass` when `completedToday` for exactly this reason — pulseGlow animates `filter` and `opacity`, which collides with `.streak-emoji-muted`.
+
 ### Authentication Endpoint Hardening
 
 **Rate limiting**: All auth endpoints use `django-ratelimit`. Rate configurable via `settings.AUTH_RATE_LIMIT` (default `'10/m'`). Always pair `method=` with `@require_POST`/`@require_GET`. Dashboard actions: `settings.DASHBOARD_ACTION_RATE_LIMIT` (default `'60/m'`), shared `group="dashboard_action"`.
