@@ -64,27 +64,37 @@ class ContentSecurityPolicyMiddleware:
     In production (DEBUG=False), applies a strict CSP and security headers.
     In development, skips these headers to allow Vite HMR.
 
-    A per-request nonce replaces the old ``'unsafe-inline'`` for style-src.
-    The nonce is stored on ``request.csp_nonce`` and made available in
-    templates via the ``csp_nonce`` context processor.
+    A per-request nonce, stored on ``request.csp_nonce`` and exposed to
+    templates via the ``csp_nonce`` context processor, locks down
+    ``<style>`` blocks and ``<link rel="stylesheet">`` references.
 
-    Note: Vue 3 runtime style injection (scoped component styles) may still
-    require ``'unsafe-inline'`` as a fallback until Vue adds native nonce
-    support for injected ``<style>`` tags.  The nonce covers any inline
-    styles in Django templates and manually authored ``<style>`` blocks.
+    Partial resolution of issue #24: ``style-src`` is split into
+    ``style-src-elem`` (strict — no ``'unsafe-inline'``) and
+    ``style-src-attr`` (still ``'unsafe-inline'`` for Vue ``:style``
+    bindings).  A legacy ``style-src`` directive is kept as a fallback
+    for older browsers that do not understand the split directives —
+    those browsers ignore the unknown ``-elem``/``-attr`` directives
+    and fall back to ``style-src``, which retains ``'unsafe-inline'``
+    for backward compatibility.  Modern browsers (Chrome 75+, Firefox
+    109+, Safari 15.4+) honor the strict split and ignore the legacy
+    directive.  See https://github.com/erzhan12/habit-reward/issues/24.
     """
 
     # Template with {nonce} placeholder, filled per-request.
     _CSP_TEMPLATE = "; ".join([
         "default-src 'self'",
         "script-src 'self'",
-        # 'unsafe-inline' is needed for Vue 3 scoped styles which inject
-        # <style> tags at runtime without nonce support.  The nonce still
-        # covers Django template styles and manually authored blocks.
-        # TODO(#24): Remove 'unsafe-inline' from style-src once Vue 3 build
-        # pipeline supports nonce injection for scoped styles.  Investigate
-        # vite-plugin-css-injected-by-js or similar solutions.
-        # See: https://github.com/erzhan12/habit-reward/issues/24
+        # Strict <style> / <link rel=stylesheet> policy: nonce + allowlist,
+        # no 'unsafe-inline'.  Honored by modern CSP3 browsers.
+        "style-src-elem 'self' 'nonce-{nonce}' https://fonts.googleapis.com",
+        # Permissive inline style="..." attribute policy for Vue :style
+        # bindings.  TODO(#24): eliminate :style bindings so we can drop
+        # 'unsafe-inline' here too.
+        "style-src-attr 'unsafe-inline'",
+        # Legacy fallback for browsers that do not honor style-src-elem /
+        # style-src-attr (pre-CSP3).  Those browsers fall through to this
+        # directive, which keeps 'unsafe-inline' so the app still renders.
+        # TODO(#24): drop once old-browser traffic is negligible.
         "style-src 'self' 'nonce-{nonce}' 'unsafe-inline' https://fonts.googleapis.com",
         "font-src 'self' https://fonts.gstatic.com",
         "img-src 'self' data: https:",

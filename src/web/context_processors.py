@@ -4,12 +4,13 @@
 def csp_nonce(request):
     """Make the CSP nonce available as ``{{ csp_nonce }}`` in templates.
 
-    When a Content-Security-Policy middleware (e.g. django-csp) is active,
-    it attaches a per-request nonce to ``request.csp_nonce``.  This context
-    processor exposes that value so templates can allowlist inline scripts
-    and styles without resorting to ``'unsafe-inline'``.
+    Reads the per-request nonce attached by
+    :class:`src.web.middleware.ContentSecurityPolicyMiddleware` so
+    templates can allowlist inline scripts and styles without resorting
+    to ``'unsafe-inline'``.
 
-    If no CSP middleware is installed, returns an empty string (no-op).
+    If the middleware did not run (e.g. tests bypassing the stack),
+    returns an empty string (no-op).
 
     Usage in a Django template::
 
