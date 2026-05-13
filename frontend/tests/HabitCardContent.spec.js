@@ -57,8 +57,8 @@ describe("HabitCardContent", () => {
     expect(text.classes()).not.toContain("text-streak-fire");
     expect(emoji.classes()).toContain("text-text-muted");
     expect(text.classes()).toContain("text-text-muted");
-    expect(emoji.classes()).toContain("streak-fire-bounce");
-    expect(text.classes()).toContain("streak-fire-bounce");
+    expect(emoji.classes()).not.toContain("streak-fire-bounce");
+    expect(text.classes()).not.toContain("streak-fire-bounce");
     expect(emoji.classes()).toContain("streak-emoji-muted");
   });
 
