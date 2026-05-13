@@ -1,5 +1,9 @@
-// One-shot: capture the full CSS content nprogress would inject so we
-// can ship it bundled instead.
+// One-time utility — kept for reference, NOT part of normal CI/CD flow.
+//
+// Used once to capture the full CSS content nprogress would inject at
+// runtime, so we could ship it bundled instead (see
+// frontend/src/nprogress.css).  Re-run only if a future Inertia.js
+// upgrade changes the nprogress CSS and we need to recapture it.
 
 import { chromium } from 'playwright';
 import { writeFile } from 'node:fs/promises';

@@ -1,14 +1,12 @@
 {
   "name": "csp-smoke",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
+  "description": "Playwright-based smoke tests verifying Content-Security-Policy compliance on habitreward.org (issue #24).",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "smoke": "node run.mjs",
+    "diagnose": "node diagnose-injections.mjs"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "type": "module",
   "dependencies": {
     "playwright": "1.55"

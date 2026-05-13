@@ -53,10 +53,6 @@ pass(`page loaded (${resp.status()})`);
 if (!cspHeader) {
     fail('no Content-Security-Policy response header');
 } else {
-    const parsed = Object.fromEntries(
-        cspHeader.split(';').map((d) => d.trim().split(/\s+/, 1).concat([d.trim().split(/\s+/).slice(1)])).filter(([n]) => n).map(([n, t]) => [n, t]),
-    );
-    // Rebuild parsed properly:
     const directives = {};
     for (const part of cspHeader.split(';')) {
         const trimmed = part.trim();
@@ -111,11 +107,18 @@ const violations = await page.evaluate(() => {
             document.head.appendChild(s);
         } catch (e) {}
 
-        // Wait a tick for the event to fire.
-        setTimeout(() => {
-            document.removeEventListener('securitypolicyviolation', handler);
-            resolve(events);
-        }, 200);
+        // Poll for the violation event; short-circuit as soon as it lands.
+        // Hard cap at 2 s to keep the test bounded on a slow browser.
+        const start = Date.now();
+        const tick = () => {
+            if (events.length > 0 || Date.now() - start > 2000) {
+                document.removeEventListener('securitypolicyviolation', handler);
+                resolve(events);
+            } else {
+                setTimeout(tick, 25);
+            }
+        };
+        tick();
     });
 });
 
@@ -142,11 +145,14 @@ const attrViolations = await page.evaluate(() => {
         d.style.transform = 'translateX(10px)';
         document.body.appendChild(d);
 
+        // Positive probe: absence of an event has no natural completion
+        // signal, so we must wait a deterministic window.  500 ms is enough
+        // for a violation to have fired if it was going to.
         setTimeout(() => {
             document.removeEventListener('securitypolicyviolation', handler);
             d.remove();
             resolve(events);
-        }, 200);
+        }, 500);
     });
 });
 
