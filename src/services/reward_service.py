@@ -553,8 +553,9 @@ class RewardService:
            ``pieces_required`` unknown (includes synthetic entries for active
            rewards without a progress row, and recurring CLAIMED rewards which
            are treated as a fresh cycle).
-        2. PENDING rewards with partial progress, sorted by ``pieces_earned``
-           ascending.
+        2. PENDING rewards with partial progress, sorted by completion ratio
+           (``pieces_earned / pieces_required``) descending — closest-to-ready
+           first, so the on-page progress bars decrease monotonically.
         3. ACHIEVED (ready-to-claim) rewards last, sorted by ``pieces_earned``
            ascending. They sit just above the separate claimed-rewards section
            rendered by the web UI. An ACHIEVED reward with ``pieces_earned == 0``
@@ -585,18 +586,7 @@ class RewardService:
                         zero_piece.append(p)
                     continue
 
-                # pieces_required lives on the linked Reward in the Django
-                # model (cached by the repository) and as a direct field on the
-                # Pydantic model used in tests. Try both before treating as
-                # unknown.
-                pieces_req = None
-                if hasattr(p, "_get_pieces_required_safe"):
-                    try:
-                        pieces_req = p._get_pieces_required_safe()
-                    except (ValueError, AttributeError):
-                        pieces_req = None
-                if pieces_req is None:
-                    pieces_req = getattr(p, "pieces_required", None)
+                pieces_req = self._resolve_pieces_required(p)
                 if p.pieces_earned == 0 or pieces_req is None:
                     zero_piece.append(p)
                 elif status == RewardStatus.ACHIEVED:
@@ -621,7 +611,12 @@ class RewardService:
                     )
                     zero_piece.append(synthetic)
 
-            pending.sort(key=lambda rp: rp.pieces_earned)
+            # Pending: closest-to-ready first (descending by completion ratio)
+            # so the visual progress bars decrease monotonically down the list.
+            def _pending_sort_key(rp):
+                req = self._resolve_pieces_required(rp)
+                return -(rp.pieces_earned / req) if req else 0.0
+            pending.sort(key=_pending_sort_key)
             ready_to_claim.sort(key=lambda rp: rp.pieces_earned)
 
             return zero_piece + pending + ready_to_claim
@@ -714,6 +709,24 @@ class RewardService:
 
         return run_sync_or_async(_impl())
 
+
+    @staticmethod
+    def _resolve_pieces_required(progress: RewardProgress) -> int | None:
+        """Resolve pieces_required across model variants.
+
+        Django RewardProgress exposes the value only via `_get_pieces_required_safe()`
+        (the field lives on the related Reward, cached by the repository).
+        Pydantic RewardProgress has it as a direct field. Returns None when
+        neither path yields a value — caller should treat as "unknown".
+        """
+        if hasattr(progress, "_get_pieces_required_safe"):
+            try:
+                value = progress._get_pieces_required_safe()
+                if value is not None:
+                    return value
+            except (ValueError, AttributeError):
+                pass
+        return getattr(progress, "pieces_required", None)
 
     @staticmethod
     def _coerce_progress(progress: RewardProgress) -> RewardProgress:
