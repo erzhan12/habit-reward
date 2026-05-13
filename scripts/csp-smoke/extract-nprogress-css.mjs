@@ -12,6 +12,7 @@ const URL = process.argv[2] || 'https://habitreward.org/auth/login/';
 const OUT = process.argv[3] || '/tmp/nprogress-injected.css';
 
 const browser = await chromium.launch();
+try {
 const ctx = await browser.newContext({
     bypassCSP: true,  // let nprogress inject so we can read it
 });
@@ -41,4 +42,6 @@ await writeFile(OUT, css);
 console.log(`Captured ${css.length} chars → ${OUT}`);
 console.log(`\nFirst 300 chars:\n${css.slice(0, 300)}`);
 
-await browser.close();
+} finally {
+    await browser.close();
+}

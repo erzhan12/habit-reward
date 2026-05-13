@@ -6,6 +6,7 @@ import { chromium } from 'playwright';
 const URL = process.argv[2] || 'https://habitreward.org/auth/login/';
 
 const browser = await chromium.launch();
+try {
 const ctx = await browser.newContext();
 const page = await ctx.newPage();
 
@@ -72,4 +73,6 @@ for (const [i, s] of dom.entries()) {
     console.log(`    preview: ${s.preview.slice(0, 160)}`);
 }
 
-await browser.close();
+} finally {
+    await browser.close();
+}

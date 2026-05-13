@@ -24,6 +24,7 @@ function pass(msg) {
 }
 
 const browser = await chromium.launch();
+try {
 const ctx = await browser.newContext();
 const page = await ctx.newPage();
 
@@ -172,5 +173,7 @@ if (consoleErrors.length > 0) {
     pass('no console errors during page load');
 }
 
-await browser.close();
+} finally {
+    await browser.close();
+}
 process.exit(process.exitCode ?? 0);

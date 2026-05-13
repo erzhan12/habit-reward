@@ -11,8 +11,6 @@
  *
  * Verbatim copy of nprogress 0.2.0 defaults — colour #29d, 2px bar at
  * top, spinner top-right — to match prior visual behaviour exactly.
- * If we ever want to theme the bar per app theme, replace #29d with
- * var(--color-accent).
  */
 
 #nprogress {
