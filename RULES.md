@@ -502,7 +502,11 @@ Standardized: `{"error": {"code": "ERROR_CODE", "message": "...", "details": {}}
 
 `ContentSecurityPolicyMiddleware` (`src/web/middleware.py`) sets CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy in production (`DEBUG=False`). CSP nonce via `request.csp_nonce` → `csp_nonce` context processor → `<meta name="csp-nonce">`.
 
-**Vue inline `:style` is blocked in production**: `style-src` includes both `nonce-...` and `'unsafe-inline'`. Per CSP Level 3, when a nonce is present, `'unsafe-inline'` is IGNORED, so any `style=""` attribute without the nonce is dropped. Vue's `:style` binding emits nonce-less inline styles → no visual effect in prod (but works in dev/Vitest). Put the rule in a CSS class (`frontend/src/animations.css` or a `<style>` block) and toggle with `:class` instead.
+### Tailwind 4 / Lightning CSS minifier strips spaces between filter functions
+
+`filter: grayscale(1) opacity(0.5);` in source CSS minifies to `filter:grayscale()opacity(.5)` (no space) in the built bundle, which is invalid CSS — browsers silently drop the rule. Symptom: filter has no visual effect in production but works in dev (Vite serves un-minified source). Fix: split combined filter+opacity into separate properties — `filter: grayscale(1); opacity: 0.5;`. Verified with playwright/Chromium on the built bundle. (Encountered while implementing the muted streak emoji.)
+
+Note: Vue 3's `:style` binding uses CSSOM property setting (`el.style[key] = value`), not parser-inserted `style=""` HTML attributes — so it's NOT subject to CSP `style-src-attr`. Existing `:style` bindings (progress bars, animations, transforms) work fine under our production CSP.
 
 ### Authentication Endpoint Hardening
 
