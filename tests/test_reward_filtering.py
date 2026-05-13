@@ -214,7 +214,7 @@ class TestGetUserRewardProgress:
 
     @pytest.mark.asyncio
     async def test_non_zero_sorted_by_pieces_earned_ascending(self, service):
-        """Non-zero rewards sorted by pieces_earned ascending (1, 3, 7)."""
+        """PENDING rewards sorted by pieces_earned ascending (1, 3, 7)."""
         service.progress_repo.get_all_by_user.return_value = [
             _make_progress(pieces_earned=7, pieces_required=10, reward_id=1),
             _make_progress(pieces_earned=3, pieces_required=10, reward_id=2),
@@ -287,15 +287,30 @@ class TestGetUserRewardProgress:
         # zero-piece first, then pending, then achieved — regardless of pieces_earned magnitude
         assert [r.reward_id for r in result] == [3, 2, 1]
 
+    @pytest.mark.asyncio
+    async def test_multiple_achieved_sorted_by_pieces_earned(self, service):
+        """Multiple ACHIEVED rewards inside the ready_to_claim bucket are sorted
+        by pieces_earned ascending."""
+        service.progress_repo.get_all_by_user.return_value = [
+            _make_progress(pieces_earned=10, pieces_required=10, reward_id=1),  # achieved
+            _make_progress(pieces_earned=2, pieces_required=2, reward_id=2),    # achieved
+            _make_progress(pieces_earned=5, pieces_required=5, reward_id=3),    # achieved
+        ]
+
+        result = await service.get_user_reward_progress("1")
+
+        # all achieved, ascending by pieces_earned: 2 → 5 → 10
+        assert [r.reward_id for r in result] == [2, 3, 1]
+
     # ------------------------------------------------------------------
     # Edge cases
     # ------------------------------------------------------------------
 
     @pytest.mark.asyncio
     async def test_one_piece_away_is_ordered_by_pieces_earned(self, service):
-        """Achieved and nearly-achieved entries order by pieces_earned alongside zero-piece first."""
+        """Zero-piece rewards appear first, then pending sorted by pieces_earned, then achieved rewards last."""
         service.progress_repo.get_all_by_user.return_value = [
-            _make_progress(pieces_earned=9, pieces_required=10, reward_id=1),   # non-zero
+            _make_progress(pieces_earned=9, pieces_required=10, reward_id=1),   # pending
             _make_progress(pieces_earned=10, pieces_required=10, reward_id=2),  # achieved
             _make_progress(pieces_earned=0, pieces_required=1, reward_id=3),    # zero-piece
         ]
@@ -303,7 +318,7 @@ class TestGetUserRewardProgress:
         result = await service.get_user_reward_progress("1")
 
         ids = [r.reward_id for r in result]
-        # zero-piece (id=3) first; then non-zero ascending: 9 → 10
+        # zero-piece (id=3) first, then pending (id=1), then achieved (id=2)
         assert ids == [3, 1, 2]
 
     @pytest.mark.asyncio
