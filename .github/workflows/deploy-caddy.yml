@@ -195,13 +195,33 @@ jobs:
       - name: Deploy containers with Caddy
         run: |
           ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=10 ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'DEPLOY'
+            set -euo pipefail
             cd ${{ secrets.DEPLOY_PATH }}
 
-            # Login to GitHub Container Registry
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            # Login to GitHub Container Registry — retry on transient network failures
+            login_attempts=0
+            until echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin; do
+              login_attempts=$((login_attempts + 1))
+              if [ "$login_attempts" -ge 3 ]; then
+                echo "ERROR: docker login ghcr.io failed 3 times"; exit 1
+              fi
+              echo "docker login attempt $login_attempts failed; retrying in 5s..."
+              sleep 5
+            done
 
-            # Pull latest application image
-            docker-compose --env-file .env -f docker/docker-compose.yml pull web
+            # Pull FIRST — only tear down running containers if the new image is in hand.
+            # Avoids tearing down prod when ghcr.io is unreachable. Retry on
+            # transient network failures (defense-in-depth above docker's
+            # internal layer retries).
+            pull_attempts=0
+            until docker-compose --env-file .env -f docker/docker-compose.yml pull web; do
+              pull_attempts=$((pull_attempts + 1))
+              if [ "$pull_attempts" -ge 3 ]; then
+                echo "ERROR: docker-compose pull web failed 3 times"; exit 1
+              fi
+              echo "pull attempt $pull_attempts failed; retrying in 5s..."
+              sleep 5
+            done
 
             # Stop existing containers gracefully
             docker-compose --env-file .env -f docker/docker-compose.yml down --timeout 30
@@ -216,11 +236,28 @@ jobs:
             # Show container status
             echo "Container Status:"
             docker-compose --env-file .env -f docker/docker-compose.yml ps
+
+            # Fail loudly if either container isn't actually running. The HTTPS
+            # health check would catch this in ~50s, but checking here makes the
+            # failure faster and easier to diagnose.
+            web_state=$(docker inspect habit_reward_web --format='{{.State.Status}}' 2>/dev/null || echo "missing")
+            if [ "$web_state" != "running" ]; then
+              echo "ERROR: habit_reward_web is not running (state=$web_state)"
+              docker-compose --env-file .env -f docker/docker-compose.yml logs --tail=50 web || true
+              exit 1
+            fi
+            caddy_state=$(docker inspect habit_reward_caddy --format='{{.State.Status}}' 2>/dev/null || echo "missing")
+            if [ "$caddy_state" != "running" ]; then
+              echo "ERROR: habit_reward_caddy is not running (state=$caddy_state)"
+              docker-compose --env-file .env -f docker/docker-compose.yml logs --tail=50 caddy || true
+              exit 1
+            fi
           DEPLOY
 
       - name: Verify deployment health
         run: |
           ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=10 ${{ secrets.SSH_USER }}@${{ secrets.SERVER_HOST }} << 'VERIFY'
+            set -uo pipefail
             cd ${{ secrets.DEPLOY_PATH }}
 
             echo "Checking container logs:"
@@ -241,18 +278,25 @@ jobs:
       - name: Wait for services to stabilize
         run: sleep 30
 
+      # Note: this strict check will fail on first deployment if SSL cert
+      # provisioning takes longer than ~80s (30s stabilization + 5×10s retries).
+      # That is intentional — prefer failing loudly over silent success.
       - name: Check HTTPS endpoint
         run: |
+          set -euo pipefail
           echo "Testing HTTPS endpoint..."
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://habitreward.org/admin/login/ || echo "000")
-
-          if [ "$STATUS" == "200" ] || [ "$STATUS" == "302" ]; then
-            echo "✅ HTTPS is working! (HTTP $STATUS)"
-          else
-            echo "⚠️ Warning: Unexpected HTTP status: $STATUS"
-            echo "This might be normal on first deployment (SSL cert provisioning)"
-            # Don't fail the workflow - Caddy might still be provisioning cert
-          fi
+          STATUS=""
+          for attempt in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://habitreward.org/admin/login/ || echo "000")
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "302" ]; then
+              echo "✅ HTTPS is working! (HTTP $STATUS, attempt $attempt)"
+              exit 0
+            fi
+            echo "Attempt $attempt: HTTP $STATUS — retrying in 10s..."
+            sleep 10
+          done
+          echo "❌ HTTPS health check failed after 5 attempts (last status: $STATUS)"
+          exit 1
 
       - name: Check SSL certificate
         run: |
