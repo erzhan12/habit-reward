@@ -61,7 +61,7 @@
           class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150"
           :class="sidebarNavItemClass(item.href)"
         >
-          <span class="text-lg">{{ item.icon }}</span>
+          <span class="text-lg" :class="sidebarIconClass(item.href)">{{ item.icon }}</span>
           {{ item.label }}
         </Link>
       </nav>
@@ -129,6 +129,13 @@ const sidebarClass = computed(() => {
   }
   return "bg-bg-card border-gray-800";
 });
+
+function sidebarIconClass(href) {
+  // Today's ✔ icon reads green when inactive — signals "mark complete"
+  // before the user navigates in, instead of inheriting muted gray.
+  if (href === "/" && !isActive(href)) return "text-emerald-500";
+  return "";
+}
 
 function sidebarNavItemClass(href) {
   const active = isActive(href);
