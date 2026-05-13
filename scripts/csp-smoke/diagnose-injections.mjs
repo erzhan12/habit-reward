@@ -53,9 +53,10 @@ console.log(`Found ${injected.length} dynamic <style> insertion attempt(s):\n`);
 for (const [i, info] of injected.entries()) {
     console.log(`[${i + 1}] target=${info.target} hasNonce=${info.hasNonce} length=${info.length}`);
     console.log(`    preview: ${info.preview.replace(/\s+/g, ' ').slice(0, 160)}`);
-    const stackLines = info.stack.split('\n').slice(1, 5);
-    console.log(`    stack:   ${stackLines[0]?.trim()}`);
-    console.log(`             ${stackLines[1]?.trim()}`);
+    const stackLines = info.stack.split('\n').slice(1, 10);
+    for (const line of stackLines) {
+        console.log(`    stack:   ${line.trim()}`);
+    }
     console.log('');
 }
 

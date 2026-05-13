@@ -12,7 +12,7 @@
 
 import { chromium } from 'playwright';
 
-const URL = process.argv[2] || 'https://habitreward.org/auth/login/';
+const TARGET = process.argv[2] || 'https://habitreward.org/auth/login/';
 
 // Negative probe: poll for the synchronously-fired CSP violation, cap so
 // a misconfigured (no-violation) policy doesn't hang the test.
@@ -41,15 +41,20 @@ page.on('console', (msg) => {
 });
 page.on('pageerror', (err) => consoleErrors.push(`pageerror: ${err.message}`));
 
-// Capture the CSP response header on document navigation.
+// Capture the CSP response header on document navigation.  Match on
+// parsed (origin, pathname) so query strings / fragments / trailing
+// slashes don't cause a miss.
+const targetURL = new URL(TARGET);
+const targetPath = targetURL.pathname.replace(/\/$/, '');
 let cspHeader = null;
 page.on('response', (resp) => {
-    if (resp.url() === URL || resp.url().replace(/\/$/, '') === URL.replace(/\/$/, '')) {
+    const u = new URL(resp.url());
+    if (u.origin === targetURL.origin && u.pathname.replace(/\/$/, '') === targetPath) {
         cspHeader = resp.headers()['content-security-policy'];
     }
 });
 
-const resp = await page.goto(URL, { waitUntil: 'networkidle' });
+const resp = await page.goto(TARGET, { waitUntil: 'networkidle' });
 if (!resp || resp.status() !== 200) {
     fail(`page load status=${resp?.status()}`);
     await browser.close();

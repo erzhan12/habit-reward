@@ -27,6 +27,13 @@ node run.mjs                                      # defaults to https://habitrew
 node run.mjs https://staging.example.com/auth/login/
 ```
 
+> **Note:** This is a *post-deploy* verification tool that hits a live URL —
+> it is intentionally **not** wired into pre-merge CI.  CSP correctness
+> depends on the actual served response headers and the bundled assets
+> as they ship, neither of which can be exercised at unit-test time
+> against a Django test client.  For pre-deploy checks against a
+> staging environment, pass the staging URL as the first argument.
+
 Asserts:
 
 1. Page loads with HTTP 200.
