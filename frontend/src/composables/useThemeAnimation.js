@@ -94,6 +94,8 @@ export function animateSinkBounce(cardEl, oldRect) {
     const deltaX = oldRect ? oldRect.left - newRect.left : 0;
     const deltaY = oldRect ? oldRect.top - newRect.top : 0;
     const anim = cardEl.animate(
+      // Translate from old slot → overshoot 20px past resting Y at 55% →
+      // bounce back to -4px at 80% → settle at (0, 0).
       [
         { transform: `translate(${deltaX}px, ${deltaY}px)` },
         { transform: 'translate(0, 20px)', offset: 0.55 },
@@ -106,6 +108,8 @@ export function animateSinkBounce(cardEl, oldRect) {
     );
     return anim.finished
       .catch(() => undefined)
+      // cancel() after `finished` settles releases the Animation object
+      // so it doesn't keep holding inline styles via fill: 'both'.
       .finally(() => anim.cancel?.());
   } catch {
     return Promise.resolve();
