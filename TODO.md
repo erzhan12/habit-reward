@@ -55,13 +55,6 @@ This document tracks planned features, improvements, and enhancements for the Ha
 
 ### Medium Priority
 
-- [ ] **Auto-delete Habit Name Message on Creation, Reward Name on creation and API Key name on creation**
-  - When a user creates a new habit, the message that shows the habit name/title should be auto-deleted or replaced
-  - When a user creates a new reward, the message that shows the reward name/title should be auto-deleted or replaced
-  - When a user creates a new API key, the message that shows the API key name/title should be auto-deleted or replaced
-  - **Reason**: Keep the chat clean and avoid lingering habit name messages
-  - **File**: `src/bot/handlers/habit_management_handler.py`
-
 - [ ] **Habit Reminders**
   - Scheduled reminders for pending habits
   - Configurable reminder times per user
@@ -102,34 +95,12 @@ This document tracks planned features, improvements, and enhancements for the Ha
 
 ## 📊 Analytics & Reporting
 
-- [x] **User Analytics Dashboard**
-  - Completion rates over time
-  - Reward claim patterns
-  - Streak analysis
-  - **File**: `src/web/views/analytics.py`, `frontend/src/pages/Analytics.vue`
-
-- [x] **Habit Performance Metrics**
-  - Which habits are most/least completed
-  - Average completion time
-  - Drop-off rates
-  - **File**: `src/services/analytics_service.py`
-
 - [ ] **Reward Effectiveness Analysis**
   - Which rewards motivate users most
   - Correlation between reward types and completion rates
   - **File**: New analytics module
 
 ## 🔐 Security & Performance
-
-- [ ] **Rate Limiting**
-  - Add rate limiting to prevent abuse
-  - Protect API endpoints and bot commands
-  - **File**: Middleware or decorator
-
-- [ ] **Audit Logging**
-  - Track all admin actions (who changed what, when)
-  - Track critical user actions (deletions, reversions)
-  - **File**: New `src/core/audit.py`
 
 - [ ] **Database Query Optimization**
   - Review and optimize slow queries
@@ -140,10 +111,6 @@ This document tracks planned features, improvements, and enhancements for the Ha
   - Cache frequently accessed data (user settings, active habits)
   - Reduce database load
   - **File**: New `src/utils/cache.py`
-
-- [ ] **Self-delete API Key Messages**
-  - After generating an API key via the bot, the message containing the key should auto-delete after 10 minutes
-  - **Reason**: Security; prevent API keys from lingering in chat history
 
 
 ## 🧪 Testing & Quality
@@ -172,11 +139,6 @@ This document tracks planned features, improvements, and enhancements for the Ha
   - Click to mark habits as done
   - **File**: `src/dashboard/components/calendar.py`
 
-- [x] **Change rewards sorting on Rewards page (web app)**
-  - **Now**: rewards with >1 won pieces, then claimed, then 0 won pieces
-  - **Need**: 0 won pieces first, then >1 won pieces (ascending by won pieces), then claimed last
-  - **File**: Rewards page (web)
-
 - [ ] **Reward Progress Visualization**
   - Progress bars, charts for reward progress
   - Visual feedback for users
@@ -188,11 +150,6 @@ This document tracks planned features, improvements, and enhancements for the Ha
   - **File**: New dashboard pages
 
 ### API Development
-
-- [ ] **API Authentication**
-  - JWT token-based authentication
-  - OAuth2 support
-  - **File**: New `src/api/auth.py`
 
 ## 📱 Mobile App Features (Future)
 
@@ -253,6 +210,64 @@ This document tracks planned features, improvements, and enhancements for the Ha
   - Production deployment checklist
   - Monitoring and maintenance
   - **File**: `docs/DEPLOYMENT.md` (enhance existing)
+
+---
+
+## ✅ Completed
+
+### Bot Features
+
+- [x] **Auto-delete Habit Name Message on Creation, Reward Name on creation and API Key name on creation**
+  - When a user creates a new habit, the message that shows the habit name/title should be auto-deleted or replaced
+  - When a user creates a new reward, the message that shows the reward name/title should be auto-deleted or replaced
+  - When a user creates a new API key, the message that shows the API key name/title should be auto-deleted or replaced
+  - **Reason**: Keep the chat clean and avoid lingering habit name messages
+  - **File**: `src/bot/handlers/habit_management_handler.py`
+
+### Analytics & Reporting
+
+- [x] **User Analytics Dashboard**
+  - Completion rates over time
+  - Reward claim patterns
+  - Streak analysis
+  - **File**: `src/web/views/analytics.py`, `frontend/src/pages/Analytics.vue`
+
+- [x] **Habit Performance Metrics**
+  - Which habits are most/least completed
+  - Average completion time
+  - Drop-off rates
+  - **File**: `src/services/analytics_service.py`
+
+### Security & Performance
+
+- [x] **Rate Limiting**
+  - Add rate limiting to prevent abuse
+  - Protect API endpoints and bot commands
+  - **File**: Middleware or decorator
+
+- [x] **Audit Logging**
+  - Track all admin actions (who changed what, when)
+  - Track critical user actions (deletions, reversions)
+  - **File**: New `src/core/audit.py`
+
+- [x] **Self-delete API Key Messages**
+  - After generating an API key via the bot, the message containing the key should auto-delete after 10 minutes
+  - **Reason**: Security; prevent API keys from lingering in chat history
+  - **Note**: Implemented with 5-minute timeout (`API_KEY_MESSAGE_DELETE_SECONDS = 300` in `src/bot/handlers/settings_handler.py`)
+
+### Web Dashboard
+
+- [x] **Change rewards sorting on Rewards page (web app)**
+  - **Now**: rewards with >1 won pieces, then claimed, then 0 won pieces
+  - **Need**: 0 won pieces first, then >1 won pieces (ascending by won pieces), then claimed last
+  - **File**: Rewards page (web)
+
+### API Development
+
+- [x] **API Authentication**
+  - JWT token-based authentication
+  - OAuth2 support
+  - **File**: New `src/api/auth.py` (implemented at `src/api/v1/routers/auth.py`)
 
 ---
 
