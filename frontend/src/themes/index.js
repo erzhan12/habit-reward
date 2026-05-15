@@ -16,8 +16,8 @@
  *  - navStyle      'default' | 'frosted' | 'underline' | 'glow'
  *  - font          { family, import, weight, size }
  *  - interactions  { habitComplete }
- *  - animations    { cardEntrance, completionCelebration, hoverMicro, streakFire }
- *  - reward        { displayMode, celebrationComponent }
+ *  - animations    { cardEntrance, hoverMicro, streakFire }
+ *  - reward        { displayMode, celebrationComponent, rewardPopupVariant }
  *  - pageLayout    { habitList, density, rewardList }
  */
 
@@ -30,8 +30,8 @@ export const VALID_CARD_ENTRANCES = new Set([
   'none', 'fade-in', 'slide-up', 'stagger-fade',
 ]);
 
-export const VALID_COMPLETION_CELEBRATIONS = new Set([
-  'none', 'scale-up', 'burst-particles', 'fade-quiet',
+export const VALID_REWARD_POPUP_VARIANTS = new Set([
+  'default', 'particles', 'quiet',
 ]);
 
 export const VALID_HOVER_MICROS = new Set([
@@ -67,13 +67,13 @@ export const DEFAULTS = {
   },
   animations: {
     cardEntrance: 'none',
-    completionCelebration: 'none',
     hoverMicro: 'none',
     streakFire: 'none',
   },
   reward: {
     displayMode: 'expand-from-card',
     celebrationComponent: null,
+    rewardPopupVariant: 'default',
   },
   pageLayout: {
     habitList: 'list',
@@ -163,13 +163,13 @@ export const themes = {
     },
     animations: {
       cardEntrance: 'fade-in',
-      completionCelebration: 'scale-up',
       hoverMicro: 'shadow-lift',
       streakFire: 'pulse-glow',
     },
     reward: {
       displayMode: 'expand-from-card',
       celebrationComponent: null,
+      rewardPopupVariant: 'default',
     },
     pageLayout: {
       habitList: 'list',
@@ -232,13 +232,13 @@ export const themes = {
     },
     animations: {
       cardEntrance: 'stagger-fade',
-      completionCelebration: 'burst-particles',
       hoverMicro: 'glow-border',
       streakFire: 'flicker-flame',
     },
     reward: {
       displayMode: 'toast',
       celebrationComponent: null,
+      rewardPopupVariant: 'particles',
     },
     pageLayout: {
       habitList: 'list',
@@ -300,13 +300,13 @@ export const themes = {
     },
     animations: {
       cardEntrance: 'slide-up',
-      completionCelebration: 'scale-up',
       hoverMicro: 'scale',
       streakFire: 'bounce',
     },
     reward: {
       displayMode: 'expand-from-card',
       celebrationComponent: null,
+      rewardPopupVariant: 'default',
     },
     pageLayout: {
       habitList: 'list',
@@ -369,13 +369,13 @@ export const themes = {
     },
     animations: {
       cardEntrance: 'fade-in',
-      completionCelebration: 'scale-up',
       hoverMicro: 'scale',
       streakFire: 'pulse-glow',
     },
     reward: {
       displayMode: 'expand-from-card',
       celebrationComponent: null,
+      rewardPopupVariant: 'default',
     },
     pageLayout: {
       habitList: 'list',
@@ -438,13 +438,13 @@ export const themes = {
     },
     animations: {
       cardEntrance: 'fade-in',
-      completionCelebration: 'fade-quiet',
       hoverMicro: 'none',
       streakFire: 'pulse-glow',
     },
     reward: {
       displayMode: 'expand-from-card',
       celebrationComponent: null,
+      rewardPopupVariant: 'quiet',
     },
     pageLayout: {
       habitList: 'list',
@@ -508,13 +508,13 @@ export const themes = {
     },
     animations: {
       cardEntrance: 'stagger-fade',
-      completionCelebration: 'fade-quiet',
       hoverMicro: 'glow-border',
       streakFire: 'flicker-flame',
     },
     reward: {
       displayMode: 'toast',
       celebrationComponent: null,
+      rewardPopupVariant: 'quiet',
     },
     pageLayout: {
       habitList: 'list',
@@ -577,13 +577,13 @@ export const themes = {
     },
     animations: {
       cardEntrance: 'slide-up',
-      completionCelebration: 'scale-up',
       hoverMicro: 'shadow-lift',
       streakFire: 'bounce',
     },
     reward: {
       displayMode: 'expand-from-card',
       celebrationComponent: null,
+      rewardPopupVariant: 'default',
     },
     pageLayout: {
       habitList: 'list',
@@ -646,13 +646,13 @@ export const themes = {
     },
     animations: {
       cardEntrance: 'none',
-      completionCelebration: 'fade-quiet',
       hoverMicro: 'none',
       streakFire: 'none',
     },
     reward: {
       displayMode: 'expand-from-card',
       celebrationComponent: null,
+      rewardPopupVariant: 'quiet',
     },
     pageLayout: {
       habitList: 'list',

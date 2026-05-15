@@ -1,11 +1,11 @@
 /**
- * Theme animation composable (Phase 1 infrastructure).
+ * Theme animation composable.
  *
- * Provides helpers to apply theme-driven animations:
- * - Card entrance styles (inline style objects)
+ * Provides helpers for theme-driven animations:
+ * - Card entrance styles
  * - Streak fire CSS classes
  * - Hover micro-interaction CSS classes
- * - Completion celebration triggers
+ * - Global sink-bounce completion animation with conditional particle burst
  */
 
 import { computed } from "vue";
@@ -79,6 +79,87 @@ export function hoverMicroClass(type) {
 }
 
 /**
+ * FLIP-based sink-bounce animation. Translates the card from its old position
+ * to its new (post-rerender) resting slot with an overshoot-settle curve.
+ *
+ * @param {HTMLElement} cardEl
+ * @param {DOMRect|null} oldRect
+ * @returns {Promise<void>}
+ */
+export function animateSinkBounce(cardEl, oldRect) {
+  if (!cardEl) return Promise.resolve();
+  if (typeof cardEl.animate !== 'function') return Promise.resolve();
+  try {
+    const newRect = cardEl.getBoundingClientRect();
+    const deltaX = oldRect ? oldRect.left - newRect.left : 0;
+    const deltaY = oldRect ? oldRect.top - newRect.top : 0;
+    const anim = cardEl.animate(
+      // Translate from old slot → overshoot 20px past resting Y at 55% →
+      // bounce back to -4px at 80% → settle at (0, 0).
+      [
+        { transform: `translate(${deltaX}px, ${deltaY}px)` },
+        { transform: 'translate(0, 20px)', offset: 0.55 },
+        { transform: 'translate(0, -4px)', offset: 0.8 },
+        { transform: 'translate(0, 0)' },
+      ],
+      // Overshoot-settle easing: the y=1.56 control point produces the
+      // ~20px overshoot at frame 0.55 before snapping back to 0.
+      { duration: 600, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)', fill: 'both' }
+    );
+    return anim.finished
+      .catch(() => undefined)
+      // cancel() after `finished` settles releases the Animation object
+      // so it doesn't keep holding inline styles via fill: 'both'.
+      .finally(() => anim.cancel?.());
+  } catch {
+    return Promise.resolve();
+  }
+}
+
+/**
+ * Spawn a burst of particles from the card's center.
+ *
+ * @param {HTMLElement} el
+ * @returns {Promise<void>}
+ */
+export async function animateBurstParticles(el) {
+  try {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const { spawnParticles } = await import('../utils/particles.js');
+    await spawnParticles({
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      count: 12,
+      colors: ['#06b6d4', '#ec4899', '#fbbf24', '#10b981'],
+      duration: 600,
+    });
+  } catch {
+    // Particles are optional flair — never let their failure abort the
+    // sink-bounce wait in Promise.all (which would cause the reward popup
+    // to open mid-animation in Dashboard.vue).
+  }
+}
+
+/**
+ * Global completion celebration: sink-bounce, plus parallel particle burst on reward.
+ * Reduced-motion gating is applied once at entry.
+ *
+ * @param {HTMLElement} cardEl
+ * @param {{ oldRect?: DOMRect|null, gotReward?: boolean }} opts
+ * @returns {Promise<void>}
+ */
+export function triggerCompletionCelebration(cardEl, opts = {}) {
+  const { oldRect = null, gotReward = false } = opts;
+  if (typeof window !== 'undefined' && (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false)) {
+    return Promise.resolve();
+  }
+  const tasks = [animateSinkBounce(cardEl, oldRect)];
+  if (gotReward) tasks.push(animateBurstParticles(cardEl));
+  return Promise.all(tasks).then(() => undefined);
+}
+
+/**
  * Composable providing reactive animation helpers tied to current theme.
  */
 export function useThemeAnimation() {
@@ -113,66 +194,11 @@ export function useThemeAnimation() {
     hoverClass,
 
     /**
-     * Trigger a completion celebration animation on an element.
+     * Delegates to the standalone named export — behavior is now global.
      * @param {HTMLElement} cardEl
+     * @param {{ oldRect?: DOMRect|null, gotReward?: boolean }} opts
      * @returns {Promise<void>}
      */
-    async triggerCompletionCelebration(cardEl) {
-      const type = animations.value.completionCelebration;
-      switch (type) {
-        case 'scale-up':
-          await animateScaleUp(cardEl);
-          break;
-        case 'burst-particles':
-          await animateBurstParticles(cardEl);
-          break;
-        case 'fade-quiet':
-          await animateFadeQuiet(cardEl);
-          break;
-        default:
-          break;
-      }
-    },
+    triggerCompletionCelebration,
   };
-}
-
-// ── Internal animation handlers ─────────────────────────────────────
-
-async function animateScaleUp(el) {
-  if (!el) return;
-  el.style.transition = 'transform 0.2s ease-out';
-  el.style.transform = 'scale(1.03)';
-  await sleep(200);
-  el.style.transform = 'scale(1)';
-  await sleep(200);
-  el.style.transition = '';
-  el.style.transform = '';
-}
-
-async function animateBurstParticles(el) {
-  if (!el) return;
-  const rect = el.getBoundingClientRect();
-  const { spawnParticles } = await import('../utils/particles.js');
-  await spawnParticles({
-    x: rect.left + rect.width / 2,
-    y: rect.top + rect.height / 2,
-    count: 12,
-    colors: ['#06b6d4', '#ec4899', '#fbbf24', '#10b981'],
-    duration: 600,
-  });
-}
-
-async function animateFadeQuiet(el) {
-  if (!el) return;
-  el.style.transition = 'opacity 0.3s ease-out';
-  el.style.opacity = '0.5';
-  await sleep(300);
-  el.style.opacity = '1';
-  await sleep(300);
-  el.style.transition = '';
-  el.style.opacity = '';
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

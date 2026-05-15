@@ -2,13 +2,13 @@
   <!-- Swipe mode: the swipe component wraps everything -->
   <HabitDoneSwipe
     v-if="isSwipeMode"
-    ref="cardRef"
     :habit="habit"
     :loading="loading"
     @complete="$emit('complete', $event)"
     @revert="$emit('revert', $event)"
   >
     <div
+      ref="cardRef"
       class="transition-all"
       :class="[
         densityPadding,

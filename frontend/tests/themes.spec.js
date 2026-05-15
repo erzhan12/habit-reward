@@ -7,7 +7,7 @@ import {
   DEFAULTS,
   VALID_INTERACTIONS,
   VALID_CARD_ENTRANCES,
-  VALID_COMPLETION_CELEBRATIONS,
+  VALID_REWARD_POPUP_VARIANTS,
   VALID_HOVER_MICROS,
   VALID_STREAK_FIRES,
   VALID_DISPLAY_MODES,
@@ -59,12 +59,15 @@ describe("Theme config schema", () => {
 
         expect(config).toHaveProperty("animations");
         expect(config.animations).toHaveProperty("cardEntrance");
-        expect(config.animations).toHaveProperty("completionCelebration");
         expect(config.animations).toHaveProperty("hoverMicro");
         expect(config.animations).toHaveProperty("streakFire");
+        // Forward-compat guard: deprecated key must not reappear via DEFAULTS
+        // leakage or a raw theme block (deepMerge preserves unknown keys).
+        expect("completionCelebration" in config.animations).toBe(false);
 
         expect(config).toHaveProperty("reward");
         expect(config.reward).toHaveProperty("displayMode");
+        expect(config.reward).toHaveProperty("rewardPopupVariant");
 
         expect(config).toHaveProperty("pageLayout");
         expect(config.pageLayout).toHaveProperty("habitList");
@@ -78,7 +81,7 @@ describe("Theme config schema", () => {
 
       it("uses valid values for animations", () => {
         expect(VALID_CARD_ENTRANCES.has(config.animations.cardEntrance)).toBe(true);
-        expect(VALID_COMPLETION_CELEBRATIONS.has(config.animations.completionCelebration)).toBe(true);
+        expect(VALID_REWARD_POPUP_VARIANTS.has(config.reward.rewardPopupVariant)).toBe(true);
         expect(VALID_HOVER_MICROS.has(config.animations.hoverMicro)).toBe(true);
         expect(VALID_STREAK_FIRES.has(config.animations.streakFire)).toBe(true);
       });
@@ -88,6 +91,15 @@ describe("Theme config schema", () => {
         expect(VALID_HABIT_LAYOUTS.has(config.pageLayout.habitList)).toBe(true);
         expect(VALID_DENSITIES.has(config.pageLayout.density)).toBe(true);
       });
+    });
+  }
+});
+
+describe("Deprecated keys", () => {
+  // Diagnostic clarity: pinpoint the offending raw theme block on regression.
+  for (const [id, raw] of Object.entries(themes)) {
+    it(`raw theme "${id}" does not redeclare completionCelebration`, () => {
+      expect("completionCelebration" in (raw.animations ?? {})).toBe(false);
     });
   }
 });

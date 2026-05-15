@@ -288,8 +288,8 @@ function getPersonalityTags(id) {
 
   // Animation highlights
   const anims = config.animations || {};
-  if (anims.completionCelebration === 'burst-particles') tags.push('Particles');
-  else if (anims.completionCelebration === 'fade-quiet') tags.push('Quiet');
+  if (config.reward?.rewardPopupVariant === 'particles') tags.push('Particles');
+  else if (config.reward?.rewardPopupVariant === 'quiet') tags.push('Quiet');
 
   if (anims.cardEntrance === 'slide-up') tags.push('Slide');
   else if (anims.cardEntrance === 'stagger-fade') tags.push('Stagger');
