@@ -145,8 +145,7 @@ export async function animateBurstParticles(el) {
  */
 export function triggerCompletionCelebration(cardEl, opts = {}) {
   const { oldRect = null, gotReward = false } = opts;
-  if (typeof window !== 'undefined'
-    && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
     return Promise.resolve();
   }
   const tasks = [animateSinkBounce(cardEl, oldRect)];

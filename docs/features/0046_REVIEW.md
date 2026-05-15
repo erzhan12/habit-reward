@@ -2,15 +2,15 @@
 
 ## Findings
 
-### P2 - Optional particle failures can bypass the sink-bounce wait
+### ✅ Resolved in 9e013b2 — P2 - Optional particle failures can bypass the sink-bounce wait
 
-`triggerCompletionCelebration()` starts the sink animation and reward particles together, then awaits them via `Promise.all()` (`frontend/src/composables/useThemeAnimation.js:146-148`). `animateSinkBounce()` swallows its own WAAPI cancellation/failure paths, but `animateBurstParticles()` does not catch failures from `getBoundingClientRect()`, the dynamic import, or `spawnParticles()` (`frontend/src/composables/useThemeAnimation.js:119-129`).
+> **Status: fixed.** `animateBurstParticles` now wraps its body in try/catch so a particle rejection (from `getBoundingClientRect()`, the dynamic import, or `spawnParticles()`) is swallowed locally and cannot escape `Promise.all` to abort the sink-wait. Regression test added in `frontend/tests/themeAnimation.spec.js` ("particle rejection does not abort the sink animation wait").
 
-`Dashboard.vue` catches the rejected `triggerCompletionCelebration()` call and immediately proceeds to show the reward popup and undo toast (`frontend/src/pages/Dashboard.vue:151-165`). If the particle path rejects while the sink animation is still running, the popup can open before the card finishes settling, which violates the main sequencing requirement for reward wins. The robust shape is to isolate the optional particle failure while still awaiting the sink promise, for example by catching the particle promise individually or using `Promise.allSettled()` after guaranteeing the sink promise is included.
+Original finding (kept for historical context): `triggerCompletionCelebration()` started the sink animation and reward particles together via `Promise.all()`. `animateSinkBounce()` swallowed its own WAAPI cancellation/failure paths, but `animateBurstParticles()` did not catch failures from `getBoundingClientRect()`, the dynamic import, or `spawnParticles()`. If the particle path rejected while the sink was still running, `Promise.all` rejected fast and Dashboard's outer `try/catch` proceeded to open the reward popup before the card settled.
 
-### P3 - The manual test plan referenced by the implementation plan is missing
+### ✅ Resolved in 9e013b2 — P3 - The manual test plan referenced by the implementation plan is missing
 
-`docs/features/0046_PLAN.md` says the manual scenarios are recorded in `docs/features/0046_MANUAL_TEST_PLAN.md`, but that file is not present. The automated coverage is good for the helper and theme migration paths, but the requested manual coverage for real dashboard interactions, swipe mode, reduced motion, grid layout, and per-theme popup variants is not documented in the repo.
+> **Status: fixed.** `docs/features/0046_MANUAL_TEST_PLAN.md` now exists with the 7 manual scenarios (no-reward / reward / bottom / swipe / reduced-motion / grid / per-theme variants).
 
 ## Implementation Check
 
