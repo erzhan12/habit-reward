@@ -132,4 +132,33 @@ describe("triggerCompletionCelebration", () => {
     expect(animateSpy).not.toHaveBeenCalled();
     expect(spawnParticles).not.toHaveBeenCalled();
   });
+
+  it("particle rejection does not abort the sink animation wait", async () => {
+    // Sink finishes after particles reject. Promise.all-without-catch would
+    // reject early and Dashboard.vue's catch would open the popup before the
+    // sink settled — guarded by animateBurstParticles' internal try/catch.
+    let resolveSink;
+    animationStub = {
+      finished: new Promise((r) => { resolveSink = r; }),
+      cancel: vi.fn(),
+    };
+    animateSpy = vi.fn(() => animationStub);
+    spawnParticles.mockRejectedValueOnce(new Error("particle failure"));
+
+    const el = makeCardEl();
+    let resolved = false;
+    const p = triggerCompletionCelebration(el, {
+      oldRect: { top: 0, left: 0 },
+      gotReward: true,
+    }).then(() => { resolved = true; });
+
+    // Let the particle rejection propagate through microtasks.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    resolveSink();
+    await p;
+    expect(resolved).toBe(true);
+  });
 });

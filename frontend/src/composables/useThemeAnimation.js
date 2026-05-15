@@ -117,16 +117,22 @@ export function animateSinkBounce(cardEl, oldRect) {
  * @returns {Promise<void>}
  */
 export async function animateBurstParticles(el) {
-  if (!el) return;
-  const rect = el.getBoundingClientRect();
-  const { spawnParticles } = await import('../utils/particles.js');
-  await spawnParticles({
-    x: rect.left + rect.width / 2,
-    y: rect.top + rect.height / 2,
-    count: 12,
-    colors: ['#06b6d4', '#ec4899', '#fbbf24', '#10b981'],
-    duration: 600,
-  });
+  try {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const { spawnParticles } = await import('../utils/particles.js');
+    await spawnParticles({
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      count: 12,
+      colors: ['#06b6d4', '#ec4899', '#fbbf24', '#10b981'],
+      duration: 600,
+    });
+  } catch {
+    // Particles are optional flair — never let their failure abort the
+    // sink-bounce wait in Promise.all (which would cause the reward popup
+    // to open mid-animation in Dashboard.vue).
+  }
 }
 
 /**
