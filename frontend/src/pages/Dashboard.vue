@@ -49,7 +49,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onUnmounted } from "vue";
+import { ref, reactive, computed, onUnmounted, nextTick } from "vue";
 import { router } from "@inertiajs/vue3";
 import HabitCard from "../components/HabitCard.vue";
 import UndoToast from "../components/UndoToast.vue";
@@ -129,20 +129,32 @@ function completeHabit(habitId) {
     realtimePauseTimer = null;
   }, 4000);
 
+  // Capture old position BEFORE the server response repositions the card.
+  const preCardComponent = cardRefs[habitId];
+  const preCardEl = preCardComponent?.cardRef;
+  const oldRect = preCardEl?.getBoundingClientRect?.() ?? null;
+
   router.post(`/habits/${habitId}/complete/`, {}, {
     preserveScroll: true,
-    onSuccess: (page) => {
+    onSuccess: async (page) => {
       const flash = page.props.completionFlash;
 
-      // Trigger card animation (scale-up / particles on the card itself)
+      // Wait for Inertia's new habits prop to be applied so the card sits in
+      // its new (bottom) DOM slot. Same :key keeps the same node — preCardEl
+      // is still valid for the FLIP delta.
+      await nextTick();
+
       const cardComponent = cardRefs[habitId];
-      const cardEl = cardComponent?.cardRef;
-      if (cardEl) {
-        triggerCompletionCelebration(cardEl);
+      const cardEl = cardComponent?.cardRef ?? preCardEl;
+      const gotReward = !!(flash?.got_reward && flash?.reward_name);
+
+      try {
+        await triggerCompletionCelebration(cardEl, { oldRect, gotReward });
+      } catch {
+        // Swallow — never block popup/undo on animation failure.
       }
 
-      // Show reward celebration if a reward was earned
-      if (flash?.got_reward && flash?.reward_name) {
+      if (gotReward) {
         celebrationData.rewardName = flash.reward_name;
         celebrationData.piecesEarned = flash.pieces_earned ?? null;
         celebrationData.piecesRequired = flash.pieces_required ?? null;

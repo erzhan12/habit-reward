@@ -70,11 +70,11 @@ const isToast = computed(() =>
 );
 
 const celebrationComponent = computed(() => {
-  const type = themeConfig.value.animations?.completionCelebration;
-  switch (type) {
-    case "burst-particles":
+  const variant = themeConfig.value.reward?.rewardPopupVariant;
+  switch (variant) {
+    case "particles":
       return RewardParticles;
-    case "fade-quiet":
+    case "quiet":
       return RewardQuiet;
     default:
       return RewardDefault;
