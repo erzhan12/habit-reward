@@ -100,6 +100,8 @@ export function animateSinkBounce(cardEl, oldRect) {
         { transform: 'translate(0, -4px)', offset: 0.8 },
         { transform: 'translate(0, 0)' },
       ],
+      // Overshoot-settle easing: the y=1.56 control point produces the
+      // ~20px overshoot at frame 0.55 before snapping back to 0.
       { duration: 600, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)', fill: 'both' }
     );
     return anim.finished
