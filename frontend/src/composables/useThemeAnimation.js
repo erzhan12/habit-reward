@@ -182,7 +182,12 @@ export function useThemeAnimation() {
     /** Reactive hover micro-interaction class. */
     hoverClass,
 
-    /** Delegates to the standalone named export — behavior is now global. */
+    /**
+     * Delegates to the standalone named export — behavior is now global.
+     * @param {HTMLElement} cardEl
+     * @param {{ oldRect?: DOMRect|null, gotReward?: boolean }} opts
+     * @returns {Promise<void>}
+     */
     triggerCompletionCelebration,
   };
 }

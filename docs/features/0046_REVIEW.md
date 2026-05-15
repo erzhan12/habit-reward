@@ -2,32 +2,27 @@
 
 ## Findings
 
-### P0 - Feature 0046 is not implemented
+### P2 - Optional particle failures can bypass the sink-bounce wait
 
-The source tree still contains the pre-0046 completion animation flow. `frontend/src/composables/useThemeAnimation.js:120` still reads `animations.value.completionCelebration` and dispatches to `animateScaleUp`, `animateBurstParticles`, or `animateFadeQuiet`; there is no exported `animateSinkBounce`, no `{ oldRect, gotReward }` argument, no reduced-motion gate, and no WAAPI fallback behavior. This means the global sink-bounce animation described by the plan never runs.
+`triggerCompletionCelebration()` starts the sink animation and reward particles together, then awaits them via `Promise.all()` (`frontend/src/composables/useThemeAnimation.js:146-148`). `animateSinkBounce()` swallows its own WAAPI cancellation/failure paths, but `animateBurstParticles()` does not catch failures from `getBoundingClientRect()`, the dynamic import, or `spawnParticles()` (`frontend/src/composables/useThemeAnimation.js:119-129`).
 
-The dashboard sequencing is also unchanged. `frontend/src/pages/Dashboard.vue:132` posts the completion request, then `onSuccess` immediately calls `triggerCompletionCelebration(cardEl)` at `frontend/src/pages/Dashboard.vue:141` and immediately opens the reward popup at `frontend/src/pages/Dashboard.vue:150`. It does not capture the pre-submit rect, does not `await nextTick()`, does not await animation completion before showing the popup, and does not wrap the animation in a resilience guard. This preserves the exact bug the feature is intended to fix: reward popup and card animation can happen simultaneously, and the card cannot animate from its old slot to its new bottom slot.
+`Dashboard.vue` catches the rejected `triggerCompletionCelebration()` call and immediately proceeds to show the reward popup and undo toast (`frontend/src/pages/Dashboard.vue:151-165`). If the particle path rejects while the sink animation is still running, the popup can open before the card finishes settling, which violates the main sequencing requirement for reward wins. The robust shape is to isolate the optional particle failure while still awaiting the sink promise, for example by catching the particle promise individually or using `Promise.allSettled()` after guaranteeing the sink promise is included.
 
-### P0 - Theme schema migration was not applied
+### P3 - The manual test plan referenced by the implementation plan is missing
 
-`completionCelebration` remains in the theme schema and theme data. The deprecated validation constant is still exported at `frontend/src/themes/index.js:33`, the default still sets `DEFAULTS.animations.completionCelebration` at `frontend/src/themes/index.js:70`, and individual themes still define `animations.completionCelebration` such as `clean_modern` at `frontend/src/themes/index.js:166`, `gamified_arcade` at `frontend/src/themes/index.js:235`, `dark_focus` at `frontend/src/themes/index.js:441`, and `minimalist_zen` at `frontend/src/themes/index.js:649`.
+`docs/features/0046_PLAN.md` says the manual scenarios are recorded in `docs/features/0046_MANUAL_TEST_PLAN.md`, but that file is not present. The automated coverage is good for the helper and theme migration paths, but the requested manual coverage for real dashboard interactions, swipe mode, reduced motion, grid layout, and per-theme popup variants is not documented in the repo.
 
-The planned `reward.rewardPopupVariant` field and `VALID_REWARD_POPUP_VARIANTS` export are absent. As a result, reward popup selection still depends on the old animation key, and the forward-compat guard requested by the plan cannot exist.
+## Implementation Check
 
-### P1 - Reward popup and theme picker still read the old field
+The main code paths match the plan:
 
-`RewardCelebration` still chooses its component from `themeConfig.value.animations?.completionCelebration` at `frontend/src/components/rewards/RewardCelebration.vue:73`, mapping `"burst-particles"` and `"fade-quiet"` directly. `Theme.vue` still derives personality tags from `anims.completionCelebration` at `frontend/src/pages/Theme.vue:291`. Both should read `config.reward?.rewardPopupVariant` after the migration.
+- `completionCelebration` was removed from theme config and replaced by `reward.rewardPopupVariant`.
+- `RewardCelebration.vue` and `Theme.vue` read the new reward variant field.
+- `HabitCard.vue` moved the swipe-mode exposed ref onto a DOM element.
+- `Dashboard.vue` captures the old rect, waits for `nextTick()`, awaits the completion animation, and only then opens the reward popup.
+- `useThemeAnimation.js` exports `animateSinkBounce`, `animateBurstParticles`, and `triggerCompletionCelebration`, with reduced-motion gating at the entry point.
 
-If only the theme data were migrated later, these two call sites would silently fall back to `RewardDefault` and stop showing the intended `Particles` / `Quiet` labels.
+## Validation
 
-### P1 - Swipe-mode DOM ref bug remains
-
-The plan calls out a swipe-mode ref placement bug, but `frontend/src/components/HabitCard.vue:5` still places `ref="cardRef"` on the `<HabitDoneSwipe>` component instead of the inner DOM `<div>` at `frontend/src/components/HabitCard.vue:11`. In swipe mode, `defineExpose({ cardRef })` can expose a component proxy rather than an element, so `getBoundingClientRect()` and WAAPI `.animate()` are not reliable.
-
-### P1 - Required animation tests are missing
-
-`frontend/tests/themeAnimation.spec.js` does not exist, and `frontend/tests/themes.spec.js:7` still imports `VALID_COMPLETION_CELEBRATIONS`. The existing schema tests still assert `config.animations.completionCelebration` at `frontend/tests/themes.spec.js:62` and validate it at `frontend/tests/themes.spec.js:81`. These tests currently reinforce the old contract instead of guarding the new one.
-
-## Notes
-
-I did not run the frontend test suite because the inspected implementation does not include the planned code paths yet; the review is blocked at source inspection.
+- `npm test -- tests/themeAnimation.spec.js tests/themes.spec.js` passed: 79 tests.
+- `npm run build` passed. Vite emitted a non-blocking warning that `particles.js` is dynamically imported by `useThemeAnimation.js` and also statically imported by `RewardParticles.vue`, so that dynamic import will not create a separate chunk.
