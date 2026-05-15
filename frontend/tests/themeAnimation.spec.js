@@ -9,6 +9,7 @@ let animateSpy;
 // Stub returned by animate(); each test can swap finished/throw behaviour.
 let animationStub;
 
+/** @param {{top: number, left: number, width: number, height: number}} [rect] */
 function makeCardEl(rect = { top: 0, left: 0, width: 200, height: 80 }) {
   return {
     getBoundingClientRect: () => ({
