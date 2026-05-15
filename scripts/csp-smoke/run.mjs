@@ -105,6 +105,11 @@ if (!cspHeader) {
     else fail(`nonce mismatch: header=${headerNonce} meta=${metaNonce}`);
 }
 
+// Snapshot the page-load console errors BEFORE we run our own probes —
+// the negative probe (below) deliberately triggers a CSP violation,
+// which would otherwise be reported as a "real" page-load error.
+const pageLoadConsoleErrors = consoleErrors.slice();
+
 // --- Check 3: NEGATIVE — JS-injected <style> without nonce must violate ---
 const violations = await page.evaluate((pollLimitMs) => {
     return new Promise((resolve) => {
@@ -182,10 +187,11 @@ if (attrViolation)
 else
     pass("element.style.* assignment NOT blocked (Vue :style bindings safe)");
 
-// --- Check 5: surface any unexpected console errors ---
-if (consoleErrors.length > 0) {
-    console.warn(`WARN: ${consoleErrors.length} console error(s) during page load:`);
-    for (const e of consoleErrors) console.warn(`  - ${e}`);
+// --- Check 5: surface any unexpected console errors on page load ---
+// Use the pre-probe snapshot so our own injected violations don't pollute.
+if (pageLoadConsoleErrors.length > 0) {
+    console.warn(`WARN: ${pageLoadConsoleErrors.length} console error(s) during page load:`);
+    for (const e of pageLoadConsoleErrors) console.warn(`  - ${e}`);
 } else {
     pass('no console errors during page load');
 }
