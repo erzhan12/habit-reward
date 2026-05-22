@@ -650,6 +650,36 @@ class TestRemoveHabitCommand:
         assert result == ConversationHandler.END
         mock_telegram_update.message.delete.assert_not_called()
 
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.logger')
+    @patch('src.bot.handlers.habit_management_handler.user_repository')
+    @patch('src.bot.handlers.habit_management_handler.habit_repository')
+    async def test_command_continues_when_deletion_fails(
+        self,
+        mock_habit_repo,
+        mock_user_repo,
+        mock_logger,
+        mock_telegram_update,
+        mock_active_user,
+        language,
+    ):
+        """Deletion failure must not break the flow: keyboard still sent, state advances."""
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+        mock_habit_repo.get_all_active.return_value = [
+            Habit(id='h1', name='Morning run', weight=10, category='fitness', active=True)
+        ]
+        mock_telegram_update.message.delete.side_effect = Exception("Permission denied")
+
+        result = await remove_habit_command(mock_telegram_update, context=Mock(user_data={}))
+
+        assert result == AWAITING_REMOVE_SELECTION
+        mock_telegram_update.message.delete.assert_called_once()
+        mock_telegram_update.message.reply_text.assert_called_once()
+        assert any(
+            "Could not delete /remove_habit command message" in str(call.args[0])
+            for call in mock_logger.warning.call_args_list
+        ), f"Expected deletion-failure warning, got: {mock_logger.warning.call_args_list}"
+
 
 class TestRemoveHabitBack:
     @pytest.mark.asyncio
