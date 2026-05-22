@@ -654,7 +654,7 @@ class TestRemoveHabitBack:
         schedule_message_delete(message, "999999999", "test cleanup", context)
         task = context.user_data["pending_deletions"][0]
 
-        with caplog.at_level("WARNING"):
+        with caplog.at_level("WARNING", logger="src.bot.message_utils"):
             await task
 
         message.edit_text.assert_called_once_with("🗑️ <i>Deleting...</i>", parse_mode="HTML")
@@ -686,7 +686,7 @@ class TestRemoveHabitBack:
         context = Mock()
         context.user_data = {}
 
-        with caplog.at_level("WARNING"):
+        with caplog.at_level("WARNING", logger="src.bot.message_utils"):
             schedule_message_delete(None, "999999999", "invalid cleanup", context)
 
         assert "Could not schedule invalid cleanup deletion for user 999999999" in caplog.text
@@ -699,7 +699,7 @@ class TestRemoveHabitBack:
         context = Mock()
         context.user_data = {}
 
-        with caplog.at_level("WARNING"):
+        with caplog.at_level("WARNING", logger="src.bot.message_utils"):
             schedule_message_delete(True, "999999999", "true result cleanup", context)
 
         assert "Could not schedule true result cleanup deletion for user 999999999" in caplog.text
@@ -822,7 +822,7 @@ class TestRemoveHabitBack:
             'removing_habit_name': 'habittest2',
         }
 
-        with caplog.at_level("WARNING"):
+        with caplog.at_level("WARNING", logger="src.bot.message_utils"):
             result = await habit_remove_confirmed(mock_callback_update, context)
 
         assert result == ConversationHandler.END
