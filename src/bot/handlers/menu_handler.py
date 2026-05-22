@@ -182,21 +182,18 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
     Creates a proper mock Update that handlers can use.
     """
     query = update.callback_query
-    await query.answer()
 
     telegram_id = str(update.effective_user.id)
     data = query.data
     logger.info(f"🔀 Bridging menu callback '{data}' to command handler for user {telegram_id}")
 
-    # Certain actions should trigger command text directly for conversation handlers
-    direct_command_map = {
-        'menu_habits_remove': '/remove_habit',
-    }
-    if data in direct_command_map:
-        command_text = direct_command_map[data]
-        await query.message.chat.send_message(command_text)
-        logger.info("📤 Forwarded command %s for user %s", command_text, telegram_id)
-        return 0
+    if data == 'menu_habits_remove':
+        from src.bot.handlers.habit_management_handler import remove_habit_callback
+
+        logger.info("🔀 Invoking remove habit flow directly for user %s", telegram_id)
+        return await remove_habit_callback(update, context)
+
+    await query.answer()
 
     # Import handlers dynamically
     from src.bot.main import help_command
@@ -262,7 +259,7 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
         'menu_habits_add': add_habit_command,
         'menu_habits_revert': habit_revert_command,
         # 'menu_habits_edit': edit_habit_command,  # Handled by ConversationHandler
-        # 'menu_habits_remove': now in direct_command_map
+        # 'menu_habits_remove': handled directly above to avoid sending command text
         'menu_rewards_list': list_rewards_command,
         'menu_rewards_my': my_rewards_command,
         'menu_rewards_claimed': claimed_rewards_command,
