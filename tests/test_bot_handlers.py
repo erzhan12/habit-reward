@@ -46,10 +46,11 @@ from src.bot.handlers.habit_management_handler import (
     remove_habit_conversation,
 )
 from src.bot.message_utils import (
-    _schedule_message_delete,
+    schedule_message_delete,
     _pending_message_delete_tasks,
     _MESSAGE_DELETE_DELAY_SECONDS,
     _MESSAGE_DELETE_ANIMATION_SECONDS,
+    cancel_pending_deletions,
 )
 from src.bot.keyboards import build_start_menu_keyboard, build_rewards_menu_keyboard
 from src.models.user import User
@@ -617,7 +618,7 @@ class TestRemoveHabitBack:
         context = Mock()
         context.user_data = {}
 
-        _schedule_message_delete(message, "999999999", "test cleanup", context)
+        schedule_message_delete(message, "999999999", "test cleanup", context)
         task = context.user_data["pending_deletions"][0]
         assert task in _pending_message_delete_tasks
         await task
@@ -641,7 +642,7 @@ class TestRemoveHabitBack:
         context = Mock()
         context.user_data = {}
 
-        _schedule_message_delete(message, "999999999", "test cleanup", context)
+        schedule_message_delete(message, "999999999", "test cleanup", context)
         task = context.user_data["pending_deletions"][0]
 
         with caplog.at_level("WARNING"):
@@ -661,7 +662,7 @@ class TestRemoveHabitBack:
         message.edit_text = AsyncMock(side_effect=Exception("edit failed"))
         message.delete = AsyncMock()
 
-        _schedule_message_delete(message, "999999999", "test cleanup", None)
+        schedule_message_delete(message, "999999999", "test cleanup", None)
         task = next(iter(_pending_message_delete_tasks))
         await task
 
@@ -677,7 +678,7 @@ class TestRemoveHabitBack:
         context.user_data = {}
 
         with caplog.at_level("WARNING"):
-            _schedule_message_delete(None, "999999999", "invalid cleanup", context)
+            schedule_message_delete(None, "999999999", "invalid cleanup", context)
 
         assert "Could not schedule invalid cleanup deletion for user 999999999" in caplog.text
         assert "pending_deletions" not in context.user_data
@@ -693,13 +694,29 @@ class TestRemoveHabitBack:
         context = Mock()
         context.user_data = {}
 
-        _schedule_message_delete(message, "999999999", "test cleanup", context)
+        schedule_message_delete(message, "999999999", "test cleanup", context)
         task = context.user_data["pending_deletions"][0]
         task.cancel()
 
         with pytest.raises(asyncio.CancelledError):
             await task
 
+        assert task not in _pending_message_delete_tasks
+
+    @pytest.mark.asyncio
+    async def test_cancel_pending_deletions_cancels_tracked_tasks(self):
+        """Cleanup helper should request cancellation for pending deletion tasks."""
+        _pending_message_delete_tasks.clear()
+        message = Mock()
+        message.edit_text = AsyncMock()
+        message.delete = AsyncMock()
+
+        schedule_message_delete(message, "999999999", "test cleanup", None)
+        task = next(iter(_pending_message_delete_tasks))
+
+        assert cancel_pending_deletions() == 1
+        with pytest.raises(asyncio.CancelledError):
+            await task
         assert task not in _pending_message_delete_tasks
 
     @pytest.mark.asyncio
@@ -733,7 +750,7 @@ class TestRemoveHabitBack:
         mock_callback_update.callback_query.delete_message.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch('src.bot.handlers.habit_management_handler._schedule_message_delete')
+    @patch('src.bot.handlers.habit_management_handler.schedule_message_delete')
     @patch('src.bot.handlers.habit_management_handler.habit_repository')
     async def test_remove_success_message_is_scheduled_for_deletion(
         self, mock_habit_repo, mock_schedule_delete, mock_callback_update, language
