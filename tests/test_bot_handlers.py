@@ -39,6 +39,7 @@ from src.bot.handlers.menu_handler import (
 )
 from src.bot.handlers.habit_management_handler import (
     remove_back_to_list,
+    remove_habit_command,
     AWAITING_REMOVE_SELECTION,
     AWAITING_HABIT_NAME,
     habit_remove_confirmed,
@@ -91,6 +92,7 @@ def mock_telegram_update(mock_telegram_user):
     """Create mock Telegram update with message."""
     message = Mock(spec=Message)
     message.reply_text = AsyncMock()
+    message.delete = AsyncMock()
 
     update = Mock(spec=Update)
     update.effective_user = mock_telegram_user
@@ -613,6 +615,40 @@ class TestSimpleHabitDoneFlow:
 
         # Assert: returned 0
         assert result == 0
+
+
+class TestRemoveHabitCommand:
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.user_repository')
+    @patch('src.bot.handlers.habit_management_handler.habit_repository')
+    async def test_command_message_deleted_when_habits_exist(
+        self, mock_habit_repo, mock_user_repo, mock_telegram_update, mock_active_user, language
+    ):
+        """Manual /remove_habit should not leave the command text in chat (issue #59)."""
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+        mock_habit_repo.get_all_active.return_value = [
+            Habit(id='h1', name='Morning run', weight=10, category='fitness', active=True)
+        ]
+
+        result = await remove_habit_command(mock_telegram_update, context=Mock(user_data={}))
+
+        assert result == AWAITING_REMOVE_SELECTION
+        mock_telegram_update.message.delete.assert_called_once()
+        mock_telegram_update.message.reply_text.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.user_repository')
+    @patch('src.bot.handlers.habit_management_handler.habit_repository')
+    async def test_command_message_not_deleted_when_no_habits(
+        self, mock_habit_repo, mock_user_repo, mock_telegram_update, mock_active_user, language
+    ):
+        mock_user_repo.get_by_telegram_id.return_value = mock_active_user
+        mock_habit_repo.get_all_active.return_value = []
+
+        result = await remove_habit_command(mock_telegram_update, context=Mock(user_data={}))
+
+        assert result == ConversationHandler.END
+        mock_telegram_update.message.delete.assert_not_called()
 
 
 class TestRemoveHabitBack:

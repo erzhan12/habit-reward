@@ -184,6 +184,10 @@ This document tracks planned features, improvements, and enhancements for the Ha
 
 ## 🐛 Bug Fixes & Technical Debt
 
+- [x] **Delete `/remove_habit` command message from chat**
+  - Menu path fixed in PR #60; manual `/remove_habit` deletes the command message in `remove_habit_command` after validation
+  - **File**: `src/bot/handlers/habit_management_handler.py` (`remove_habit_command`)
+
 - [ ] **Review and Refactor**
   - Code review for consistency
   - Remove deprecated code paths

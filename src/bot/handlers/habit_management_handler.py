@@ -1491,6 +1491,14 @@ async def remove_habit_command(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.info(f"📤 Sent ERROR_NO_HABITS_TO_REMOVE to {telegram_id}")
         return ConversationHandler.END
 
+    try:
+        await update.message.delete()
+        logger.info(f"🗑️ Deleted /remove_habit command message for user {telegram_id}")
+    except Exception as e:
+        logger.warning(
+            f"⚠️ Could not delete /remove_habit command message for user {telegram_id}: {e}"
+        )
+
     # Show habit selection keyboard
     keyboard = build_habits_for_edit_keyboard(habits, operation="remove", language=lang)
     await update.message.reply_text(
