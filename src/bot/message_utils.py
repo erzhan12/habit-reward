@@ -1,4 +1,8 @@
-"""Shared Telegram message cleanup utilities."""
+"""Shared Telegram message cleanup utilities.
+
+Global task tracking enables graceful cleanup; call cancel_pending_deletions()
+before bot shutdown to prevent orphaned deletion animations.
+"""
 
 import asyncio
 import logging
@@ -16,7 +20,7 @@ _MESSAGE_DELETE_DELAY_SECONDS = 2.5
 _MESSAGE_DELETE_ANIMATION_SECONDS = 0.5
 
 
-def _schedule_message_delete(
+def schedule_message_delete(
     message_obj,
     telegram_id: str,
     description: str,
@@ -61,8 +65,31 @@ def _schedule_message_delete(
     task = asyncio.create_task(delete_message())
     _pending_message_delete_tasks.add(task)
     # Task self-removes from tracking set when done (success, failure, or cancellation).
-    task.add_done_callback(_pending_message_delete_tasks.discard)
+    task.add_done_callback(_discard_completed_task)
 
     # Also track in context for test inspection; user_data is cleared at conversation end.
     if context is not None and hasattr(context, "user_data") and isinstance(context.user_data, dict):
         context.user_data.setdefault("pending_deletions", []).append(task)
+
+
+def _discard_completed_task(task) -> None:
+    """Remove a completed deletion task from the tracking set."""
+    try:
+        _pending_message_delete_tasks.discard(task)
+    except Exception as e:
+        logger.warning("⚠️ Could not remove completed message deletion task from tracking: %s", e)
+
+
+def cancel_pending_deletions() -> int:
+    """Cancel pending message deletion tasks and return the number requested."""
+    tasks_to_cancel = list(_pending_message_delete_tasks)
+    cancelled_count = 0
+    for task in tasks_to_cancel:
+        if not task.done():
+            task.cancel()
+            cancelled_count += 1
+        else:
+            _pending_message_delete_tasks.discard(task)
+
+    logger.info("🛑 Requested cancellation for %d pending message deletion tasks", cancelled_count)
+    return cancelled_count
