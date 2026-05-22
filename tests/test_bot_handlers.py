@@ -38,7 +38,8 @@ from src.bot.handlers.menu_handler import (
 )
 from src.bot.handlers.habit_management_handler import (
     remove_back_to_list,
-    AWAITING_REMOVE_SELECTION
+    AWAITING_REMOVE_SELECTION,
+    remove_habit_conversation,
 )
 from src.bot.keyboards import build_start_menu_keyboard, build_rewards_menu_keyboard
 from src.models.user import User
@@ -341,6 +342,15 @@ class TestMenuHandlers:
         assert bridge_handlers
         for handler in bridge_handlers:
             assert handler.pattern.match("menu_habits_remove") is None
+
+        remove_entry_points = [
+            handler for handler in remove_habit_conversation.entry_points
+            if getattr(handler, "pattern", None)
+        ]
+        assert any(
+            handler.pattern.match("menu_habits_remove")
+            for handler in remove_entry_points
+        )
 
     @pytest.mark.asyncio
     async def test_back_to_start_menu(self, mock_callback_update, language):
