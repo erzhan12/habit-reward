@@ -651,6 +651,23 @@ class TestRemoveHabitBack:
         assert "Could not delete test cleanup message for user 999999999" in caplog.text
 
     @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.asyncio.sleep', new_callable=AsyncMock)
+    async def test_schedule_message_delete_deletes_when_edit_fails(self, mock_sleep):
+        """A failed deleting-state edit should not prevent the actual deletion."""
+        _pending_message_delete_tasks.clear()
+        message = Mock()
+        message.edit_text = AsyncMock(side_effect=Exception("edit failed"))
+        message.delete = AsyncMock()
+
+        _schedule_message_delete(message, "999999999", "test cleanup", None)
+        task = next(iter(_pending_message_delete_tasks))
+        await task
+
+        message.edit_text.assert_called_once_with("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+        message.delete.assert_called_once()
+        assert task not in _pending_message_delete_tasks
+
+    @pytest.mark.asyncio
     async def test_schedule_message_delete_rejects_invalid_message(self, caplog):
         """Invalid message objects should log and avoid scheduling a task."""
         _pending_message_delete_tasks.clear()
