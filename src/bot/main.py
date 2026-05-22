@@ -12,6 +12,7 @@ import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler
 from src.utils.logging import setup_logging
+from src.bot.message_utils import cancel_pending_deletions
 from src.bot.handlers.command_handlers import start_command, help_command
 from src.bot.handlers.habit_done_handler import habit_done_conversation
 from src.bot.handlers.habit_revert_handler import habit_revert_conversation
@@ -39,6 +40,13 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+async def _cancel_pending_message_deletions(application: Application) -> None:
+    """Cancel fire-and-forget message cleanup tasks during application shutdown."""
+    cancelled_count = cancel_pending_deletions()
+    if cancelled_count:
+        logger.info("🛑 Cancelled %d pending message deletion task(s) during shutdown", cancelled_count)
+
+
 def main():
     """Run the bot in polling mode (for development).
 
@@ -54,7 +62,12 @@ def main():
     from django.conf import settings
 
     # Create application
-    application = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
+    application = (
+        Application.builder()
+        .token(settings.TELEGRAM_BOT_TOKEN)
+        .post_shutdown(_cancel_pending_message_deletions)
+        .build()
+    )
 
     # Add handlers
     application.add_handler(CommandHandler("start", start_command))

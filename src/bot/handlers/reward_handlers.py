@@ -1,6 +1,5 @@
 """Handlers for reward-related commands."""
 
-import asyncio
 import html
 import logging
 from telegram import Update
@@ -46,6 +45,7 @@ from src.bot.keyboards import (
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async, detect_language_from_telegram
 from src.bot.navigation import push_navigation, pop_navigation
+from src.bot.message_utils import schedule_message_delete
 from src.config import (
     REWARD_NAME_MAX_LENGTH,
     REWARD_WEIGHT_MIN,
@@ -1105,25 +1105,7 @@ async def reward_confirm_save(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     logger.info(f"📤 Sent Rewards menu to {telegram_id}")
     
-    # Delete success message with animation after user has time to read it
-    async def delete_success_message():
-        try:
-            # Wait 2.5 seconds for user to read the success message
-            await asyncio.sleep(2.5)
-            
-            # Animation: Show deleting indicator
-            await success_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-            await asyncio.sleep(0.5)
-            
-            # Delete the message
-            await success_msg_obj.delete()
-            logger.info(f"🗑️ Deleted success message for user {telegram_id}")
-        except Exception as e:
-            # If deletion fails (e.g., message too old or already deleted), just log it
-            logger.warning(f"⚠️ Could not delete success message for user {telegram_id}: {e}")
-    
-    # Run deletion in background (don't await to avoid blocking)
-    asyncio.create_task(delete_success_message())
+    schedule_message_delete(success_msg_obj, telegram_id, "reward success", context)
     
     return ConversationHandler.END
 
@@ -1202,25 +1184,7 @@ async def cancel_reward_flow_callback(update: Update, context: ContextTypes.DEFA
         parse_mode="HTML"
     )
     
-    # Delete cancellation message with animation after a short delay
-    async def delete_cancel_message():
-        try:
-            # Wait 2.5 seconds
-            await asyncio.sleep(2.5)
-            
-            # Animation: Show deleting indicator
-            await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-            await asyncio.sleep(0.5)
-            
-            # Delete the message
-            await cancel_msg_obj.delete()
-            logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
-        except Exception as e:
-            # If deletion fails (e.g., message too old or already deleted), just log it
-            logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
-    
-    # Run deletion in background
-    asyncio.create_task(delete_cancel_message())
+    schedule_message_delete(cancel_msg_obj, telegram_id, "reward cancellation", context)
     
     return ConversationHandler.END
 
@@ -1242,25 +1206,7 @@ async def cancel_add_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         parse_mode="HTML"
     )
     
-    # Delete cancellation message with animation after a short delay
-    async def delete_cancel_message():
-        try:
-            # Wait 2.5 seconds
-            await asyncio.sleep(2.5)
-            
-            # Animation: Show deleting indicator
-            await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-            await asyncio.sleep(0.5)
-            
-            # Delete the message
-            await cancel_msg_obj.delete()
-            logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
-        except Exception as e:
-            # If deletion fails (e.g., message too old or already deleted), just log it
-            logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
-    
-    # Run deletion in background
-    asyncio.create_task(delete_cancel_message())
+    schedule_message_delete(cancel_msg_obj, telegram_id, "reward cancellation", context)
     
     return ConversationHandler.END
 
@@ -1984,25 +1930,7 @@ async def reward_toggle_selected(update: Update, context: ContextTypes.DEFAULT_T
         )
         logger.info(f"📤 Sent Rewards menu to {telegram_id}")
 
-        # Delete success message with animation after user has time to read it
-        async def delete_success_message():
-            try:
-                # Wait 2.5 seconds for user to read the success message
-                await asyncio.sleep(2.5)
-                
-                # Animation: Show deleting indicator
-                await success_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-                await asyncio.sleep(0.5)
-                
-                # Delete the message
-                await success_msg_obj.delete()
-                logger.info(f"🗑️ Deleted success message for user {telegram_id}")
-            except Exception as e:
-                # If deletion fails (e.g., message too old or already deleted), just log it
-                logger.warning(f"⚠️ Could not delete success message for user {telegram_id}: {e}")
-        
-        # Run deletion in background (don't await to avoid blocking)
-        asyncio.create_task(delete_success_message())
+        schedule_message_delete(success_msg_obj, telegram_id, "reward success", context)
 
         logger.info("✅ User %s toggled reward %s to active=%s", telegram_id, reward_id, new_active_status)
         return ConversationHandler.END

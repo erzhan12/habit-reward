@@ -1,6 +1,5 @@
 """Handlers for habit management commands: /add_habit, /edit_habit, /remove_habit."""
 
-import asyncio
 import logging
 from telegram import Update
 from telegram.ext import (
@@ -27,6 +26,7 @@ from src.bot.keyboards import (
 )
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async
+from src.bot.message_utils import schedule_message_delete
 from src.config import HABIT_NAME_MAX_LENGTH
 from src.utils.async_compat import maybe_await
 
@@ -53,8 +53,6 @@ AWAITING_EDIT_CONFIRMATION = 16
 # Conversation states for /remove_habit
 AWAITING_REMOVE_SELECTION = 20
 AWAITING_REMOVE_CONFIRMATION = 21
-
-
 # ============================================================================
 # /add_habit CONVERSATION HANDLER
 # ============================================================================
@@ -524,25 +522,7 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         logger.info(f"📤 Sent Habits menu to {telegram_id}")
 
-        # Delete cancellation message with animation after a short delay
-        async def delete_cancel_message():
-            try:
-                # Wait 2.5 seconds
-                await asyncio.sleep(2.5)
-                
-                # Animation: Show deleting indicator
-                await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-                await asyncio.sleep(0.5)
-                
-                # Delete the message
-                await cancel_msg_obj.delete()
-                logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
-            except Exception as e:
-                # If deletion fails (e.g., message too old or already deleted), just log it
-                logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
-        
-        # Run deletion in background
-        asyncio.create_task(delete_cancel_message())
+        schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
         # Clear context
         context.user_data.clear()
@@ -601,25 +581,7 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         logger.info(f"📤 Sent post-creation menu with {len(all_habits)} habits to {telegram_id}")
 
-        # Delete success message with animation after user has time to read it
-        async def delete_success_message():
-            try:
-                # Wait 2.5 seconds for user to read the success message
-                await asyncio.sleep(2.5)
-                
-                # Animation: Show deleting indicator
-                await success_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-                await asyncio.sleep(0.5)
-                
-                # Delete the message
-                await success_msg_obj.delete()
-                logger.info(f"🗑️ Deleted success message for user {telegram_id}")
-            except Exception as e:
-                # If deletion fails (e.g., message too old or already deleted), just log it
-                logger.warning(f"⚠️ Could not delete success message for user {telegram_id}: {e}")
-        
-        # Run deletion in background (don't await to avoid blocking)
-        asyncio.create_task(delete_success_message())
+        schedule_message_delete(success_msg_obj, telegram_id, "success", context)
 
     except Exception as e:
         logger.error(f"❌ Error creating habit for user {telegram_id}: {str(e)}")
@@ -672,25 +634,7 @@ async def cancel_habit_flow_callback(update: Update, context: ContextTypes.DEFAU
     )
     logger.info(f"📤 Sent Habits menu to {telegram_id}")
 
-    # Delete cancellation message with animation after a short delay
-    async def delete_cancel_message():
-        try:
-            # Wait 2.5 seconds
-            await asyncio.sleep(2.5)
-            
-            # Animation: Show deleting indicator
-            await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-            await asyncio.sleep(0.5)
-            
-            # Delete the message
-            await cancel_msg_obj.delete()
-            logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
-        except Exception as e:
-            # If deletion fails (e.g., message too old or already deleted), just log it
-            logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
-    
-    # Run deletion in background
-    asyncio.create_task(delete_cancel_message())
+    schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
     # Clear context
     context.user_data.clear()
@@ -707,25 +651,7 @@ async def cancel_add_habit(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     cancel_msg_obj = await update.message.reply_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
     logger.info(f"📤 Sent cancellation message to {telegram_id}")
 
-    # Delete cancellation message with animation after a short delay
-    async def delete_cancel_message():
-        try:
-            # Wait 2.5 seconds
-            await asyncio.sleep(2.5)
-            
-            # Animation: Show deleting indicator
-            await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-            await asyncio.sleep(0.5)
-            
-            # Delete the message
-            await cancel_msg_obj.delete()
-            logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
-        except Exception as e:
-            # If deletion fails (e.g., message too old or already deleted), just log it
-            logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
-    
-    # Run deletion in background
-    asyncio.create_task(delete_cancel_message())
+    schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
     # Clear context
     context.user_data.clear()
@@ -1407,25 +1333,7 @@ async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         logger.info(f"📤 Sent Habits menu to {telegram_id}")
 
-        # Delete cancellation message with animation after a short delay
-        async def delete_cancel_message():
-            try:
-                # Wait 2.5 seconds
-                await asyncio.sleep(2.5)
-                
-                # Animation: Show deleting indicator
-                await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-                await asyncio.sleep(0.5)
-                
-                # Delete the message
-                await cancel_msg_obj.delete()
-                logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
-            except Exception as e:
-                # If deletion fails (e.g., message too old or already deleted), just log it
-                logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
-        
-        # Run deletion in background
-        asyncio.create_task(delete_cancel_message())
+        schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
         # Clear context
         context.user_data.clear()
@@ -1467,25 +1375,7 @@ async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         logger.info(f"📤 Sent Main Menu to {telegram_id}")
 
-        # Delete success message with animation after user has time to read it
-        async def delete_success_message():
-            try:
-                # Wait 2.5 seconds for user to read the success message
-                await asyncio.sleep(2.5)
-                
-                # Animation: Show deleting indicator
-                await success_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-                await asyncio.sleep(0.5)
-                
-                # Delete the message
-                await success_msg_obj.delete()
-                logger.info(f"🗑️ Deleted success message for user {telegram_id}")
-            except Exception as e:
-                # If deletion fails (e.g., message too old or already deleted), just log it
-                logger.warning(f"⚠️ Could not delete success message for user {telegram_id}: {e}")
-        
-        # Run deletion in background (don't await to avoid blocking)
-        asyncio.create_task(delete_success_message())
+        schedule_message_delete(success_msg_obj, telegram_id, "success", context)
 
     except Exception as e:
         logger.error(f"❌ Error updating habit for user {telegram_id}: {str(e)}")
@@ -1540,6 +1430,9 @@ async def edit_to_add_habit(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         msg('HELP_ADD_HABIT_NAME_PROMPT', lang),
         parse_mode="HTML"
     )
+    if query.message:
+        context.user_data['active_msg_chat_id'] = query.message.chat_id
+        context.user_data['active_msg_id'] = query.message.message_id
     logger.info(f"📤 Sent habit name prompt to {telegram_id} (from edit redirect)")
 
     return AWAITING_HABIT_NAME
@@ -1555,25 +1448,7 @@ async def cancel_edit_habit(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     cancel_msg_obj = await update.message.reply_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
     logger.info(f"📤 Sent cancellation message to {telegram_id}")
 
-    # Delete cancellation message with animation after a short delay
-    async def delete_cancel_message():
-        try:
-            # Wait 2.5 seconds
-            await asyncio.sleep(2.5)
-            
-            # Animation: Show deleting indicator
-            await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-            await asyncio.sleep(0.5)
-            
-            # Delete the message
-            await cancel_msg_obj.delete()
-            logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
-        except Exception as e:
-            # If deletion fails (e.g., message too old or already deleted), just log it
-            logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
-    
-    # Run deletion in background
-    asyncio.create_task(delete_cancel_message())
+    schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
     # Clear context
     context.user_data.clear()
@@ -1740,25 +1615,7 @@ async def habit_remove_confirmed(update: Update, context: ContextTypes.DEFAULT_T
         )
         logger.info(f"📤 Sent Habits menu to {telegram_id}")
 
-        # Delete cancellation message with animation after a short delay
-        async def delete_cancel_message():
-            try:
-                # Wait 2.5 seconds
-                await asyncio.sleep(2.5)
-                
-                # Animation: Show deleting indicator
-                await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-                await asyncio.sleep(0.5)
-                
-                # Delete the message
-                await cancel_msg_obj.delete()
-                logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
-            except Exception as e:
-                # If deletion fails (e.g., message too old or already deleted), just log it
-                logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
-        
-        # Run deletion in background
-        asyncio.create_task(delete_cancel_message())
+        schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
         # Clear context
         context.user_data.clear()
@@ -1775,7 +1632,7 @@ async def habit_remove_confirmed(update: Update, context: ContextTypes.DEFAULT_T
         logger.info(f"✅ Soft deleted habit '{removed_habit.name}' (ID: {removed_habit.id}) for user {telegram_id}")
 
         success_message = msg('SUCCESS_HABIT_REMOVED', lang, name=habit_name)
-        await query.edit_message_text(success_message, parse_mode="HTML")
+        success_msg_obj = await query.edit_message_text(success_message, parse_mode="HTML")
         logger.info(f"📤 Sent success message to {telegram_id}")
 
         # Show Habits menu after successful removal
@@ -1786,6 +1643,7 @@ async def habit_remove_confirmed(update: Update, context: ContextTypes.DEFAULT_T
             parse_mode="HTML"
         )
         logger.info(f"📤 Sent Habits menu to {telegram_id}")
+        schedule_message_delete(success_msg_obj, telegram_id, "habit removal success", context)
 
     except Exception as e:
         logger.error(f"❌ Error removing habit for user {telegram_id}: {str(e)}")
@@ -1810,25 +1668,7 @@ async def cancel_remove_habit(update: Update, context: ContextTypes.DEFAULT_TYPE
     cancel_msg_obj = await update.message.reply_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
     logger.info(f"📤 Sent cancellation message to {telegram_id}")
 
-    # Delete cancellation message with animation after a short delay
-    async def delete_cancel_message():
-        try:
-            # Wait 2.5 seconds
-            await asyncio.sleep(2.5)
-            
-            # Animation: Show deleting indicator
-            await cancel_msg_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-            await asyncio.sleep(0.5)
-            
-            # Delete the message
-            await cancel_msg_obj.delete()
-            logger.info(f"🗑️ Deleted cancellation message for user {telegram_id}")
-        except Exception as e:
-            # If deletion fails (e.g., message too old or already deleted), just log it
-            logger.warning(f"⚠️ Could not delete cancellation message for user {telegram_id}: {e}")
-    
-    # Run deletion in background
-    asyncio.create_task(delete_cancel_message())
+    schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
     # Clear context
     context.user_data.clear()

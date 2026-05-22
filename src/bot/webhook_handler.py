@@ -7,14 +7,29 @@ from telegram.ext import Application, PicklePersistence
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
+from src.bot.message_utils import cancel_pending_deletions
 
 logger = logging.getLogger(__name__)
 
 # Initialize persistence for conversation state
 persistence = PicklePersistence(filepath='telegram_bot_persistence.pkl')
 
+
+async def _cancel_pending_message_deletions(application: Application) -> None:
+    """Cancel fire-and-forget message cleanup tasks during webhook shutdown."""
+    cancelled_count = cancel_pending_deletions()
+    if cancelled_count:
+        logger.info("🛑 Cancelled %d pending message deletion task(s) during webhook shutdown", cancelled_count)
+
+
 # Initialize application (singleton) with persistence
-application = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).persistence(persistence).build()
+application = (
+    Application.builder()
+    .token(settings.TELEGRAM_BOT_TOKEN)
+    .persistence(persistence)
+    .post_shutdown(_cancel_pending_message_deletions)
+    .build()
+)
 _initialized = False
 
 

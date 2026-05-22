@@ -1,5 +1,6 @@
 """Unit tests for Telegram bot handlers with multi-language support."""
 
+import asyncio
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from telegram import Update, Message, User as TelegramUser
@@ -39,13 +40,32 @@ from src.bot.handlers.menu_handler import (
 from src.bot.handlers.habit_management_handler import (
     remove_back_to_list,
     AWAITING_REMOVE_SELECTION,
+    AWAITING_HABIT_NAME,
+    habit_remove_confirmed,
+    edit_to_add_habit,
     remove_habit_conversation,
+)
+from src.bot.message_utils import (
+    schedule_message_delete,
+    _pending_message_delete_tasks,
+    _MESSAGE_DELETE_DELAY_SECONDS,
+    _MESSAGE_DELETE_ANIMATION_SECONDS,
+    cancel_pending_deletions,
 )
 from src.bot.keyboards import build_start_menu_keyboard, build_rewards_menu_keyboard
 from src.models.user import User
 from src.models.habit import Habit
 from src.bot.messages import msg
 from src.config import settings, REWARD_WEIGHT_MIN, REWARD_WEIGHT_MAX
+
+
+@pytest.fixture(autouse=True)
+def clear_pending_message_delete_tasks():
+    """Keep global message deletion task tracking isolated between tests."""
+    _pending_message_delete_tasks.clear()
+    yield
+    cancel_pending_deletions()
+    _pending_message_delete_tasks.clear()
 
 
 @pytest.fixture(params=settings.supported_languages)
@@ -310,7 +330,9 @@ def mock_callback_update(mock_telegram_user):
     query.edit_message_text = AsyncMock()
     query.delete_message = AsyncMock()
     query.data = ''
-    query.message = Mock()
+    query.message = Mock(spec=Message)
+    query.message.chat_id = 12345
+    query.message.message_id = 67890
     query.message.chat = DummyChat()
 
     update = Mock(spec=Update)
@@ -595,6 +617,131 @@ class TestSimpleHabitDoneFlow:
 
 class TestRemoveHabitBack:
     @pytest.mark.asyncio
+    @patch('src.bot.message_utils.asyncio.sleep', new_callable=AsyncMock)
+    async def test_schedule_message_delete_edits_then_deletes(self, mock_sleep):
+        """Scheduled deletion should show a deleting state before removing the message."""
+        _pending_message_delete_tasks.clear()
+        message = Mock(spec=Message)
+        message.edit_text = AsyncMock()
+        message.delete = AsyncMock()
+        context = Mock()
+        context.user_data = {}
+
+        schedule_message_delete(message, "999999999", "test cleanup", context)
+        task = context.user_data["pending_deletions"][0]
+        assert task in _pending_message_delete_tasks
+        await task
+
+        assert task not in _pending_message_delete_tasks
+        assert [call.args[0] for call in mock_sleep.await_args_list] == [
+            _MESSAGE_DELETE_DELAY_SECONDS,
+            _MESSAGE_DELETE_ANIMATION_SECONDS,
+        ]
+        message.edit_text.assert_called_once_with("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+        message.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch('src.bot.message_utils.asyncio.sleep', new_callable=AsyncMock)
+    async def test_schedule_message_delete_logs_delete_failure(self, mock_sleep, caplog):
+        """Deletion failures should be logged without crashing the handler task."""
+        _pending_message_delete_tasks.clear()
+        message = Mock(spec=Message)
+        message.edit_text = AsyncMock()
+        message.delete = AsyncMock(side_effect=Exception("already gone"))
+        context = Mock()
+        context.user_data = {}
+
+        schedule_message_delete(message, "999999999", "test cleanup", context)
+        task = context.user_data["pending_deletions"][0]
+
+        with caplog.at_level("WARNING"):
+            await task
+
+        message.edit_text.assert_called_once_with("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+        message.delete.assert_called_once()
+        assert task not in _pending_message_delete_tasks
+        assert "Could not delete test cleanup message for user 999999999: already gone" in caplog.text
+
+    @pytest.mark.asyncio
+    @patch('src.bot.message_utils.asyncio.sleep', new_callable=AsyncMock)
+    async def test_schedule_message_delete_deletes_when_edit_fails(self, mock_sleep):
+        """A failed deleting-state edit should not prevent the actual deletion."""
+        _pending_message_delete_tasks.clear()
+        message = Mock(spec=Message)
+        message.edit_text = AsyncMock(side_effect=Exception("edit failed"))
+        message.delete = AsyncMock()
+
+        schedule_message_delete(message, "999999999", "test cleanup", None)
+        task = next(iter(_pending_message_delete_tasks))
+        await task
+
+        message.edit_text.assert_called_once_with("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+        message.delete.assert_called_once()
+        assert task not in _pending_message_delete_tasks
+
+    @pytest.mark.asyncio
+    async def test_schedule_message_delete_rejects_invalid_message(self, caplog):
+        """Invalid message objects should log and avoid scheduling a task."""
+        _pending_message_delete_tasks.clear()
+        context = Mock()
+        context.user_data = {}
+
+        with caplog.at_level("WARNING"):
+            schedule_message_delete(None, "999999999", "invalid cleanup", context)
+
+        assert "Could not schedule invalid cleanup deletion for user 999999999" in caplog.text
+        assert "pending_deletions" not in context.user_data
+        assert not _pending_message_delete_tasks
+
+    @pytest.mark.asyncio
+    async def test_schedule_message_delete_rejects_true_result(self, caplog):
+        """Telegram can return True instead of Message; that must not create a task."""
+        context = Mock()
+        context.user_data = {}
+
+        with caplog.at_level("WARNING"):
+            schedule_message_delete(True, "999999999", "true result cleanup", context)
+
+        assert "Could not schedule true result cleanup deletion for user 999999999" in caplog.text
+        assert "pending_deletions" not in context.user_data
+        assert not _pending_message_delete_tasks
+
+    @pytest.mark.asyncio
+    async def test_schedule_message_delete_propagates_cancellation(self):
+        """Cancelled deletion tasks should propagate CancelledError and leave tracking clean."""
+        _pending_message_delete_tasks.clear()
+        message = Mock(spec=Message)
+        message.edit_text = AsyncMock()
+        message.delete = AsyncMock()
+        context = Mock()
+        context.user_data = {}
+
+        schedule_message_delete(message, "999999999", "test cleanup", context)
+        task = context.user_data["pending_deletions"][0]
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert task not in _pending_message_delete_tasks
+
+    @pytest.mark.asyncio
+    async def test_cancel_pending_deletions_cancels_tracked_tasks(self):
+        """Cleanup helper should request cancellation for pending deletion tasks."""
+        _pending_message_delete_tasks.clear()
+        message = Mock(spec=Message)
+        message.edit_text = AsyncMock()
+        message.delete = AsyncMock()
+
+        schedule_message_delete(message, "999999999", "test cleanup", None)
+        task = next(iter(_pending_message_delete_tasks))
+
+        assert cancel_pending_deletions() == 1
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert task not in _pending_message_delete_tasks
+
+    @pytest.mark.asyncio
     @patch('src.bot.handlers.habit_management_handler.user_repository')
     @patch('src.bot.handlers.habit_management_handler.habit_repository')
     async def test_back_to_list_shows_selection(self, mock_habit_repo, mock_user_repo, mock_callback_update, mock_active_user, language):
@@ -623,6 +770,82 @@ class TestRemoveHabitBack:
         result = await remove_back_to_list(mock_callback_update, context=None)
         assert result == ConversationHandler.END
         mock_callback_update.callback_query.delete_message.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.schedule_message_delete')
+    @patch('src.bot.handlers.habit_management_handler.habit_repository')
+    async def test_remove_success_message_is_scheduled_for_deletion(
+        self, mock_habit_repo, mock_schedule_delete, mock_callback_update, language
+    ):
+        """Successful removal should not leave the transient success message in chat."""
+        removed_habit = Mock()
+        removed_habit.id = 'h1'
+        removed_habit.name = 'habittest2'
+        mock_habit_repo.soft_delete.return_value = removed_habit
+        success_message = Mock(spec=Message)
+        mock_callback_update.callback_query.edit_message_text = AsyncMock(return_value=success_message)
+        mock_callback_update.callback_query.message.reply_text = AsyncMock()
+        mock_callback_update.callback_query.data = 'confirm_yes'
+
+        context = Mock()
+        context.user_data = {
+            'removing_habit_id': 'h1',
+            'removing_habit_name': 'habittest2',
+        }
+
+        result = await habit_remove_confirmed(mock_callback_update, context)
+
+        assert result == ConversationHandler.END
+        mock_schedule_delete.assert_called_once_with(
+            success_message,
+            str(mock_callback_update.effective_user.id),
+            "habit removal success",
+            context,
+        )
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.habit_repository')
+    async def test_remove_success_skips_deletion_when_edit_returns_true(
+        self, mock_habit_repo, mock_callback_update, caplog
+    ):
+        """If Telegram returns True instead of Message, removal should still finish."""
+        removed_habit = Mock()
+        removed_habit.id = 'h1'
+        removed_habit.name = 'habittest2'
+        mock_habit_repo.soft_delete.return_value = removed_habit
+        mock_callback_update.callback_query.edit_message_text = AsyncMock(return_value=True)
+        mock_callback_update.callback_query.message.reply_text = AsyncMock()
+        mock_callback_update.callback_query.data = 'confirm_yes'
+        context = Mock()
+        context.user_data = {
+            'removing_habit_id': 'h1',
+            'removing_habit_name': 'habittest2',
+        }
+
+        with caplog.at_level("WARNING"):
+            result = await habit_remove_confirmed(mock_callback_update, context)
+
+        assert result == ConversationHandler.END
+        assert "Could not schedule habit removal success deletion" in caplog.text
+        assert not _pending_message_delete_tasks
+
+    @pytest.mark.asyncio
+    async def test_edit_to_add_habit_tracks_prompt_for_later_cleanup(self, mock_callback_update):
+        """Redirected add-habit prompt should be tracked for in-place edits/deletion."""
+        context = Mock()
+        context.user_data = {'stale': 'value'}
+
+        result = await edit_to_add_habit(mock_callback_update, context)
+
+        assert result == AWAITING_HABIT_NAME
+        assert (
+            context.user_data['active_msg_chat_id']
+            == mock_callback_update.callback_query.message.chat_id
+        )
+        assert (
+            context.user_data['active_msg_id']
+            == mock_callback_update.callback_query.message.message_id
+        )
 
 
 class TestHabitDoneCommand:
