@@ -326,6 +326,12 @@ class TestMenuHandlers:
 
     @pytest.mark.asyncio
     async def test_bridge_to_remove_habit_callback_without_sending_command(self, mock_callback_update):
+        """
+        menu_habits_remove should start the remove flow without posting command text.
+
+        Fixes #59: the menu previously sent a visible '/remove_habit' message,
+        which remained in chat history after the removal flow started.
+        """
         mock_remove_habit_callback = AsyncMock(return_value=AWAITING_REMOVE_SELECTION)
         with patch(
             "src.bot.handlers.habit_management_handler.remove_habit_callback",
