@@ -188,7 +188,6 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
     data = query.data
     logger.info(f"🔀 Bridging menu callback '{data}' to command handler for user {telegram_id}")
 
-
     # Import handlers dynamically
     from src.bot.main import help_command
     from src.bot.handlers.streak_handler import streaks_command
