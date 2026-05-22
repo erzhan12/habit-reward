@@ -45,7 +45,7 @@ from src.bot.keyboards import (
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async, detect_language_from_telegram
 from src.bot.navigation import push_navigation, pop_navigation
-from src.bot.message_utils import _schedule_message_delete
+from src.bot.message_utils import schedule_message_delete
 from src.config import (
     REWARD_NAME_MAX_LENGTH,
     REWARD_WEIGHT_MIN,
@@ -1105,7 +1105,7 @@ async def reward_confirm_save(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     logger.info(f"📤 Sent Rewards menu to {telegram_id}")
     
-    _schedule_message_delete(success_msg_obj, telegram_id, "reward success", context)
+    schedule_message_delete(success_msg_obj, telegram_id, "reward success", context)
     
     return ConversationHandler.END
 
@@ -1184,7 +1184,7 @@ async def cancel_reward_flow_callback(update: Update, context: ContextTypes.DEFA
         parse_mode="HTML"
     )
     
-    _schedule_message_delete(cancel_msg_obj, telegram_id, "reward cancellation", context)
+    schedule_message_delete(cancel_msg_obj, telegram_id, "reward cancellation", context)
     
     return ConversationHandler.END
 
@@ -1206,7 +1206,7 @@ async def cancel_add_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         parse_mode="HTML"
     )
     
-    _schedule_message_delete(cancel_msg_obj, telegram_id, "reward cancellation", context)
+    schedule_message_delete(cancel_msg_obj, telegram_id, "reward cancellation", context)
     
     return ConversationHandler.END
 
@@ -1930,7 +1930,7 @@ async def reward_toggle_selected(update: Update, context: ContextTypes.DEFAULT_T
         )
         logger.info(f"📤 Sent Rewards menu to {telegram_id}")
 
-        _schedule_message_delete(success_msg_obj, telegram_id, "reward success", context)
+        schedule_message_delete(success_msg_obj, telegram_id, "reward success", context)
 
         logger.info("✅ User %s toggled reward %s to active=%s", telegram_id, reward_id, new_active_status)
         return ConversationHandler.END
