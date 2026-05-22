@@ -32,6 +32,27 @@ from src.utils.async_compat import maybe_await
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Conversation states for /add_habit
+AWAITING_HABIT_NAME = 1
+AWAITING_HABIT_WEIGHT = 2
+AWAITING_HABIT_CATEGORY = 3
+AWAITING_GRACE_DAYS = 4
+AWAITING_EXEMPT_DAYS = 5
+AWAITING_HABIT_CONFIRMATION = 6
+
+# Conversation states for /edit_habit
+AWAITING_HABIT_SELECTION = 10
+AWAITING_EDIT_NAME = 11
+AWAITING_EDIT_WEIGHT = 12
+AWAITING_EDIT_CATEGORY = 13
+AWAITING_EDIT_GRACE_DAYS = 14
+AWAITING_EDIT_EXEMPT_DAYS = 15
+AWAITING_EDIT_CONFIRMATION = 16
+
+# Conversation states for /remove_habit
+AWAITING_REMOVE_SELECTION = 20
+AWAITING_REMOVE_CONFIRMATION = 21
 # ============================================================================
 # /add_habit CONVERSATION HANDLER
 # ============================================================================
