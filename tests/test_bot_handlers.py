@@ -33,11 +33,13 @@ from src.bot.handlers.reward_handlers import (
 from src.bot.handlers.menu_handler import (
     open_habits_menu_callback,
     bridge_command_callback,
-    open_start_menu_callback
+    open_start_menu_callback,
+    get_menu_handlers,
 )
 from src.bot.handlers.habit_management_handler import (
     remove_back_to_list,
-    AWAITING_REMOVE_SELECTION
+    AWAITING_REMOVE_SELECTION,
+    remove_habit_conversation,
 )
 from src.bot.keyboards import build_start_menu_keyboard, build_rewards_menu_keyboard
 from src.models.user import User
@@ -325,10 +327,30 @@ class TestMenuHandlers:
         mock_callback_update.callback_query.edit_message_text.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_bridge_to_command(self, mock_callback_update):
-        mock_callback_update.callback_query.data = 'menu_habits_remove'
-        await bridge_command_callback(mock_callback_update, context=None)
-        mock_callback_update.callback_query.message.chat.send_message.assert_called_once_with('/remove_habit')
+    async def test_remove_habit_menu_callback_is_not_bridged(self, mock_callback_update):
+        """
+        menu_habits_remove should be handled only by remove_habit_conversation.
+
+        Fixes #59: the menu previously sent a visible '/remove_habit' message,
+        because the group-1 bridge also handled the same callback.
+        """
+        bridge_handlers = [
+            handler for handler in get_menu_handlers()
+            if handler.callback == bridge_command_callback
+        ]
+
+        assert bridge_handlers
+        for handler in bridge_handlers:
+            assert handler.pattern.match("menu_habits_remove") is None
+
+        remove_entry_points = [
+            handler for handler in remove_habit_conversation.entry_points
+            if getattr(handler, "pattern", None)
+        ]
+        assert any(
+            handler.pattern.match("menu_habits_remove")
+            for handler in remove_entry_points
+        )
 
     @pytest.mark.asyncio
     async def test_back_to_start_menu(self, mock_callback_update, language):

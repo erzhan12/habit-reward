@@ -188,16 +188,6 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
     data = query.data
     logger.info(f"🔀 Bridging menu callback '{data}' to command handler for user {telegram_id}")
 
-    # Certain actions should trigger command text directly for conversation handlers
-    direct_command_map = {
-        'menu_habits_remove': '/remove_habit',
-    }
-    if data in direct_command_map:
-        command_text = direct_command_map[data]
-        await query.message.chat.send_message(command_text)
-        logger.info("📤 Forwarded command %s for user %s", command_text, telegram_id)
-        return 0
-
     # Import handlers dynamically
     from src.bot.main import help_command
     from src.bot.handlers.streak_handler import streaks_command
@@ -262,7 +252,7 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
         'menu_habits_add': add_habit_command,
         'menu_habits_revert': habit_revert_command,
         # 'menu_habits_edit': edit_habit_command,  # Handled by ConversationHandler
-        # 'menu_habits_remove': now in direct_command_map
+        # 'menu_habits_remove': handled only by remove_habit_conversation in group 0
         'menu_rewards_list': list_rewards_command,
         'menu_rewards_my': my_rewards_command,
         'menu_rewards_claimed': claimed_rewards_command,
@@ -970,7 +960,9 @@ def get_menu_handlers():
         CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_habits$"),
         CallbackQueryHandler(open_rewards_menu_callback, pattern="^menu_rewards$"),
         CallbackQueryHandler(close_menu_callback, pattern="^menu_close$"),
-        CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_habit_done_date|menu_habits_remove|menu_streaks|menu_help|menu_habits_add|menu_habits_revert|menu_rewards_list|menu_rewards_my|menu_rewards_claimed)$"),
+        # menu_habits_remove is intentionally excluded here: remove_habit_conversation
+        # handles it in group 0. Bridging it in group 1 also posts command text.
+        CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_habit_done_date|menu_streaks|menu_help|menu_habits_add|menu_habits_revert|menu_rewards_list|menu_rewards_my|menu_rewards_claimed)$"),
         CallbackQueryHandler(open_start_menu_callback, pattern="^menu_back_start$"),
         CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_back_habits$"),
         CallbackQueryHandler(generic_back_callback, pattern="^menu_back$"),
