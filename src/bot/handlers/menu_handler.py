@@ -187,6 +187,8 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
     data = query.data
     logger.info(f"🔀 Bridging menu callback '{data}' to command handler for user {telegram_id}")
 
+    # Special case: route directly to the conversation handler without sending
+    # visible command text. remove_habit_callback answers the callback query.
     if data == 'menu_habits_remove':
         from src.bot.handlers.habit_management_handler import remove_habit_callback
 
