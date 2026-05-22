@@ -59,6 +59,15 @@ from src.bot.messages import msg
 from src.config import settings, REWARD_WEIGHT_MIN, REWARD_WEIGHT_MAX
 
 
+@pytest.fixture(autouse=True)
+def clear_pending_message_delete_tasks():
+    """Keep global message deletion task tracking isolated between tests."""
+    _pending_message_delete_tasks.clear()
+    yield
+    cancel_pending_deletions()
+    _pending_message_delete_tasks.clear()
+
+
 @pytest.fixture(params=settings.supported_languages)
 def language(request):
     """Parameterized fixture for testing all supported languages from global settings."""
@@ -651,7 +660,7 @@ class TestRemoveHabitBack:
         message.edit_text.assert_called_once_with("🗑️ <i>Deleting...</i>", parse_mode="HTML")
         message.delete.assert_called_once()
         assert task not in _pending_message_delete_tasks
-        assert "Could not delete test cleanup message for user 999999999" in caplog.text
+        assert "Could not delete test cleanup message for user 999999999: already gone" in caplog.text
 
     @pytest.mark.asyncio
     @patch('src.bot.message_utils.asyncio.sleep', new_callable=AsyncMock)
@@ -681,6 +690,19 @@ class TestRemoveHabitBack:
             schedule_message_delete(None, "999999999", "invalid cleanup", context)
 
         assert "Could not schedule invalid cleanup deletion for user 999999999" in caplog.text
+        assert "pending_deletions" not in context.user_data
+        assert not _pending_message_delete_tasks
+
+    @pytest.mark.asyncio
+    async def test_schedule_message_delete_rejects_true_result(self, caplog):
+        """Telegram can return True instead of Message; that must not create a task."""
+        context = Mock()
+        context.user_data = {}
+
+        with caplog.at_level("WARNING"):
+            schedule_message_delete(True, "999999999", "true result cleanup", context)
+
+        assert "Could not schedule true result cleanup deletion for user 999999999" in caplog.text
         assert "pending_deletions" not in context.user_data
         assert not _pending_message_delete_tasks
 
@@ -780,6 +802,32 @@ class TestRemoveHabitBack:
             "habit removal success",
             context,
         )
+
+    @pytest.mark.asyncio
+    @patch('src.bot.handlers.habit_management_handler.habit_repository')
+    async def test_remove_success_skips_deletion_when_edit_returns_true(
+        self, mock_habit_repo, mock_callback_update, caplog
+    ):
+        """If Telegram returns True instead of Message, removal should still finish."""
+        removed_habit = Mock()
+        removed_habit.id = 'h1'
+        removed_habit.name = 'habittest2'
+        mock_habit_repo.soft_delete.return_value = removed_habit
+        mock_callback_update.callback_query.edit_message_text = AsyncMock(return_value=True)
+        mock_callback_update.callback_query.message.reply_text = AsyncMock()
+        mock_callback_update.callback_query.data = 'confirm_yes'
+        context = Mock()
+        context.user_data = {
+            'removing_habit_id': 'h1',
+            'removing_habit_name': 'habittest2',
+        }
+
+        with caplog.at_level("WARNING"):
+            result = await habit_remove_confirmed(mock_callback_update, context)
+
+        assert result == ConversationHandler.END
+        assert "Could not schedule habit removal success deletion" in caplog.text
+        assert not _pending_message_delete_tasks
 
     @pytest.mark.asyncio
     async def test_edit_to_add_habit_tracks_prompt_for_later_cleanup(self, mock_callback_update):

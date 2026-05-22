@@ -4,11 +4,16 @@ Global task tracking enables graceful cleanup; call cancel_pending_deletions()
 before bot shutdown to prevent orphaned deletion animations.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from telegram.ext import ContextTypes
+
+if TYPE_CHECKING:
+    from telegram import Message
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +21,14 @@ logger = logging.getLogger(__name__)
 # Tasks self-remove on completion via done_callback. Tests should clear this set
 # between test runs using _pending_message_delete_tasks.clear().
 _pending_message_delete_tasks = set()
+# 2.5 seconds gives users time to read short status messages before cleanup.
 _MESSAGE_DELETE_DELAY_SECONDS = 2.5
+# The final 0.5 seconds shows an explicit deleting state instead of vanishing.
 _MESSAGE_DELETE_ANIMATION_SECONDS = 0.5
 
 
 def schedule_message_delete(
-    message_obj,
+    message_obj: Message,
     telegram_id: str,
     description: str,
     context: Optional[ContextTypes.DEFAULT_TYPE] = None
@@ -72,7 +79,7 @@ def schedule_message_delete(
         context.user_data.setdefault("pending_deletions", []).append(task)
 
 
-def _discard_completed_task(task) -> None:
+def _discard_completed_task(task: asyncio.Task) -> None:
     """Remove a completed deletion task from the tracking set."""
     try:
         _pending_message_delete_tasks.discard(task)
