@@ -41,13 +41,15 @@ from src.bot.handlers.habit_management_handler import (
     remove_back_to_list,
     AWAITING_REMOVE_SELECTION,
     AWAITING_HABIT_NAME,
+    habit_remove_confirmed,
+    edit_to_add_habit,
+    remove_habit_conversation,
+)
+from src.bot.message_utils import (
     _schedule_message_delete,
     _pending_message_delete_tasks,
     _MESSAGE_DELETE_DELAY_SECONDS,
     _MESSAGE_DELETE_ANIMATION_SECONDS,
-    habit_remove_confirmed,
-    edit_to_add_habit,
-    remove_habit_conversation,
 )
 from src.bot.keyboards import build_start_menu_keyboard, build_rewards_menu_keyboard
 from src.models.user import User
@@ -605,7 +607,7 @@ class TestSimpleHabitDoneFlow:
 
 class TestRemoveHabitBack:
     @pytest.mark.asyncio
-    @patch('src.bot.handlers.habit_management_handler.asyncio.sleep', new_callable=AsyncMock)
+    @patch('src.bot.message_utils.asyncio.sleep', new_callable=AsyncMock)
     async def test_schedule_message_delete_edits_then_deletes(self, mock_sleep):
         """Scheduled deletion should show a deleting state before removing the message."""
         _pending_message_delete_tasks.clear()
@@ -629,7 +631,7 @@ class TestRemoveHabitBack:
         message.delete.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch('src.bot.handlers.habit_management_handler.asyncio.sleep', new_callable=AsyncMock)
+    @patch('src.bot.message_utils.asyncio.sleep', new_callable=AsyncMock)
     async def test_schedule_message_delete_logs_delete_failure(self, mock_sleep, caplog):
         """Deletion failures should be logged without crashing the handler task."""
         _pending_message_delete_tasks.clear()
@@ -651,7 +653,7 @@ class TestRemoveHabitBack:
         assert "Could not delete test cleanup message for user 999999999" in caplog.text
 
     @pytest.mark.asyncio
-    @patch('src.bot.handlers.habit_management_handler.asyncio.sleep', new_callable=AsyncMock)
+    @patch('src.bot.message_utils.asyncio.sleep', new_callable=AsyncMock)
     async def test_schedule_message_delete_deletes_when_edit_fails(self, mock_sleep):
         """A failed deleting-state edit should not prevent the actual deletion."""
         _pending_message_delete_tasks.clear()
@@ -675,7 +677,7 @@ class TestRemoveHabitBack:
         context.user_data = {}
 
         with caplog.at_level("WARNING"):
-            _schedule_message_delete(Mock(), "999999999", "invalid cleanup", context)
+            _schedule_message_delete(None, "999999999", "invalid cleanup", context)
 
         assert "Could not schedule invalid cleanup deletion for user 999999999" in caplog.text
         assert "pending_deletions" not in context.user_data
