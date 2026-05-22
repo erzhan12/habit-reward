@@ -45,7 +45,7 @@ from src.bot.keyboards import (
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async, detect_language_from_telegram
 from src.bot.navigation import push_navigation, pop_navigation
-from src.bot.handlers.habit_management_handler import _schedule_message_delete
+from src.bot.message_utils import _schedule_message_delete
 from src.config import (
     REWARD_NAME_MAX_LENGTH,
     REWARD_WEIGHT_MIN,
