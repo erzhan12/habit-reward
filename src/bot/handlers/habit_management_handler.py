@@ -89,8 +89,11 @@ def _schedule_message_delete(
     async def delete_message():
         try:
             await asyncio.sleep(_MESSAGE_DELETE_DELAY_SECONDS)
-            await message_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
-            await asyncio.sleep(_MESSAGE_DELETE_ANIMATION_SECONDS)
+            try:
+                await message_obj.edit_text("🗑️ <i>Deleting...</i>", parse_mode="HTML")
+                await asyncio.sleep(_MESSAGE_DELETE_ANIMATION_SECONDS)
+            except Exception as e:
+                logger.debug("Could not edit %s message for user %s before deletion: %s", description, telegram_id, e)
             await message_obj.delete()
             logger.info("🗑️ Deleted %s message for user %s", description, telegram_id)
         except asyncio.CancelledError:
@@ -104,6 +107,7 @@ def _schedule_message_delete(
     # Automatically remove the task from tracking when it completes or fails.
     task.add_done_callback(_pending_message_delete_tasks.discard)
 
+    # Also track in context for test inspection; user_data is cleared at conversation end.
     if context is not None and hasattr(context, "user_data") and isinstance(context.user_data, dict):
         context.user_data.setdefault("pending_deletions", []).append(task)
 
