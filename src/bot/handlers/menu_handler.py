@@ -182,20 +182,12 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
     Creates a proper mock Update that handlers can use.
     """
     query = update.callback_query
+    await query.answer()
 
     telegram_id = str(update.effective_user.id)
     data = query.data
     logger.info(f"🔀 Bridging menu callback '{data}' to command handler for user {telegram_id}")
 
-    # Special case: route directly to the conversation handler without sending
-    # visible command text. remove_habit_callback answers the callback query.
-    if data == 'menu_habits_remove':
-        from src.bot.handlers.habit_management_handler import remove_habit_callback
-
-        logger.info("🔀 Invoking remove habit flow directly for user %s", telegram_id)
-        return await remove_habit_callback(update, context)
-
-    await query.answer()
 
     # Import handlers dynamically
     from src.bot.main import help_command
@@ -261,7 +253,7 @@ async def bridge_command_callback(update: Update, context: ContextTypes.DEFAULT_
         'menu_habits_add': add_habit_command,
         'menu_habits_revert': habit_revert_command,
         # 'menu_habits_edit': edit_habit_command,  # Handled by ConversationHandler
-        # 'menu_habits_remove': handled directly above to avoid sending command text
+        # 'menu_habits_remove': handled only by remove_habit_conversation in group 0
         'menu_rewards_list': list_rewards_command,
         'menu_rewards_my': my_rewards_command,
         'menu_rewards_claimed': claimed_rewards_command,
@@ -969,7 +961,9 @@ def get_menu_handlers():
         CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_habits$"),
         CallbackQueryHandler(open_rewards_menu_callback, pattern="^menu_rewards$"),
         CallbackQueryHandler(close_menu_callback, pattern="^menu_close$"),
-        CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_habit_done_date|menu_habits_remove|menu_streaks|menu_help|menu_habits_add|menu_habits_revert|menu_rewards_list|menu_rewards_my|menu_rewards_claimed)$"),
+        # menu_habits_remove is intentionally excluded here: remove_habit_conversation
+        # handles it in group 0. Bridging it in group 1 also posts command text.
+        CallbackQueryHandler(bridge_command_callback, pattern="^(menu_habit_done|menu_habit_done_date|menu_streaks|menu_help|menu_habits_add|menu_habits_revert|menu_rewards_list|menu_rewards_my|menu_rewards_claimed)$"),
         CallbackQueryHandler(open_start_menu_callback, pattern="^menu_back_start$"),
         CallbackQueryHandler(open_habits_menu_callback, pattern="^menu_back_habits$"),
         CallbackQueryHandler(generic_back_callback, pattern="^menu_back$"),
