@@ -1,19 +1,17 @@
 """Shared Telegram message cleanup utilities.
 
-Global task tracking enables graceful cleanup; call cancel_pending_deletions()
-before bot shutdown to prevent orphaned deletion animations.
+Global task tracking enables graceful cleanup. Shutdown hooks in polling mode
+and webhook mode call cancel_pending_deletions() before the bot stops.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
+from telegram import Message
 from telegram.ext import ContextTypes
-
-if TYPE_CHECKING:
-    from telegram import Message
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +43,7 @@ def schedule_message_delete(
         description: Human-readable message description for logs.
         context: Optional context to track the task for test cleanup.
     """
-    if (
-        not message_obj
-        or not callable(getattr(message_obj, "edit_text", None))
-        or not callable(getattr(message_obj, "delete", None))
-    ):
+    if not isinstance(message_obj, Message):
         logger.warning("⚠️ Could not schedule %s deletion for user %s: invalid message object", description, telegram_id)
         return
 

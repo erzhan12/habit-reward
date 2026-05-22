@@ -330,7 +330,7 @@ def mock_callback_update(mock_telegram_user):
     query.edit_message_text = AsyncMock()
     query.delete_message = AsyncMock()
     query.data = ''
-    query.message = Mock()
+    query.message = Mock(spec=Message)
     query.message.chat_id = 12345
     query.message.message_id = 67890
     query.message.chat = DummyChat()
@@ -621,7 +621,7 @@ class TestRemoveHabitBack:
     async def test_schedule_message_delete_edits_then_deletes(self, mock_sleep):
         """Scheduled deletion should show a deleting state before removing the message."""
         _pending_message_delete_tasks.clear()
-        message = Mock()
+        message = Mock(spec=Message)
         message.edit_text = AsyncMock()
         message.delete = AsyncMock()
         context = Mock()
@@ -645,7 +645,7 @@ class TestRemoveHabitBack:
     async def test_schedule_message_delete_logs_delete_failure(self, mock_sleep, caplog):
         """Deletion failures should be logged without crashing the handler task."""
         _pending_message_delete_tasks.clear()
-        message = Mock()
+        message = Mock(spec=Message)
         message.edit_text = AsyncMock()
         message.delete = AsyncMock(side_effect=Exception("already gone"))
         context = Mock()
@@ -667,7 +667,7 @@ class TestRemoveHabitBack:
     async def test_schedule_message_delete_deletes_when_edit_fails(self, mock_sleep):
         """A failed deleting-state edit should not prevent the actual deletion."""
         _pending_message_delete_tasks.clear()
-        message = Mock()
+        message = Mock(spec=Message)
         message.edit_text = AsyncMock(side_effect=Exception("edit failed"))
         message.delete = AsyncMock()
 
@@ -710,7 +710,7 @@ class TestRemoveHabitBack:
     async def test_schedule_message_delete_propagates_cancellation(self):
         """Cancelled deletion tasks should propagate CancelledError and leave tracking clean."""
         _pending_message_delete_tasks.clear()
-        message = Mock()
+        message = Mock(spec=Message)
         message.edit_text = AsyncMock()
         message.delete = AsyncMock()
         context = Mock()
@@ -729,7 +729,7 @@ class TestRemoveHabitBack:
     async def test_cancel_pending_deletions_cancels_tracked_tasks(self):
         """Cleanup helper should request cancellation for pending deletion tasks."""
         _pending_message_delete_tasks.clear()
-        message = Mock()
+        message = Mock(spec=Message)
         message.edit_text = AsyncMock()
         message.delete = AsyncMock()
 
@@ -782,7 +782,7 @@ class TestRemoveHabitBack:
         removed_habit.id = 'h1'
         removed_habit.name = 'habittest2'
         mock_habit_repo.soft_delete.return_value = removed_habit
-        success_message = Mock()
+        success_message = Mock(spec=Message)
         mock_callback_update.callback_query.edit_message_text = AsyncMock(return_value=success_message)
         mock_callback_update.callback_query.message.reply_text = AsyncMock()
         mock_callback_update.callback_query.data = 'confirm_yes'
