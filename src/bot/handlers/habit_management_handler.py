@@ -26,7 +26,7 @@ from src.bot.keyboards import (
 )
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async
-from src.bot.message_utils import _schedule_message_delete
+from src.bot.message_utils import schedule_message_delete
 from src.config import HABIT_NAME_MAX_LENGTH
 from src.utils.async_compat import maybe_await
 
@@ -522,7 +522,7 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         logger.info(f"📤 Sent Habits menu to {telegram_id}")
 
-        _schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
+        schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
         # Clear context
         context.user_data.clear()
@@ -581,7 +581,7 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         logger.info(f"📤 Sent post-creation menu with {len(all_habits)} habits to {telegram_id}")
 
-        _schedule_message_delete(success_msg_obj, telegram_id, "success", context)
+        schedule_message_delete(success_msg_obj, telegram_id, "success", context)
 
     except Exception as e:
         logger.error(f"❌ Error creating habit for user {telegram_id}: {str(e)}")
@@ -634,7 +634,7 @@ async def cancel_habit_flow_callback(update: Update, context: ContextTypes.DEFAU
     )
     logger.info(f"📤 Sent Habits menu to {telegram_id}")
 
-    _schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
+    schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
     # Clear context
     context.user_data.clear()
@@ -651,7 +651,7 @@ async def cancel_add_habit(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     cancel_msg_obj = await update.message.reply_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
     logger.info(f"📤 Sent cancellation message to {telegram_id}")
 
-    _schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
+    schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
     # Clear context
     context.user_data.clear()
@@ -1333,7 +1333,7 @@ async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         logger.info(f"📤 Sent Habits menu to {telegram_id}")
 
-        _schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
+        schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
         # Clear context
         context.user_data.clear()
@@ -1375,7 +1375,7 @@ async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         logger.info(f"📤 Sent Main Menu to {telegram_id}")
 
-        _schedule_message_delete(success_msg_obj, telegram_id, "success", context)
+        schedule_message_delete(success_msg_obj, telegram_id, "success", context)
 
     except Exception as e:
         logger.error(f"❌ Error updating habit for user {telegram_id}: {str(e)}")
@@ -1448,7 +1448,7 @@ async def cancel_edit_habit(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     cancel_msg_obj = await update.message.reply_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
     logger.info(f"📤 Sent cancellation message to {telegram_id}")
 
-    _schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
+    schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
     # Clear context
     context.user_data.clear()
@@ -1615,7 +1615,7 @@ async def habit_remove_confirmed(update: Update, context: ContextTypes.DEFAULT_T
         )
         logger.info(f"📤 Sent Habits menu to {telegram_id}")
 
-        _schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
+        schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
         # Clear context
         context.user_data.clear()
@@ -1643,7 +1643,7 @@ async def habit_remove_confirmed(update: Update, context: ContextTypes.DEFAULT_T
             parse_mode="HTML"
         )
         logger.info(f"📤 Sent Habits menu to {telegram_id}")
-        _schedule_message_delete(success_msg_obj, telegram_id, "habit removal success", context)
+        schedule_message_delete(success_msg_obj, telegram_id, "habit removal success", context)
 
     except Exception as e:
         logger.error(f"❌ Error removing habit for user {telegram_id}: {str(e)}")
@@ -1668,7 +1668,7 @@ async def cancel_remove_habit(update: Update, context: ContextTypes.DEFAULT_TYPE
     cancel_msg_obj = await update.message.reply_text(msg('INFO_HABIT_CANCEL', lang), parse_mode="HTML")
     logger.info(f"📤 Sent cancellation message to {telegram_id}")
 
-    _schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
+    schedule_message_delete(cancel_msg_obj, telegram_id, "cancellation", context)
 
     # Clear context
     context.user_data.clear()
