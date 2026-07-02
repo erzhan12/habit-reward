@@ -9,7 +9,7 @@
   >
     <div
       ref="cardRef"
-      class="transition-all"
+      class="transition-opacity transition-shadow duration-200"
       :class="[
         densityPadding,
         tc.card.bg,
@@ -26,7 +26,7 @@
   <div
     v-else
     ref="cardRef"
-    class="transition-all"
+    class="transition-opacity transition-shadow duration-200"
     :class="[
       densityPadding,
       tc.card.rounded,

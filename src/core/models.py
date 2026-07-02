@@ -72,6 +72,9 @@ class User(AbstractUser):
         ('dark_focus', 'Dark Focus'),
         ('retro_terminal', 'Retro Terminal'),
         ('nature_forest', 'Nature Forest'),
+        ('night_arcade', 'Night Arcade'),
+        ('ticket_stub', 'Ticket Stub'),
+        ('quest_log', 'Quest Log'),
     ]
     VALID_THEMES = {choice[0] for choice in THEME_CHOICES}
 

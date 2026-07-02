@@ -37,6 +37,7 @@ async def dashboard(request):
         str(user.id), target_date=today
     )
     completed_habit_ids = {log.habit_id for log in todays_logs}
+    log_map = {log.habit_id: log for log in todays_logs}
 
     # Batch-fetch validated streaks (1 query; returns 0 for broken streaks)
     streak_map = await maybe_await(
@@ -64,6 +65,12 @@ async def dashboard(request):
         )
         reward_chance = round(100 - effective_no_reward)
 
+        log = log_map.get(habit.id)
+        today_result = None
+        if is_completed and log is not None:
+            reward_name = log.reward.name if log.reward_id and log.reward else None
+            today_result = {"gotReward": log.got_reward, "rewardName": reward_name}
+
         habits.append({
             "id": habit.id,
             "name": habit.name,
@@ -71,6 +78,7 @@ async def dashboard(request):
             "streak": streak,
             "completedToday": is_completed,
             "rewardChance": reward_chance,
+            "todayResult": today_result,
         })
 
     # Sort: incomplete first, then completed

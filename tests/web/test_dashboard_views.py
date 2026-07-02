@@ -224,8 +224,27 @@ class TestPropStructure:
         assert h["name"] == "Running"
         assert h["streak"] == 3
         assert h["completedToday"] is True
+        assert h["todayResult"] == {"gotReward": False, "rewardName": None}
         assert props["stats"]["completedToday"] == 1
         assert props["stats"]["totalToday"] == 1
+
+    @patch("src.web.views.dashboard.streak_service")
+    @patch("src.web.views.dashboard.habit_log_repository")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_dashboard_includes_today_result_for_completed_habit(
+        self, mock_hs, mock_repo, mock_ss, auth_client
+    ):
+        habit = _mock_habit(id=1, name="Running", weight=10)
+        mock_hs.get_all_active_habits.return_value = [habit]
+        log = _mock_habit_log(habit_id=1, got_reward=True, reward_name="Coffee")
+        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[log])
+        mock_ss.get_validated_streak_map.return_value = {1: 3}
+
+        response = auth_client.get("/", **INERTIA_HEADERS)
+        _, props = _inertia_props(response)
+
+        h = props["habits"][0]
+        assert h["todayResult"] == {"gotReward": True, "rewardName": "Coffee"}
 
     @patch("src.web.views.rewards.reward_service")
     def test_rewards_prop_structure(self, mock_rs, auth_client):

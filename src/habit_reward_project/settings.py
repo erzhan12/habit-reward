@@ -306,6 +306,18 @@ TRUST_X_FORWARDED_FOR = env.bool('TRUST_X_FORWARDED_FOR', default=False)
 # See src/web/services/web_login_service/cache_operations.py.
 CACHE_FAILURE_THRESHOLD = env.int('CACHE_FAILURE_THRESHOLD', default=5)
 
+# Shared cache backend. Web login sets wl_pending:* in the API process; the bot
+# process clears it on Confirm/Deny. LocMemCache is per-process, so local dev
+# with separate `make api` + `make bot` would poll "pending" forever after confirm.
+_DJANGO_CACHE_DIR = BASE_DIR / '.django_cache'
+_DJANGO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': str(_DJANGO_CACHE_DIR),
+    }
+}
+
 
 # =============================================================================
 # INERTIA.JS + VITE CONFIGURATION

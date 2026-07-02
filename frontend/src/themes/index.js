@@ -54,6 +54,10 @@ export const VALID_DENSITIES = new Set([
   'spacious', 'normal', 'compact',
 ]);
 
+export const VALID_HEADER_STYLES = new Set([
+  'plain', 'ring', 'punches', 'xp',
+]);
+
 // ── Default values for all extended config keys ─────────────────────
 export const DEFAULTS = {
   font: {
@@ -79,6 +83,12 @@ export const DEFAULTS = {
     habitList: 'list',
     density: 'normal',
     rewardList: 'list',
+    headerStyle: 'plain',
+  },
+  habitCard: {
+    showOdds: true,
+    showOutcome: false,
+    buttonLabel: 'Done',
   },
 };
 
@@ -658,6 +668,231 @@ export const themes = {
       habitList: 'list',
       density: 'spacious',
       rewardList: 'list',
+    },
+  },
+
+  night_arcade: {
+    name: 'Night Arcade',
+    icon: '🎰',
+    description: 'Charcoal night with gold accents — the reward economy front and center',
+    cssVars: {
+      '--color-bg-primary': '#0d0e13',
+      '--color-bg-card': '#161821',
+      '--color-bg-card-hover': '#1c1f2b',
+      '--color-text-primary': '#eef0f6',
+      '--color-text-secondary': '#9aa1b5',
+      '--color-text-muted': '#6f7688',
+      '--color-accent': '#e9b953',
+      '--color-accent-hover': '#f3d27e',
+      '--color-danger': '#ef4444',
+      '--color-streak-fire': '#f97316',
+    },
+    classes: {
+      card: {
+        rounded: 'rounded-[14px]',
+        shadow: '',
+        border: 'border border-[#232636]',
+        bg: 'bg-bg-card',
+        hoverBg: 'hover:bg-bg-card-hover hover:border-[#2e3247]',
+        extra: '',
+      },
+      button: {
+        rounded: 'rounded-full',
+        padding: 'px-5 py-2',
+        primary: 'bg-transparent border-[1.5px] border-accent text-accent font-bold hover:bg-accent hover:text-[#0d0e13]',
+        secondary: 'bg-transparent text-text-muted hover:text-text-secondary',
+      },
+      input: {
+        base: 'bg-bg-card border border-[#232636] rounded-xl text-text-primary focus:border-accent',
+      },
+      badge: {
+        base: 'rounded-full bg-[#0d0e13] border border-[#232636] text-text-secondary',
+      },
+      select: {
+        base: 'bg-bg-card border border-[#232636] rounded-xl text-text-primary',
+      },
+    },
+    layout: 'sidebar',
+    navStyle: 'default',
+    font: {
+      family: "'Outfit', system-ui, sans-serif",
+      import: 'https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap',
+      weight: '400',
+      size: '16px',
+    },
+    interactions: {
+      habitComplete: 'button-right',
+    },
+    animations: {
+      cardEntrance: 'stagger-fade',
+      hoverMicro: 'glow-border',
+      streakFire: 'pulse-glow',
+    },
+    reward: {
+      displayMode: 'expand-from-card',
+      celebrationComponent: null,
+      rewardPopupVariant: 'particles',
+    },
+    pageLayout: {
+      habitList: 'list',
+      density: 'normal',
+      rewardList: 'list',
+      headerStyle: 'ring',
+    },
+    habitCard: {
+      showOdds: false,
+      showOutcome: true,
+      buttonLabel: '✓ Done',
+    },
+  },
+
+  ticket_stub: {
+    name: 'Ticket Stub',
+    icon: '🎟️',
+    description: 'Warm paper and punch-cards — completing a habit punches your ticket',
+    cssVars: {
+      '--color-bg-primary': '#f5f1e8',
+      '--color-bg-card': '#fffdf8',
+      '--color-bg-card-hover': '#fdf8ee',
+      '--color-text-primary': '#2a2620',
+      '--color-text-secondary': '#6b6354',
+      '--color-text-muted': '#9a9080',
+      '--color-accent': '#d95d39',
+      '--color-accent-hover': '#e5714e',
+      '--color-danger': '#c0392b',
+      '--color-streak-fire': '#e07b39',
+    },
+    classes: {
+      card: {
+        rounded: 'rounded-[10px]',
+        shadow: 'shadow-[0_1px_2px_rgba(42,38,32,0.06)]',
+        border: 'border border-[#ded5c2]',
+        bg: 'bg-bg-card',
+        hoverBg: 'hover:bg-bg-card-hover',
+        extra: '',
+      },
+      button: {
+        rounded: 'rounded-lg',
+        padding: 'px-5 py-2',
+        primary: 'bg-accent text-white font-bold uppercase tracking-wider text-xs shadow-[0_2px_0_#b04526] hover:translate-y-px hover:shadow-[0_1px_0_#b04526] active:translate-y-0.5 active:shadow-none',
+        secondary: 'bg-[#efe9dc] text-text-secondary hover:bg-[#e8e1d1]',
+      },
+      input: {
+        base: 'bg-white border border-[#ded5c2] rounded-lg text-text-primary focus:border-accent',
+      },
+      badge: {
+        base: 'rounded bg-[#efe9dc] text-text-secondary font-mono',
+      },
+      select: {
+        base: 'bg-white border border-[#ded5c2] rounded-lg text-text-primary',
+      },
+    },
+    layout: 'sidebar',
+    navStyle: 'default',
+    font: {
+      family: "'Space Grotesk', system-ui, sans-serif",
+      import: 'https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap',
+      weight: '400',
+      size: '16px',
+    },
+    interactions: {
+      habitComplete: 'button-right',
+    },
+    animations: {
+      cardEntrance: 'slide-up',
+      hoverMicro: 'shadow-lift',
+      streakFire: 'bounce',
+    },
+    reward: {
+      displayMode: 'expand-from-card',
+      celebrationComponent: null,
+      rewardPopupVariant: 'default',
+    },
+    pageLayout: {
+      habitList: 'list',
+      density: 'normal',
+      rewardList: 'list',
+      headerStyle: 'punches',
+    },
+    habitCard: {
+      showOdds: false,
+      showOutcome: true,
+      buttonLabel: 'Punch',
+    },
+  },
+
+  quest_log: {
+    name: 'Quest Log',
+    icon: '⚔️',
+    description: 'Dense RPG ledger — habits as quests, rewards as loot drops',
+    cssVars: {
+      '--color-bg-primary': '#0e1411',
+      '--color-bg-card': '#111a15',
+      '--color-bg-card-hover': '#16241c',
+      '--color-text-primary': '#eef5f0',
+      '--color-text-secondary': '#7d8f84',
+      '--color-text-muted': '#546158',
+      '--color-accent': '#56c288',
+      '--color-accent-hover': '#7ad3a3',
+      '--color-danger': '#e05d5d',
+      '--color-streak-fire': '#e07b39',
+    },
+    classes: {
+      card: {
+        rounded: 'rounded-lg',
+        shadow: '',
+        border: 'border border-[#1e2c23]',
+        bg: 'bg-bg-card',
+        hoverBg: 'hover:bg-bg-card-hover hover:border-[#2a3f31]',
+        extra: '',
+      },
+      button: {
+        rounded: 'rounded-md',
+        padding: 'px-3.5 py-1.5',
+        primary: 'bg-transparent border border-accent text-accent font-semibold hover:bg-accent hover:text-[#0e1411]',
+        secondary: 'bg-transparent text-text-muted hover:text-text-secondary',
+      },
+      input: {
+        base: 'bg-bg-card border border-[#1e2c23] rounded-md text-text-primary focus:border-accent',
+      },
+      badge: {
+        base: 'rounded border border-[#1e2c23] text-text-secondary',
+      },
+      select: {
+        base: 'bg-bg-card border border-[#1e2c23] rounded-md text-text-primary',
+      },
+    },
+    layout: 'sidebar',
+    navStyle: 'default',
+    font: {
+      family: "'IBM Plex Mono', 'Courier New', monospace",
+      import: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap',
+      weight: '400',
+      size: '15px',
+    },
+    interactions: {
+      habitComplete: 'button-right',
+    },
+    animations: {
+      cardEntrance: 'none',
+      hoverMicro: 'none',
+      streakFire: 'flicker-flame',
+    },
+    reward: {
+      displayMode: 'toast',
+      celebrationComponent: null,
+      rewardPopupVariant: 'quiet',
+    },
+    pageLayout: {
+      habitList: 'list',
+      density: 'compact',
+      rewardList: 'list',
+      headerStyle: 'xp',
+    },
+    habitCard: {
+      showOdds: false,
+      showOutcome: true,
+      buttonLabel: '[ done ]',
     },
   },
 };
