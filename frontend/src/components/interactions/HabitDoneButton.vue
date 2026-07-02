@@ -7,7 +7,7 @@
       class="text-sm font-medium transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
       :class="[tc.button.rounded, tc.button.padding, tc.button.primary]"
     >
-      Done
+      {{ buttonLabel }}
     </button>
     <button
       v-else
@@ -39,4 +39,5 @@ defineEmits(["complete", "revert"]);
 
 const { themeConfig } = useTheme();
 const tc = computed(() => themeConfig.value.classes);
+const buttonLabel = computed(() => themeConfig.value.habitCard?.buttonLabel || "Done");
 </script>

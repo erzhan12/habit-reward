@@ -126,12 +126,24 @@ export async function animateBurstParticles(el) {
   try {
     if (!el) return;
     const rect = el.getBoundingClientRect();
+    const accent = getComputedStyle(document.documentElement)
+      .getPropertyValue("--color-accent")
+      .trim();
+    const streak = getComputedStyle(document.documentElement)
+      .getPropertyValue("--color-streak-fire")
+      .trim();
+    const colors = [
+      accent || "#e9b953",
+      streak || "#f97316",
+      "#fbbf24",
+      "#10b981",
+    ];
     const { spawnParticles } = await import('../utils/particles.js');
     await spawnParticles({
       x: rect.left + rect.width / 2,
       y: rect.top + rect.height / 2,
       count: 12,
-      colors: ['#06b6d4', '#ec4899', '#fbbf24', '#10b981'],
+      colors,
       duration: 600,
     });
   } catch {

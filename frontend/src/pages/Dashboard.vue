@@ -1,15 +1,6 @@
 <template>
   <div class="px-4 pt-6 pb-4 max-w-2xl mx-auto">
-    <!-- Stats header -->
-    <div class="mb-6">
-      <h1 class="text-2xl font-bold text-text-primary mb-1">Today</h1>
-      <p class="text-sm text-text-secondary">
-        {{ stats.completedToday }} / {{ stats.totalToday }} habits done
-        <span v-if="stats.totalPointsToday > 0" class="ml-2 text-accent">
-          +{{ stats.totalPointsToday }}pts
-        </span>
-      </p>
-    </div>
+    <DashboardHeader :stats="stats" />
 
     <!-- Habit list / grid -->
     <div :class="listLayoutClass">
@@ -52,6 +43,7 @@
 import { ref, reactive, computed, onUnmounted, nextTick } from "vue";
 import { router } from "@inertiajs/vue3";
 import HabitCard from "../components/HabitCard.vue";
+import DashboardHeader from "../components/DashboardHeader.vue";
 import UndoToast from "../components/UndoToast.vue";
 import RewardCelebration from "../components/rewards/RewardCelebration.vue";
 import { useTheme } from "../composables/useTheme.js";
@@ -94,6 +86,19 @@ const listLayoutClass = computed(() => {
 
 // --- Card refs for celebration positioning ---
 const cardRefs = {};
+
+/** Resolve the card DOM node from a HabitCard component instance (exposed ref). */
+function resolveCardElement(componentInstance) {
+  if (!componentInstance) return null;
+  const exposed = componentInstance.cardRef;
+  if (!exposed) return null;
+  if (exposed instanceof HTMLElement) return exposed;
+  if (typeof exposed === "object" && "value" in exposed) {
+    return exposed.value ?? null;
+  }
+  return null;
+}
+
 function setCardRef(habitId, componentInstance) {
   if (componentInstance) {
     cardRefs[habitId] = componentInstance;
@@ -134,7 +139,7 @@ function completeHabit(habitId) {
 
   // Capture old position BEFORE the server response repositions the card.
   const preCardComponent = cardRefs[habitId];
-  const preCardEl = preCardComponent?.cardRef;
+  const preCardEl = resolveCardElement(preCardComponent);
   const oldRect = preCardEl?.getBoundingClientRect?.() ?? null;
 
   router.post(`/habits/${habitId}/complete/`, {}, {
@@ -151,7 +156,7 @@ function completeHabit(habitId) {
       // the Inertia re-render; fall back to the pre-post element we captured
       // for the FLIP delta. Same :key normally keeps the DOM node stable.
       const cardComponent = cardRefs[habitId];
-      const cardEl = cardComponent?.cardRef ?? preCardEl;
+      const cardEl = resolveCardElement(cardComponent) ?? preCardEl;
       const gotReward = !!(flash?.got_reward && flash?.reward_name);
 
       try {

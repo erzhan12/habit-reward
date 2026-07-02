@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import HabitCardContent from "../src/components/HabitCardContent.vue";
+
+vi.mock("../src/composables/useTheme.js", () => ({
+  useTheme: () => ({
+    themeConfig: { value: { habitCard: { showOdds: true, showOutcome: false } } },
+  }),
+}));
 
 const baseHabit = {
   name: "Morning walk",

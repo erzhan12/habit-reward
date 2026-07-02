@@ -124,3 +124,42 @@ body {
   --color-danger: #dc2626;
   --color-streak-fire: #d97706;
 }
+
+[data-theme="night_arcade"] {
+  --color-bg-primary: #0d0e13;
+  --color-bg-card: #161821;
+  --color-bg-card-hover: #1c1f2b;
+  --color-text-primary: #eef0f6;
+  --color-text-secondary: #9aa1b5;
+  --color-text-muted: #6f7688;
+  --color-accent: #e9b953;
+  --color-accent-hover: #f3d27e;
+  --color-danger: #ef4444;
+  --color-streak-fire: #f97316;
+}
+
+[data-theme="ticket_stub"] {
+  --color-bg-primary: #f5f1e8;
+  --color-bg-card: #fffdf8;
+  --color-bg-card-hover: #fdf8ee;
+  --color-text-primary: #2a2620;
+  --color-text-secondary: #6b6354;
+  --color-text-muted: #9a9080;
+  --color-accent: #d95d39;
+  --color-accent-hover: #e5714e;
+  --color-danger: #c0392b;
+  --color-streak-fire: #e07b39;
+}
+
+[data-theme="quest_log"] {
+  --color-bg-primary: #0e1411;
+  --color-bg-card: #111a15;
+  --color-bg-card-hover: #16241c;
+  --color-text-primary: #eef5f0;
+  --color-text-secondary: #7d8f84;
+  --color-text-muted: #546158;
+  --color-accent: #56c288;
+  --color-accent-hover: #7ad3a3;
+  --color-danger: #e05d5d;
+  --color-streak-fire: #e07b39;
+}
