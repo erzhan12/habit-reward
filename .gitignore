@@ -1,6 +1,9 @@
 # IDE
 .cursor/
 
+# Local scratch (notes, repros, design imports — not part of the app)
+scratch/
+
 # Dependencies
 node_modules/
 
