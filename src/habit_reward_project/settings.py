@@ -309,7 +309,9 @@ CACHE_FAILURE_THRESHOLD = env.int('CACHE_FAILURE_THRESHOLD', default=5)
 # Shared cache backend. Web login sets wl_pending:* in the API process; the bot
 # process clears it on Confirm/Deny. LocMemCache is per-process, so local dev
 # with separate `make api` + `make bot` would poll "pending" forever after confirm.
-_DJANGO_CACHE_DIR = BASE_DIR / '.django_cache'
+# In Docker, /app/data is writable by botuser (SQLite volume); project root is not.
+_cache_parent = BASE_DIR / 'data' if (BASE_DIR / 'data').is_dir() else BASE_DIR
+_DJANGO_CACHE_DIR = _cache_parent / '.django_cache'
 _DJANGO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 CACHES = {
     'default': {
