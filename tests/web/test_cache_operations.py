@@ -668,13 +668,18 @@ class TestCacheManagerThreadSafety:
 
     Note: Django's cache proxy uses thread-local connections, so
     unittest.mock.patch doesn't propagate to child threads.  We patch
-    the actual LocMemCache backend class instead.
+    the configured cache backend class instead.
     """
+
+    @staticmethod
+    def _cache_backend_class():
+        from django.core.cache import caches
+
+        return type(caches["default"])
 
     def test_concurrent_failures_increment_atomically(self):
         """Multiple threads hitting cache failures concurrently: the failure
         counter must increment atomically with no lost updates."""
-        from django.core.cache.backends.locmem import LocMemCache
         from src.web.services.web_login_service import CacheManager, CacheWriteError
 
         threshold = 200  # high enough to never trigger during the test
@@ -694,7 +699,9 @@ class TestCacheManagerThreadSafety:
                     with lock:
                         errors.append(exc)
 
-        with patch.object(LocMemCache, "set", side_effect=ConnectionError("down")):
+        with patch.object(
+            self._cache_backend_class(), "set", side_effect=ConnectionError("down")
+        ):
             threads = [threading.Thread(target=_worker, args=(i,)) for i in range(num_threads)]
             for t in threads:
                 t.start()
@@ -712,13 +719,13 @@ class TestCacheManagerThreadSafety:
 
     def test_successful_write_resets_counter(self):
         """A successful cache write resets the failure counter to 0."""
-        from django.core.cache.backends.locmem import LocMemCache
         from src.web.services.web_login_service import CacheManager
 
         mgr = CacheManager(failure_threshold=100)
+        backend_cls = self._cache_backend_class()
 
         # Accumulate some failures
-        with patch.object(LocMemCache, "set", side_effect=ConnectionError("down")):
+        with patch.object(backend_cls, "set", side_effect=ConnectionError("down")):
             for i in range(8):
                 mgr.set(f"prefail_{i}", True, 60)
         assert mgr.failure_count == 8
@@ -728,7 +735,7 @@ class TestCacheManagerThreadSafety:
         assert mgr.failure_count == 0
 
         # Verify another round of failures starts from 0
-        with patch.object(LocMemCache, "set", side_effect=ConnectionError("down")):
+        with patch.object(backend_cls, "set", side_effect=ConnectionError("down")):
             for i in range(3):
                 mgr.set(f"postfail_{i}", True, 60)
         assert mgr.failure_count == 3
