@@ -171,12 +171,9 @@ dayforge.habitreward.org {
     # Automatic HTTPS via Let's Encrypt
     tls erzhan.sarsenov@gmail.com
 
-    encode zstd gzip
-
-    # Reverse proxy to Django app on host (WhiteNoise serves static).
-    # Django trusts X-Forwarded-Proto via SECURE_PROXY_SSL_HEADER.
+    # Reverse proxy to FastAPI app on host
     reverse_proxy host.docker.internal:8006 {
-        header_up X-Forwarded-Proto https
+        # Health check
         health_uri /
         health_interval 30s
         health_timeout 10s
@@ -190,13 +187,15 @@ dayforge.habitreward.org {
         X-Frame-Options "SAMEORIGIN"
         # Prevent MIME sniffing
         X-Content-Type-Options "nosniff"
+        # XSS protection
+        X-XSS-Protection "1; mode=block"
         # Referrer policy
         Referrer-Policy "strict-origin-when-cross-origin"
     }
 
     # Logging
     log {
-        output file /var/log/caddy/dayforge-access.log
+        output file /var/log/caddy/dayforge.log
         format console
     }
 
