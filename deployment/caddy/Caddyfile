@@ -168,41 +168,23 @@ langbot.habitreward.org {
 
 # Day Forge App - Subdomain
 dayforge.habitreward.org {
-    # Automatic HTTPS via Let's Encrypt
-    tls erzhan.sarsenov@gmail.com
+	encode zstd gzip
 
-    # Reverse proxy to FastAPI app on host
-    reverse_proxy host.docker.internal:8006 {
-        # Health check
-        health_uri /
-        health_interval 30s
-        health_timeout 10s
-    }
+	# Django trusts this via SECURE_PROXY_SSL_HEADER (settings.py).
+	reverse_proxy host.docker.internal:8006 {
+		header_up X-Forwarded-Proto https
+	}
 
-    # Security headers (same as main app)
-    header {
-        # HSTS
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        # Prevent clickjacking
-        X-Frame-Options "SAMEORIGIN"
-        # Prevent MIME sniffing
-        X-Content-Type-Options "nosniff"
-        # XSS protection
-        X-XSS-Protection "1; mode=block"
-        # Referrer policy
-        Referrer-Policy "strict-origin-when-cross-origin"
-    }
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
 
-    # Logging
-    log {
-        output file /var/log/caddy/dayforge.log
-        format console
-    }
-
-    # Error handling
-    handle_errors {
-        respond "{http.error.status_code} {http.error.status_text}"
-    }
+	log {
+		output file /var/log/caddy/dayforge-access.log
+	}
 }
 
 # Redirect www to non-www (if needed)
