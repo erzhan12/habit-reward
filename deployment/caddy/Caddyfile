@@ -177,7 +177,7 @@ dayforge.habitreward.org {
     # Django trusts X-Forwarded-Proto via SECURE_PROXY_SSL_HEADER.
     reverse_proxy host.docker.internal:8006 {
         header_up X-Forwarded-Proto https
-        health_uri /accounts/login/
+        health_uri /
         health_interval 30s
         health_timeout 10s
     }
