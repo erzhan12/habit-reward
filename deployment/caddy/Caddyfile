@@ -203,8 +203,11 @@ progrevstories.habitreward.org {
     # Automatic HTTPS via Let's Encrypt
     tls erzhan.sarsenov@gmail.com
 
+    encode zstd gzip
+
     # Reverse proxy to FastAPI app on host
     reverse_proxy host.docker.internal:8007 {
+        header_up X-Forwarded-Proto https
         # Health check
         health_uri /
         health_interval 30s
