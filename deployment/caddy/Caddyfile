@@ -187,6 +187,57 @@ dayforge.habitreward.org {
 	}
 }
 
+# Progrev Stories App - Subdomain
+progrevstories.habitreward.org {
+    # Automatic HTTPS via Let's Encrypt
+    tls erzhan.sarsenov@gmail.com
+
+    # Reverse proxy to FastAPI app on host
+    reverse_proxy host.docker.internal:8007 {
+        # Health check
+        health_uri /
+        health_interval 30s
+        health_timeout 10s
+    }
+
+    # Security headers (same as main app)
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+    log {
+        output file /var/log/caddy/progrevstories.log
+        format console
+    }
+    handle_errors {
+        respond "{http.error.status_code} {http.error.status_text}"
+    }
+}
+
+# Lexi App - Subdomain
+lexi.habitreward.org {
+	encode zstd gzip
+
+	# Django trusts this via SECURE_PROXY_SSL_HEADER (config/settings.py).
+	reverse_proxy host.docker.internal:8008 {
+		header_up X-Forwarded-Proto https
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	log {
+		output file /var/log/caddy/lexi-access.log
+	}
+}
+
 # Redirect www to non-www (if needed)
 www.habitreward.org {
     redir https://habitreward.org{uri} permanent
