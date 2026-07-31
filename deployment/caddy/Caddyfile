@@ -168,23 +168,34 @@ langbot.habitreward.org {
 
 # Day Forge App - Subdomain
 dayforge.habitreward.org {
-	encode zstd gzip
+    # Automatic HTTPS via Let's Encrypt
+    tls erzhan.sarsenov@gmail.com
 
-	# Django trusts this via SECURE_PROXY_SSL_HEADER (settings.py).
-	reverse_proxy host.docker.internal:8006 {
-		header_up X-Forwarded-Proto https
-	}
+    encode zstd gzip
 
-	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "SAMEORIGIN"
-		Referrer-Policy "strict-origin-when-cross-origin"
-	}
+    # Django trusts this via SECURE_PROXY_SSL_HEADER (settings.py).
+    # No active health check by design — the active check caused sitewide 503
+    # via SQLite lock contention (commit cd1d293). Do not re-add health_uri here.
+    reverse_proxy host.docker.internal:8006 {
+        header_up X-Forwarded-Proto https
+    }
 
-	log {
-		output file /var/log/caddy/dayforge-access.log
-	}
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    log {
+        output file /var/log/caddy/dayforge-access.log
+        format console
+    }
+
+    handle_errors {
+        respond "{http.error.status_code} {http.error.status_text}"
+    }
 }
 
 # Progrev Stories App - Subdomain
@@ -219,23 +230,33 @@ progrevstories.habitreward.org {
 
 # Lexi App - Subdomain
 lexi.habitreward.org {
-	encode zstd gzip
+    # Automatic HTTPS via Let's Encrypt
+    tls erzhan.sarsenov@gmail.com
 
-	# Django trusts this via SECURE_PROXY_SSL_HEADER (config/settings.py).
-	reverse_proxy host.docker.internal:8008 {
-		header_up X-Forwarded-Proto https
-	}
+    encode zstd gzip
 
-	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "SAMEORIGIN"
-		Referrer-Policy "strict-origin-when-cross-origin"
-	}
+    # Django trusts this via SECURE_PROXY_SSL_HEADER (config/settings.py).
+    # No active health check by design — same rationale as dayforge (commit cd1d293).
+    reverse_proxy host.docker.internal:8008 {
+        header_up X-Forwarded-Proto https
+    }
 
-	log {
-		output file /var/log/caddy/lexi-access.log
-	}
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    log {
+        output file /var/log/caddy/lexi-access.log
+        format console
+    }
+
+    handle_errors {
+        respond "{http.error.status_code} {http.error.status_text}"
+    }
 }
 
 # Redirect www to non-www (if needed)
