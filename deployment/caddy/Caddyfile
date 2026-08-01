@@ -206,12 +206,11 @@ progrevstories.habitreward.org {
     encode zstd gzip
 
     # Reverse proxy to FastAPI app on host
+    # No active health check by design — this app is SQLite-backed and the
+    # active check causes sitewide 503 via lock contention (same as dayforge,
+    # commit cd1d293). Do not re-add health_uri here.
     reverse_proxy host.docker.internal:8007 {
         header_up X-Forwarded-Proto https
-        # Health check
-        health_uri /
-        health_interval 30s
-        health_timeout 10s
     }
 
     # Security headers (same as main app)
