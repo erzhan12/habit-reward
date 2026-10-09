@@ -7,6 +7,14 @@ on:
       - simple-caddy-deploy  # Also deploy from feature branch for testing
   workflow_dispatch:
 
+# One deploy at a time: parallel runs race on the server (docker pull layer
+# extraction collides) and a finished run's GITHUB_TOKEN is revoked, so the
+# other run's ghcr.io pull gets 403. Queued runs wait instead of cancelling a
+# deploy mid-flight; GitHub keeps only the newest pending run in the queue.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
