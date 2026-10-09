@@ -10,7 +10,10 @@ on:
 # One deploy at a time: parallel runs race on the server (docker pull layer
 # extraction collides) and a finished run's GITHUB_TOKEN is revoked, so the
 # other run's ghcr.io pull gets 403. Queued runs wait instead of cancelling a
-# deploy mid-flight; GitHub keeps only the newest pending run in the queue.
+# deploy mid-flight; GitHub cancels any queued (not yet started) run when a
+# newer one arrives, so only the latest commit waits behind the active deploy.
+# Workflow-level (not per-job) on purpose: build pushes the shared :latest tag,
+# so a later commit's build must not overwrite it while an earlier deploy pulls.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
