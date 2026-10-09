@@ -209,6 +209,17 @@ jobs:
             set -euo pipefail
             cd ${{ secrets.DEPLOY_PATH }}
 
+            # Private docker config per run: other repos (e.g. lexi) deploy to this
+            # host as the same user and `docker login ghcr.io` with their own
+            # repo-scoped GITHUB_TOKEN, which would overwrite a shared
+            # ~/.docker/config.json and make our pull fail with "denied".
+            export DOCKER_CONFIG=$(mktemp -d)
+            trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+            # Keep user-installed CLI plugins (e.g. compose) resolvable.
+            if [ -d "$HOME/.docker/cli-plugins" ]; then
+              ln -s "$HOME/.docker/cli-plugins" "$DOCKER_CONFIG/cli-plugins"
+            fi
+
             # Login to GitHub Container Registry — retry on transient network failures
             login_attempts=0
             until echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin; do
@@ -237,8 +248,10 @@ jobs:
             # Stop existing containers gracefully
             docker-compose --env-file .env -f docker/docker-compose.yml down --timeout 30
 
-            # Start new containers
-            docker-compose --env-file .env -f docker/docker-compose.yml up -d
+            # Start new containers. --pull never: the image was pulled above;
+            # compose's `pull_policy: always` would otherwise pull again after
+            # `down`, and a registry error at that point leaves prod down.
+            docker-compose --env-file .env -f docker/docker-compose.yml up -d --pull never
 
             # Wait for services to be ready
             echo "Waiting for containers to start..."
