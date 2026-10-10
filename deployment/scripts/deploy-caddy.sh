@@ -22,7 +22,7 @@ docker-compose -f docker-compose.yml pull web
 # No `down`: Caddy serves every *.habitreward.org site. `up` recreates only
 # changed containers (normally web), and `caddy reload` applies Caddyfile edits.
 echo "🚀 Updating containers..."
-docker-compose -f docker-compose.yml up -d --remove-orphans
+docker-compose -f docker-compose.yml up -d --pull never --remove-orphans
 
 echo "🔄 Reloading Caddy config..."
 docker exec habit_reward_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
