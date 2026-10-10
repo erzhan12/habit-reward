@@ -25,7 +25,15 @@ echo "🚀 Updating containers..."
 docker-compose -f docker-compose.yml up -d --pull never --remove-orphans
 
 echo "🔄 Reloading Caddy config..."
-docker exec habit_reward_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+# Retried: a freshly recreated Caddy may not have its admin API up yet.
+for attempt in 1 2 3 4 5; do
+    docker exec habit_reward_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile && break
+    if [ "$attempt" -eq 5 ]; then
+        echo "❌ caddy reload failed 5 times"
+        exit 1
+    fi
+    sleep 3
+done
 
 echo "⏳ Waiting for services to be ready..."
 sleep 15

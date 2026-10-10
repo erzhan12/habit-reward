@@ -265,8 +265,18 @@ jobs:
 
             # Apply Caddyfile changes without restarting Caddy. On an invalid
             # config the reload fails and Caddy keeps the old one, so the
-            # deploy goes red while the sites stay up.
-            docker exec habit_reward_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+            # deploy goes red while the sites stay up. Retried because a freshly
+            # recreated Caddy (e.g. after a mount change) may not have its admin
+            # API listening yet.
+            reload_attempts=0
+            until docker exec habit_reward_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; do
+              reload_attempts=$((reload_attempts + 1))
+              if [ "$reload_attempts" -ge 5 ]; then
+                echo "ERROR: caddy reload failed 5 times"; exit 1
+              fi
+              echo "caddy reload attempt $reload_attempts failed; retrying in 3s..."
+              sleep 3
+            done
 
             # Wait for services to be ready
             echo "Waiting for containers to start..."
