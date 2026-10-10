@@ -888,9 +888,9 @@ class TestConcurrentTokenCollisionThreading:
                 with result_lock:
                     errors.append(exc)
 
-        # Patch once on the main thread. Per-thread patch.object on the same
-        # attribute interleaves enter/exit, so some workers submitted the real
-        # background job, which then wrote to the DB after this test ended.
+        # Patch on the main thread so all workers share one mock. Per-thread
+        # patch.object on the same attribute interleaves enter/exit, and some
+        # workers then submit the real background job.
         with patch.object(svc.user_repo, "get_by_telegram_username", return_value=user), \
                 patch.object(svc, "_process_login_background"):
             threads = [threading.Thread(target=_worker) for _ in range(thread_count)]

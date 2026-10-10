@@ -563,7 +563,8 @@ Use repositories with `run_sync_or_async` in sync Django views. In tests, mock `
 - SQLite threading tests: use `RequestFactory` not `Client()`, mock `login()` and `call_async`.
 - Bounded queue: `queue.Queue(maxsize=_MAX_QUEUED_LOGINS)` complements semaphore.
 - Multi-threaded tests: apply `patch.object(...)` once on the main thread around thread start/join, never inside the worker. Per-thread patches on the same attribute interleave enter/exit and leak the real method to some workers.
-- Login executor jobs outlive their test. `tests/web/conftest.py::_drain_login_executor` (autouse) shuts the executor down with `wait=True` and resets `_login_executor` after every web test. A leftover job writing to the shared-cache `:memory:` SQLite DB makes the next test's write fail with `database table is locked` (SQLITE_LOCKED fails immediately and ignores the busy timeout). A test that runs the real executor outside `tests/web/` needs the same drain.
+- Login executor jobs outlive their test. `tests/web/conftest.py::_drain_login_executor` (autouse) shuts the executor down with `wait=True` and resets `_login_executor` after every web test. A test that runs the real executor outside `tests/web/` needs the same drain: move the fixture to the root `conftest.py`.
+- Why it matters: the test DB is a shared-cache `:memory:` SQLite. When a leftover job writes to it during the next test, that test's write fails with `database table is locked`. SQLITE_LOCKED fails immediately and ignores the busy timeout.
 
 ### DB Patterns
 - `mark_as_used()`: `SELECT FOR UPDATE` inside `transaction.atomic()` for row-level locking (PostgreSQL). SQLite: no-op but sequential via file lock.

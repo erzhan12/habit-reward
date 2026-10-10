@@ -7,6 +7,7 @@ import pytest
 from django.test import Client
 
 from src.core.models import User
+from src.web.services import web_login_service as svc
 
 
 @pytest.fixture(autouse=True)
@@ -18,10 +19,11 @@ def _drain_login_executor():
     the next test writes makes SQLite fail fast with "database table is
     locked". Shutting down with wait=True and resetting the global gives each
     test a fresh executor with no inherited work.
+
+    Only tests/web/ uses the login executor today; move this fixture to the
+    root conftest.py if tests elsewhere start submitting login jobs.
     """
     yield
-    from src.web.services import web_login_service as svc
-
     with svc._executor_lock:
         executor, svc._login_executor = svc._login_executor, None
     if executor is not None:
