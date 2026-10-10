@@ -245,6 +245,16 @@ jobs:
               sleep 5
             done
 
+            # `up --pull never` below needs Compose v2+. Check before `down` so an
+            # old compose fails the deploy while prod is still running.
+            # (Captured, not piped into `grep -q`: under pipefail grep's early
+            # exit can SIGPIPE docker-compose and fake a failure.)
+            up_help=$(docker-compose up --help 2>&1 || true)
+            case "$up_help" in
+              *--pull*) ;;
+              *) echo "ERROR: docker-compose lacks 'up --pull' (Compose v2+ required)"; exit 1 ;;
+            esac
+
             # Stop existing containers gracefully
             docker-compose --env-file .env -f docker/docker-compose.yml down --timeout 30
 
