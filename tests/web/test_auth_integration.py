@@ -881,18 +881,18 @@ class TestConcurrentTokenCollisionThreading:
 
         def _worker():
             try:
-                # Mock the background processing to avoid actual Telegram calls
-                with patch.object(
-                    svc, "_process_login_background",
-                ):
-                    result = call_async(svc.create_login_request("threadcollision"))
-                    with result_lock:
-                        tokens.append(result["token"])
+                result = call_async(svc.create_login_request("threadcollision"))
+                with result_lock:
+                    tokens.append(result["token"])
             except Exception as exc:
                 with result_lock:
                     errors.append(exc)
 
-        with patch.object(svc.user_repo, "get_by_telegram_username", return_value=user):
+        # Patch once on the main thread. Per-thread patch.object on the same
+        # attribute interleaves enter/exit, so some workers submitted the real
+        # background job, which then wrote to the DB after this test ended.
+        with patch.object(svc.user_repo, "get_by_telegram_username", return_value=user), \
+                patch.object(svc, "_process_login_background"):
             threads = [threading.Thread(target=_worker) for _ in range(thread_count)]
             for t in threads:
                 t.start()

@@ -9,6 +9,25 @@ from django.test import Client
 from src.core.models import User
 
 
+@pytest.fixture(autouse=True)
+def _drain_login_executor():
+    """Finish background login jobs before the next test starts.
+
+    Jobs submitted to the shared login executor outlive the test that queued
+    them. A leftover job touching the shared-cache in-memory SQLite DB while
+    the next test writes makes SQLite fail fast with "database table is
+    locked". Shutting down with wait=True and resetting the global gives each
+    test a fresh executor with no inherited work.
+    """
+    yield
+    from src.web.services import web_login_service as svc
+
+    with svc._executor_lock:
+        executor, svc._login_executor = svc._login_executor, None
+    if executor is not None:
+        executor.shutdown(wait=True, cancel_futures=False)
+
+
 def _call_async_mock(return_value):
     """Side effect for call_async mock that properly closes unawaited coroutines."""
     def _impl(coro):
