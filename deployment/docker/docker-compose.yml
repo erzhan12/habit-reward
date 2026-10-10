@@ -77,8 +77,11 @@ services:
       - "443:443/udp" # HTTP/3 (QUIC)
 
     volumes:
-      # Caddy configuration
-      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Caddy configuration. Mount the directory, not the file: deploys
+      # re-extract the Caddyfile (new inode), and a single-file bind mount
+      # would keep showing the long-running container the old inode, so
+      # `caddy reload` would silently re-read the stale config.
+      - ../caddy:/etc/caddy:ro
       # Persistent SSL certificates and config (named volumes for Caddy-managed data)
       - caddy_data:/data
       - caddy_config:/config

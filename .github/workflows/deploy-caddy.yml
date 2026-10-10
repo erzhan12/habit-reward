@@ -231,8 +231,8 @@ jobs:
               sleep 5
             done
 
-            # Pull FIRST — only tear down running containers if the new image is in hand.
-            # Avoids tearing down prod when ghcr.io is unreachable. Retry on
+            # Pull FIRST — only replace running containers if the new image is in hand.
+            # Avoids touching prod when ghcr.io is unreachable. Retry on
             # transient network failures (defense-in-depth above docker's
             # internal layer retries).
             pull_attempts=0
@@ -245,7 +245,7 @@ jobs:
               sleep 5
             done
 
-            # `up --pull never` below needs Compose v2+. Check before `down` so an
+            # `up --pull never` below needs Compose v2+. Check before `up` so an
             # old compose fails the deploy while prod is still running.
             # (Captured, not piped into `grep -q`: under pipefail grep's early
             # exit can SIGPIPE docker-compose and fake a failure.)
@@ -255,13 +255,18 @@ jobs:
               *) echo "ERROR: docker-compose lacks 'up --pull' (Compose v2+ required)"; exit 1 ;;
             esac
 
-            # Stop existing containers gracefully
-            docker-compose --env-file .env -f docker/docker-compose.yml down --timeout 30
+            # No `down`: Caddy fronts every *.habitreward.org site, and `down`
+            # took it offline for ~85s on each deploy (30s stop timeout + wait
+            # for web healthy). `up` recreates only containers whose image or
+            # config changed (normally just web), so Caddy keeps serving.
+            # --pull never: the image was pulled above; compose's
+            # `pull_policy: always` would otherwise pull again here.
+            docker-compose --env-file .env -f docker/docker-compose.yml up -d --pull never --remove-orphans
 
-            # Start new containers. --pull never: the image was pulled above;
-            # compose's `pull_policy: always` would otherwise pull again after
-            # `down`, and a registry error at that point leaves prod down.
-            docker-compose --env-file .env -f docker/docker-compose.yml up -d --pull never
+            # Apply Caddyfile changes without restarting Caddy. On an invalid
+            # config the reload fails and Caddy keeps the old one, so the
+            # deploy goes red while the sites stay up.
+            docker exec habit_reward_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
             # Wait for services to be ready
             echo "Waiting for containers to start..."

@@ -343,7 +343,9 @@ uv run pytest tests/ -v -m "not local_only"  # CI mode
 
 **Architecture**: 2 containers — Web (Django+Bot+SQLite) + Caddy (auto HTTPS).
 
-**Files**: `deployment/caddy/Caddyfile`, `deployment/docker/docker-compose.caddy.yml`, `.github/workflows/deploy-caddy.yml`.
+**Files**: `deployment/caddy/Caddyfile`, `deployment/docker/docker-compose.yml`, `.github/workflows/deploy-caddy.yml`.
+
+**Shared Caddy**: `habit_reward_caddy` fronts every `*.habitreward.org` site (lexi, dayforge, progrevstories, …). Deploys must never stop it. Never run `docker-compose down` in a deploy. Use `up -d --pull never --remove-orphans`, which recreates only changed containers (normally `web`), then apply Caddyfile edits with `docker exec habit_reward_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`. Mount the `caddy/` directory, not the single file: a single-file bind mount pins the old inode after the deploy re-extracts the Caddyfile, so reload would re-read stale config.
 
 **DB**: `/home/deploy/habit_reward_bot/data/db.sqlite3`. Backup: `cp data/db.sqlite3 backups/db_$(date +%Y%m%d).sqlite3`.
 

@@ -19,11 +19,13 @@ cd "$(dirname "$0")/../docker"
 echo "📦 Pulling latest images..."
 docker-compose -f docker-compose.yml pull web
 
-echo "🛑 Stopping existing containers..."
-docker-compose -f docker-compose.yml down --timeout 30
+# No `down`: Caddy serves every *.habitreward.org site. `up` recreates only
+# changed containers (normally web), and `caddy reload` applies Caddyfile edits.
+echo "🚀 Updating containers..."
+docker-compose -f docker-compose.yml up -d --remove-orphans
 
-echo "🚀 Starting containers..."
-docker-compose -f docker-compose.yml up -d
+echo "🔄 Reloading Caddy config..."
+docker exec habit_reward_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
 echo "⏳ Waiting for services to be ready..."
 sleep 15
