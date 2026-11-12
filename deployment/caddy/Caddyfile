@@ -173,11 +173,21 @@ dayforge.habitreward.org {
 
     encode zstd gzip
 
+    # Day Forge MCP server (day-forge feature 0089) runs as its own container on
+    # host port 8009 and serves the full /mcp* path itself, so use `handle`, not
+    # `handle_path`. Keep both upstreams in `handle` blocks so only one matches;
+    # without this route /mcp* falls through to Django and returns 404.
+    handle /mcp* {
+        reverse_proxy host.docker.internal:8009
+    }
+
     # Django trusts this via SECURE_PROXY_SSL_HEADER (settings.py).
     # No active health check by design — the active check caused sitewide 503
     # via SQLite lock contention (commit cd1d293). Do not re-add health_uri here.
-    reverse_proxy host.docker.internal:8006 {
-        header_up X-Forwarded-Proto https
+    handle {
+        reverse_proxy host.docker.internal:8006 {
+            header_up X-Forwarded-Proto https
+        }
     }
 
     header {
