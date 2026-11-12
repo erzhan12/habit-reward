@@ -361,7 +361,9 @@ jobs:
           for attempt in 1 2 3 4 5; do
             rm -f /tmp/mcp-health.body
             code=$(curl -sS --max-time 10 -o /tmp/mcp-health.body -w "%{http_code}" "$url" || true)
-            body=$(head -c 200 /tmp/mcp-health.body 2>/dev/null || true)
+            # Whitespace is stripped so a reformatted payload such as
+            # {"status": "ok"} still counts as healthy.
+            body=$(head -c 200 /tmp/mcp-health.body 2>/dev/null | tr -d '[:space:]' || true)
             if [ "$code" = "200" ] && [ "$body" = '{"status":"ok"}' ]; then
               echo "✅ Day Forge MCP route is working (attempt $attempt)"
               exit 0
@@ -374,6 +376,7 @@ jobs:
             exit 1
           fi
           echo "::warning::Day Forge MCP health check did not pass (last HTTP $code). It is not a 404, so a missing /mcp* route is probably not the cause. Check that the dayforge.habitreward.org block still exists in deployment/caddy/Caddyfile, then the day_forge_mcp container. This does not fail the habit_reward deploy."
+          exit 0
 
       - name: Check SSL certificate
         run: |
