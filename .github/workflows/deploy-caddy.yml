@@ -347,6 +347,37 @@ jobs:
           echo "❌ HTTPS health check failed after 5 attempts (last status: $STATUS)"
           exit 1
 
+      # Day Forge's MCP server shares dayforge.habitreward.org with Django and
+      # is reached only through the `handle /mcp*` route in the Caddyfile.
+      # Without that route the request falls through to Django, which answers
+      # 404. Only that 404 fails the deploy, because it means this repository's
+      # Caddy config lost the route. Any other failure belongs to the Day Forge
+      # container, so it is a warning and does not block this deploy.
+      - name: Check Day Forge MCP route
+        run: |
+          set -euo pipefail
+          url=https://dayforge.habitreward.org/mcp/health
+          code=""
+          for attempt in 1 2 3 4 5; do
+            rm -f /tmp/mcp-health.body
+            code=$(curl -sS --max-time 10 -o /tmp/mcp-health.body -w "%{http_code}" "$url" || true)
+            # Whitespace is stripped so a reformatted payload such as
+            # {"status": "ok"} still counts as healthy.
+            body=$(head -c 200 /tmp/mcp-health.body 2>/dev/null | tr -d '[:space:]' || true)
+            if [ "$code" = "200" ] && [ "$body" = '{"status":"ok"}' ]; then
+              echo "✅ Day Forge MCP route is working (attempt $attempt)"
+              exit 0
+            fi
+            echo "Attempt $attempt: HTTP $code"
+            if [ "$attempt" != "5" ]; then sleep 10; fi
+          done
+          if [ "$code" = "404" ]; then
+            echo "::error::https://dayforge.habitreward.org/mcp/health returned 404. Most likely the 'handle /mcp*' route is missing from the dayforge.habitreward.org block in deployment/caddy/Caddyfile, so the request reached Django."
+            exit 1
+          fi
+          echo "::warning::Day Forge MCP health check did not pass (last HTTP $code). It is not a 404, so a missing /mcp* route is probably not the cause. Check that the dayforge.habitreward.org block still exists in deployment/caddy/Caddyfile, then the day_forge_mcp container. This does not fail the habit_reward deploy."
+          exit 0
+
       - name: Check SSL certificate
         run: |
           echo "Checking SSL certificate..."

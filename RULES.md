@@ -350,6 +350,9 @@ uv run pytest tests/ -v -m "not local_only"  # CI mode
 - Update with `up -d --pull never --remove-orphans`: it recreates only changed containers (normally `web`).
 - Apply Caddyfile edits with `docker exec habit_reward_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`. Retry it, because a just-recreated Caddy may not have its admin API up yet.
 - Mount the `caddy/` directory, not the single file. A single-file bind mount pins the old inode after the deploy re-extracts the Caddyfile, so reload would re-read stale config.
+- Change the Caddyfile only through this repository. The deploy re-extracts the committed file, so an edit made on the server is lost on the next deploy.
+- The `dayforge.habitreward.org` block must keep `handle /mcp*` → `host.docker.internal:8009` next to its catch-all `handle`. Day Forge's `deployment/caddy/dayforge.caddy` is the reference for that routing.
+- The `Check Day Forge MCP route` step in `deploy-caddy.yml` fails the deploy when `/mcp/health` returns 404. Other failures only warn, because they belong to the Day Forge container.
 
 **DB**: `/home/deploy/habit_reward_bot/data/db.sqlite3`. Backup: `cp data/db.sqlite3 backups/db_$(date +%Y%m%d).sqlite3`.
 
