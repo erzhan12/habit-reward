@@ -17,6 +17,26 @@ _TEST_TOKEN = "abcdefghij0123456789_ABCDEFGHIJ0123456789_ab"
 # Default test client IP (Django test Client sends 127.0.0.1)
 _TEST_IP = "127.0.0.1"
 
+# django-ratelimit 4.x uses a fixed window, not a sliding one. The window end is
+# epoch-aligned plus a per-key jitter of crc32(key) % period; see
+# django_ratelimit.core._get_window. A test that fires 6 requests of a 5/m limit
+# flakes when those requests straddle that key-specific boundary.
+_RATELIMIT_WINDOW_REFERENCE = 1_700_000_000.0
+
+
+def _freeze_ratelimit_time(
+    key: str, seconds_before_window_end: float, period: int = 60
+) -> float:
+    """Return a timestamp inside the rate-limit window for *key*."""
+    from django_ratelimit.core import _get_window
+
+    with patch(
+        "django_ratelimit.core.time.time",
+        return_value=_RATELIMIT_WINDOW_REFERENCE,
+    ):
+        window_end = _get_window(key, period)
+    return window_end - seconds_before_window_end
+
 
 def _create_ip_binding(token=_TEST_TOKEN, ip=_TEST_IP, minutes=5):
     """Create a LoginTokenIpBinding in the DB for test tokens."""
@@ -138,10 +158,17 @@ class TestAuth:
         assert response.status_code == 409
         assert response["X-Inertia-Location"] == "/auth/login/"
 
-    def test_bot_login_rate_limit_http_level(self):
+    @pytest.mark.parametrize(
+        "seconds_before_window_end",
+        [30.0, 0.1],
+        ids=["mid_window", "near_window_end"],
+    )
+    def test_bot_login_rate_limit_http_level(self, seconds_before_window_end):
         """Sending requests over the limit triggers rate limiting and returns 429 JSON.
 
         Uses the stricter user_or_ip limiter on bot_login_request (5/m).
+        Time is frozen so all six requests stay in one django-ratelimit window,
+        including when the clock would otherwise sit 0.1s before the window end.
         """
         from django.core.cache import cache
 
@@ -149,24 +176,29 @@ class TestAuth:
 
         payload = json.dumps({"username": "nonexistent_user_test"})
         client = Client()
+        remote_addr = "192.0.2.99"
+        frozen_time = _freeze_ratelimit_time(remote_addr, seconds_before_window_end)
 
         # Send requests up to the user_or_ip limit (5/m)
-        for _ in range(5):
-            client.post(
+        with patch("django_ratelimit.core.time.time", return_value=frozen_time):
+            for _ in range(5):
+                client.post(
+                    "/auth/bot-login/request/",
+                    data=payload,
+                    content_type="application/json",
+                    REMOTE_ADDR=remote_addr,
+                )
+
+            response = client.post(
                 "/auth/bot-login/request/",
                 data=payload,
                 content_type="application/json",
-                REMOTE_ADDR="192.0.2.99",
+                REMOTE_ADDR=remote_addr,
             )
-
-        response = client.post(
-            "/auth/bot-login/request/",
-            data=payload,
-            content_type="application/json",
-            REMOTE_ADDR="192.0.2.99",
-        )
         assert response.status_code == 429
-        assert response.json()["error"] == "Too many requests. Please wait a moment and try again."
+        assert response.json()["error"] == (
+            "Too many requests. Please wait a moment and try again."
+        )
 
 
 class TestBotLoginRequestCSRF:
