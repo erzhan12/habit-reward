@@ -294,6 +294,22 @@ class TestCompleteHabit:
         data = response.json()
         assert data["error"]["code"] == "ALREADY_COMPLETED"
 
+    @patch("src.api.v1.routers.habits.habit_service")
+    @patch("src.api.v1.routers.habits.habit_repository")
+    def test_complete_habit_busy_returns_503(
+        self, mock_repo, mock_service, client, mock_habit
+    ):
+        """Feature 0048: exhausted DB-lock retries map to 503, not 409/500."""
+        from src.services.transactions import ServiceBusyError
+
+        mock_repo.get_by_id = AsyncMock(return_value=mock_habit)
+        mock_service.process_habit_completion = AsyncMock(side_effect=ServiceBusyError("busy"))
+
+        response = client.post(f"/v1/habits/{mock_habit.id}/complete", json={})
+
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "SERVICE_BUSY"
+
     @patch("src.api.v1.routers.habits.habit_repository")
     def test_complete_habit_not_found(self, mock_repo, client):
         """Test completing non-existent habit."""

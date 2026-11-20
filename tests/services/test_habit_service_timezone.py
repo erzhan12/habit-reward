@@ -10,6 +10,7 @@ from src.models.habit import Habit
 from src.models.reward import Reward
 from src.models.reward_progress import RewardProgress, RewardStatus
 from src.models.habit_completion_result import HabitCompletionResult
+from tests.completion_helpers import patch_commit
 
 
 @pytest.fixture
@@ -92,7 +93,8 @@ class TestHabitCompletionTimezone:
         )
         mock_reward_service.update_reward_progress.return_value = mock_progress
 
-        with patch.object(habit_service, 'user_repo', mock_user_repo), \
+        with patch_commit(reward=mock_reward, progress=mock_progress) as tx, \
+             patch.object(habit_service, 'user_repo', mock_user_repo), \
              patch.object(habit_service, 'habit_repo', mock_habit_repo), \
              patch.object(habit_service, 'streak_service', mock_streak_service), \
              patch.object(habit_service, 'reward_service', mock_reward_service), \
@@ -109,6 +111,8 @@ class TestHabitCompletionTimezone:
         mock_get_user_today.assert_any_call("Asia/Almaty")
         assert isinstance(result, HabitCompletionResult)
         assert result.habit_confirmed is True
+        args = tx.call_args.args
+        assert (args[3], args[4]) == (user_local_date, user_local_date)
 
     @patch('src.services.habit_service.get_user_today')
     @patch('src.services.habit_service.audit_log_service')
@@ -151,7 +155,8 @@ class TestHabitCompletionTimezone:
         )
         mock_reward_service.update_reward_progress.return_value = mock_progress
 
-        with patch.object(habit_service, 'user_repo', mock_user_repo), \
+        with patch_commit(reward=mock_reward, progress=mock_progress) as tx, \
+             patch.object(habit_service, 'user_repo', mock_user_repo), \
              patch.object(habit_service, 'habit_repo', mock_habit_repo), \
              patch.object(habit_service, 'streak_service', mock_streak_service), \
              patch.object(habit_service, 'reward_service', mock_reward_service), \
@@ -165,6 +170,8 @@ class TestHabitCompletionTimezone:
                 user_timezone="Asia/Almaty",
             )
 
+        args = tx.call_args.args
+        assert (args[3], args[4]) == (explicit_date, date(2026, 2, 8))
         assert isinstance(result, HabitCompletionResult)
         assert result.habit_confirmed is True
 
@@ -207,7 +214,8 @@ class TestHabitCompletionTimezone:
         )
         mock_reward_service.update_reward_progress.return_value = mock_progress
 
-        with patch.object(habit_service, 'user_repo', mock_user_repo), \
+        with patch_commit(reward=mock_reward, progress=mock_progress), \
+             patch.object(habit_service, 'user_repo', mock_user_repo), \
              patch.object(habit_service, 'habit_repo', mock_habit_repo), \
              patch.object(habit_service, 'streak_service', mock_streak_service), \
              patch.object(habit_service, 'reward_service', mock_reward_service), \
@@ -249,7 +257,8 @@ class TestHabitCompletionTimezone:
         mock_user_repo.get_by_telegram_id.return_value = mock_user
         mock_habit_repo.get_by_name.return_value = mock_habit
 
-        with patch.object(habit_service, 'user_repo', mock_user_repo), \
+        with patch_commit(), \
+             patch.object(habit_service, 'user_repo', mock_user_repo), \
              patch.object(habit_service, 'habit_repo', mock_habit_repo), \
              patch.object(habit_service, 'streak_service', mock_streak_service), \
              patch.object(habit_service, 'reward_service', mock_reward_service), \

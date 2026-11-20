@@ -12,6 +12,7 @@ from telegram.ext import (
     filters
 )
 
+from src.services.transactions import ServiceBusyError
 from src.services.habit_service import habit_service
 from src.services.nlp_service import nlp_service
 from src.bot.keyboards import (
@@ -266,7 +267,7 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
             logger.info(f"📤 Sent multiple habits notification to {telegram_id}")
 
-    except ValueError as e:
+    except (ValueError, ServiceBusyError) as e:
         logger.error(f"❌ Error processing habit completion for user {telegram_id}: {str(e)}")
         await update.message.reply_text(
             msg('ERROR_GENERAL', lang, error=str(e)),
@@ -324,7 +325,7 @@ async def handle_today_selection(
         )
         logger.info(f"📤 Sent habit completion success message to {telegram_id}")
 
-    except ValueError as e:
+    except (ValueError, ServiceBusyError) as e:
         logger.error(f"❌ Error processing habit completion for user {telegram_id}: {str(e)}")
         await query.edit_message_text(
             msg('ERROR_GENERAL', lang, error=str(e)),
@@ -597,7 +598,7 @@ async def handle_backdate_confirmation(
         )
         logger.info(f"📤 Sent backdate success message to {telegram_id}")
 
-    except ValueError as e:
+    except (ValueError, ServiceBusyError) as e:
         error_msg = str(e)
         logger.error(f"❌ Error processing backdate for user {telegram_id}: {error_msg}")
 

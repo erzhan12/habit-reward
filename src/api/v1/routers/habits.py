@@ -12,11 +12,13 @@ from src.api.exceptions import (
     NotFoundException,
     ForbiddenException,
     ConflictException,
+    ServiceUnavailableException,
     ValidationException,
 )
 from src.core.models import User
 from src.core.repositories import habit_repository
 from src.services.habit_service import habit_service
+from src.services.transactions import ServiceBusyError
 from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
@@ -475,6 +477,9 @@ async def complete_habit(
         if "already completed" in error_msg.lower():
             raise ConflictException(message=error_msg, code="ALREADY_COMPLETED")
         raise
+    except ServiceBusyError:
+        logger.warning("Habit completion busy for user %s on habit %s", current_user.id, habit_id)
+        raise ServiceUnavailableException()
 
     # Build response
     reward_response = None

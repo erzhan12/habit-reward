@@ -67,6 +67,17 @@ class NotFoundException(APIException):
         )
 
 
+class ServiceUnavailableException(APIException):
+    """503 Service Unavailable: the database stayed busy; the client may retry."""
+
+    def __init__(self, message: str = "Service busy, please try again", code: str = "SERVICE_BUSY"):
+        super().__init__(
+            code=code,
+            message=message,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+
+
 class ConflictException(APIException):
     """409 Conflict exception."""
 

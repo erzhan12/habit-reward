@@ -21,6 +21,7 @@ from src.bot.navigation import (
     update_navigation_language,
     get_current_navigation,
 )
+from src.services.transactions import ServiceBusyError
 from src.services.habit_service import habit_service
 from src.utils.async_compat import maybe_await
 from src.core.repositories import user_repository
@@ -521,7 +522,7 @@ async def simple_habit_selected_callback(update: Update, context: ContextTypes.D
                 parse_mode="HTML"
             )
 
-        except ValueError as e:
+        except (ValueError, ServiceBusyError) as e:
             error_msg = str(e)
             logger.error(f"❌ Error processing habit completion: {error_msg}")
 
@@ -640,7 +641,7 @@ async def menu_habit_today_callback(update: Update, context: ContextTypes.DEFAUL
             parse_mode="HTML"
         )
 
-    except ValueError as e:
+    except (ValueError, ServiceBusyError) as e:
         error_msg = str(e)
         logger.error(f"❌ Error processing habit completion: {error_msg}")
 
@@ -894,7 +895,7 @@ async def menu_backdate_confirm_callback(update: Update, context: ContextTypes.D
             parse_mode="HTML"
         )
 
-    except ValueError as e:
+    except (ValueError, ServiceBusyError) as e:
         error_msg = str(e)
         logger.error(f"❌ Error processing backdate: {error_msg}")
 

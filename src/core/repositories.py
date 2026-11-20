@@ -313,6 +313,16 @@ class HabitRepository:
 class RewardRepository:
     """Reward repository using Django ORM."""
 
+    # Sync twins for the single-transaction completion (feature 0048 §4).
+    def get_all_active_sync(self, user_id: int | str) -> list[Reward]:
+        return list(Reward.objects.filter(user_id=int(user_id), active=True).order_by("name"))
+
+    def get_by_id_sync(self, reward_id: int | str) -> Reward | None:
+        try:
+            return Reward.objects.get(pk=int(reward_id))
+        except (Reward.DoesNotExist, ValueError):
+            return None
+
     async def get_all_active(self, user_id: int | str) -> list[Reward]:
         """Get all active rewards for a specific user."""
         user_pk = int(user_id) if isinstance(user_id, str) else user_id
@@ -416,6 +426,37 @@ class RewardRepository:
 
 class RewardProgressRepository:
     """Reward progress repository using Django ORM."""
+
+    # Sync twins for the single-transaction completion (feature 0048 §4).
+    def get_all_by_user_sync(self, user_id: int | str) -> list[RewardProgress]:
+        rows = list(
+            RewardProgress.objects.filter(user_id=int(user_id), reward__active=True)
+            .select_related("reward", "user")
+            .order_by("reward__name")
+        )
+        return [self._attach_cached_pieces_required(p) for p in rows]
+
+    def get_by_user_and_reward_sync(self, user_id: int | str, reward_id: int | str) -> RewardProgress | None:
+        try:
+            progress = RewardProgress.objects.select_related("reward", "user").get(
+                user_id=int(user_id), reward_id=int(reward_id)
+            )
+        except (RewardProgress.DoesNotExist, ValueError):
+            return None
+        return self._attach_cached_pieces_required(progress)
+
+    def get_or_create_sync(self, user_id: int | str, reward_id: int | str) -> RewardProgress:
+        obj, _ = RewardProgress.objects.get_or_create(
+            user_id=int(user_id), reward_id=int(reward_id), defaults={"pieces_earned": 0}
+        )
+        progress = RewardProgress.objects.select_related("reward", "user").get(pk=obj.pk)
+        return self._attach_cached_pieces_required(progress)
+
+    def update_sync(self, progress_id: int | str, updates: dict[str, Any]) -> RewardProgress:
+        pk = int(progress_id)
+        RewardProgress.objects.filter(pk=pk).update(**updates)
+        progress = RewardProgress.objects.select_related("reward", "user").get(pk=pk)
+        return self._attach_cached_pieces_required(progress)
 
     @staticmethod
     def _attach_cached_pieces_required(progress: RewardProgress) -> RewardProgress:
@@ -631,6 +672,50 @@ class RewardProgressRepository:
 
 class HabitLogRepository:
     """Habit log repository using Django ORM."""
+
+    # Sync twins for the single-transaction functions (feature 0048 §4).
+    _related = ("habit", "user", "reward")
+
+    def create_sync(self, **fields: Any) -> HabitLog:
+        return HabitLog.objects.create(**fields)
+
+    def get_log_for_habit_on_date_sync(self, habit_id: int | str, target_date: date) -> HabitLog | None:
+        return HabitLog.objects.filter(
+            habit_id=int(habit_id), last_completed_date=target_date
+        ).first()
+
+    def get_last_log_before_date_sync(self, habit_id: int | str, target_date: date) -> HabitLog | None:
+        """Latest log strictly before ``target_date``."""
+        return (
+            HabitLog.objects.filter(habit_id=int(habit_id), last_completed_date__lt=target_date)
+            .order_by("-last_completed_date")
+            .first()
+        )
+
+    def get_last_log_on_or_before_sync(self, habit_id: int | str, target_date: date) -> HabitLog | None:
+        """Latest log on or before ``target_date``."""
+        return (
+            HabitLog.objects.filter(habit_id=int(habit_id), last_completed_date__lte=target_date)
+            .order_by("-last_completed_date")
+            .first()
+        )
+
+    def get_logs_for_habit_in_daterange_sync(
+        self, habit_id: int | str, start_date: date, end_date: date
+    ) -> list[HabitLog]:
+        return list(
+            HabitLog.objects.filter(
+                habit_id=int(habit_id),
+                last_completed_date__gte=start_date,
+                last_completed_date__lte=end_date,
+            ).order_by("last_completed_date")
+        )
+
+    def get_todays_logs_by_user_sync(self, user_id: int | str, target_date: date) -> list[HabitLog]:
+        return list(HabitLog.objects.filter(user_id=int(user_id), last_completed_date=target_date))
+
+    def set_streak_count_sync(self, log_id: int, streak_count: int) -> None:
+        HabitLog.objects.filter(pk=log_id).update(streak_count=streak_count)
 
     async def get_by_id(self, log_id: int | str) -> HabitLog | None:
         """Get habit log by primary key.

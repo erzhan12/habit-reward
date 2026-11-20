@@ -3,12 +3,14 @@
 import asyncio
 import logging
 import inspect
+from dataclasses import dataclass
 from datetime import datetime, date, timedelta
+from functools import partial
 from typing import Awaitable
 from contextlib import asynccontextmanager
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from src.core.repositories import (
     user_repository,
     habit_repository,
@@ -17,8 +19,10 @@ from src.core.repositories import (
 )
 from src.bot.timezone_utils import get_user_today
 from src.core.models import Habit, HabitLog, RewardProgress
-from src.services.streak_service import StreakService, streak_service
+from src.services.streak_service import GapOutcome, StreakService, evaluate_gap, streak_service
 from src.services.reward_service import reward_service
+from src.services.freeze_service import freeze_service
+from src.services.transactions import run_in_transaction
 from src.services.audit_log_service import audit_log_service
 from src.models.habit_completion_result import HabitCompletionResult
 from src.models.habit_revert_result import HabitRevertResult
@@ -47,6 +51,22 @@ def _try_schedule_notify(user_id: int) -> None:
     loop.create_task(_safe_notify_user(user_id))
 
 
+@dataclass
+class CompletionCommit:
+    """What the completion transaction decided (feature 0048 §4)."""
+
+    habit_log: HabitLog
+    streak_count: int
+    reward_chance: float
+    effective_no_reward: float
+    selected_reward: object | None
+    reward_progress: RewardProgress | None
+    outcome: GapOutcome | None
+    covered_date: date | None
+    freeze_won: bool
+    freeze_count: int
+
+
 class HabitService:
     """Service for orchestrating habit completion flow."""
 
@@ -58,6 +78,7 @@ class HabitService:
         self.reward_progress_repo = reward_progress_repository
         self.streak_service = streak_service
         self.reward_service = reward_service
+        self.freeze_service = freeze_service
         self.audit_log_service = audit_log_service
 
     def _refresh_dependencies(self) -> None:
@@ -68,6 +89,7 @@ class HabitService:
         self.reward_progress_repo = reward_progress_repository
         self.streak_service = streak_service
         self.reward_service = reward_service
+        self.freeze_service = freeze_service
         self.audit_log_service = audit_log_service
 
     @asynccontextmanager
@@ -247,80 +269,30 @@ class HabitService:
                     f"Habit '{habit_name}' already completed on {target_date}"
                 )
 
-            habit_weight = habit.weight
-
-            # Calculate streak for target_date
-            if target_date == today:
-                # Use normal streak calculation for today
-                streak_count = await maybe_await(
-                    self.streak_service.calculate_streak(user.id, habit.id, user_timezone=user_timezone)
+            # Feature 0048 §4: everything that reads or changes streaks, freezes,
+            # rewards and the log runs as ONE sync function in ONE transaction.
+            try:
+                commit = await run_in_transaction(
+                    self._commit_completion_sync, user, habit.id, target_date, today
                 )
-            else:
-                # Use backdate-aware streak calculation
-                streak_count = await maybe_await(
-                    self.streak_service.calculate_streak_for_date(
-                        user.id, habit.id, target_date
+            except IntegrityError:
+                # uniq_habitlog_habit_day: a concurrent submit of the same completion won.
+                if await maybe_await(
+                    self.habit_log_repo.get_log_for_habit_on_date(user.id, habit.id, target_date)
+                ):
+                    raise ValueError(
+                        f"Habit '{habit_name}' already completed on {target_date}"
                     )
-                )
+                raise
 
-            # Feature 0048: the chance depends only on the streak day being rolled;
-            # habit weight and user.no_reward_probability no longer affect it.
-            reward_chance = self.reward_service.calculate_reward_chance(streak_count)
-            effective_no_reward = 100.0 - reward_chance
-
-            # Daily limit logic is now handled internally in select_reward()
-            # based on each reward's max_daily_claims configuration
-            selected_reward = await maybe_await(
-                self.reward_service.select_reward(
-                    effective_no_reward_probability=effective_no_reward,
-                    user_id=user.id,
-                    exclude_reward_ids=[],  # No manual exclusion needed
-                    target_date=today,
-                )
-            )
-
+            streak_count = commit.streak_count
+            effective_no_reward = commit.effective_no_reward
+            selected_reward = commit.selected_reward
             got_reward = selected_reward is not None
-
-            # Wrap reward progress update and habit log creation in atomic transaction
-            # This ensures both operations succeed or both are rolled back,
-            # preventing orphaned progress entries with 0 pieces
-            async with self._atomic():
-                reward_progress = None
-                if got_reward:
-                    reward_progress = await maybe_await(
-                        self.reward_service.update_reward_progress(
-                            user_id=user.id,
-                            reward_id=selected_reward.id,
-                        )
-                    )
-
-                habit_log = HabitLog(
-                    user_id=user.id,
-                    habit_id=habit.id,
-                    timestamp=datetime.now(),
-                    reward_id=selected_reward.id if got_reward else None,
-                    got_reward=got_reward,
-                    streak_count=streak_count,
-                    habit_weight=habit_weight,
-                    total_weight_applied=effective_no_reward,
-                    last_completed_date=target_date,  # Use target_date for backdating
-                )
-                await maybe_await(self.habit_log_repo.create(habit_log))
-                await cache.adelete(streak_service.cache_key(user.id))
-
-            # If backdating, recalculate streaks for all subsequent logs
-            if target_date < today:
-                logger.info(
-                    "Backdating detected (target_date=%s < today=%s). Recalculating subsequent streaks.",
-                    target_date,
-                    today
-                )
-                await maybe_await(
-                    self.recalculate_streaks_after_backdate(
-                        user.id, habit.id, target_date,
-                        user_timezone=user_timezone,
-                    )
-                )
+            reward_progress = commit.reward_progress
+            habit_log = commit.habit_log
+            freeze_used = commit.outcome == GapOutcome.FREEZE_SAVED
+            freeze_burned = commit.outcome == GapOutcome.FREEZE_BURNED
 
             # Log habit completion to audit trail (after transaction commits)
             snapshot = {
@@ -328,6 +300,11 @@ class HabitService:
                 "streak_count": streak_count,
                 "effective_no_reward": effective_no_reward,
                 "selected_reward_name": selected_reward.name if got_reward else None,
+                "reward_chance": commit.reward_chance,
+                "freeze_used": freeze_used,
+                "freeze_burned": freeze_burned,
+                "freeze_covered_date": commit.covered_date.isoformat() if commit.covered_date else None,
+                "freeze_won": commit.freeze_won,
             }
 
             if reward_progress:
@@ -359,9 +336,142 @@ class HabitService:
                 motivational_quote=None,
                 got_reward=got_reward,
                 total_weight_applied=effective_no_reward,
+                reward_chance=commit.reward_chance,
+                freeze_won=commit.freeze_won,
+                freeze_used=freeze_used,
+                freeze_burned=freeze_burned,
+                freeze_covered_date=commit.covered_date,
+                freeze_count=commit.freeze_count,
             )
 
         return run_sync_or_async(_impl())
+
+    def _commit_completion_sync(
+        self, user, habit_id: int, target_date: date, today: date
+    ) -> CompletionCommit:
+        """Steps 1-8 of plan §4. Runs inside ``transaction.atomic()`` (see run_in_transaction)."""
+        habit = self.habit_repo.lock_for_update_sync(habit_id)
+        fs = self.freeze_service
+
+        # Settle first: do what the burn job would have done for the trailing gap,
+        # so the result never depends on whether the job already ran.
+        fs.settle_due_spend_sync(habit, today)
+
+        # 1-2. Resolve the gap this completion closes; catch-up spend if needed.
+        prev = StreakService.counted_log(
+            self.habit_log_repo.get_last_log_before_date_sync(habit.id, target_date), habit
+        )
+        outcome: GapOutcome | None = None
+        covered: date | None = None
+        if prev is None:
+            streak_count = 1
+        else:
+            gap = evaluate_gap(
+                prev.last_completed_date, target_date, habit.allowed_skip_days,
+                habit.exempt_weekdays, fs.spent_dates_sync(habit.id), fs.usable_predicate_sync(habit),
+            )
+            outcome, covered = gap.outcome, gap.covered_date
+            if gap.needs_catchup_spend and not fs.spend_sync(habit, covered):
+                if covered not in fs.spent_dates_sync(habit.id):
+                    if self.habit_log_repo.get_log_for_habit_on_date_sync(habit.id, target_date):
+                        raise ValueError(f"Habit '{habit.name}' already completed on {target_date}")
+                    outcome, covered = GapOutcome.RESET, None
+            streak_count = (
+                StreakService.effective_streak(prev, habit) + 1 if outcome.keeps_streak else 1
+            )
+
+        # 3. Roll the prize at the chance of this streak day.
+        reward_chance = self.reward_service.calculate_reward_chance(streak_count)
+        effective_no_reward = 100.0 - reward_chance
+        selected_reward = self.reward_service.select_reward_sync(
+            effective_no_reward, user.id, target_date=today
+        )
+        reward_progress = (
+            self.reward_service.update_reward_progress_sync(user.id, selected_reward.id)
+            if selected_reward is not None else None
+        )
+
+        # 4. The log; uniq_habitlog_habit_day rolls the whole block back on a duplicate.
+        habit_log = self.habit_log_repo.create_sync(
+            user_id=user.id,
+            habit_id=habit.id,
+            reward_id=selected_reward.id if selected_reward is not None else None,
+            got_reward=selected_reward is not None,
+            streak_count=streak_count,
+            habit_weight=habit.weight,
+            total_weight_applied=effective_no_reward,
+            last_completed_date=target_date,
+        )
+
+        # 6. Backdate: recompute later streaks inside the same transaction.
+        if target_date < today:
+            self._recalculate_streaks_sync(habit, target_date, today)
+
+        # 7. Freeze roll, last, against the final inventory.
+        freeze_count = self.habit_repo.lock_for_update_sync(habit.id).freeze_count
+        habit.freeze_count = freeze_count
+        freeze_won = False
+        if fs.should_roll(selected_reward is not None, freeze_count) and fs.roll():
+            freeze_won = fs.grant_won_sync(habit, habit_log, target_date)
+
+        # 8. Invalidate the streak cache only after COMMIT.
+        transaction.on_commit(partial(cache.delete, StreakService.cache_key(user.id)), robust=True)
+
+        return CompletionCommit(
+            habit_log=habit_log,
+            streak_count=streak_count,
+            reward_chance=reward_chance,
+            effective_no_reward=effective_no_reward,
+            selected_reward=selected_reward,
+            reward_progress=reward_progress,
+            outcome=outcome,
+            covered_date=covered,
+            freeze_won=freeze_won,
+            freeze_count=habit.freeze_count,
+        )
+
+    def _recalculate_streaks_sync(self, habit, backdate_date: date, today: date) -> None:
+        """Recompute stored streaks of logs on/after ``backdate_date`` (inside a transaction).
+
+        Never walks below the streak epoch; the epoch-day log keeps its stored value.
+        Freeze-aware reconciliation (returns, relocation) is added in slice 4.
+        """
+        epoch = StreakService.streak_epoch(habit)
+        start_date = max(backdate_date, epoch) if epoch is not None else backdate_date
+        logs = self.habit_log_repo.get_logs_for_habit_in_daterange_sync(habit.id, start_date, today)
+        if not logs:
+            return
+        spent = self.freeze_service.spent_dates_sync(habit.id)
+        prev = StreakService.counted_log(
+            self.habit_log_repo.get_last_log_before_date_sync(habit.id, logs[0].last_completed_date), habit
+        )
+        for log in logs:
+            if epoch is not None and log.last_completed_date == epoch:
+                prev = log
+                continue
+            if prev is None:
+                new_streak = 1
+            else:
+                gap = evaluate_gap(
+                    prev.last_completed_date, log.last_completed_date, habit.allowed_skip_days,
+                    habit.exempt_weekdays, spent, lambda _c: False,
+                )
+                new_streak = (
+                    StreakService.effective_streak(prev, habit) + 1 if gap.outcome.keeps_streak else 1
+                )
+            if log.streak_count != new_streak:
+                logger.info(
+                    "Updating log %s: date=%s, old_streak=%s, new_streak=%s",
+                    log.id, log.last_completed_date, log.streak_count, new_streak,
+                )
+                self.habit_log_repo.set_streak_count_sync(log.id, new_streak)
+                log.streak_count = new_streak
+            prev = log
+
+    def _recalculate_by_id_sync(self, habit_id, backdate_date: date, today: date) -> None:
+        habit = self.habit_repo.lock_for_update_sync(habit_id)
+        self._recalculate_streaks_sync(habit, backdate_date, today)
+        transaction.on_commit(partial(cache.delete, StreakService.cache_key(habit.user_id)), robust=True)
 
     def recalculate_streaks_after_backdate(
         self,
@@ -384,106 +494,10 @@ class HabitService:
         async def _impl() -> None:
             logger.info(
                 "Recalculating streaks after backdate for user=%s, habit_id=%s, from_date=%s",
-                user_id,
-                habit_id,
-                backdate_date
+                user_id, habit_id, backdate_date,
             )
-
-            # Get habit for grace days and exempt weekdays
-            habit = await maybe_await(self.habit_repo.get_by_id(habit_id))
-            if not habit:
-                logger.error("Habit %s not found for streak recalculation", habit_id)
-                return
-
-            # Get all logs from backdate_date onwards, sorted by completion date.
-            # Never walk below the streak epoch (feature 0048): pre-epoch logs keep
-            # their stored streak_count for historical stats and never affect later streaks.
             today = get_user_today(user_timezone)
-            epoch = StreakService.streak_epoch(habit)
-            start_date = max(backdate_date, epoch) if epoch is not None else backdate_date
-            logs = await maybe_await(
-                self.habit_log_repo.get_logs_for_habit_in_daterange(
-                    user_id, habit_id, start_date, today
-                )
-            )
-
-            if not logs:
-                logger.info("No logs found for recalculation")
-                return
-
-            logger.info(f"Recalculating {len(logs)} logs from {backdate_date} to {today}")
-
-            # Recalculate each log's streak in chronological order
-            for i, log in enumerate(logs):
-                if epoch is not None and log.last_completed_date == epoch:
-                    # Epoch-day log: effective streak is 1 by definition; its stored
-                    # (possibly pre-reset) value is kept for historical stats.
-                    continue
-                if i == 0:
-                    # First log in the sequence - calculate streak based on previous logs
-                    new_streak = await maybe_await(
-                        self.streak_service.calculate_streak_for_date(
-                            user_id, habit_id, log.last_completed_date
-                        )
-                    )
-                else:
-                    # Calculate based on previous log in this sequence
-                    prev_log = logs[i - 1]
-                    prev_date = prev_log.last_completed_date
-                    current_date = log.last_completed_date
-                    day_before_current = current_date - timedelta(days=1)
-
-                    # Check if consecutive
-                    prev_streak = StreakService.effective_streak(prev_log, habit)
-                    if prev_date == day_before_current:
-                        new_streak = prev_streak + 1
-                    elif prev_date < day_before_current:
-                        # Gap exists - check grace days and exempt weekdays
-                        current_check_date = prev_date + timedelta(days=1)
-                        missed_days = 0
-
-                        while current_check_date < current_date:
-                            weekday = current_check_date.isoweekday()
-                            if weekday not in habit.exempt_weekdays:
-                                missed_days += 1
-                            current_check_date += timedelta(days=1)
-
-                        if missed_days <= habit.allowed_skip_days:
-                            new_streak = prev_streak + 1
-                        else:
-                            new_streak = 1
-                    else:
-                        # This shouldn't happen (logs are sorted by date)
-                        logger.warning(
-                            "Unexpected log order: prev_date=%s >= current_date=%s",
-                            prev_date,
-                            current_date
-                        )
-                        new_streak = 1
-
-                # Update log if streak changed
-                if log.streak_count != new_streak:
-                    logger.info(
-                        "Updating log %s: date=%s, old_streak=%s, new_streak=%s",
-                        log.id,
-                        log.last_completed_date,
-                        log.streak_count,
-                        new_streak
-                    )
-                    await maybe_await(
-                        self.habit_log_repo.update(log.id, {"streak_count": new_streak})
-                    )
-                    # Keep in-memory object in sync so subsequent loop iterations
-                    # see the updated streak_count (not the stale pre-update value).
-                    log.streak_count = new_streak
-                else:
-                    logger.debug(
-                        "Log %s streak unchanged: date=%s, streak=%s",
-                        log.id,
-                        log.last_completed_date,
-                        log.streak_count
-                    )
-
+            await run_in_transaction(self._recalculate_by_id_sync, habit_id, backdate_date, today)
             logger.info("Streak recalculation completed")
 
         return run_sync_or_async(_impl())

@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
 from src.services.habit_service import HabitService, _safe_notify_user
+from tests.completion_helpers import patch_commit
 
 
 def _setup_mocks(service):
@@ -70,6 +71,7 @@ async def test_completion_triggers_notification():
             patch("src.services.habit_service.cache") as mock_cache,
             patch("src.services.habit_service.streak_service"),
             patch("src.services.habit_service.asyncio") as mock_asyncio,
+            patch_commit(streak=3, effective=40.0),
         ):
             mock_asyncio.get_running_loop.return_value = loop
             mock_cache.adelete = AsyncMock()
@@ -100,6 +102,7 @@ async def test_notification_failure_doesnt_break_completion():
         with (
             patch("src.services.habit_service.cache") as mock_cache,
             patch("src.services.habit_service.streak_service"),
+            patch_commit(streak=3, effective=40.0),
         ):
             mock_cache.adelete = AsyncMock()
             # Should NOT raise despite notification failure

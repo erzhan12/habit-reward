@@ -16,6 +16,7 @@ from src.core.repositories import habit_log_repository
 from src.services.habit_service import habit_service
 from src.services.reward_service import reward_service
 from src.services.streak_service import streak_service
+from src.services.transactions import ServiceBusyError
 from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
@@ -166,6 +167,9 @@ async def complete_habit(request, habit_id):
     except ValueError as e:
         logger.warning("Habit completion failed: %s", e)
         messages.error(request, str(e))
+    except ServiceBusyError:
+        logger.warning("Habit completion busy for user %s", user.id)
+        messages.error(request, "Busy, please try again.")
 
     return redirect("/")
 

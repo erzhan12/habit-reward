@@ -10,6 +10,7 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 
+from src.services.transactions import ServiceBusyError
 from src.services.habit_service import habit_service
 from src.bot.keyboards import (
     build_habit_selection_keyboard,
@@ -301,7 +302,7 @@ async def confirm_backdate_completion(
         )
         logger.info(f"📤 Sent backdate success message to {telegram_id}")
 
-    except ValueError as e:
+    except (ValueError, ServiceBusyError) as e:
         error_msg = str(e)
         logger.error(f"❌ Error processing backdate for user {telegram_id}: {error_msg}")
 
