@@ -14,7 +14,7 @@ from telegram.ext import (
 )
 
 from src.core.repositories import user_repository
-from src.bot.keyboards import build_settings_keyboard, build_language_selection_keyboard, build_no_reward_probability_keyboard, build_timezone_selection_keyboard
+from src.bot.keyboards import build_settings_keyboard, build_language_selection_keyboard, build_timezone_selection_keyboard
 from src.bot.timezone_utils import validate_timezone
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async, set_user_language
@@ -44,8 +44,6 @@ AWAITING_LANGUAGE_SELECTION = 2
 AWAITING_API_KEY_SELECTION = 3
 AWAITING_API_KEY_NAME = 4
 AWAITING_KEY_REVOKE_CONFIRMATION = 5
-AWAITING_NO_REWARD_PROB_SELECTION = 6
-AWAITING_NO_REWARD_PROB_CUSTOM = 7
 AWAITING_TIMEZONE_SELECTION = 8
 AWAITING_TIMEZONE_CUSTOM = 9
 
@@ -532,130 +530,27 @@ async def back_to_apikey_menu_callback(update: Update, context: ContextTypes.DEF
     return AWAITING_API_KEY_SELECTION
 
 
-# No Reward Probability Handlers
+# No Reward Probability (deprecated by feature 0048)
 
 
-async def no_reward_prob_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle No Reward Probability menu button."""
+async def no_reward_prob_deprecated_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Answer a stale "No Reward Probability" button: the setting is no longer used.
+
+    The button is gone from the settings keyboard, but old inline keyboards still
+    send ``settings_no_reward_prob``; reply with a notice and show the settings menu.
+    """
     query = update.callback_query
     await query.answer()
 
     telegram_id = str(update.effective_user.id)
-    logger.info(f"🖱️ User {telegram_id} opened No Reward Probability menu")
+    logger.info(f"🖱️ User {telegram_id} tapped deprecated No Reward Probability button")
 
     lang = await get_message_language_async(telegram_id, None)
-
-    # Get current value from user
-    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
-    if not user:
-        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
-        return ConversationHandler.END
-
-    current_value = getattr(user, 'no_reward_probability', 50.0)
-
     await query.edit_message_text(
-        text=msg('NO_REWARD_PROB_MENU', lang).format(current=current_value),
-        reply_markup=build_no_reward_probability_keyboard(current_value, lang),
-        parse_mode="HTML"
-    )
-
-    return AWAITING_NO_REWARD_PROB_SELECTION
-
-
-async def no_reward_prob_preset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle preset selection (25%, 50%, 75%)."""
-    query = update.callback_query
-    await query.answer()
-
-    telegram_id = str(update.effective_user.id)
-    callback_data = query.data
-
-    # Extract value from callback data (e.g., "no_reward_prob_25" -> 25)
-    value = float(callback_data.replace("no_reward_prob_", ""))
-
-    logger.info(f"🖱️ User {telegram_id} selected preset no_reward_probability: {value}%")
-
-    lang = await get_message_language_async(telegram_id, None)
-
-    # Get user
-    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
-    if not user:
-        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
-        return ConversationHandler.END
-
-    # Update user's no_reward_probability
-    await maybe_await(user_repository.update(user.id, {'no_reward_probability': value}))
-
-    logger.info(f"✅ Updated no_reward_probability to {value}% for user {telegram_id}")
-
-    # Show success and return to settings
-    await query.edit_message_text(
-        text=msg('NO_REWARD_PROB_UPDATED', lang).format(value=value) + "\n\n" + msg('SETTINGS_MENU', lang),
+        text=msg('NO_REWARD_PROB_DEPRECATED', lang) + "\n\n" + msg('SETTINGS_MENU', lang),
         reply_markup=build_settings_keyboard(lang),
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
-
-    return AWAITING_SETTINGS_SELECTION
-
-
-async def no_reward_prob_custom_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle Custom button - prompt for custom value."""
-    query = update.callback_query
-    await query.answer()
-
-    telegram_id = str(update.effective_user.id)
-    logger.info(f"🖱️ User {telegram_id} wants to enter custom no_reward_probability")
-
-    lang = await get_message_language_async(telegram_id, None)
-
-    await query.edit_message_text(
-        text=msg('NO_REWARD_PROB_ENTER_CUSTOM', lang),
-        parse_mode="HTML"
-    )
-
-    return AWAITING_NO_REWARD_PROB_CUSTOM
-
-
-async def no_reward_prob_custom_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle user entering custom probability value."""
-    telegram_id = str(update.effective_user.id)
-    user_input = update.message.text.strip()
-
-    logger.info(f"📨 User {telegram_id} entered custom no_reward_probability: {user_input}")
-
-    lang = await get_message_language_async(telegram_id, None)
-
-    # Validate input
-    try:
-        value = float(user_input)
-        if value < 0.01 or value > 99.99:
-            raise ValueError("Out of range")
-    except ValueError:
-        logger.warning(f"⚠️ Invalid no_reward_probability value from user {telegram_id}: {user_input}")
-        await update.message.reply_text(
-            msg('NO_REWARD_PROB_INVALID', lang),
-            parse_mode="HTML"
-        )
-        return AWAITING_NO_REWARD_PROB_CUSTOM
-
-    # Get user
-    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
-    if not user:
-        await update.message.reply_text(msg('ERROR_USER_NOT_FOUND', lang))
-        return ConversationHandler.END
-
-    # Update user's no_reward_probability
-    await maybe_await(user_repository.update(user.id, {'no_reward_probability': value}))
-
-    logger.info(f"✅ Updated no_reward_probability to {value}% for user {telegram_id}")
-
-    # Show success and return to settings
-    await update.message.reply_text(
-        text=msg('NO_REWARD_PROB_UPDATED', lang).format(value=value) + "\n\n" + msg('SETTINGS_MENU', lang),
-        reply_markup=build_settings_keyboard(lang),
-        parse_mode="HTML"
-    )
-
     return AWAITING_SETTINGS_SELECTION
 
 
@@ -798,13 +693,15 @@ settings_conversation = ConversationHandler(
     entry_points=[
         CommandHandler("settings", settings_command),
         CallbackQueryHandler(settings_menu_entry_callback, pattern="^menu_settings$"),
+        # Stale keyboards from before feature 0048 still carry this button.
+        CallbackQueryHandler(no_reward_prob_deprecated_callback, pattern="^settings_no_reward_prob$"),
     ],
     states={
         AWAITING_SETTINGS_SELECTION: [
             CallbackQueryHandler(select_language_callback, pattern="^settings_language$"),
             CallbackQueryHandler(timezone_menu_callback, pattern="^settings_timezone$"),
             CallbackQueryHandler(api_keys_menu_callback, pattern="^settings_api_keys$"),
-            CallbackQueryHandler(no_reward_prob_menu_callback, pattern="^settings_no_reward_prob$"),
+            CallbackQueryHandler(no_reward_prob_deprecated_callback, pattern="^settings_no_reward_prob$"),
             CallbackQueryHandler(menu_back_end_conversation, pattern="^menu_back$")
         ],
         AWAITING_LANGUAGE_SELECTION: [
@@ -824,14 +721,6 @@ settings_conversation = ConversationHandler(
         AWAITING_KEY_REVOKE_CONFIRMATION: [
             CallbackQueryHandler(api_key_revoke_confirm_callback, pattern="^revoke_key_"),
             CallbackQueryHandler(back_to_apikey_menu_callback, pattern="^apikey_menu$"),
-        ],
-        AWAITING_NO_REWARD_PROB_SELECTION: [
-            CallbackQueryHandler(no_reward_prob_preset_callback, pattern="^no_reward_prob_(25|50|75)$"),
-            CallbackQueryHandler(no_reward_prob_custom_callback, pattern="^no_reward_prob_custom$"),
-            CallbackQueryHandler(back_to_settings_callback, pattern="^settings_back$"),
-        ],
-        AWAITING_NO_REWARD_PROB_CUSTOM: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, no_reward_prob_custom_entered),
         ],
         AWAITING_TIMEZONE_SELECTION: [
             CallbackQueryHandler(timezone_custom_callback, pattern="^tz_custom$"),

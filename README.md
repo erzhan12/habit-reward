@@ -143,20 +143,26 @@ Each habit maintains its own streak:
 1. First completion: streak = 1
 2. Completed yesterday: increment streak
 3. Already completed today: return current streak
-4. Missed days: reset to 1
+4. Missed days: reset to 1 (`allowed_skip_days` and `exempt_weekdays` can keep it alive)
+
+**Launch reset (feature 0048).** Every habit that existed when 0048 shipped has a `streak_epoch`: the user-local date of the deploy. Completions before it no longer count toward the current streak, and a completion on that day counts as day 1. No logs were deleted, so "longest streak" stats still show old records. Habits created later have no epoch.
 
 ### Reward Probability Formula
 
+The chance depends only on the streak day `s` of the completion being rolled (1 = first day or first day after a break):
+
 ```
-effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDUCTION_RATE), MIN_NO_REWARD_PROBABILITY)
-reward_chance = 100 - effective_no_reward
+reward_chance(s) = min(20 + 30 × (1 − e^(−(s−1)/5.5)), 50)   # percent
+effective_no_reward = 100 − reward_chance(s)
 ```
 
-Where:
-- `base_no_reward` = configured no-reward probability (default 50%)
-- `habit_weight` = habit weight (0-30, each point = -1% no-reward)
-- `STREAK_REDUCTION_RATE` = % reduction per streak day (default 2.0)
-- `MIN_NO_REWARD_PROBABILITY` = floor % (default 10.0)
+| s | 1 | 2 | 3 | 4 | 7 | 14 | 24+ |
+|---|---|---|---|---|---|---|---|
+| chance | 20% | 25% | 29% | 33% | 40% | 47% | 50% |
+
+A broken streak starts over at 20%. Habit weight and the user's `no_reward_probability` no longer affect the chance; weight only counts toward the dashboard's daily points. The constants (`REWARD_CHANCE_BASE`, `REWARD_CHANCE_STREAK_BONUS`, `REWARD_CHANCE_STREAK_TAU`, `REWARD_CHANCE_CAP`) live in `settings.py` and are not env-tunable.
+
+The dashboard shows the chance of the next completion, or, for a habit already completed today, the chance that applied to that completion.
 
 ### Weighted Random Selection
 
@@ -597,7 +603,7 @@ The project uses GitHub Actions for automated checks:
 
 1. **Data Privacy**: Only telegram_id stored, full user control via Django admin
 2. **Transparent Logic**: All calculations logged and visible
-3. **Motivation vs Addiction**: "None" rewards always included, no-reward probability has a minimum floor (MIN_NO_REWARD_PROBABILITY)
+3. **Motivation vs Addiction**: "None" rewards always included; the reward chance never exceeds 50%
 4. **Extensibility**: Repository pattern enables easy database migration
 
 ## Future Enhancements

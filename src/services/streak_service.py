@@ -25,6 +25,37 @@ class StreakService:
         self.habit_repo = habit_repository
 
     @staticmethod
+    def streak_epoch(habit) -> date | None:
+        """Return the habit's streak epoch (feature 0048 launch reset), or None."""
+        return getattr(habit, "streak_epoch", None) if habit is not None else None
+
+    @classmethod
+    def counted_log(cls, log, habit):
+        """Return ``log`` if it counts as a streak predecessor, else None.
+
+        Logs dated before the habit's ``streak_epoch`` do not exist for streak purposes.
+        """
+        if log is None:
+            return None
+        epoch = cls.streak_epoch(habit)
+        if epoch is not None and log.last_completed_date < epoch:
+            return None
+        return log
+
+    @classmethod
+    def effective_streak(cls, log, habit) -> int:
+        """Streak of ``log`` as the engine sees it.
+
+        A log dated exactly on ``streak_epoch`` has no counted predecessor, so it is
+        streak day 1 whatever its stored ``streak_count`` (which may be a pre-reset
+        value). The stored value is kept for historical stats.
+        """
+        epoch = cls.streak_epoch(habit)
+        if epoch is not None and log.last_completed_date == epoch:
+            return 1
+        return log.streak_count
+
+    @staticmethod
     def _is_streak_alive(
         last_completed_date: date,
         today: date,
@@ -82,8 +113,11 @@ class StreakService:
             if last_log is None:
                 return 1
 
-            # Get habit settings for flexible streak tracking
+            # Get habit settings for flexible streak tracking (and the streak epoch)
             habit = await maybe_await(self.habit_repo.get_by_id(habit_id))
+            if self.counted_log(last_log, habit) is None:
+                return 1
+            prev_streak = self.effective_streak(last_log, habit)
 
             last_date = last_log.last_completed_date
             today = get_user_today(user_timezone)
@@ -91,10 +125,10 @@ class StreakService:
 
             # Simple cases: today or yesterday
             if last_date == today:
-                return last_log.streak_count
+                return prev_streak
 
             if last_date == yesterday:
-                return last_log.streak_count + 1
+                return prev_streak + 1
 
             # If habit not found, use strict logic (break streak for gap > 1 day)
             if not habit:
@@ -119,7 +153,7 @@ class StreakService:
                 # Check if missed days are within allowed grace days
                 if missed_days <= habit.allowed_skip_days:
                     # Streak preserved
-                    return last_log.streak_count + 1
+                    return prev_streak + 1
                 else:
                     # Streak broken
                     return 1
@@ -162,8 +196,11 @@ class StreakService:
             if last_log is None:
                 return 1
 
-            # Get habit settings for flexible streak tracking
+            # Get habit settings for flexible streak tracking (and the streak epoch)
             habit = await maybe_await(self.habit_repo.get_by_id(habit_id))
+            if self.counted_log(last_log, habit) is None:
+                return 1
+            prev_streak = self.effective_streak(last_log, habit)
 
             last_date = last_log.last_completed_date
             day_before_target = target_date - timedelta(days=1)
@@ -171,7 +208,7 @@ class StreakService:
             # Simple case: target date is consecutive (day after last completion)
             if last_date == day_before_target:
                 # Target date continues the streak (consecutive day)
-                return last_log.streak_count + 1
+                return prev_streak + 1
 
             # If habit not found, use strict logic (break streak for gap > 1 day)
             if not habit:
@@ -196,7 +233,7 @@ class StreakService:
                 # Check if missed days are within allowed grace days
                 if missed_days <= habit.allowed_skip_days:
                     # Streak preserved
-                    return last_log.streak_count + 1
+                    return prev_streak + 1
                 else:
                     # Streak broken
                     return 1
@@ -256,10 +293,13 @@ class StreakService:
             allowed_skip = habit.allowed_skip_days if habit else 0
             exempt = habit.exempt_weekdays if habit else []
 
+            if self.counted_log(last_log, habit) is None:
+                return 0
+
             if not self._is_streak_alive(last_log.last_completed_date, today, allowed_skip, exempt):
                 return 0
 
-            return last_log.streak_count
+            return self.effective_streak(last_log, habit)
 
         return run_sync_or_async(_impl())
 
@@ -295,7 +335,7 @@ class StreakService:
     @staticmethod
     def cache_key(user_id: int | str) -> str:
         """Return the cache key for a user's validated streak map."""
-        return f'streaks:{user_id}'
+        return f'streaks:v2:{user_id}'
 
     def get_validated_streak_map(
         self,
@@ -348,8 +388,11 @@ class StreakService:
                 allowed_skip = h.allowed_skip_days if h else 0
                 exempt = h.exempt_weekdays if h else []
 
-                if self._is_streak_alive(last_completed_date, today, allowed_skip, exempt):
-                    result[habit.id] = streak_count
+                epoch = self.streak_epoch(h)
+                if epoch is not None and last_completed_date < epoch:
+                    result[habit.id] = 0  # only pre-epoch history: streak reset
+                elif self._is_streak_alive(last_completed_date, today, allowed_skip, exempt):
+                    result[habit.id] = 1 if last_completed_date == epoch else streak_count
                 else:
                     result[habit.id] = 0
 

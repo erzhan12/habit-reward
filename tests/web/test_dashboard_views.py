@@ -246,6 +246,40 @@ class TestPropStructure:
         h = props["habits"][0]
         assert h["todayResult"] == {"gotReward": True, "rewardName": "Coffee"}
 
+    @pytest.mark.parametrize(
+        "streak,weight,expected",
+        [(0, 0, 20), (0, 30, 20), (1, 0, 25), (3, 30, 33), (6, 10, 40), (40, 0, 50)],
+    )
+    @patch("src.web.views.dashboard.streak_service")
+    @patch("src.web.views.dashboard.habit_log_repository")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_reward_chance_is_for_next_completion(
+        self, mock_hs, mock_repo, mock_ss, auth_client, streak, weight, expected
+    ):
+        """Not completed today: chance of the next completion (streak + 1, or 1 if broken).
+        Weight and user.no_reward_probability play no part (feature 0048)."""
+        mock_hs.get_all_active_habits.return_value = [_mock_habit(id=1, weight=weight)]
+        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
+        mock_ss.get_validated_streak_map.return_value = {1: streak}
+
+        _, props = _inertia_props(auth_client.get("/", **INERTIA_HEADERS))
+        assert props["habits"][0]["rewardChance"] == expected
+
+    @patch("src.web.views.dashboard.streak_service")
+    @patch("src.web.views.dashboard.habit_log_repository")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_reward_chance_completed_today_uses_stored_snapshot(
+        self, mock_hs, mock_repo, mock_ss, auth_client
+    ):
+        """Completed today: show the chance that actually applied (100 - stored no-reward %)."""
+        mock_hs.get_all_active_habits.return_value = [_mock_habit(id=1)]
+        log = _mock_habit_log(habit_id=1, total_weight_applied=13.0)  # pre-deploy log: 87%
+        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[log])
+        mock_ss.get_validated_streak_map.return_value = {1: 1}
+
+        _, props = _inertia_props(auth_client.get("/", **INERTIA_HEADERS))
+        assert props["habits"][0]["rewardChance"] == 87
+
     @patch("src.web.views.rewards.reward_service")
     def test_rewards_prop_structure(self, mock_rs, auth_client):
         progress = _mock_progress(pieces_earned=2, pieces_required=5, status_name="PENDING")

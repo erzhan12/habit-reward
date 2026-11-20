@@ -968,36 +968,33 @@ Streak reset correctly: [ ] YES [ ] NO
 
 ---
 
-### TC5.3: Verify Streak Reduction Calculation
+### TC5.3: Verify Streak-Based Reward Chance (feature 0048)
 
 **Preconditions**:
 - Can create habit with specific streak
-- STREAK_REDUCTION_RATE = 2.0 (default)
-- MIN_NO_REWARD_PROBABILITY = 10.0 (default)
-- NO_REWARD_PROBABILITY_PERCENT = 50.0 (default)
+- Formula: `reward_chance(s) = min(20 + 30 × (1 − e^(−(s−1)/5.5)), 50)`; not env-tunable
 
 **Test Steps**:
 1. Complete a habit (weight=10) to establish streak = 1
-2. Check Habit Log → `total_weight_applied` (now stores effective no-reward %)
-3. Calculate: max(50 - 10 - (1 × 2.0), 10.0) = 38.0
-4. Repeat for streak = 5 (manipulate date to create)
-5. Calculate: max(50 - 10 - (5 × 2.0), 10.0) = 30.0
+2. Check Habit Log → `total_weight_applied` (stores effective no-reward % = 100 − chance)
+3. Repeat for streak = 5 and streak = 10 (manipulate dates to create)
+4. Change the habit weight to 0 and to 30: values must not change
 
 **Expected Results**:
-- ✓ Streak 1, weight 10: effective_no_reward = 38.0 (reward_chance = 62%)
-- ✓ Streak 5, weight 10: effective_no_reward = 30.0 (reward_chance = 70%)
-- ✓ Streak 10, weight 10: effective_no_reward = 20.0 (reward_chance = 80%)
-- ✓ total_weight_applied matches formula (stores effective no-reward %)
+- ✓ Streak 1: total_weight_applied = 80.00 (reward chance 20%)
+- ✓ Streak 5: total_weight_applied ≈ 64.50 (reward chance ≈ 35.5%)
+- ✓ Streak 10: total_weight_applied ≈ 55.84 (reward chance ≈ 44%)
+- ✓ Weight has no effect
 
 **Actual Results**:
 ```
 Test Case: Habit "Meditation" (weight 10)
 
 Streak | Expected No-Reward % | Expected Reward Chance | Actual total_weight_applied | Match?
--------|--------------------|-----------------------|-----------------------------|-------
-1      | 38.0               | 62%                   |                             |
-5      | 30.0               | 70%                   |                             |
-10     | 20.0               | 80%                   |                             |
+-------|----------------------|------------------------|-----------------------------|-------
+1      | 80.00                | 20%                    |                             |
+5      | 64.50                | 35.5%                  |                             |
+10     | 55.84                | 44%                    |                             |
 
 All calculations correct: [ ] YES [ ] NO
 
@@ -1101,19 +1098,17 @@ Notes:
 
 ---
 
-## TEST CASE 6: WEIGHT CALCULATION & NO-REWARD PROBABILITY
+## TEST CASE 6: WEIGHT HAS NO EFFECT ON THE REWARD CHANCE
 
-**Objective**: Verify subtractive formula: effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDUCTION_RATE), MIN_NO_REWARD_PROBABILITY)
+**Objective**: Verify that since feature 0048 the chance depends only on the streak: `effective_no_reward = 100 − min(20 + 30 × (1 − e^(−(s−1)/5.5)), 50)`. Weight and `no_reward_probability` are stored but ignored.
 
 ---
 
-### TC6.1: Base No-Reward Calculation (Streak = 1)
+### TC6.1: First Completion (Streak = 1)
 
 **Preconditions**:
 - Test User
 - Fresh habit completion (streak = 1)
-- NO_REWARD_PROBABILITY_PERCENT = 50.0 (default)
-- STREAK_REDUCTION_RATE = 2.0 (default)
 
 **Test Steps**:
 1. Complete "Morning Exercise" (weight 15) for first time
@@ -1121,48 +1116,41 @@ Notes:
 3. Find entry and check fields:
    - habit_weight
    - total_weight_applied (effective no-reward %)
-4. Calculate expected: max(50 - 15 - (1 × 2.0), 10.0) = 33.0
 
 **Expected Results**:
-- ✓ habit_weight = 15
-- ✓ total_weight_applied = 33.0 (effective no-reward %)
+- ✓ habit_weight = 15 (snapshot only)
+- ✓ total_weight_applied = 80.0 (reward chance 20%, same as for weight 0)
 
 **Actual Results**:
 ```
 habit_weight: __________
 total_weight_applied: __________
-Expected: 33.0
+Expected: 80.0
 
 Match: [ ] YES [ ] NO
-
-Calculation correct: [ ] YES [ ] NO
 ```
 
 **Status**: [ ] PASS [ ] FAIL [ ] BLOCKED
 
 ---
 
-### TC6.2: High Streak Reduction Effect
+### TC6.2: Streak Raises the Chance, Capped at 50%
 
 **Preconditions**:
-- Ability to create streak = 10 (manual date manipulation)
+- Ability to create streak = 10 and streak = 30 (manual date manipulation)
 
 **Test Steps**:
-1. Complete "Meditation" (weight 10) and manipulate to create streak = 10
-2. Complete habit again
-3. Check total_weight_applied
-4. Expected: max(50 - 10 - (10 × 2.0), 10.0) = 20.0
+1. Complete "Meditation" (weight 10) with streak = 10, check total_weight_applied
+2. Repeat with streak = 30
 
 **Expected Results**:
-- ✓ total_weight_applied = 20.0 (effective no-reward %)
-- ✓ Streak 10 with weight 10 gives 80% reward chance
+- ✓ Streak 10: total_weight_applied ≈ 55.84 (reward chance ≈ 44%)
+- ✓ Streak 30: total_weight_applied ≈ 50.15 (reward chance ≈ 50%, never above)
 
 **Actual Results**:
 ```
-total_weight_applied: __________
-Expected: 20.0
-
-High streak reduction confirmed: [ ] YES [ ] NO
+total_weight_applied (s=10): __________
+total_weight_applied (s=30): __________
 ```
 
 **Status**: [ ] PASS [ ] FAIL [ ] BLOCKED
@@ -3229,8 +3217,8 @@ Rewards (1) ──→ (Many) Reward Progress
 ```
 
 ### Key Formulas
-- **Effective No-Reward %**: `max(base_no_reward - habit_weight - (streak × STREAK_REDUCTION_RATE), MIN_NO_REWARD_PROBABILITY)`
-- **Reward Chance**: `100 - effective_no_reward`
+- **Reward Chance** (feature 0048): `min(20 + 30 × (1 − e^(−(streak−1)/5.5)), 50)`
+- **Effective No-Reward %**: `100 - reward_chance`
 - **Progress Percent**: `(pieces_earned / pieces_required) × 100`
 
 ### Status Emoji Legend

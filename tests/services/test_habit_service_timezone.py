@@ -137,6 +137,7 @@ class TestHabitCompletionTimezone:
 
         mock_user_repo.get_by_telegram_id.return_value = mock_user
         mock_habit_repo.get_by_name.return_value = mock_habit
+        mock_habit_repo.get_by_id.return_value = mock_habit  # backdate recalculation
         mock_streak_service.calculate_streak.return_value = 1
         mock_reward_service.calculate_total_weight.return_value = 1.0
         mock_reward_service.select_reward.return_value = mock_reward

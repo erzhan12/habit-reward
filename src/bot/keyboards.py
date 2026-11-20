@@ -218,45 +218,9 @@ def build_settings_keyboard(language: str = 'en') -> InlineKeyboardMarkup:
             callback_data="settings_api_keys"
         )],
         [InlineKeyboardButton(
-            text=msg('SETTINGS_NO_REWARD_PROB', language),
-            callback_data="settings_no_reward_prob"
-        )],
-        [InlineKeyboardButton(
             text=msg('MENU_BACK', language),
             callback_data="menu_back"
         )]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-
-def build_no_reward_probability_keyboard(current_value: float, language: str = 'en') -> InlineKeyboardMarkup:
-    """
-    Build inline keyboard for no reward probability selection.
-
-    Args:
-        current_value: Current probability value
-        language: Language code for translating button text
-
-    Returns:
-        InlineKeyboardMarkup with preset options (25%, 50%, 75%), Custom, and Cancel
-    """
-    # Preset buttons in a row
-    presets = [
-        InlineKeyboardButton(text="25%", callback_data="no_reward_prob_25"),
-        InlineKeyboardButton(text="50%", callback_data="no_reward_prob_50"),
-        InlineKeyboardButton(text="75%", callback_data="no_reward_prob_75"),
-    ]
-
-    keyboard = [
-        presets,  # 25%, 50%, 75% in one row
-        [InlineKeyboardButton(
-            text=msg('NO_REWARD_PROB_CUSTOM', language),
-            callback_data="no_reward_prob_custom"
-        )],
-        [InlineKeyboardButton(
-            text=msg('SETTINGS_BACK', language),
-            callback_data="settings_back"
-        )],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -346,7 +310,8 @@ def build_weight_selection_keyboard(
     """
     Build inline keyboard for habit weight selection (0, 5, 10, 15, 20, 25, 30).
 
-    Each point of weight reduces the no-reward probability by 1%.
+    Weight only counts toward daily points; it does not affect the reward chance
+    (feature 0048).
 
     Args:
         current_weight: Current weight value (will be highlighted with ✓)

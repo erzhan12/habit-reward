@@ -1,7 +1,8 @@
 """Reward selection and management service with weighted random selection."""
 
-import random
 import logging
+import math
+import random
 from datetime import date
 from typing import Awaitable
 from types import SimpleNamespace, MethodType
@@ -30,36 +31,21 @@ class RewardService:
         self.progress_repo = reward_progress_repository
         self.habit_log_repo = habit_log_repository
 
-    def calculate_effective_no_reward_probability(
-        self,
-        base_no_reward: float,
-        habit_weight: int,
-        streak_count: int,
-    ) -> float:
+    @staticmethod
+    def calculate_reward_chance(streak_count: int) -> float:
+        """Return the reward chance (percent) for a completion on streak day ``streak_count``.
+
+        Formula (feature 0048): ``p(s) = BASE + BONUS * (1 - exp(-(s - 1) / TAU))``,
+        capped at ``CAP``. Depends only on the streak; habit weight and the user's
+        ``no_reward_probability`` no longer affect it. ``s <= 0`` is treated as 1.
+
+        Callers roll with ``select_reward(effective_no_reward_probability=100 - p)``.
         """
-        Calculate effective no-reward probability after habit weight and streak bonuses.
-
-        Formula: effective = max(base - habit_weight - (streak × streak_rate), floor)
-
-        Args:
-            base_no_reward: User's base no_reward_probability setting (e.g. 50.0)
-            habit_weight: Habit weight (0-30), each point = 1% reduction
-            streak_count: Current streak count for this habit
-        Returns:
-            Effective no-reward probability (percentage, never below floor)
-
-        Example:
-            base=50, weight=20, streak=5 with rate=2.0, floor=10.0
-            -> max(50 - 20 - 10, 10) = 20% no-reward (80% reward chance)
-        """
-        streak_reduction = streak_count * settings.STREAK_REDUCTION_RATE
-        floor = settings.MIN_NO_REWARD_PROBABILITY
-        effective = max(base_no_reward - habit_weight - streak_reduction, floor)
-        logger.info(
-            "Effective no-reward: max(%.1f - %d - %.1f, %.1f) = %.1f%%",
-            base_no_reward, habit_weight, streak_reduction, floor, effective,
+        s = max(1, int(streak_count))
+        p = settings.REWARD_CHANCE_BASE + settings.REWARD_CHANCE_STREAK_BONUS * (
+            1 - math.exp(-(s - 1) / settings.REWARD_CHANCE_STREAK_TAU)
         )
-        return effective
+        return min(p, settings.REWARD_CHANCE_CAP)
 
     def select_reward(
         self,
@@ -71,8 +57,8 @@ class RewardService:
         """Perform weighted random reward selection with pre-computed no-reward probability.
 
         Args:
-            effective_no_reward_probability: Pre-computed no-reward % (already accounts
-                for habit weight and streak via calculate_effective_no_reward_probability).
+            effective_no_reward_probability: Pre-computed no-reward %, i.e.
+                ``100 - calculate_reward_chance(streak)``.
             user_id: Required user ID for filtering rewards.
             exclude_reward_ids: Reward IDs to exclude from selection.
             target_date: Date for daily-limit checks.

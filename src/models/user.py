@@ -11,7 +11,7 @@ class User(BaseModel):
     name: str = Field(..., description="User display name")
     is_active: bool = Field(default=False, description="Whether user is active (default False for security)")
     language: str = Field(default='en', description="User's preferred language (ISO 639-1 code)")
-    no_reward_probability: float = Field(default=50.0, description="Base no-reward probability %")
+    no_reward_probability: float = Field(default=50.0, description="Legacy base no-reward probability %; unused since feature 0048 (chance depends only on streak)")
 
     @field_validator('id', mode='before')
     @classmethod

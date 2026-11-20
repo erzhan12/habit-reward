@@ -8,9 +8,10 @@
         {{ habit.name }}
       </h3>
 
-      <!-- odds badge: hidden by themes that keep the dashboard reward-free -->
+      <!-- odds badge: hidden by themes that keep the dashboard reward-free.
+           Shows the chance only; weight no longer affects it (feature 0048). -->
       <span v-if="hc.showOdds" class="text-xs px-1.5 py-0.5 shrink-0" :class="tc.badge.base">
-        {{ habit.weight }}w · {{ habit.rewardChance }}%
+        {{ habit.rewardChance }}%
       </span>
 
       <!-- outcome chip: only on completed habits, only when the theme opts in -->

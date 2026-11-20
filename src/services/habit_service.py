@@ -17,7 +17,7 @@ from src.core.repositories import (
 )
 from src.bot.timezone_utils import get_user_today
 from src.core.models import Habit, HabitLog, RewardProgress
-from src.services.streak_service import streak_service
+from src.services.streak_service import StreakService, streak_service
 from src.services.reward_service import reward_service
 from src.services.audit_log_service import audit_log_service
 from src.models.habit_completion_result import HabitCompletionResult
@@ -145,9 +145,9 @@ class HabitService:
         2. Get habit (from selection or NLP classification)
         3. Validate target_date (if backdating)
         4. Check for duplicate entries on target_date
-        5. Pull habit weight from Habits table
+        5. Snapshot habit weight (stored on the log; no longer affects the chance)
         6. Calculate streak for target_date (or today if not backdating)
-        7. Calculate total_weight multiplier
+        7. Reward chance from the streak only (calculate_reward_chance)
         8. Get today's awarded rewards (to prevent duplicate awards)
         9. Fetch all active rewards and run weighted random draw (excluding today's awards)
         10. If cumulative reward: update Reward Progress, check if achieved
@@ -263,11 +263,10 @@ class HabitService:
                     )
                 )
 
-            effective_no_reward = self.reward_service.calculate_effective_no_reward_probability(
-                base_no_reward=float(user.no_reward_probability),
-                habit_weight=habit_weight,
-                streak_count=streak_count,
-            )
+            # Feature 0048: the chance depends only on the streak day being rolled;
+            # habit weight and user.no_reward_probability no longer affect it.
+            reward_chance = self.reward_service.calculate_reward_chance(streak_count)
+            effective_no_reward = 100.0 - reward_chance
 
             # Daily limit logic is now handled internally in select_reward()
             # based on each reward's max_daily_claims configuration
@@ -396,11 +395,15 @@ class HabitService:
                 logger.error("Habit %s not found for streak recalculation", habit_id)
                 return
 
-            # Get all logs from backdate_date onwards, sorted by completion date
+            # Get all logs from backdate_date onwards, sorted by completion date.
+            # Never walk below the streak epoch (feature 0048): pre-epoch logs keep
+            # their stored streak_count for historical stats and never affect later streaks.
             today = get_user_today(user_timezone)
+            epoch = StreakService.streak_epoch(habit)
+            start_date = max(backdate_date, epoch) if epoch is not None else backdate_date
             logs = await maybe_await(
                 self.habit_log_repo.get_logs_for_habit_in_daterange(
-                    user_id, habit_id, backdate_date, today
+                    user_id, habit_id, start_date, today
                 )
             )
 
@@ -412,6 +415,10 @@ class HabitService:
 
             # Recalculate each log's streak in chronological order
             for i, log in enumerate(logs):
+                if epoch is not None and log.last_completed_date == epoch:
+                    # Epoch-day log: effective streak is 1 by definition; its stored
+                    # (possibly pre-reset) value is kept for historical stats.
+                    continue
                 if i == 0:
                     # First log in the sequence - calculate streak based on previous logs
                     new_streak = await maybe_await(
@@ -427,8 +434,9 @@ class HabitService:
                     day_before_current = current_date - timedelta(days=1)
 
                     # Check if consecutive
+                    prev_streak = StreakService.effective_streak(prev_log, habit)
                     if prev_date == day_before_current:
-                        new_streak = prev_log.streak_count + 1
+                        new_streak = prev_streak + 1
                     elif prev_date < day_before_current:
                         # Gap exists - check grace days and exempt weekdays
                         current_check_date = prev_date + timedelta(days=1)
@@ -441,7 +449,7 @@ class HabitService:
                             current_check_date += timedelta(days=1)
 
                         if missed_days <= habit.allowed_skip_days:
-                            new_streak = prev_log.streak_count + 1
+                            new_streak = prev_streak + 1
                         else:
                             new_streak = 1
                     else:

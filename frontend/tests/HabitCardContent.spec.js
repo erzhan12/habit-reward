@@ -37,6 +37,14 @@ function findStreakElements(wrapper) {
 }
 
 describe("HabitCardContent", () => {
+  it("shows the reward chance without the weight prefix", () => {
+    const wrapper = mountComponent({ weight: 7, rewardChance: 33 });
+
+    expect(wrapper.text()).toContain("33%");
+    expect(wrapper.text()).not.toContain("7w");
+    expect(wrapper.text()).not.toContain("·");
+  });
+
   it("keeps bright streak styling for incomplete habits", () => {
     const wrapper = mountComponent({ completedToday: false });
     const { emoji, text } = findStreakElements(wrapper);

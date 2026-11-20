@@ -2,7 +2,6 @@
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from django.test import override_settings
 
 from src.services.reward_service import RewardService
 from src.models.reward import Reward
@@ -25,130 +24,6 @@ def mock_reward_repo():
 def mock_progress_repo():
     """Create mock reward progress repository."""
     return Mock()
-
-
-class TestEffectiveNoRewardProbability:
-    """Test effective no-reward probability calculation."""
-
-    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
-    def test_base_only(self, reward_service):
-        """Test with no weight and no streak (base probability unchanged)."""
-        result = reward_service.calculate_effective_no_reward_probability(
-            base_no_reward=50.0, habit_weight=0, streak_count=0
-        )
-        assert result == pytest.approx(50.0)
-
-    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
-    def test_weight_reduces_probability(self, reward_service):
-        """Test that habit weight reduces no-reward probability."""
-        result = reward_service.calculate_effective_no_reward_probability(
-            base_no_reward=50.0, habit_weight=20, streak_count=0
-        )
-        # max(50 - 20 - 0, 10) = 30
-        assert result == pytest.approx(30.0)
-
-    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
-    def test_streak_reduces_probability(self, reward_service):
-        """Test that streak reduces no-reward probability."""
-        result = reward_service.calculate_effective_no_reward_probability(
-            base_no_reward=50.0, habit_weight=0, streak_count=5
-        )
-        # max(50 - 0 - 10, 10) = 40
-        assert result == pytest.approx(40.0)
-
-    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
-    def test_weight_and_streak_combined(self, reward_service):
-        """Test combined weight and streak reduction."""
-        result = reward_service.calculate_effective_no_reward_probability(
-            base_no_reward=50.0, habit_weight=20, streak_count=5
-        )
-        # max(50 - 20 - 10, 10) = 20
-        assert result == pytest.approx(20.0)
-
-    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
-    def test_floor_enforced(self, reward_service):
-        """Test that probability never goes below the floor."""
-        result = reward_service.calculate_effective_no_reward_probability(
-            base_no_reward=50.0, habit_weight=30, streak_count=20
-        )
-        # max(50 - 30 - 40, 10) = max(-20, 10) = 10
-        assert result == pytest.approx(10.0)
-
-    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
-    def test_max_weight_no_streak(self, reward_service):
-        """Test max weight with no streak."""
-        result = reward_service.calculate_effective_no_reward_probability(
-            base_no_reward=50.0, habit_weight=30, streak_count=0
-        )
-        # max(50 - 30 - 0, 10) = 20
-        assert result == pytest.approx(20.0)
-
-
-class TestDashboardRewardChanceConsistency:
-    """Test that dashboard reward chance display matches actual reward selection probability."""
-
-    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
-    def test_reward_chance_matches_dashboard_display(self, reward_service):
-        """Verify round(100 - effective) matches the dashboard display logic (dashboard.py line 65)."""
-        test_cases = [
-            {"base": 50.0, "weight": 0, "streak": 0, "expected_chance": 50},
-            {"base": 50.0, "weight": 20, "streak": 0, "expected_chance": 70},
-            {"base": 50.0, "weight": 30, "streak": 5, "expected_chance": 90},
-            {"base": 50.0, "weight": 30, "streak": 20, "expected_chance": 90},  # floor at 10%
-            {"base": 80.0, "weight": 0, "streak": 0, "expected_chance": 20},
-        ]
-        for case in test_cases:
-            effective = reward_service.calculate_effective_no_reward_probability(
-                base_no_reward=case["base"],
-                habit_weight=case["weight"],
-                streak_count=case["streak"],
-            )
-            # This is the exact formula used in dashboard.py line 65
-            reward_chance = round(100 - effective)
-            assert reward_chance == case["expected_chance"], (
-                f"base={case['base']}, weight={case['weight']}, streak={case['streak']}: "
-                f"got {reward_chance}%, expected {case['expected_chance']}%"
-            )
-
-
-class TestEdgeCases:
-    """Test edge cases for the effective no-reward probability formula."""
-
-    @override_settings(STREAK_REDUCTION_RATE=0, MIN_NO_REWARD_PROBABILITY=10.0)
-    def test_zero_streak_rate_no_streak_effect(self, reward_service):
-        """Test that STREAK_REDUCTION_RATE=0 means streaks have no effect."""
-        result = reward_service.calculate_effective_no_reward_probability(
-            base_no_reward=50.0, habit_weight=0, streak_count=100
-        )
-        # max(50 - 0 - 0, 10) = 50
-        assert result == pytest.approx(50.0)
-
-    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=10.0)
-    def test_very_large_streak_floor_enforced(self, reward_service):
-        """Test that very large streaks (100+) still respect the floor."""
-        result = reward_service.calculate_effective_no_reward_probability(
-            base_no_reward=50.0, habit_weight=30, streak_count=100
-        )
-        # max(50 - 30 - 200, 10) = max(-180, 10) = 10
-        assert result == pytest.approx(10.0)
-
-    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=0)
-    def test_floor_zero_allows_zero_probability(self, reward_service):
-        """Test that MIN_NO_REWARD_PROBABILITY=0 allows probability to reach 0."""
-        result = reward_service.calculate_effective_no_reward_probability(
-            base_no_reward=50.0, habit_weight=30, streak_count=20
-        )
-        # max(50 - 30 - 40, 0) = max(-20, 0) = 0
-        assert result == pytest.approx(0.0)
-
-    @override_settings(STREAK_REDUCTION_RATE=2.0, MIN_NO_REWARD_PROBABILITY=100.0)
-    def test_floor_hundred_always_no_reward(self, reward_service):
-        """Test that MIN_NO_REWARD_PROBABILITY=100 means always no-reward."""
-        result = reward_service.calculate_effective_no_reward_probability(
-            base_no_reward=50.0, habit_weight=0, streak_count=0
-        )
-        # max(50 - 0 - 0, 100) = 100
-        assert result == pytest.approx(100.0)
 
 
 class TestRewardSelection:

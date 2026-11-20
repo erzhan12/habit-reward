@@ -334,6 +334,7 @@ class TestStreakCalculationForDate:
         )
 
         mock_log_repo.get_last_log_before_date = AsyncMock(return_value=previous_log)
+        mock_habit_repo.get_by_id = AsyncMock(return_value=mock_habit)
 
         streak = await streak_service.calculate_streak_for_date(
             user_id=123,

@@ -146,7 +146,7 @@ Track your habits and earn rewards!
 4. Earn reward pieces (cumulative rewards)
 5. Claim rewards when you have enough pieces
 
-Higher streaks and habit weights increase your reward chances by reducing the no-reward probability!"""
+The longer your streak, the higher your reward chance: from 20% up to 50%. Missing a day starts the streak over."""
 
     # Formatter Messages
     FORMAT_STREAK = "<b>Streak:</b> {streak_count} days"
@@ -162,7 +162,8 @@ Higher streaks and habit weights increase your reward chances by reducing the no
 
     # Habit Management Messages
     HELP_ADD_HABIT_NAME_PROMPT = "Please enter the name for your new habit:"
-    HELP_ADD_HABIT_WEIGHT_PROMPT = "Select the weight for this habit (0-30).\n\nEach point reduces the no-reward chance by 1%:"
+    HELP_ADD_HABIT_WEIGHT_PROMPT = "Select the weight for this habit (0-30).\n\nWeight only counts toward daily points; it no longer affects reward chance:"
+    NO_REWARD_PROB_DEPRECATED = "ℹ️ This setting is no longer used. Reward chance now depends only on your streak (20% → 50%)."
     HELP_ADD_HABIT_CATEGORY_PROMPT = "Select a category for this habit:"
     HELP_ADD_HABIT_GRACE_DAYS_PROMPT = "How many grace days for this habit?\n\n<b>Grace days</b> allow you to skip days without breaking your streak.\n\nExample: With 1 grace day, you can miss one day and still maintain your streak."
     HELP_ADD_HABIT_EXEMPT_DAYS_PROMPT = "Select days that don't count against your streak:\n\n<b>Exempt days</b> are days of the week (like weekends) that won't break your streak if you don't complete the habit."
@@ -289,7 +290,6 @@ Higher streaks and habit weights increase your reward chances by reducing the no
     SETTINGS_MENU = "⚙️ <b>Settings</b>\n\nSelect an option:"
     SETTINGS_SELECT_LANGUAGE = "🌐 Select Language"
     SETTINGS_API_KEYS = "🔑 API Keys"
-    SETTINGS_NO_REWARD_PROB = "🎲 No Reward Probability"
     SETTINGS_BACK = "← Back to Settings"
 
     # Timezone Settings
@@ -301,11 +301,6 @@ Higher streaks and habit weights increase your reward chances by reducing the no
     TIMEZONE_INVALID = "❌ Invalid timezone. Please enter a valid IANA timezone name (e.g. <code>Asia/Almaty</code>)."
 
     # No Reward Probability Settings
-    NO_REWARD_PROB_MENU = "🎲 <b>No Reward Probability</b>\n\nCurrent: <b>{current}%</b>\n\nChoose a preset or enter a custom value (0.01-99.99):"
-    NO_REWARD_PROB_CUSTOM = "✏️ Custom"
-    NO_REWARD_PROB_ENTER_CUSTOM = "📝 <b>Enter custom probability</b>\n\nEnter a value between 0.01 and 99.99:"
-    NO_REWARD_PROB_UPDATED = "✅ No reward probability updated to <b>{value}%</b>"
-    NO_REWARD_PROB_INVALID = "❌ Invalid value. Please enter a number between 0.01 and 99.99."
 
     # Language Selection
     LANGUAGE_SELECTION_MENU = "🌐 <b>Select Language</b>\n\nChoose your preferred language:"
@@ -472,7 +467,7 @@ Use this key in your app with the header:
 4. Зарабатывайте части наград (накопительные награды)
 5. Забирайте награды, когда наберёте достаточно частей
 
-Высокие серии и вес привычек увеличивают шансы на награды, уменьшая вероятность отсутствия награды!""",
+Чем длиннее серия, тем выше шанс награды: от 20% до 50%. Пропустили день, и серия начинается заново.""",
 
             # Formatter Messages
             'FORMAT_STREAK': "<b>Серия:</b> {streak_count} дней",
@@ -488,7 +483,8 @@ Use this key in your app with the header:
 
             # Habit Management Messages
             'HELP_ADD_HABIT_NAME_PROMPT': "Введите название для новой привычки:",
-            'HELP_ADD_HABIT_WEIGHT_PROMPT': "Выберите вес для этой привычки (0-30).\n\nКаждый пункт уменьшает шанс \"без награды\" на 1%:",
+            'HELP_ADD_HABIT_WEIGHT_PROMPT': "Выберите вес привычки (0-30).\n\nВес идёт только в очки за день, на шанс награды он больше не влияет:",
+            'NO_REWARD_PROB_DEPRECATED': "ℹ️ Эта настройка больше не работает. Шанс награды теперь зависит только от серии, от 20% до 50%.",
             'HELP_ADD_HABIT_CATEGORY_PROMPT': "Выберите категорию для этой привычки:",
             'HELP_ADD_HABIT_GRACE_DAYS_PROMPT': "Сколько дней отсрочки (grace days) для этой привычки?\n\n<b>Дни отсрочки</b> позволяют пропускать дни без потери серии.\n\nПример: С 1 днём отсрочки вы можете пропустить один день и сохранить серию.",
             'HELP_ADD_HABIT_EXEMPT_DAYS_PROMPT': "Выберите дни, которые не учитываются в серии:\n\n<b>Исключённые дни</b> — это дни недели (например, выходные), которые не прервут вашу серию, если вы не выполните привычку.",
@@ -614,7 +610,6 @@ Use this key in your app with the header:
             'SETTINGS_MENU': "⚙️ <b>Настройки</b>\n\nВыберите опцию:",
             'SETTINGS_SELECT_LANGUAGE': "🌐 Выбрать язык",
             'SETTINGS_API_KEYS': "🔑 API-ключи",
-            'SETTINGS_NO_REWARD_PROB': "🎲 Вероятность без награды",
             'SETTINGS_BACK': "← Назад в настройки",
 
             # Timezone Settings
@@ -626,11 +621,6 @@ Use this key in your app with the header:
             'TIMEZONE_INVALID': "❌ Неверный часовой пояс. Введите корректное название IANA (например, <code>Asia/Almaty</code>).",
 
             # No Reward Probability Settings
-            'NO_REWARD_PROB_MENU': "🎲 <b>Вероятность без награды</b>\n\nТекущее значение: <b>{current}%</b>\n\nВыберите пресет или введите своё значение (0.01-99.99):",
-            'NO_REWARD_PROB_CUSTOM': "✏️ Своё значение",
-            'NO_REWARD_PROB_ENTER_CUSTOM': "📝 <b>Введите вероятность</b>\n\nВведите значение от 0.01 до 99.99:",
-            'NO_REWARD_PROB_UPDATED': "✅ Вероятность без награды обновлена: <b>{value}%</b>",
-            'NO_REWARD_PROB_INVALID': "❌ Неверное значение. Введите число от 0.01 до 99.99.",
 
             # Language Selection
             'LANGUAGE_SELECTION_MENU': "🌐 <b>Выбрать язык</b>\n\nВыберите предпочитаемый язык:",
@@ -795,7 +785,7 @@ Use this key in your app with the header:
 4. Сыйлық бөліктерін жинаңыз (жинақталатын сыйлықтар)
 5. Жеткілікті бөліктер жинағанда сыйлықтарды алыңыз
 
-Жоғары сериялар мен әдет салмағы сыйлық алу мүмкіндігін арттырады, сыйлық алмау ықтималдығын азайтады!""",
+Серия неғұрлым ұзақ болса, сыйлық мүмкіндігі соғұрлым жоғары: 20%-дан 50%-ға дейін. Бір күн өткізсеңіз, серия қайта басталады.""",
 
             # Formatter Messages
             'FORMAT_STREAK': "<b>Серия:</b> {streak_count} күн",
@@ -811,7 +801,8 @@ Use this key in your app with the header:
 
             # Habit Management Messages
             'HELP_ADD_HABIT_NAME_PROMPT': "Жаңа әдеттің атын енгізіңіз:",
-            'HELP_ADD_HABIT_WEIGHT_PROMPT': "Осы әдет үшін салмақты таңдаңыз (0-30).\n\nӘр ұпай \"сыйлықсыз\" мүмкіндігін 1%-ға азайтады:",
+            'HELP_ADD_HABIT_WEIGHT_PROMPT': "Осы әдет үшін салмақты таңдаңыз (0-30).\n\nСалмақ тек күндік ұпайларға әсер етеді, сыйлық мүмкіндігіне енді әсер етпейді:",
+            'NO_REWARD_PROB_DEPRECATED': "ℹ️ Бұл баптау енді қолданылмайды. Сыйлық мүмкіндігі енді тек серияға байланысты (20% → 50%).",
             'HELP_ADD_HABIT_CATEGORY_PROMPT': "Осы әдет үшін санатты таңдаңыз:",
             'HELP_ADD_HABIT_GRACE_DAYS_PROMPT': "Бұл әдет үшін қанша күн шегерім (grace days) керек?\n\n<b>Шегерім күндері</b> серияны үзбей күндерді өткізіп жіберуге мүмкіндік береді.\n\nМысалы: 1 шегерім күнімен сіз бір күнді өткізіп жіберіп, серияны сақтай аласыз.",
             'HELP_ADD_HABIT_EXEMPT_DAYS_PROMPT': "Серияға әсер етпейтін күндерді таңдаңыз:\n\n<b>Ерекше күндер</b> — бұл әдетті орындамасаңыз да серияңызды үзбейтін апта күндері (мысалы, демалыс күндері).",
@@ -938,7 +929,6 @@ Use this key in your app with the header:
             'SETTINGS_MENU': "⚙️ <b>Параметрлер</b>\n\nОпцияны таңдаңыз:",
             'SETTINGS_SELECT_LANGUAGE': "🌐 Тілді таңдау",
             'SETTINGS_API_KEYS': "🔑 API кілттері",
-            'SETTINGS_NO_REWARD_PROB': "🎲 Сыйлықсыз ықтималдық",
             'SETTINGS_BACK': "← Параметрлерге оралу",
 
             # Timezone Settings
@@ -950,11 +940,6 @@ Use this key in your app with the header:
             'TIMEZONE_INVALID': "❌ Қате уақыт белдеуі. Дұрыс IANA атауын енгізіңіз (мысалы, <code>Asia/Almaty</code>).",
 
             # No Reward Probability Settings
-            'NO_REWARD_PROB_MENU': "🎲 <b>Сыйлықсыз ықтималдық</b>\n\nАғымдағы мән: <b>{current}%</b>\n\nПресетті таңдаңыз немесе өз мәніңізді енгізіңіз (0.01-99.99):",
-            'NO_REWARD_PROB_CUSTOM': "✏️ Өз мәні",
-            'NO_REWARD_PROB_ENTER_CUSTOM': "📝 <b>Ықтималдықты енгізіңіз</b>\n\n0.01-ден 99.99-ға дейін мән енгізіңіз:",
-            'NO_REWARD_PROB_UPDATED': "✅ Сыйлықсыз ықтималдық жаңартылды: <b>{value}%</b>",
-            'NO_REWARD_PROB_INVALID': "❌ Қате мән. 0.01-ден 99.99-ға дейін сан енгізіңіз.",
 
             # Language Selection
             'LANGUAGE_SELECTION_MENU': "🌐 <b>Тілді таңдау</b>\n\nҚалаған тіліңізді таңдаңыз:",

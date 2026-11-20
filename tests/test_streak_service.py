@@ -47,6 +47,7 @@ def create_mock_habit(allowed_skip_days: int = 0, exempt_weekdays: list = None):
     mock_habit.id = "habit123"
     mock_habit.allowed_skip_days = allowed_skip_days
     mock_habit.exempt_weekdays = exempt_weekdays if exempt_weekdays is not None else []
+    mock_habit.streak_epoch = None
     return mock_habit
 
 

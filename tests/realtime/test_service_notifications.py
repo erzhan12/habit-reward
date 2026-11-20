@@ -40,7 +40,7 @@ def _setup_mocks(service):
     service.streak_service.calculate_streak = MagicMock(return_value=3)
     service.streak_service.cache_key = MagicMock(return_value="streaks:1")
     service.reward_service = MagicMock()
-    service.reward_service.calculate_effective_no_reward_probability = MagicMock(return_value=40.0)
+    service.reward_service.calculate_reward_chance = MagicMock(return_value=60.0)
     service.reward_service.select_reward = MagicMock(return_value=None)
     service.reward_progress_repo = MagicMock()
     service.audit_log_service = MagicMock()

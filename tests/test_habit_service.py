@@ -81,7 +81,7 @@ class TestHabitCompletion:
         mock_user_repo.get_by_telegram_id.return_value = mock_user
         mock_habit_repo.get_by_name.return_value = mock_habit
         mock_streak_service.calculate_streak.return_value = 5
-        mock_reward_service.calculate_effective_no_reward_probability.return_value = 40.0
+        mock_reward_service.calculate_reward_chance.return_value = 60.0
         mock_reward_service.select_reward.return_value = mock_reward
         mock_reward_service.get_todays_awarded_rewards.return_value = []
         mock_log_repo.get_log_for_habit_on_date.return_value = None
@@ -179,7 +179,7 @@ class TestHabitCompletion:
         mock_user_repo.get_by_telegram_id.return_value = mock_user
         mock_habit_repo.get_by_name.return_value = mock_habit
         mock_streak_service.calculate_streak.return_value = 3
-        mock_reward_service.calculate_effective_no_reward_probability.return_value = 44.0
+        mock_reward_service.calculate_reward_chance.return_value = 56.0
         mock_reward_service.get_todays_awarded_rewards.return_value = []
         mock_log_repo.get_log_for_habit_on_date.return_value = None
 
@@ -415,3 +415,49 @@ class TestHabitRevert:
         assert result.reward_reverted is True
         assert result.reward_progress.pieces_earned == 0  # Verify it's at zero
         assert result.reward_name == 'Coffee'
+
+
+class TestRewardChanceInputs:
+    """Feature 0048: only the streak feeds the reward chance."""
+
+    @pytest.mark.parametrize("weight,no_reward_prob", [(0, 50.0), (30, 50.0), (0, 90.0), (30, 10.0)])
+    @patch('src.services.habit_service.audit_log_service')
+    @patch('src.services.habit_service.user_repository')
+    @patch('src.services.habit_service.habit_repository')
+    @patch('src.services.habit_service.streak_service')
+    @patch('src.services.habit_service.reward_service')
+    @patch('src.services.habit_service.habit_log_repository')
+    def test_weight_and_user_probability_do_not_change_roll(
+        self, log_repo, reward_svc, streak_svc, habit_repo, user_repo, mock_audit_service,
+        habit_service, weight, no_reward_prob,
+    ):
+        from src.services.reward_service import RewardService
+
+        user_repo.get_by_telegram_id.return_value = User(
+            id=123, telegram_id="123456789", name="U", is_active=True,
+            no_reward_probability=no_reward_prob,
+        )
+        habit_repo.get_by_name.return_value = Habit(
+            id=1, name="Walking", weight=weight, category="health", active=True
+        )
+        log_repo.get_log_for_habit_on_date.return_value = None
+        streak_svc.calculate_streak.return_value = 4
+        streak_svc.cache_key.return_value = "streaks:v2:123"
+        reward_svc.calculate_reward_chance.side_effect = RewardService.calculate_reward_chance
+        reward_svc.select_reward.return_value = None
+
+        with patch.object(habit_service, 'user_repo', user_repo), \
+             patch.object(habit_service, 'habit_repo', habit_repo), \
+             patch.object(habit_service, 'streak_service', streak_svc), \
+             patch.object(habit_service, 'reward_service', reward_svc), \
+             patch.object(habit_service, 'habit_log_repo', log_repo), \
+             patch.object(habit_service, 'audit_log_service', mock_audit_service):
+            result = habit_service.process_habit_completion(
+                user_telegram_id="123456789", habit_name="Walking"
+            )
+
+        reward_svc.calculate_reward_chance.assert_called_once_with(4)
+        expected = 100.0 - RewardService.calculate_reward_chance(4)
+        kwargs = reward_svc.select_reward.call_args.kwargs
+        assert kwargs["effective_no_reward_probability"] == pytest.approx(expected)
+        assert result.total_weight_applied == pytest.approx(expected)

@@ -49,8 +49,6 @@ async def dashboard(request):
     completed_count = 0
     total_points = 0
 
-    base_no_reward = float(user.no_reward_probability)
-
     for habit in all_habits:
         streak = streak_map.get(habit.id, 0)
         is_completed = habit.id in completed_habit_ids
@@ -58,18 +56,17 @@ async def dashboard(request):
             completed_count += 1
             total_points += habit.weight
 
-        effective_no_reward = reward_service.calculate_effective_no_reward_probability(
-            base_no_reward=base_no_reward,
-            habit_weight=habit.weight,
-            streak_count=streak,
-        )
-        reward_chance = round(100 - effective_no_reward)
-
         log = log_map.get(habit.id)
         today_result = None
         if is_completed and log is not None:
             reward_name = log.reward.name if log.reward_id and log.reward else None
             today_result = {"gotReward": log.got_reward, "rewardName": reward_name}
+            # The chance that actually applied: the stored no-reward % snapshot.
+            reward_chance = round(100 - log.total_weight_applied)
+        else:
+            # Chance of the next completion (feature 0048: streak only).
+            next_streak = streak + 1 if streak > 0 else 1
+            reward_chance = round(reward_service.calculate_reward_chance(next_streak))
 
         habits.append({
             "id": habit.id,

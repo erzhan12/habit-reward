@@ -19,8 +19,6 @@ class Settings(BaseSettings):
     default_user_telegram_id: str | None = None
     
     # Gamification Configuration
-    streak_reduction_rate: float = 2.0
-    min_no_reward_probability: float = 10.0
     progress_bar_length: int = 10
     recent_logs_limit: int = 10
     

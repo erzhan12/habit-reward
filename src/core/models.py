@@ -202,6 +202,13 @@ class Habit(models.Model):
         blank=True,
         help_text="List of weekday numbers (1=Mon, 7=Sun) that don't count against streak"
     )
+    streak_epoch = models.DateField(
+        null=True,
+        blank=True,
+        help_text="User-local date from which completions count toward the streak "
+        "(feature 0048 launch reset). Earlier logs are ignored as predecessors; a log "
+        "on this date counts as streak day 1. Null: all history counts."
+    )
     active = models.BooleanField(
         default=True,
         help_text="Whether habit is active"
@@ -441,6 +448,7 @@ class HabitLog(models.Model):
     # After migration 0026, this field stores the effective no-reward probability %
     # (e.g. 40.0 means 40% chance of no reward) from the new formula:
     #   effective_no_reward = max(base - habit_weight - (streak × STREAK_REDUCTION_RATE), MIN)
+    # Since feature 0048 it is 100 - reward_chance(streak) (streak only; fractional).
     # Old records retain legacy multiplier values. Query by date to distinguish.
     total_weight_applied = models.FloatField(
         help_text="Effective no-reward probability % applied during reward selection "

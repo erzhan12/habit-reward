@@ -69,11 +69,12 @@ def _mock_habit(id=1, name="Running", weight=10):
     return h
 
 
-def _mock_habit_log(habit_id=1, got_reward=False, reward_name=None):
+def _mock_habit_log(habit_id=1, got_reward=False, reward_name=None, total_weight_applied=75.0):
     """Create a mock habit log."""
     log = MagicMock()
     log.habit_id = habit_id
     log.got_reward = got_reward
+    log.total_weight_applied = total_weight_applied
     log.reward_id = 1 if reward_name else None
     log.reward = MagicMock(name=reward_name) if reward_name else None
     if log.reward:

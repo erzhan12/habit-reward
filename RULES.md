@@ -599,21 +599,30 @@ Use repositories with `run_sync_or_async` in sync Django views. In tests, mock `
 - `tests/web/test_theme_views.py` — theme page & save tests
 - `tests/web/test_timing_jitter.py`, `test_cleanup_command.py`
 
-## Reward Probability Formula (Subtractive System)
+## Reward Chance Formula (feature 0048, streak only)
 
 ```
-effective_no_reward = max(base_no_reward - habit_weight - (streak × STREAK_REDUCTION_RATE), MIN_NO_REWARD_PROBABILITY)
+reward_chance(s) = min(REWARD_CHANCE_BASE + REWARD_CHANCE_STREAK_BONUS × (1 − e^(−(s−1)/REWARD_CHANCE_STREAK_TAU)), REWARD_CHANCE_CAP)
+                 = min(20 + 30 × (1 − e^(−(s−1)/5.5)), 50)      # s = streak day being rolled, s ≤ 0 → 1
+select_reward(effective_no_reward_probability = 100 − reward_chance(s))
 ```
 
-- `base_no_reward`: User's `no_reward_probability` (default 50%)
-- `habit_weight`: 0-30, each point = 1% reduction (default 0)
-- `STREAK_REDUCTION_RATE`: 2% per streak day (setting)
-- `MIN_NO_REWARD_PROBABILITY`: 10% floor (setting)
-- Reward chance = `round(100 - effective_no_reward)`
+- Constants are plain `settings.py` values, **not env-tunable**. `STREAK_REDUCTION_RATE` / `MIN_NO_REWARD_PROBABILITY` are gone; setting them only emits a `DeprecationWarning`.
+- `Habit.weight` and `User.no_reward_probability` are kept in the DB but **do not affect the chance**. Weight only feeds dashboard "pts". The bot's "No Reward Probability" settings button is removed; `settings_no_reward_prob` stays registered (entry point + settings state) and answers with `NO_REWARD_PROB_DEPRECATED`.
+- `HabitLog.total_weight_applied` still stores the effective no-reward % (`100 − p`), now fractional.
+- Dashboard `rewardChance`: completed today → `round(100 − today_log.total_weight_applied)` (what actually applied); otherwise `round(reward_chance(next_streak))`, `next_streak = streak + 1` if alive else 1.
 
-**Key files**: `src/services/reward_service.py` (formula), `src/services/habit_service.py` (caller), `src/web/views/dashboard.py` (frontend), `src/bot/keyboards.py` (weight values: `[0, 5, 10, 15, 20, 25, 30]`), `settings.py` (constants).
+**Key files**: `src/services/reward_service.py` (`calculate_reward_chance`), `src/services/habit_service.py` (caller), `src/web/views/dashboard.py`, `tests/test_reward_chance.py`.
 
-**Migration note**: Old `STREAK_MULTIPLIER_RATE` deprecated. Migration `0026` resets weights to 0. `HabitLog.total_weight_applied` stores effective no-reward %.
+**Migration note**: Old `STREAK_MULTIPLIER_RATE` deprecated. Migration `0026` resets weights to 0.
+
+## Streak Epoch (launch reset, migration 0031)
+
+- `Habit.streak_epoch` (nullable `DateField`): logs dated before it never count as a streak predecessor; a log dated exactly on it has **effective streak 1** regardless of stored `streak_count`. Null = all history counts (habits created after 0031).
+- Use `StreakService.counted_log(log, habit)` / `StreakService.effective_streak(log, habit)` whenever reading a predecessor's streak. Never rewrite pre-epoch or epoch-day `streak_count` rows: "longest streak" stats (`Max(streak_count)`) rely on them.
+- `recalculate_streaks_after_backdate` starts at `max(backdate_date, epoch)` and skips the epoch-day log. Call the helpers via the `StreakService` class in `habit_service` (tests replace the `streak_service` instance with a `MagicMock`).
+- Test fixtures that build `Mock()` habits for the streak engine must set `streak_epoch = None`.
+- Streak cache key is `streaks:v2:{user_id}` (the cache is file-based and survives restarts).
 
 ## Claimed Rewards & `times_claimed` Counter
 

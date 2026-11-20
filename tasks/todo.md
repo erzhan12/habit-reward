@@ -2,6 +2,18 @@
 
 <!-- Track current work as checkable items. Validate plan before implementing. -->
 
+## In progress: Feature 0048 PR A (formula + launch reset)
+
+Plan: `docs/features/0048_PLAN.md`. Branch `feature/0048-streak-chance-formula`. Ships together with PR B (freeze); never merge alone.
+
+- [x] `calculate_reward_chance(s)` + settings constants; remove old formula and its settings (deprecation warning)
+- [x] `Habit.streak_epoch` + migration 0031 (per-user local date; no `HabitLog` writes)
+- [x] Streak engine honours the epoch (predecessor rule, effective streak 1 on epoch day, recalc never below epoch)
+- [x] Dashboard: chance from stored snapshot if completed today, else `calculate_reward_chance(next_streak)`; drop `Nw ·` badge
+- [x] Bot: hide "No Reward Probability" setting, stale button answers with deprecation notice; weight prompt relabelled
+- [x] Docs: README, RULES.md, `.env*.example`, TEST_CASES
+- [ ] Deploy env files (`docker-compose.yml`, `.env.production`, `deploy-caddy.yml`) still set the removed vars: optional `chore`, harmless (only a DeprecationWarning)
+
 ## Follow-ups
 
 ### Adopt CHANGELOG.md convention
