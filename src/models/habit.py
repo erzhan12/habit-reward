@@ -15,6 +15,7 @@ class Habit(BaseModel):
     allowed_skip_days: int = Field(default=0, ge=0, description="Number of consecutive days user can skip without breaking streak (0 for strict)")
     exempt_weekdays: list[int] = Field(default_factory=list, description="List of weekday numbers (1=Mon, 7=Sun) that don't count against streak")
     streak_epoch: date | None = Field(default=None, description="User-local date from which completions count toward the streak (feature 0048); null: all history counts")
+    freeze_count: int = Field(default=0, ge=0, le=1, description="Unused streak freezes held (0 or 1, feature 0048)")
     active: bool = Field(default=True, description="Whether habit is active")
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),

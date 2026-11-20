@@ -12,7 +12,7 @@ from asgiref.sync import sync_to_async
 from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 
-from src.core.models import User, Habit, HabitLog, Reward, RewardProgress, AuthCode, APIKey, WebLoginRequest, LoginTokenIpBinding
+from src.core.models import User, Habit, HabitFreezeEvent, HabitLog, Reward, RewardProgress, AuthCode, APIKey, WebLoginRequest, LoginTokenIpBinding
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -277,6 +277,37 @@ class HabitRepository:
             Updated Habit instance with active=False
         """
         return await self.update(habit_id, {"active": False})
+
+
+    # --- Streak freeze inventory (feature 0048) -------------------------------
+    # Sync methods run inside the single-transaction functions of the services
+    # (see docs/features/0048_PLAN.md §4); async wrappers exist for other callers.
+
+    def lock_for_update_sync(self, habit_id: int | str) -> Habit:
+        """Lock and re-read the habit row; call inside ``transaction.atomic()``.
+
+        Every freeze-touching transaction takes this lock first. On SQLite
+        ``select_for_update`` is a no-op and serialisation comes from SQLite itself.
+        """
+        return Habit.objects.select_for_update().get(pk=int(habit_id))
+
+    def try_consume_freeze_sync(self, habit_id: int | str) -> bool:
+        """Compare-and-set: decrement ``freeze_count`` if it is above 0."""
+        return Habit.objects.filter(pk=int(habit_id), freeze_count__gt=0).update(
+            freeze_count=F("freeze_count") - 1
+        ) == 1
+
+    def try_grant_freeze_sync(self, habit_id: int | str, max_count: int) -> bool:
+        """Compare-and-set: increment ``freeze_count`` if it is below ``max_count``."""
+        return Habit.objects.filter(pk=int(habit_id), freeze_count__lt=max_count).update(
+            freeze_count=F("freeze_count") + 1
+        ) == 1
+
+    async def try_consume_freeze(self, habit_id: int | str) -> bool:
+        return await sync_to_async(self.try_consume_freeze_sync)(habit_id)
+
+    async def try_grant_freeze(self, habit_id: int | str, max_count: int) -> bool:
+        return await sync_to_async(self.try_grant_freeze_sync)(habit_id, max_count)
 
 
 class RewardRepository:
@@ -1138,6 +1169,81 @@ class HabitLogRepository:
         return {row["habit_id"]: row["total"] for row in rows}
 
 
+class HabitFreezeEventRepository:
+    """Streak freeze events (feature 0048). See ``HabitFreezeEvent`` for the invariant."""
+
+    def create_earned_sync(self, habit: Habit, habit_log: HabitLog | None, earned_on: date | None) -> HabitFreezeEvent:
+        """Record a won freeze; it is the one now in inventory (``state='held'``)."""
+        return HabitFreezeEvent.objects.create(
+            user_id=habit.user_id,
+            habit=habit,
+            habit_log=habit_log,
+            event_type=HabitFreezeEvent.EventType.EARNED,
+            earned_on=earned_on,
+            state=HabitFreezeEvent.State.HELD,
+        )
+
+    def create_spent_sync(
+        self, habit: Habit, covered_date: date, earned_event: HabitFreezeEvent | None
+    ) -> HabitFreezeEvent:
+        """Record a spend for ``covered_date``; ``earned_event`` is null for an untracked freeze."""
+        return HabitFreezeEvent.objects.create(
+            user_id=habit.user_id,
+            habit=habit,
+            event_type=HabitFreezeEvent.EventType.SPENT,
+            covered_date=covered_date,
+            earned_event=earned_event,
+        )
+
+    def get_held_earned_sync(self, habit_id: int | str) -> HabitFreezeEvent | None:
+        return HabitFreezeEvent.objects.filter(
+            habit_id=int(habit_id),
+            event_type=HabitFreezeEvent.EventType.EARNED,
+            state=HabitFreezeEvent.State.HELD,
+        ).first()
+
+    def get_earned_for_log_sync(self, habit_log_id: int | str) -> HabitFreezeEvent | None:
+        return HabitFreezeEvent.objects.filter(
+            habit_log_id=int(habit_log_id), event_type=HabitFreezeEvent.EventType.EARNED
+        ).first()
+
+    def get_spent_for_habit_sync(self, habit_id: int | str) -> list[HabitFreezeEvent]:
+        """All SPENT events of a habit, oldest covered day first (with their EARNED event)."""
+        return list(
+            HabitFreezeEvent.objects.filter(
+                habit_id=int(habit_id), event_type=HabitFreezeEvent.EventType.SPENT
+            )
+            .select_related("earned_event")
+            .order_by("covered_date")
+        )
+
+    def set_state_sync(self, event_id: int, state: str) -> None:
+        HabitFreezeEvent.objects.filter(pk=event_id).update(state=state)
+
+    def update_covered_date_sync(self, event_id: int, covered_date: date) -> None:
+        HabitFreezeEvent.objects.filter(pk=event_id).update(covered_date=covered_date)
+
+    def delete_sync(self, event_id: int) -> None:
+        HabitFreezeEvent.objects.filter(pk=event_id).delete()
+
+    async def get_held_earned(self, habit_id: int | str) -> HabitFreezeEvent | None:
+        return await sync_to_async(self.get_held_earned_sync)(habit_id)
+
+    async def get_spent_dates_by_habit(self, user_id: int | str) -> dict[int, set[date]]:
+        """One query: ``{habit_id: {covered_date, ...}}`` for all of a user's SPENT events."""
+
+        def _query() -> dict[int, set[date]]:
+            result: dict[int, set[date]] = {}
+            rows = HabitFreezeEvent.objects.filter(
+                user_id=int(user_id), event_type=HabitFreezeEvent.EventType.SPENT
+            ).values_list("habit_id", "covered_date")
+            for habit_id, covered in rows:
+                result.setdefault(habit_id, set()).add(covered)
+            return result
+
+        return await sync_to_async(_query)()
+
+
 class AuthCodeRepository:
     """Auth code repository for one-time login codes."""
 
@@ -1678,6 +1784,7 @@ habit_repository = HabitRepository()
 reward_repository = RewardRepository()
 reward_progress_repository = RewardProgressRepository()
 habit_log_repository = HabitLogRepository()
+habit_freeze_event_repository = HabitFreezeEventRepository()
 auth_code_repository = AuthCodeRepository()
 api_key_repository = APIKeyRepository()
 web_login_request_repository = WebLoginRequestRepository()

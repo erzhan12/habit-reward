@@ -1,6 +1,6 @@
 """Unit tests for Django admin custom actions."""
 
-from datetime import date
+from datetime import date, timedelta
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
@@ -126,7 +126,7 @@ class TestRevertSelectedLogsAction(TestCase):
                 streak_count=i + 1,
                 habit_weight=10,
                 total_weight_applied=50,
-                last_completed_date=date.today()
+                last_completed_date=date.today() - timedelta(days=i)  # one log per habit/day
             )
             logs.append(log)
 
@@ -271,7 +271,7 @@ class TestRevertSelectedLogsAction(TestCase):
             streak_count=2,
             habit_weight=10,
             total_weight_applied=50,
-            last_completed_date=date.today()
+            last_completed_date=date.today() - timedelta(days=1)
         )
         log3 = HabitLog.objects.create(
             user=self.user,
@@ -281,7 +281,7 @@ class TestRevertSelectedLogsAction(TestCase):
             streak_count=3,
             habit_weight=10,
             total_weight_applied=50,
-            last_completed_date=date.today()
+            last_completed_date=date.today() - timedelta(days=2)
         )
 
         # Store initial state

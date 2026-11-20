@@ -256,6 +256,10 @@ REWARD_CHANCE_BASE = 20.0
 REWARD_CHANCE_STREAK_BONUS = 30.0
 REWARD_CHANCE_STREAK_TAU = 5.5
 REWARD_CHANCE_CAP = 50.0
+# Streak freeze (feature 0048): rolled only when a completion wins no prize.
+FREEZE_DROP_CHANCE = 10.0          # percent
+MAX_FREEZES_PER_HABIT = 1          # also enforced by habit_freeze_count_range
+FREEZE_JOB_INTERVAL_SECONDS = 900  # periodic burn job (bot JobQueue)
 PROGRESS_BAR_LENGTH = env.int('PROGRESS_BAR_LENGTH', default=10)
 RECENT_LOGS_LIMIT = env.int('RECENT_LOGS_LIMIT', default=10)
 NO_REWARD_PROBABILITY_PERCENT = env.float('NO_REWARD_PROBABILITY_PERCENT', default=50.0)

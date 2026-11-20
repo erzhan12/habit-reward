@@ -87,7 +87,7 @@ class User(AbstractUser):
     no_reward_probability = models.FloatField(
         default=50.0,
         validators=[MinValueValidator(0.01), MaxValueValidator(99.99)],
-        help_text="Probability of getting no reward during habit completion (0.01-99.99%)"
+        help_text="Legacy setting, unused since feature 0048: the reward chance depends only on the streak"
     )
     telegram_username = models.CharField(
         max_length=32,
@@ -184,7 +184,7 @@ class Habit(models.Model):
     weight = models.IntegerField(
         default=0,
         validators=[MinValueValidator(0), MaxValueValidator(30)],
-        help_text="Habit weight for reward probability bonus (0-30, each point = -1% no-reward, min floor applied)"
+        help_text="Habit weight (0-30). Counts toward daily points only; does not affect the reward chance since feature 0048"
     )
     category = models.CharField(
         max_length=100,
@@ -209,6 +209,11 @@ class Habit(models.Model):
         "(feature 0048 launch reset). Earlier logs are ignored as predecessors; a log "
         "on this date counts as streak day 1. Null: all history counts."
     )
+    freeze_count = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Unused streak freezes held by this habit (0 or 1). Changed only through "
+        "FreezeService / admin actions, never by a form save (feature 0048)."
+    )
     active = models.BooleanField(
         default=True,
         help_text="Whether habit is active"
@@ -222,6 +227,12 @@ class Habit(models.Model):
         indexes = [
             models.Index(fields=['user', 'active', 'name']),
             models.Index(fields=['category']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(freeze_count__gte=0, freeze_count__lte=1),
+                name='habit_freeze_count_range',
+            ),
         ]
         ordering = ['name']
 
@@ -452,7 +463,8 @@ class HabitLog(models.Model):
     # Old records retain legacy multiplier values. Query by date to distinguish.
     total_weight_applied = models.FloatField(
         help_text="Effective no-reward probability % applied during reward selection "
-        "(pre-0026 records contain legacy multiplier values)"
+        "(100 - reward chance since feature 0048; pre-0026 records contain legacy "
+        "multiplier values)"
     )
     last_completed_date = models.DateField(
         help_text="Date of completion (for streak tracking)"
@@ -468,10 +480,109 @@ class HabitLog(models.Model):
             models.Index(fields=['user', 'last_completed_date']),
             models.Index(fields=['user', 'habit', 'last_completed_date']),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['habit', 'last_completed_date'],
+                name='uniq_habitlog_habit_day',
+            ),
+        ]
         ordering = ['-timestamp']
 
     def __str__(self):
         return f"{self.user.name} - {self.habit.name} ({self.timestamp.date()})"
+
+
+class HabitFreezeEvent(models.Model):
+    """A streak freeze won (EARNED) or spent (SPENT) by a habit (feature 0048).
+
+    Provenance invariant: ``habit.freeze_count == 1`` iff an EARNED event with
+    ``state='held'`` exists or an untracked (admin-granted) freeze is held, and at
+    most one EARNED event per habit is ``held``.
+    """
+
+    class EventType(models.TextChoices):
+        EARNED = 'earned', 'Earned'
+        SPENT = 'spent', 'Spent'
+
+    class State(models.TextChoices):
+        HELD = 'held', 'Held'
+        SPENT = 'spent', 'Spent'
+        FORFEITED = 'forfeited', 'Forfeited'
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='freeze_events',
+        help_text="Owner, for per-user queries",
+    )
+    habit = models.ForeignKey(
+        Habit, on_delete=models.CASCADE, related_name='freeze_events',
+    )
+    habit_log = models.ForeignKey(
+        HabitLog, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='freeze_events',
+        help_text="EARNED: the completion that won the freeze (null for non-completion "
+        "grants or after that completion was undone). SPENT: always null",
+    )
+    event_type = models.CharField(max_length=10, choices=EventType.choices)
+    earned_on = models.DateField(
+        null=True, blank=True,
+        help_text="EARNED: user-local date of the winning completion; null otherwise",
+    )
+    covered_date = models.DateField(
+        null=True, blank=True,
+        help_text="SPENT: user-local date of the missed day the freeze covered",
+    )
+    state = models.CharField(
+        max_length=10, choices=State.choices, null=True, blank=True,
+        help_text="EARNED only: held (in inventory), spent, or forfeited (returned "
+        "while another freeze was held)",
+    )
+    earned_event = models.ForeignKey(
+        'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='spends',
+        help_text="SPENT only: the EARNED event whose freeze this spend consumed "
+        "(null for an untracked freeze)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'habit_freeze_events'
+        indexes = [
+            models.Index(fields=['habit', 'event_type', 'state']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(event_type='spent', covered_date__isnull=False,
+                             earned_on__isnull=True, state__isnull=True)
+                    | models.Q(event_type='earned', covered_date__isnull=True,
+                               state__isnull=False, earned_event__isnull=True)
+                ),
+                name='freeze_event_shape',
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(event_type='spent') | models.Q(habit_log__isnull=True),
+                name='freeze_spent_has_no_log',
+            ),
+            models.UniqueConstraint(
+                fields=['habit', 'covered_date'],
+                condition=models.Q(event_type='spent'),
+                name='uniq_freeze_spent_habit_day',
+            ),
+            models.UniqueConstraint(
+                fields=['habit_log', 'event_type'],
+                condition=models.Q(habit_log__isnull=False),
+                name='uniq_freeze_event_log_type',
+            ),
+            models.UniqueConstraint(
+                fields=['habit'],
+                condition=models.Q(event_type='earned', state='held'),
+                name='uniq_freeze_held_per_habit',
+            ),
+        ]
+        ordering = ['created_at']
+
+    def __str__(self):
+        when = self.covered_date if self.event_type == 'spent' else self.earned_on
+        return f"{self.habit_id} {self.event_type} {when or ''}".strip()
 
 
 class BotAuditLog(models.Model):

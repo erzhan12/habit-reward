@@ -14,6 +14,19 @@ Plan: `docs/features/0048_PLAN.md`. Branch `feature/0048-streak-chance-formula`.
 - [x] Docs: README, RULES.md, `.env*.example`, TEST_CASES
 - [ ] Deploy env files (`docker-compose.yml`, `.env.production`, `deploy-caddy.yml`) still set the removed vars: optional `chore`, harmless (only a DeprecationWarning)
 
+## In progress: Feature 0048 PR B (streak freeze)
+
+Branch `feature/0048-streak-freeze`, stacked on PR A. Released together with PR A.
+
+- [x] 1. Schema + repos: 0032 (`freeze_count`, `HabitFreezeEvent`), 0033 (one log per habit/day), CAS + event repository
+- [ ] 2. Gap engine: `evaluate_gap`, `find_due_spend`, usable rule
+- [ ] 3. Transaction functions + completion (§4): lock, retry/`ServiceBusyError`, settle-first, catch-up, freeze roll
+- [ ] 4. Backdate/undo/settings reconciliation (§5, §6), shared revert helper
+- [ ] 5. Burn job + scheduler + `FREEZE_SPENT_NOTICE` (§3)
+- [ ] 6. Read paths: `get_streak_states`, prediction, cache v3, dashboard/streaks/API fields
+- [ ] 7. UI: bot strings, web flash/❄️/hints, admin grant/remove, read-only `HabitLogAdmin`
+- [ ] 8. Docs + manual check on a DB copy
+
 ## Follow-ups
 
 ### Adopt CHANGELOG.md convention
