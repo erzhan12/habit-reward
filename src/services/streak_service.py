@@ -1,7 +1,10 @@
 """Streak calculation service for per-habit streak tracking."""
 
 import logging
+from collections.abc import Callable, Collection, Iterable
+from dataclasses import dataclass
 from datetime import date, timedelta
+from enum import Enum
 from typing import Awaitable
 from django.core.cache import cache
 from src.core.repositories import habit_log_repository, habit_repository
@@ -9,6 +12,108 @@ from src.utils.async_compat import run_sync_or_async, maybe_await
 from src.bot.timezone_utils import get_user_today
 
 logger = logging.getLogger(__name__)
+
+
+# --- Gap engine (feature 0048 §2) -----------------------------------------------
+# Pure functions, no DB. A "gap" is the run of days strictly between two
+# completions (or, for the open trailing gap, between the last completion and the
+# user's local today, counting only days that have ended).
+
+
+class GapOutcome(str, Enum):
+    """How a gap affects the streak of the completion that closes it."""
+
+    CONTINUE = "continue"            # missed <= allowed_skip_days: s = prev + 1
+    FREEZE_SAVED = "freeze_saved"    # exactly one day beyond the allowance, frozen: s = prev + 1
+    FREEZE_BURNED = "freeze_burned"  # frozen, but more days were missed: s = 1
+    RESET = "reset"                  # beyond the allowance, no freeze: s = 1
+
+    @property
+    def keeps_streak(self) -> bool:
+        return self in (GapOutcome.CONTINUE, GapOutcome.FREEZE_SAVED)
+
+
+@dataclass(frozen=True)
+class GapResult:
+    outcome: GapOutcome
+    covered_date: date | None = None   # guard day c = missed[A] when a freeze covers it
+    needs_catchup_spend: bool = False  # covered by inventory, no SPENT event yet
+
+
+def missed_days(prev_date: date, end_date: date, exempt_weekdays: Iterable[int] | None) -> list[date]:
+    """Non-exempt dates strictly between ``prev_date`` and ``end_date``."""
+    exempt = set(exempt_weekdays or ())
+    days = []
+    current = prev_date + timedelta(days=1)
+    while current < end_date:
+        if current.isoweekday() not in exempt:
+            days.append(current)
+        current += timedelta(days=1)
+    return days
+
+
+def evaluate_gap(
+    prev_date: date,
+    cur_date: date,
+    allowed_skip_days: int,
+    exempt_weekdays: Iterable[int] | None,
+    spent_dates: Collection[date],
+    freeze_usable_for: Callable[[date], bool],
+) -> GapResult:
+    """Classify the gap between a completion on ``prev_date`` and ``cur_date``.
+
+    ``cur_date`` is the next completion, or the user's local today for the trailing
+    gap. The guard day ``c = missed[A]`` is covered by an existing SPENT event for
+    ``c`` or, failing that, by a usable freeze in inventory (catch-up spend).
+    """
+    allowance = max(0, int(allowed_skip_days or 0))
+    missed = missed_days(prev_date, cur_date, exempt_weekdays)
+    if len(missed) <= allowance:
+        return GapResult(GapOutcome.CONTINUE)
+
+    guard = missed[allowance]
+    covered_outcome = (
+        GapOutcome.FREEZE_SAVED if len(missed) == allowance + 1 else GapOutcome.FREEZE_BURNED
+    )
+    if guard in spent_dates:
+        return GapResult(covered_outcome, guard, False)
+    if freeze_usable_for(guard):
+        return GapResult(covered_outcome, guard, True)
+    return GapResult(GapOutcome.RESET)
+
+
+def freeze_usable_predicate(freeze_count: int, held_earned_on: date | None) -> Callable[[date], bool]:
+    """The usable rule: a held freeze can cover day ``c`` unless it was won on or after ``c``.
+
+    ``held_earned_on`` is the ``earned_on`` of the habit's held EARNED event, or None
+    for an untracked (admin-granted) freeze or a grant with no earning date.
+    """
+    if freeze_count <= 0:
+        return lambda _covered: False
+    if held_earned_on is None:
+        return lambda _covered: True
+    return lambda covered: held_earned_on < covered
+
+
+def find_due_spend(
+    last_log_date: date | None,
+    user_today: date,
+    allowed_skip_days: int,
+    exempt_weekdays: Iterable[int] | None,
+    spent_dates: Collection[date],
+    freeze_usable_for: Callable[[date], bool],
+) -> date | None:
+    """Guard day of the trailing gap if it has ended, is uncovered and a freeze can cover it.
+
+    Shared by the burn job, the catch-up in mutating paths and the read-path prediction.
+    A spend is due even when the streak is already broken (Duolingo-style).
+    """
+    if last_log_date is None:
+        return None
+    result = evaluate_gap(
+        last_log_date, user_today, allowed_skip_days, exempt_weekdays, spent_dates, freeze_usable_for
+    )
+    return result.covered_date if result.needs_catchup_spend else None
 
 
 class StreakService:

@@ -19,7 +19,7 @@ Plan: `docs/features/0048_PLAN.md`. Branch `feature/0048-streak-chance-formula`.
 Branch `feature/0048-streak-freeze`, stacked on PR A. Released together with PR A.
 
 - [x] 1. Schema + repos: 0032 (`freeze_count`, `HabitFreezeEvent`), 0033 (one log per habit/day), CAS + event repository
-- [ ] 2. Gap engine: `evaluate_gap`, `find_due_spend`, usable rule
+- [x] 2. Gap engine: `evaluate_gap`, `find_due_spend`, usable rule
 - [ ] 3. Transaction functions + completion (§4): lock, retry/`ServiceBusyError`, settle-first, catch-up, freeze roll
 - [ ] 4. Backdate/undo/settings reconciliation (§5, §6), shared revert helper
 - [ ] 5. Burn job + scheduler + `FREEZE_SPENT_NOTICE` (§3)
