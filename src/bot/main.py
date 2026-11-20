@@ -107,6 +107,10 @@ def main():
     for handler in get_menu_handlers():
         application.add_handler(handler, group=1)
 
+    # Streak freeze burn job (feature 0048); the JobQueue starts with run_polling.
+    from src.bot.freeze_scheduler import register_freeze_jobs
+    register_freeze_jobs(application)
+
     # Start the bot in polling mode (development)
     logger.info("🤖 Running bot in POLLING mode (development)")
     logger.info("ℹ️ For production, use: uvicorn src.habit_reward_project.asgi:application")

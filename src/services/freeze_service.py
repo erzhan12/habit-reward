@@ -13,9 +13,13 @@ from __future__ import annotations
 import logging
 import random
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date
+from functools import partial
 
+from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 
 from src.core.models import Habit, HabitLog
@@ -24,9 +28,24 @@ from src.core.repositories import (
     habit_log_repository,
     habit_repository,
 )
-from src.services.streak_service import StreakService, find_due_spend, freeze_usable_predicate
+from src.bot.timezone_utils import get_user_today
+from src.services.streak_service import StreakService, find_due_spend, freeze_usable_predicate, missed_days
+from src.services.transactions import ServiceBusyError, run_in_transaction
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class FreezeSpend:
+    """A spend created by one burn-job run (the only run allowed to notify about it)."""
+
+    habit_id: int
+    user_id: int
+    telegram_id: str | None
+    language: str
+    habit_name: str
+    covered_date: date
+    notify: bool  # False when the streak is already broken despite the freeze
 
 
 class FreezeService:
@@ -150,6 +169,55 @@ class FreezeService:
         habit.freeze_count = min(settings.MAX_FREEZES_PER_HABIT, habit.freeze_count + 1)
         logger.info("Freeze won: habit=%s earned_on=%s", habit.id, earned_on)
         return True
+
+
+    # --- Periodic burn job (plan §3) ----------------------------------------------------
+
+    def _burn_one_sync(self, habit_id) -> FreezeSpend | None:
+        """One habit, one transaction: lock, compute the trailing gap inside, spend if due."""
+        habit = self.habit_repo.lock_for_update_sync(habit_id)
+        if habit.freeze_count <= 0 or not habit.active:
+            return None
+        user = habit.user
+        today = get_user_today(user.timezone or "UTC")
+        covered = self.settle_due_spend_sync(habit, today)
+        if covered is None:
+            return None
+        transaction.on_commit(partial(cache.delete, StreakService.cache_key(user.id)), robust=True)
+        last_log = StreakService.counted_log(
+            self.habit_log_repo.get_last_log_on_or_before_sync(habit.id, today), habit
+        )
+        gap = missed_days(last_log.last_completed_date, today, habit.exempt_weekdays)
+        # "Complete today to keep your streak" is only true while exactly A + 1 days are missed.
+        notify = len(gap) == max(0, int(habit.allowed_skip_days or 0)) + 1
+        return FreezeSpend(
+            habit_id=habit.id,
+            user_id=user.id,
+            telegram_id=user.telegram_id,
+            language=user.language or "en",
+            habit_name=habit.name,
+            covered_date=covered,
+            notify=notify,
+        )
+
+    async def burn_due_freezes(self) -> list[FreezeSpend]:
+        """Spend every freeze whose guard day has ended. Idempotent; safe to run concurrently.
+
+        Candidates are read outside any transaction; each habit is then re-checked under
+        its lock. A habit whose transaction stays busy is skipped until the next tick.
+        """
+        habit_ids = await sync_to_async(self.habit_repo.get_ids_with_freeze_sync)()
+        spends: list[FreezeSpend] = []
+        for habit_id in habit_ids:
+            try:
+                spend = await run_in_transaction(self._burn_one_sync, habit_id)
+            except ServiceBusyError:
+                logger.warning("Freeze burn skipped for busy habit %s", habit_id)
+                continue
+            if spend is not None:
+                spends.append(spend)
+        logger.info("Freeze burn: %s candidate(s), %s spent", len(habit_ids), len(spends))
+        return spends
 
 
 freeze_service = FreezeService()

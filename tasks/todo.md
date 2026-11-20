@@ -24,7 +24,7 @@ Branch `feature/0048-streak-freeze`, stacked on PR A. Released together with PR 
 - [x] 4. Backdate/undo/settings reconciliation (§5, §6), shared revert helper (`_revert_log_sync`, also used by the admin action), `HabitService.update_habit` for API/bot edits, UTC-default callers fixed. Retry backoff now jittered (lockstep retries livelocked)
   - Gap with no counted predecessor: its SPENT events are left untouched (no streak to protect; avoids returning a freeze won by an undone first completion)
   - Admin `HabitAdmin` settings edits still write directly; routed through `update_habit` in slice 7
-- [ ] 5. Burn job + scheduler + `FREEZE_SPENT_NOTICE` (§3)
+- [x] 5. Burn job + scheduler + `FREEZE_SPENT_NOTICE` (§3): `FreezeService.burn_due_freezes`, `src/bot/freeze_scheduler.py`, registered in webhook init and polling `main`. Notice date format `DD.MM` (language-neutral)
 - [ ] 6. Read paths: `get_streak_states`, prediction, cache v3, dashboard/streaks/API fields
   - Until then read paths ignore SPENT events (dashboard can show 0 where a completion gives prev + 1)
 - [ ] 7. UI: bot strings, web flash/❄️/hints, admin grant/remove, read-only `HabitLogAdmin`

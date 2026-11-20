@@ -303,6 +303,12 @@ class HabitRepository:
             freeze_count=F("freeze_count") + 1
         ) == 1
 
+    def get_ids_with_freeze_sync(self) -> list[int]:
+        """Active habits holding a freeze (burn job candidates)."""
+        return list(
+            Habit.objects.filter(freeze_count__gt=0, active=True).order_by("id").values_list("id", flat=True)
+        )
+
     def update_fields_sync(self, habit_id: int | str, updates: dict[str, Any]) -> None:
         """Write plain habit fields (never ``freeze_count``) inside the caller's transaction."""
         if "freeze_count" in updates:

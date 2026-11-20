@@ -135,6 +135,8 @@ async def _ensure_initialized():
         if application.job_queue:
             await application.job_queue.start()
             logger.info("✅ Job queue started")
+            from src.bot.freeze_scheduler import register_freeze_jobs
+            register_freeze_jobs(application)
         else:
             logger.warning("⚠️ JobQueue unavailable; scheduled jobs will not run")
         _initialized = True

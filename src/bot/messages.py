@@ -163,6 +163,7 @@ The longer your streak, the higher your reward chance: from 20% up to 50%. Missi
     # Habit Management Messages
     HELP_ADD_HABIT_NAME_PROMPT = "Please enter the name for your new habit:"
     HELP_ADD_HABIT_WEIGHT_PROMPT = "Select the weight for this habit (0-30).\n\nWeight only counts toward daily points; it no longer affects reward chance:"
+    FREEZE_SPENT_NOTICE = "❄️ A streak freeze covered {date} for: <b>{habits}</b>. Complete today to keep your streak."
     NO_REWARD_PROB_DEPRECATED = "ℹ️ This setting is no longer used. Reward chance now depends only on your streak (20% → 50%)."
     HELP_ADD_HABIT_CATEGORY_PROMPT = "Select a category for this habit:"
     HELP_ADD_HABIT_GRACE_DAYS_PROMPT = "How many grace days for this habit?\n\n<b>Grace days</b> allow you to skip days without breaking your streak.\n\nExample: With 1 grace day, you can miss one day and still maintain your streak."
@@ -484,6 +485,7 @@ Use this key in your app with the header:
             # Habit Management Messages
             'HELP_ADD_HABIT_NAME_PROMPT': "Введите название для новой привычки:",
             'HELP_ADD_HABIT_WEIGHT_PROMPT': "Выберите вес привычки (0-30).\n\nВес идёт только в очки за день, на шанс награды он больше не влияет:",
+            'FREEZE_SPENT_NOTICE': "❄️ Заморозка прикрыла {date}: <b>{habits}</b>. Выполните сегодня, чтобы сохранить серию.",
             'NO_REWARD_PROB_DEPRECATED': "ℹ️ Эта настройка больше не работает. Шанс награды теперь зависит только от серии, от 20% до 50%.",
             'HELP_ADD_HABIT_CATEGORY_PROMPT': "Выберите категорию для этой привычки:",
             'HELP_ADD_HABIT_GRACE_DAYS_PROMPT': "Сколько дней отсрочки (grace days) для этой привычки?\n\n<b>Дни отсрочки</b> позволяют пропускать дни без потери серии.\n\nПример: С 1 днём отсрочки вы можете пропустить один день и сохранить серию.",
@@ -802,6 +804,7 @@ Use this key in your app with the header:
             # Habit Management Messages
             'HELP_ADD_HABIT_NAME_PROMPT': "Жаңа әдеттің атын енгізіңіз:",
             'HELP_ADD_HABIT_WEIGHT_PROMPT': "Осы әдет үшін салмақты таңдаңыз (0-30).\n\nСалмақ тек күндік ұпайларға әсер етеді, сыйлық мүмкіндігіне енді әсер етпейді:",
+            'FREEZE_SPENT_NOTICE': "❄️ Мұздату {date} күнін жапты: <b>{habits}</b>. Серияны сақтау үшін бүгін орындаңыз.",
             'NO_REWARD_PROB_DEPRECATED': "ℹ️ Бұл баптау енді қолданылмайды. Сыйлық мүмкіндігі енді тек серияға байланысты (20% → 50%).",
             'HELP_ADD_HABIT_CATEGORY_PROMPT': "Осы әдет үшін санатты таңдаңыз:",
             'HELP_ADD_HABIT_GRACE_DAYS_PROMPT': "Бұл әдет үшін қанша күн шегерім (grace days) керек?\n\n<b>Шегерім күндері</b> серияны үзбей күндерді өткізіп жіберуге мүмкіндік береді.\n\nМысалы: 1 шегерім күнімен сіз бір күнді өткізіп жіберіп, серияны сақтай аласыз.",
