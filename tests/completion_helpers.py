@@ -33,3 +33,13 @@ def patch_commit(**kwargs):
         "src.services.habit_service.run_in_transaction",
         new=AsyncMock(return_value=fake_commit(**kwargs)),
     )
+
+
+def patch_revert(progress=None, freeze_revoked=False):
+    """Patch the transaction runner for undo tests with a canned RevertCommit."""
+    from src.services.habit_service import RevertCommit
+
+    return patch(
+        "src.services.habit_service.run_in_transaction",
+        new=AsyncMock(return_value=RevertCommit(reward_progress=progress, freeze_revoked=freeze_revoked)),
+    )

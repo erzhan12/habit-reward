@@ -103,6 +103,40 @@ class FreezeService:
             return covered
         return None
 
+    def return_spend_sync(self, habit: Habit, spend) -> bool:
+        """Undo a spend (plan §5 "returning a freeze"). True if the freeze is back in inventory.
+
+        If the habit already holds a freeze the return is dropped and the spend's own
+        freeze becomes ``forfeited``; either way exactly the freeze in inventory is held.
+        """
+        granted = self.habit_repo.try_grant_freeze_sync(habit.id, settings.MAX_FREEZES_PER_HABIT)
+        if spend.earned_event_id:
+            self.event_repo.set_state_sync(spend.earned_event_id, "held" if granted else "forfeited")
+        self.event_repo.delete_sync(spend.id)
+        if granted:
+            habit.freeze_count = min(settings.MAX_FREEZES_PER_HABIT, habit.freeze_count + 1)
+        logger.info(
+            "Freeze spend for habit %s on %s %s", habit.id, spend.covered_date,
+            "returned" if granted else "dropped (inventory full; forfeited)",
+        )
+        return granted
+
+    def move_spend_sync(self, spend, covered_date: date) -> None:
+        self.event_repo.update_covered_date_sync(spend.id, covered_date)
+        spend.covered_date = covered_date
+
+    def revoke_won_sync(self, habit: Habit, habit_log_id: int) -> bool:
+        """Undo of a winning completion: revoke its freeze only if that freeze is still held."""
+        earned = self.event_repo.get_earned_for_log_sync(habit_log_id)
+        if earned is None or earned.state != "held":
+            return False
+        if not self.habit_repo.try_consume_freeze_sync(habit.id):
+            logger.error("Held freeze event %s but habit %s has no freeze", earned.id, habit.id)
+            return False
+        self.event_repo.delete_sync(earned.id)
+        habit.freeze_count = max(0, habit.freeze_count - 1)
+        return True
+
     def grant_won_sync(self, habit: Habit, habit_log: HabitLog, earned_on: date) -> bool:
         """Put a freeze won by ``habit_log`` into inventory (EARNED, state held)."""
         try:

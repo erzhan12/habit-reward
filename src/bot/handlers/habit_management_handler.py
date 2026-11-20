@@ -29,6 +29,8 @@ from src.bot.language import get_message_language_async
 from src.bot.message_utils import schedule_message_delete
 from src.config import HABIT_NAME_MAX_LENGTH
 from src.utils.async_compat import maybe_await
+from src.bot.timezone_utils import get_user_timezone
+from src.services.habit_service import habit_service
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -1357,8 +1359,10 @@ async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYP
             "exempt_weekdays": new_exempt_days
         }
 
+        # Streak settings change gaps: go through freeze reconciliation (feature 0048).
+        user_timezone = await get_user_timezone(telegram_id)
         updated_habit = await maybe_await(
-            habit_repository.update(habit_id, updates)
+            habit_service.update_habit(habit_id, updates, user_timezone=user_timezone)
         )
         logger.info(f"✅ Updated habit '{updated_habit.name}' (ID: {updated_habit.id}) for user {telegram_id}")
 

@@ -219,5 +219,8 @@ async def revert_habit(request, habit_id):
     except ValueError as e:
         logger.warning("Habit revert failed: %s", e)
         messages.error(request, str(e))
+    except ServiceBusyError:
+        logger.warning("Habit revert busy for user %s", user.id)
+        messages.error(request, "Busy, please try again.")
 
     return redirect("/")

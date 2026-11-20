@@ -170,6 +170,38 @@ class TestUpdateHabit:
         data = response.json()
         assert data["name"] == "Updated Name"
 
+    @patch("src.api.v1.routers.habits.habit_service")
+    @patch("src.api.v1.routers.habits.habit_repository")
+    def test_update_streak_settings_goes_through_reconciliation(
+        self, mock_repo, mock_service, client, mock_user, mock_habit
+    ):
+        """Feature 0048: changing allowed_skip_days/exempt_weekdays reconciles freezes."""
+        from src.services.habit_service import HabitService
+
+        mock_repo.get_by_id = AsyncMock(return_value=mock_habit)
+        mock_repo.update = AsyncMock(return_value=mock_habit)
+        mock_service.STREAK_SETTINGS = HabitService.STREAK_SETTINGS
+        mock_service.update_habit = AsyncMock(return_value=mock_habit)
+
+        response = client.patch(f"/v1/habits/{mock_habit.id}", json={"allowed_skip_days": 1})
+
+        assert response.status_code == 200
+        mock_service.update_habit.assert_awaited_once()
+        assert mock_service.update_habit.call_args.args[1] == {"allowed_skip_days": 1}
+        mock_repo.update.assert_not_awaited()
+
+    @patch("src.api.v1.routers.habits.habit_service")
+    @patch("src.api.v1.routers.habits.habit_repository")
+    def test_update_streak_settings_busy_returns_503(self, mock_repo, mock_service, client, mock_habit):
+        from src.services.habit_service import HabitService
+        from src.services.transactions import ServiceBusyError
+
+        mock_repo.get_by_id = AsyncMock(return_value=mock_habit)
+        mock_service.STREAK_SETTINGS = HabitService.STREAK_SETTINGS
+        mock_service.update_habit = AsyncMock(side_effect=ServiceBusyError("busy"))
+        response = client.patch(f"/v1/habits/{mock_habit.id}", json={"allowed_skip_days": 1})
+        assert response.status_code == 503
+
     @patch("src.api.v1.routers.habits.habit_repository")
     def test_update_habit_invalid_weekdays(self, mock_repo, client, mock_habit):
         """Test updating habit with invalid weekday numbers."""

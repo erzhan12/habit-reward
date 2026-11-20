@@ -60,7 +60,7 @@ class TestGetAllStreaks:
         mock_habit_repo.get_all_active = AsyncMock(return_value=[mock_habit, habit2])
 
         # Different streaks for different habits
-        def get_streak_side_effect(user_id, habit_id):
+        def get_streak_side_effect(user_id, habit_id, user_timezone="UTC"):
             return 5 if habit_id == 1 else 10
 
         mock_streak_service.get_current_streak = AsyncMock(

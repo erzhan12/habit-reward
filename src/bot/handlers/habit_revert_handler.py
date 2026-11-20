@@ -19,6 +19,7 @@ from src.bot.messages import msg
 from src.bot.navigation import get_current_navigation, pop_navigation
 from src.core.repositories import user_repository
 from src.services.habit_service import habit_service
+from src.services.transactions import ServiceBusyError
 from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
@@ -114,7 +115,7 @@ async def habit_revert_selected_callback(update: Update, context: ContextTypes.D
         result = await maybe_await(
             habit_service.revert_habit_completion(telegram_id, habit.id)
         )
-    except ValueError as exc:
+    except (ValueError, ServiceBusyError) as exc:
         error_message = str(exc)
         logger.error("❌ Revert failed for user %s, habit %s: %s", telegram_id, habit_id, error_message)
 

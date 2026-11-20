@@ -21,11 +21,9 @@ Branch `feature/0048-streak-freeze`, stacked on PR A. Released together with PR 
 - [x] 1. Schema + repos: 0032 (`freeze_count`, `HabitFreezeEvent`), 0033 (one log per habit/day), CAS + event repository
 - [x] 2. Gap engine: `evaluate_gap`, `find_due_spend`, usable rule
 - [x] 3. Transaction functions + completion (§4): lock, retry/`ServiceBusyError`, settle-first, catch-up, freeze roll. Backdate recalculation runs inside the transaction but is still streak-only (no returns/relocation) until slice 4
-- [ ] 4. Backdate/undo/settings reconciliation (§5, §6), shared revert helper
-  - First red test: backdate onto a guard day that has a SPENT event must delete it and return the freeze (today the SPENT stays on a logged day and the freeze is lost)
-  - Undo must revoke a held freeze won by the undone log (not yet)
-  - Revert still uses `_atomic()`; move it to `run_in_transaction` so it cannot interleave with a completion
-  - Fix UTC-default callers that now decide whether a freeze is spent: `habit_custom_text` (bot) and API `streaks.py`
+- [x] 4. Backdate/undo/settings reconciliation (§5, §6), shared revert helper (`_revert_log_sync`, also used by the admin action), `HabitService.update_habit` for API/bot edits, UTC-default callers fixed. Retry backoff now jittered (lockstep retries livelocked)
+  - Gap with no counted predecessor: its SPENT events are left untouched (no streak to protect; avoids returning a freeze won by an undone first completion)
+  - Admin `HabitAdmin` settings edits still write directly; routed through `update_habit` in slice 7
 - [ ] 5. Burn job + scheduler + `FREEZE_SPENT_NOTICE` (§3)
 - [ ] 6. Read paths: `get_streak_states`, prediction, cache v3, dashboard/streaks/API fields
   - Until then read paths ignore SPENT events (dashboard can show 0 where a completion gives prev + 1)

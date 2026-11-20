@@ -303,6 +303,12 @@ class HabitRepository:
             freeze_count=F("freeze_count") + 1
         ) == 1
 
+    def update_fields_sync(self, habit_id: int | str, updates: dict[str, Any]) -> None:
+        """Write plain habit fields (never ``freeze_count``) inside the caller's transaction."""
+        if "freeze_count" in updates:
+            raise ValueError("freeze_count is changed only through FreezeService")
+        Habit.objects.filter(pk=int(habit_id)).update(**updates)
+
     async def try_consume_freeze(self, habit_id: int | str) -> bool:
         return await sync_to_async(self.try_consume_freeze_sync)(habit_id)
 
@@ -456,6 +462,25 @@ class RewardProgressRepository:
         pk = int(progress_id)
         RewardProgress.objects.filter(pk=pk).update(**updates)
         progress = RewardProgress.objects.select_related("reward", "user").get(pk=pk)
+        return self._attach_cached_pieces_required(progress)
+
+    def decrement_pieces_earned_sync(self, user_id: int | str, reward_id: int | str) -> RewardProgress | None:
+        """Sync twin of ``decrement_pieces_earned`` (same claimed / times_claimed rules)."""
+        progress = self.get_by_user_and_reward_sync(user_id, reward_id)
+        if not progress:
+            return None
+        new_pieces = max(0, progress.pieces_earned - 1)
+        if new_pieces == progress.pieces_earned:
+            return progress
+        if progress.claimed:
+            updated = RewardProgress.objects.filter(pk=progress.id, times_claimed__gt=0).update(
+                pieces_earned=new_pieces, claimed=False, times_claimed=F("times_claimed") - 1,
+            )
+            if not updated:
+                RewardProgress.objects.filter(pk=progress.id).update(pieces_earned=new_pieces, claimed=False)
+        else:
+            RewardProgress.objects.filter(pk=progress.id).update(pieces_earned=new_pieces)
+        progress = RewardProgress.objects.select_related("reward", "user").get(pk=progress.id)
         return self._attach_cached_pieces_required(progress)
 
     @staticmethod
@@ -716,6 +741,16 @@ class HabitLogRepository:
 
     def set_streak_count_sync(self, log_id: int, streak_count: int) -> None:
         HabitLog.objects.filter(pk=log_id).update(streak_count=streak_count)
+
+    def get_by_id_sync(self, log_id: int | str) -> HabitLog | None:
+        try:
+            return HabitLog.objects.select_related("reward").filter(pk=int(log_id)).first()
+        except (TypeError, ValueError):
+            return None
+
+    def delete_sync(self, log_id: int) -> int:
+        deleted, _ = HabitLog.objects.filter(pk=log_id).delete()
+        return deleted
 
     async def get_by_id(self, log_id: int | str) -> HabitLog | None:
         """Get habit log by primary key.

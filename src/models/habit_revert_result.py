@@ -13,6 +13,7 @@ class HabitRevertResult(BaseModel):
     reward_name: str | None = Field(default=None, description="Name of the reward affected, if any")
     reward_progress: RewardProgressModel | None = Field(default=None, description="Updated reward progress snapshot")
     success: bool = Field(default=True, description="Indicates the revert succeeded")
+    freeze_revoked: bool = Field(default=False, description="The freeze won by this completion was removed (feature 0048)")
 
     model_config = ConfigDict(
         from_attributes=True,

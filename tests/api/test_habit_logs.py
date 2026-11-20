@@ -182,6 +182,16 @@ class TestRevertHabitLog:
         assert data["reward_name"] == "Coffee"
 
     @patch("src.api.v1.routers.habit_logs.habit_service")
+    def test_revert_habit_log_busy_returns_503(self, mock_service, client):
+        """Feature 0048: exhausted DB-lock retries on undo map to 503."""
+        from src.services.transactions import ServiceBusyError
+
+        mock_service.revert_habit_completion_by_log_id = AsyncMock(side_effect=ServiceBusyError("busy"))
+        response = client.delete("/v1/habit-logs/5")
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "SERVICE_BUSY"
+
+    @patch("src.api.v1.routers.habit_logs.habit_service")
     def test_revert_habit_log_not_found(self, mock_service, client):
         """Test reverting non-existent habit log."""
         mock_service.revert_habit_completion_by_log_id = AsyncMock(

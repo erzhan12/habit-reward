@@ -65,7 +65,7 @@ async def get_all_streaks(
     for habit in habits:
         # Get current streak
         current_streak = await maybe_await(
-            streak_service.get_current_streak(current_user.id, habit.id)
+            streak_service.get_current_streak(current_user.id, habit.id, current_user.timezone or "UTC")
         )
 
         # Get last completed date
@@ -115,7 +115,7 @@ async def get_habit_streak(
 
     # Get current streak
     current_streak = await maybe_await(
-        streak_service.get_current_streak(current_user.id, habit_id)
+        streak_service.get_current_streak(current_user.id, habit_id, current_user.timezone or "UTC")
     )
 
     # Get last completed date

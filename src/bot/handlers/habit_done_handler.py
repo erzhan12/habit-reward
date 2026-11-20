@@ -244,7 +244,8 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         result = await maybe_await(
             habit_service.process_habit_completion(
                 user_telegram_id=telegram_id,
-                habit_name=habit_name
+                habit_name=habit_name,
+                user_timezone=await get_user_timezone(telegram_id),
             )
         )
 

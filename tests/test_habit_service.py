@@ -9,7 +9,7 @@ from src.models.user import User
 from src.models.habit import Habit
 from src.models.reward import Reward
 from src.models.habit_completion_result import HabitCompletionResult
-from tests.completion_helpers import patch_commit
+from tests.completion_helpers import patch_commit, patch_revert
 
 
 @pytest.fixture
@@ -284,16 +284,11 @@ class TestHabitRevert:
         habit_service.reward_progress_repo = reward_progress_repo
         habit_service.audit_log_service = mock_audit_service
 
-        atomic_context = AsyncMock()
-        atomic_context.__aenter__.return_value = None
-        atomic_context.__aexit__.return_value = None
-        with patch('src.services.habit_service.transaction.atomic', return_value=atomic_context):
+        with patch_revert(progress=progress) as tx:
             result = await habit_service.revert_habit_completion('123', habit.id)
 
-        habit_service.habit_log_repo.delete.assert_awaited_once_with(log.id)
-        habit_service.reward_progress_repo.decrement_pieces_earned.assert_awaited_once_with(
-            user.id, log.reward_id
-        )
+        _fn, log_id, user_id, reward_reverted, _today = tx.call_args.args
+        assert (log_id, user_id, reward_reverted) == (log.id, user.id, True)
         assert result.habit_name == habit.name
         assert result.reward_reverted is True
         assert result.reward_name == 'Coffee'
@@ -350,15 +345,11 @@ class TestHabitRevert:
         habit_service.reward_progress_repo = reward_progress_repo
         habit_service.audit_log_service = mock_audit_service
 
-        atomic_context = AsyncMock()
-        atomic_context.__aenter__.return_value = None
-        atomic_context.__aexit__.return_value = None
-        with patch('src.services.habit_service.transaction.atomic', return_value=atomic_context):
+        with patch_revert() as tx:
             result = await habit_service.revert_habit_completion('123', habit.id)
 
-        habit_service.habit_log_repo.delete.assert_awaited_once_with(log.id)
-        # Should NOT call decrement_pieces_earned when no reward
-        habit_service.reward_progress_repo.decrement_pieces_earned.assert_not_awaited()
+        _fn, log_id, user_id, reward_reverted, _today = tx.call_args.args
+        assert (log_id, user_id, reward_reverted) == (log.id, user.id, False)
         assert result.habit_name == habit.name
         assert result.reward_reverted is False
         assert result.reward_name is None
@@ -402,16 +393,11 @@ class TestHabitRevert:
         habit_service.reward_progress_repo = reward_progress_repo
         habit_service.audit_log_service = mock_audit_service
 
-        atomic_context = AsyncMock()
-        atomic_context.__aenter__.return_value = None
-        atomic_context.__aexit__.return_value = None
-        with patch('src.services.habit_service.transaction.atomic', return_value=atomic_context):
+        with patch_revert(progress=progress) as tx:
             result = await habit_service.revert_habit_completion('123', habit.id)
 
-        habit_service.habit_log_repo.delete.assert_awaited_once_with(log.id)
-        habit_service.reward_progress_repo.decrement_pieces_earned.assert_awaited_once_with(
-            user.id, log.reward_id
-        )
+        _fn, log_id, user_id, reward_reverted, _today = tx.call_args.args
+        assert (log_id, user_id, reward_reverted) == (log.id, user.id, True)
         assert result.habit_name == habit.name
         assert result.reward_reverted is True
         assert result.reward_progress.pieces_earned == 0  # Verify it's at zero

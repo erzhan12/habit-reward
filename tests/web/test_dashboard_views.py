@@ -167,6 +167,16 @@ class TestDashboard:
 
     @patch("src.web.views.dashboard.messages")
     @patch("src.web.views.dashboard.habit_service")
+    def test_revert_habit_busy_shows_retry_message(self, mock_hs, mock_messages, auth_client):
+        from src.services.transactions import ServiceBusyError
+
+        mock_hs.revert_habit_completion.side_effect = ServiceBusyError("busy")
+        response = auth_client.post("/habits/1/revert/")
+        assert response.status_code == 302
+        assert "try again" in str(mock_messages.error.call_args).lower()
+
+    @patch("src.web.views.dashboard.messages")
+    @patch("src.web.views.dashboard.habit_service")
     def test_complete_habit_twice_second_raises_error_flash(self, mock_hs, mock_messages, auth_client):
         """Second completion attempt is rejected by service; both calls still redirect cleanly."""
         first_result = MagicMock()

@@ -373,7 +373,17 @@ async def update_habit(
         update_dict["active"] = request.active
 
     if update_dict:
-        habit = await maybe_await(habit_repository.update(habit_id, update_dict))
+        if habit_service.STREAK_SETTINGS & set(update_dict):
+            # Streak settings go through freeze reconciliation (feature 0048 §4).
+            try:
+                habit = await maybe_await(
+                    habit_service.update_habit(habit_id, update_dict, user_timezone=current_user.timezone or "UTC")
+                )
+            except ServiceBusyError:
+                logger.warning("Habit update busy for user %s on habit %s", current_user.id, habit_id)
+                raise ServiceUnavailableException()
+        else:
+            habit = await maybe_await(habit_repository.update(habit_id, update_dict))
         logger.info("Habit %s updated: %s", habit_id, list(update_dict.keys()))
 
     return HabitResponse(

@@ -9,10 +9,11 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from src.api.dependencies.auth import get_current_active_user
-from src.api.exceptions import NotFoundException, ForbiddenException
+from src.api.exceptions import NotFoundException, ForbiddenException, ServiceUnavailableException
 from src.core.models import User
 from src.core.repositories import habit_log_repository, habit_repository
 from src.services.habit_service import habit_service
+from src.services.transactions import ServiceBusyError
 from src.utils.async_compat import maybe_await
 
 # Note: habit_repository is still used for ownership verification in list_habit_logs
@@ -243,6 +244,9 @@ async def revert_habit_completion(
         if "access denied" in error_msg.lower():
             raise ForbiddenException(message=error_msg, code="NOT_OWNER")
         raise
+    except ServiceBusyError:
+        logger.warning("Habit revert busy for user %s on log %s", current_user.id, log_id)
+        raise ServiceUnavailableException()
 
     logger.info("Habit log %s reverted for user %s", log_id, current_user.id)
 

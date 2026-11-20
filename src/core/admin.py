@@ -3,9 +3,10 @@
 import logging
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.db import transaction
-from django.db.models import F
 from src.core.models import User, Habit, Reward, RewardProgress, HabitLog, BotAuditLog, APIKey
+from src.bot.timezone_utils import get_user_today
+from src.services.habit_service import habit_service
+from src.services.transactions import run_in_transaction_sync
 
 logger = logging.getLogger(__name__)
 
@@ -214,81 +215,42 @@ class HabitLogAdmin(admin.ModelAdmin):
                     f"🔄 Admin reverting log #{log.id} for user {user.telegram_id}, habit {habit.id}"
                 )
 
-                # Use atomic transaction to ensure consistency
-                with transaction.atomic():
-                    # Store info before deletion
-                    log_id = log.id
-                    habit_name = habit.name
-                    got_reward = log.got_reward
+                # Shared undo transaction (feature 0048 §6): revokes a freeze won by this
+                # log, reconciles freeze spends and later streaks, rolls back the reward.
+                log_id = log.id
+                habit_name = habit.name
+                got_reward = log.got_reward
+                today = get_user_today(user.timezone or "UTC")
 
-                    # Delete the habit log
-                    log.delete()
-
-                    # Prepare snapshot for audit log
+                def _revert_and_audit(log_id=log_id, user=user, habit=habit, reward=reward,
+                                      habit_name=habit_name, got_reward=got_reward, today=today):
+                    revert = habit_service._revert_log_sync(
+                        log_id, user.id, bool(got_reward and reward), today
+                    )
                     snapshot = {
                         'habit_name': habit_name,
                         'log_id': log_id,
+                        'freeze_revoked': revert.freeze_revoked,
                     }
-
-                    # If log had a reward, decrement reward progress
-                    if got_reward and reward:
-                        try:
-                            progress = RewardProgress.objects.select_related('reward').get(
-                                user=user,
-                                reward=reward
-                            )
-
-                            # Decrement pieces_earned
-                            if progress.pieces_earned > 0:
-                                new_pieces = progress.pieces_earned - 1
-
-                                if progress.claimed:
-                                    # Attempt atomic update with times_claimed decrement
-                                    updated = RewardProgress.objects.filter(
-                                        id=progress.id,
-                                        times_claimed__gt=0,
-                                    ).update(
-                                        pieces_earned=new_pieces,
-                                        claimed=False,
-                                        times_claimed=F("times_claimed") - 1,
-                                    )
-                                    if not updated:
-                                        # times_claimed was already 0, update without decrement
-                                        RewardProgress.objects.filter(id=progress.id).update(
-                                            pieces_earned=new_pieces,
-                                            claimed=False,
-                                        )
-                                else:
-                                    RewardProgress.objects.filter(id=progress.id).update(
-                                        pieces_earned=new_pieces,
-                                    )
-
-                                progress.refresh_from_db()
-                                logger.info(
-                                    f"📉 Decremented reward progress for '{reward.name}': "
-                                    f"{progress.pieces_earned + 1} → {progress.pieces_earned}"
-                                )
-
-                                # Add reward info to snapshot
-                                snapshot.update({
-                                    'reward_name': reward.name,
-                                    'pieces_earned': progress.pieces_earned,
-                                    'pieces_required': reward.pieces_required,
-                                    'claimed': progress.claimed,
-                                })
-                        except RewardProgress.DoesNotExist:
-                            logger.warning(
-                                f"⚠️ Reward progress not found for log #{log_id}, skipping decrement"
-                            )
-
-                    # Create audit log entry for habit revert
+                    progress = revert.reward_progress
+                    if got_reward and reward and progress is not None:
+                        snapshot.update({
+                            'reward_name': reward.name,
+                            'pieces_earned': progress.pieces_earned,
+                            'pieces_required': reward.pieces_required,
+                            'claimed': progress.claimed,
+                        })
+                    elif got_reward and reward:
+                        logger.warning(f"⚠️ Reward progress not found for log #{log_id}, skipping decrement")
                     BotAuditLog.objects.create(
                         user=user,
                         event_type=BotAuditLog.EventType.HABIT_REVERTED,
                         habit=habit,
                         reward=reward if got_reward else None,
-                        snapshot=snapshot
+                        snapshot=snapshot,
                     )
+
+                run_in_transaction_sync(_revert_and_audit)
 
                 success_count += 1
                 logger.info(

@@ -7,14 +7,15 @@ coroutines on a shared thread-sensitive connection would otherwise nest as
 savepoints of each other.
 
 On lock contention (SQLite "database is locked", PostgreSQL serialization or
-deadlock errors) the whole function is re-run: nothing was committed, and random
-draws are made again inside the new attempt.
+deadlock errors) the whole function is re-run after a jittered backoff: nothing was
+committed, and random draws are made again inside the new attempt.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from collections.abc import Callable
 from typing import TypeVar
@@ -27,6 +28,16 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 RETRY_DELAYS_SECONDS = (0.05, 0.15, 0.4)
+
+# Separate RNG: tests patch the module-level ``random`` functions to force prize and
+# freeze draws, which must not make two retrying writers back off in lockstep.
+_jitter = random.Random()
+
+
+def _backoff(attempt: int) -> float:
+    """Base delay for ``attempt`` scaled by 0.5-1.5 so colliding writers desynchronise."""
+    return RETRY_DELAYS_SECONDS[attempt] * (0.5 + _jitter.random())
+
 
 _LOCK_ERROR_MARKERS = (
     "database is locked",        # SQLite, file database
@@ -66,7 +77,7 @@ async def run_in_transaction(fn: Callable[..., T], *args, **kwargs) -> T:
             if attempt == attempts - 1:
                 logger.warning("%s: database busy after %s attempts", getattr(fn, "__name__", fn), attempts)
                 raise ServiceBusyError("Database is busy, please try again") from exc
-            await asyncio.sleep(RETRY_DELAYS_SECONDS[attempt])
+            await asyncio.sleep(_backoff(attempt))
     raise AssertionError("unreachable")  # pragma: no cover
 
 
@@ -82,5 +93,5 @@ def run_in_transaction_sync(fn: Callable[..., T], *args, **kwargs) -> T:
             if attempt == attempts - 1:
                 logger.warning("%s: database busy after %s attempts", getattr(fn, "__name__", fn), attempts)
                 raise ServiceBusyError("Database is busy, please try again") from exc
-            time.sleep(RETRY_DELAYS_SECONDS[attempt])
+            time.sleep(_backoff(attempt))
     raise AssertionError("unreachable")  # pragma: no cover

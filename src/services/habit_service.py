@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from datetime import datetime, date, timedelta
 from functools import partial
 from typing import Awaitable
-from contextlib import asynccontextmanager
-from asgiref.sync import sync_to_async
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from src.core.repositories import (
@@ -19,7 +17,7 @@ from src.core.repositories import (
 )
 from src.bot.timezone_utils import get_user_today
 from src.core.models import Habit, HabitLog, RewardProgress
-from src.services.streak_service import GapOutcome, StreakService, evaluate_gap, streak_service
+from src.services.streak_service import GapOutcome, StreakService, evaluate_gap, missed_days, streak_service
 from src.services.reward_service import reward_service
 from src.services.freeze_service import freeze_service
 from src.services.transactions import run_in_transaction
@@ -65,6 +63,15 @@ class CompletionCommit:
     covered_date: date | None
     freeze_won: bool
     freeze_count: int
+    freeze_returned: bool = False
+
+
+@dataclass
+class RevertCommit:
+    """What the undo transaction did (feature 0048 §6)."""
+
+    reward_progress: RewardProgress | None
+    freeze_revoked: bool
 
 
 class HabitService:
@@ -91,66 +98,6 @@ class HabitService:
         self.reward_service = reward_service
         self.freeze_service = freeze_service
         self.audit_log_service = audit_log_service
-
-    @asynccontextmanager
-    async def _atomic(self):
-        """Async-friendly transaction context manager."""
-
-        ctx = transaction.atomic()
-
-        if hasattr(ctx, "__aenter__"):
-            await ctx.__aenter__()
-            try:
-                yield
-            except Exception as exc:  # pragma: no cover - safety net
-                await ctx.__aexit__(type(exc), exc, exc.__traceback__)
-                raise
-            else:
-                await ctx.__aexit__(None, None, None)
-            return
-
-        # Fallback for standard sync context manager
-        enter = await sync_to_async(ctx.__enter__, thread_sensitive=True)()
-        try:
-            yield enter
-        except Exception as exc:  # pragma: no cover
-            await sync_to_async(ctx.__exit__, thread_sensitive=True)(
-                type(exc), exc, exc.__traceback__
-            )
-            raise
-        else:
-            await sync_to_async(ctx.__exit__, thread_sensitive=True)(None, None, None)
-
-    async def _revert_log_transaction(
-        self,
-        log: HabitLog,
-        user_id: int,
-        reward_reverted: bool,
-        reward_name: str | None,
-    ) -> tuple[RewardProgress | None, str | None]:
-        """Run log deletion and reward rollback inside a DB transaction."""
-
-        async with self._atomic():
-            deleted = await maybe_await(self.habit_log_repo.delete(log.id))
-            if deleted == 0:
-                raise ValueError("No habit completion found to revert")
-
-            progress_obj: RewardProgress | None = None
-            updated_reward_name = reward_name
-
-            if reward_reverted and log.reward_id:
-                progress_obj = await maybe_await(
-                    self.reward_progress_repo.decrement_pieces_earned(
-                        user_id,
-                        log.reward_id,
-                    )
-                )
-                if progress_obj:
-                    updated_reward_name = (
-                        reward_name or getattr(progress_obj.reward, "name", None)
-                    )
-
-            return progress_obj, updated_reward_name
 
     def process_habit_completion(
         self,
@@ -305,6 +252,7 @@ class HabitService:
                 "freeze_burned": freeze_burned,
                 "freeze_covered_date": commit.covered_date.isoformat() if commit.covered_date else None,
                 "freeze_won": commit.freeze_won,
+                "freeze_returned": commit.freeze_returned,
             }
 
             if reward_progress:
@@ -342,6 +290,7 @@ class HabitService:
                 freeze_burned=freeze_burned,
                 freeze_covered_date=commit.covered_date,
                 freeze_count=commit.freeze_count,
+                freeze_returned=commit.freeze_returned,
             )
 
         return run_sync_or_async(_impl())
@@ -403,9 +352,10 @@ class HabitService:
             last_completed_date=target_date,
         )
 
-        # 6. Backdate: recompute later streaks inside the same transaction.
+        # 6. Backdate: reconcile freezes and recompute later streaks (plan §5).
+        freezes_returned = 0
         if target_date < today:
-            self._recalculate_streaks_sync(habit, target_date, today)
+            freezes_returned = self._reconcile_sync(habit, target_date, today)
 
         # 7. Freeze roll, last, against the final inventory.
         freeze_count = self.habit_repo.lock_for_update_sync(habit.id).freeze_count
@@ -428,49 +378,143 @@ class HabitService:
             covered_date=covered,
             freeze_won=freeze_won,
             freeze_count=habit.freeze_count,
+            freeze_returned=freezes_returned > 0,
         )
 
-    def _recalculate_streaks_sync(self, habit, backdate_date: date, today: date) -> None:
-        """Recompute stored streaks of logs on/after ``backdate_date`` (inside a transaction).
+    def _reconcile_sync(self, habit, from_date: date, today: date) -> int:
+        """Reconcile freeze spends per gap and recompute stored streaks (plan §5, §6 step 3).
 
-        Never walks below the streak epoch; the epoch-day log keeps its stored value.
-        Freeze-aware reconciliation (returns, relocation) is added in slice 4.
+        Walks the gaps from the counted predecessor of ``from_date`` through the trailing
+        gap. SPENT events are matched to gaps by calendar interval (before exempt-day
+        filtering). Never walks below the streak epoch and never rewrites the epoch-day
+        log. Returns how many freezes went back into inventory.
         """
+        fs = self.freeze_service
         epoch = StreakService.streak_epoch(habit)
-        start_date = max(backdate_date, epoch) if epoch is not None else backdate_date
-        logs = self.habit_log_repo.get_logs_for_habit_in_daterange_sync(habit.id, start_date, today)
-        if not logs:
-            return
-        spent = self.freeze_service.spent_dates_sync(habit.id)
+        start = max(from_date, epoch) if epoch is not None else from_date
+        logs = self.habit_log_repo.get_logs_for_habit_in_daterange_sync(habit.id, start, today)
         prev = StreakService.counted_log(
-            self.habit_log_repo.get_last_log_before_date_sync(habit.id, logs[0].last_completed_date), habit
+            self.habit_log_repo.get_last_log_before_date_sync(habit.id, start), habit
         )
-        for log in logs:
-            if epoch is not None and log.last_completed_date == epoch:
-                prev = log
-                continue
-            if prev is None:
-                new_streak = 1
-            else:
-                gap = evaluate_gap(
-                    prev.last_completed_date, log.last_completed_date, habit.allowed_skip_days,
-                    habit.exempt_weekdays, spent, lambda _c: False,
-                )
+        lower = prev.last_completed_date if prev is not None else None
+        spends = [
+            e for e in fs.event_repo.get_spent_for_habit_sync(habit.id)
+            if (lower is None or e.covered_date > lower) and (epoch is None or e.covered_date >= epoch)
+        ]
+        returned = 0
+
+        # A covered day that now has a log needs no freeze.
+        log_dates = {log.last_completed_date for log in logs}
+        for spend in [e for e in spends if e.covered_date in log_dates]:
+            returned += fs.return_spend_sync(habit, spend)
+            spends.remove(spend)
+
+        for closing in [*logs, None]:  # None = the open trailing gap up to today
+            end = closing.last_completed_date if closing is not None else today
+            keeps_streak = False
+            if prev is not None:
+                in_gap = [
+                    e for e in spends
+                    if prev.last_completed_date < e.covered_date
+                    and (e.covered_date < end if closing is not None else e.covered_date <= end)
+                ]
+                keeps_streak, n = self._reconcile_gap_sync(habit, prev.last_completed_date, end, in_gap)
+                returned += n
+            if closing is None:
+                break
+            if not (epoch is not None and closing.last_completed_date == epoch):
                 new_streak = (
-                    StreakService.effective_streak(prev, habit) + 1 if gap.outcome.keeps_streak else 1
+                    StreakService.effective_streak(prev, habit) + 1
+                    if prev is not None and keeps_streak else 1
                 )
-            if log.streak_count != new_streak:
-                logger.info(
-                    "Updating log %s: date=%s, old_streak=%s, new_streak=%s",
-                    log.id, log.last_completed_date, log.streak_count, new_streak,
-                )
-                self.habit_log_repo.set_streak_count_sync(log.id, new_streak)
-                log.streak_count = new_streak
-            prev = log
+                if closing.streak_count != new_streak:
+                    logger.info(
+                        "Updating log %s: date=%s, old_streak=%s, new_streak=%s",
+                        closing.id, closing.last_completed_date, closing.streak_count, new_streak,
+                    )
+                    self.habit_log_repo.set_streak_count_sync(closing.id, new_streak)
+                    closing.streak_count = new_streak
+            prev = closing
+
+        # The trailing gap may now be due (e.g. after an undo): do what the job would do.
+        fs.settle_due_spend_sync(habit, today)
+        return returned
+
+    def _reconcile_gap_sync(self, habit, prev_date: date, end_date: date, events: list) -> tuple[bool, int]:
+        """Keep at most one eligible spend on the guard day; return the rest. -> (keeps_streak, returned)."""
+        fs = self.freeze_service
+        allowance = max(0, int(habit.allowed_skip_days or 0))
+        missed = missed_days(prev_date, end_date, habit.exempt_weekdays)
+        events = sorted(events, key=lambda e: e.covered_date)
+        if len(missed) <= allowance:
+            return True, sum(fs.return_spend_sync(habit, e) for e in events)
+
+        guard = missed[allowance]
+
+        def eligible(e) -> bool:
+            won = e.earned_event
+            return won is None or won.earned_on is None or won.earned_on < guard
+
+        keep = next((e for e in events if e.covered_date == guard and eligible(e)), None)
+        if keep is None:
+            keep = next((e for e in events if eligible(e)), None)
+        returned = sum(fs.return_spend_sync(habit, e) for e in events if e is not keep)  # surplus first
+        if keep is not None and keep.covered_date != guard:
+            fs.move_spend_sync(keep, guard)
+        return keep is not None and len(missed) == allowance + 1, returned
+
+    def _revert_log_sync(self, log_id: int, user_id: int, reward_reverted: bool, today: date) -> RevertCommit:
+        """Undo one completion (plan §6). Runs inside ``transaction.atomic()``."""
+        log = self.habit_log_repo.get_by_id_sync(log_id)
+        if log is None:
+            raise ValueError("No habit completion found to revert")
+        habit = self.habit_repo.lock_for_update_sync(log.habit_id)
+        self.freeze_service.settle_due_spend_sync(habit, today)            # step 0
+        revoked = self.freeze_service.revoke_won_sync(habit, log.id)        # step 1
+        if self.habit_log_repo.delete_sync(log.id) == 0:                    # step 2
+            raise ValueError("No habit completion found to revert")
+        progress = None
+        if reward_reverted and log.reward_id:
+            progress = self.reward_progress_repo.decrement_pieces_earned_sync(user_id, log.reward_id)
+        self._reconcile_sync(habit, log.last_completed_date, today)        # step 3
+        transaction.on_commit(partial(cache.delete, StreakService.cache_key(user_id)), robust=True)
+        return RevertCommit(reward_progress=progress, freeze_revoked=revoked)
+
+    def _update_settings_sync(self, habit_id, updates: dict, today: date):
+        """Streak-relevant settings edit: settle under the OLD settings, write, reconcile all gaps."""
+        habit = self.habit_repo.lock_for_update_sync(habit_id)
+        changed = any(
+            field in updates and updates[field] != getattr(habit, field)
+            for field in self.STREAK_SETTINGS
+        )
+        if not changed:
+            # Same values re-sent (the bot edit always sends them): a plain field write.
+            self.habit_repo.update_fields_sync(habit.id, updates)
+            return self.habit_repo.lock_for_update_sync(habit.id)
+        self.freeze_service.settle_due_spend_sync(habit, today)
+        self.habit_repo.update_fields_sync(habit.id, updates)
+        for field, value in updates.items():
+            setattr(habit, field, value)
+        self._reconcile_sync(habit, date.min, today)
+        transaction.on_commit(partial(cache.delete, StreakService.cache_key(habit.user_id)), robust=True)
+        return self.habit_repo.lock_for_update_sync(habit.id)
+
+    STREAK_SETTINGS = frozenset({"allowed_skip_days", "exempt_weekdays"})
+
+    def update_habit(self, habit_id, updates: dict, user_timezone: str = "UTC"):
+        """Update habit fields; streak settings go through freeze reconciliation (plan §4)."""
+
+        async def _impl():
+            if self.STREAK_SETTINGS & set(updates):
+                today = get_user_today(user_timezone)
+                return await run_in_transaction(self._update_settings_sync, habit_id, dict(updates), today)
+            return await maybe_await(self.habit_repo.update(habit_id, updates))
+
+        return run_sync_or_async(_impl())
 
     def _recalculate_by_id_sync(self, habit_id, backdate_date: date, today: date) -> None:
         habit = self.habit_repo.lock_for_update_sync(habit_id)
-        self._recalculate_streaks_sync(habit, backdate_date, today)
+        self._reconcile_sync(habit, backdate_date, today)
         transaction.on_commit(partial(cache.delete, StreakService.cache_key(habit.user_id)), robust=True)
 
     def recalculate_streaks_after_backdate(
@@ -559,11 +603,9 @@ class HabitService:
             reward_progress_model: RewardProgressModel | None = None
 
             try:
-                progress, reward_name = await self._revert_log_transaction(
-                    log=log,
-                    user_id=user.id,
-                    reward_reverted=reward_reverted,
-                    reward_name=reward_name,
+                revert = await run_in_transaction(
+                    self._revert_log_sync, log.id, user.id, reward_reverted,
+                    get_user_today(getattr(user, "timezone", None) or "UTC"),
                 )
             except ValueError as error:
                 logger.error(
@@ -573,6 +615,9 @@ class HabitService:
                     error,
                 )
                 raise
+            progress = revert.reward_progress
+            if progress:
+                reward_name = reward_name or getattr(progress.reward, "name", None)
 
             await cache.adelete(streak_service.cache_key(user.id))
 
@@ -597,6 +642,7 @@ class HabitService:
             revert_snapshot = {
                 "habit_name": habit.name,
                 "log_id": log_id_before_deletion,  # Store deleted log ID in snapshot
+                "freeze_revoked": revert.freeze_revoked,
             }
 
             # Add reward info to snapshot if reward was reverted
@@ -629,6 +675,7 @@ class HabitService:
                 reward_name=reward_name,
                 reward_progress=reward_progress_model,
                 success=True,
+                freeze_revoked=revert.freeze_revoked,
             )
 
         return run_sync_or_async(_impl())
@@ -690,12 +737,11 @@ class HabitService:
             reward_reverted = bool(log.got_reward and log.reward_id)
             reward_progress_model: RewardProgressModel | None = None
 
+            owner = await maybe_await(self.user_repo.get_by_id(log.user_id))
             try:
-                progress, reward_name = await self._revert_log_transaction(
-                    log=log,
-                    user_id=log.user_id,
-                    reward_reverted=reward_reverted,
-                    reward_name=reward_name,
+                revert = await run_in_transaction(
+                    self._revert_log_sync, log.id, log.user_id, reward_reverted,
+                    get_user_today(getattr(owner, "timezone", None) or "UTC"),
                 )
             except ValueError as error:
                 logger.error(
@@ -705,6 +751,9 @@ class HabitService:
                     error,
                 )
                 raise
+            progress = revert.reward_progress
+            if progress:
+                reward_name = reward_name or getattr(progress.reward, "name", None)
 
             await cache.adelete(streak_service.cache_key(log.user_id))
 
@@ -729,6 +778,7 @@ class HabitService:
             revert_snapshot = {
                 "habit_name": habit.name,
                 "log_id": log_id_before_deletion,
+                "freeze_revoked": revert.freeze_revoked,
             }
 
             if reward_reverted and reward_name:
@@ -760,6 +810,7 @@ class HabitService:
                 reward_name=reward_name,
                 reward_progress=reward_progress_model,
                 success=True,
+                freeze_revoked=revert.freeze_revoked,
             )
 
         return run_sync_or_async(_impl())
