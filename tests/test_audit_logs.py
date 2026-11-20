@@ -206,9 +206,9 @@ async def test_tc002_habit_completion_snapshot(test_user, test_habits, test_rewa
         return created
 
     # Mock reward selection to be predictable
-    with patch.object(reward_service, 'select_reward', new_callable=AsyncMock) as mock_select, \
+    # The completion draws inside its transaction via select_reward_sync (feature 0048 §4).
+    with patch.object(reward_service, 'select_reward_sync', return_value=coffee_break), \
          patch.object(habit_service.habit_log_repo, 'create', side_effect=create_wrapper):
-        mock_select.return_value = coffee_break
 
         # Act: Complete habit
         await habit_service.process_habit_completion(
@@ -276,8 +276,7 @@ async def test_tc003_reward_claim_before_after(test_user, test_habits, test_rewa
     coffee_break = test_rewards[0]
 
     # Complete habit 3 times to earn 3 pieces
-    with patch.object(reward_service, 'select_reward', new_callable=AsyncMock) as mock_select:
-        mock_select.return_value = coffee_break
+    with patch.object(reward_service, 'select_reward_sync', return_value=coffee_break):
 
         base_date = timezone.now().date()
         for days_ago in reversed(range(3)):
@@ -448,8 +447,7 @@ async def test_tc006_reward_revert_logging(test_user, test_habits, test_rewards)
     evening_journal = test_habits[1]  # Evening Journal
     coffee_break = test_rewards[0]
 
-    with patch.object(reward_service, 'select_reward', new_callable=AsyncMock) as mock_select:
-        mock_select.return_value = coffee_break
+    with patch.object(reward_service, 'select_reward_sync', return_value=coffee_break):
 
         # Complete habit
         await habit_service.process_habit_completion(

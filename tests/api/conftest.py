@@ -51,6 +51,7 @@ def mock_habit(mock_user):
     habit.allowed_skip_days = 0
     habit.exempt_weekdays = []
     habit.active = True
+    habit.freeze_count = 0
     return habit
 
 
@@ -66,6 +67,7 @@ def mock_inactive_habit(mock_user):
     habit.allowed_skip_days = 0
     habit.exempt_weekdays = []
     habit.active = False
+    habit.freeze_count = 0
     return habit
 
 

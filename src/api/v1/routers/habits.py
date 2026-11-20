@@ -37,6 +37,9 @@ class HabitResponse(BaseModel):
     allowed_skip_days: int
     exempt_weekdays: list[int]
     active: bool
+    # Freezes in the DB inventory (feature 0048). May still include a freeze whose
+    # guard day has ended until the burn job runs; /streaks reports the effective count.
+    freeze_count: int = 0
 
     class Config:
         from_attributes = True
@@ -80,6 +83,22 @@ class HabitCompletionResponse(BaseModel):
     reward: RewardResponse | None = None
     cumulative_progress: RewardProgressResponse | None = None
     user_timezone: str = "UTC"
+    # Feature 0048 (additive). total_weight_applied stays 100 - reward_chance.
+    reward_chance: float = 0.0
+    freeze_won: bool = False
+    freeze_used: bool = False
+    freeze_covered_date: date | None = None
+
+
+def _freeze_fields(result) -> dict:
+    """Feature 0048 completion fields (coerced: tests pass MagicMock results)."""
+    covered = result.freeze_covered_date
+    return {
+        "reward_chance": float(result.reward_chance or 0.0),
+        "freeze_won": result.freeze_won is True,
+        "freeze_used": result.freeze_used is True,
+        "freeze_covered_date": covered if isinstance(covered, date) else None,
+    }
 
 
 # Request Models
@@ -187,6 +206,7 @@ async def list_habits(
                 category=h.category,
                 allowed_skip_days=h.allowed_skip_days,
                 exempt_weekdays=h.exempt_weekdays or [],
+                freeze_count=h.freeze_count,
                 active=h.active,
             )
             for h in habits
@@ -231,6 +251,7 @@ async def get_habit(
         category=habit.category,
         allowed_skip_days=habit.allowed_skip_days,
         exempt_weekdays=habit.exempt_weekdays or [],
+        freeze_count=habit.freeze_count,
         active=habit.active,
     )
 
@@ -299,6 +320,7 @@ async def create_habit(
         category=habit.category,
         allowed_skip_days=habit.allowed_skip_days,
         exempt_weekdays=habit.exempt_weekdays or [],
+        freeze_count=habit.freeze_count,
         active=habit.active,
     )
 
@@ -393,6 +415,7 @@ async def update_habit(
         category=habit.category,
         allowed_skip_days=habit.allowed_skip_days,
         exempt_weekdays=habit.exempt_weekdays or [],
+        freeze_count=habit.freeze_count,
         active=habit.active,
     )
 
@@ -531,6 +554,7 @@ async def complete_habit(
         reward=reward_response,
         cumulative_progress=progress_response,
         user_timezone=current_user.timezone or "UTC",
+        **_freeze_fields(result),
     )
 
 
@@ -619,6 +643,7 @@ async def batch_complete_habits(
                     reward=reward_response,
                     cumulative_progress=progress_response,
                     user_timezone=current_user.timezone or "UTC",
+                    **_freeze_fields(result),
                 )
             )
 

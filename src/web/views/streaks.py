@@ -41,10 +41,13 @@ async def streaks_page(request):
     best_streak_habit = None
     best_streak_count = 0
 
+    states = await maybe_await(
+        streak_service.get_streak_states(user.id, all_habits, user.timezone or "UTC")
+    )
+
     for habit in all_habits:
-        current_streak = await maybe_await(
-            streak_service.get_current_streak(str(user.id), str(habit.id), user.timezone or "UTC")
-        )
+        state = states.get(habit.id)
+        current_streak = state.streak if state else 0
         stats = stats_by_habit.get(habit.id, {})
 
         if current_streak > best_streak_count:
@@ -58,6 +61,7 @@ async def streaks_page(request):
             "longestStreak": stats.get("longest_streak") or 0,
             "weight": habit.weight,
             "completionsThisWeek": stats.get("week_completions") or 0,
+            "freezeCount": state.freeze_count if state else 0,
         })
 
     # Sort by current streak descending

@@ -1369,6 +1369,34 @@ class HabitFreezeEventRepository:
 
         return await sync_to_async(_query)()
 
+    async def get_spent_dates_for_habit(self, habit_id: int | str) -> set[date]:
+        def _query() -> set[date]:
+            return set(
+                HabitFreezeEvent.objects.filter(
+                    habit_id=int(habit_id), event_type=HabitFreezeEvent.EventType.SPENT
+                ).values_list("covered_date", flat=True)
+            )
+
+        return await sync_to_async(_query)()
+
+    async def get_held_earned_on_by_habit(self, user_id: int | str) -> dict[int, date | None]:
+        """One query: ``{habit_id: earned_on}`` of each habit's held EARNED event.
+
+        A habit missing from the dict has no held event (untracked freeze or none);
+        both a missing key and a null ``earned_on`` mean "usable for any day".
+        """
+
+        def _query() -> dict[int, date | None]:
+            return dict(
+                HabitFreezeEvent.objects.filter(
+                    user_id=int(user_id),
+                    event_type=HabitFreezeEvent.EventType.EARNED,
+                    state=HabitFreezeEvent.State.HELD,
+                ).values_list("habit_id", "earned_on")
+            )
+
+        return await sync_to_async(_query)()
+
 
 class AuthCodeRepository:
     """Auth code repository for one-time login codes."""

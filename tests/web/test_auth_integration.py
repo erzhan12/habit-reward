@@ -176,7 +176,7 @@ class TestFullLoginFlow:
         ):
             mock_hs.get_all_active_habits.return_value = []
             mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
-            mock_ss.get_validated_streak_map.return_value = {}
+            mock_ss.get_streak_states.return_value = {}
             resp = client.get("/")
         assert resp.status_code == 200
 

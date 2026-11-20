@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from enum import Enum
 from typing import Awaitable
 from django.core.cache import cache
-from src.core.repositories import habit_log_repository, habit_repository
+from src.core.repositories import habit_freeze_event_repository, habit_log_repository, habit_repository
 from src.utils.async_compat import run_sync_or_async, maybe_await
 from src.bot.timezone_utils import get_user_today
 
@@ -116,18 +116,93 @@ def find_due_spend(
     return result.covered_date if result.needs_catchup_spend else None
 
 
+@dataclass(frozen=True)
+class StreakState:
+    """What the read paths show for one habit (feature 0048 §7).
+
+    ``freeze_count`` is the effective inventory: the DB value minus a spend the job
+    has not done yet. Read paths never write; they predict with the job's rule.
+    """
+
+    streak: int                     # 0 if broken
+    next_streak: int                # streak of a completion today: streak + 1 if alive, else 1
+    freeze_count: int
+    freeze_used_for: date | None    # guard day, if the trailing gap is alive only thanks to a freeze
+    freeze_at_risk: bool            # skipping today means the freeze is spent tonight
+
+    def to_cache(self) -> dict:
+        """Plain, JSON-safe form (the file cache outlives deploys)."""
+        return {
+            "streak": self.streak,
+            "next_streak": self.next_streak,
+            "freeze_count": self.freeze_count,
+            "freeze_used_for": self.freeze_used_for.isoformat() if self.freeze_used_for else None,
+            "freeze_at_risk": self.freeze_at_risk,
+        }
+
+    @classmethod
+    def from_cache(cls, data: dict) -> "StreakState":
+        used_for = data.get("freeze_used_for")
+        return cls(
+            streak=data["streak"],
+            next_streak=data["next_streak"],
+            freeze_count=data["freeze_count"],
+            freeze_used_for=date.fromisoformat(used_for) if used_for else None,
+            freeze_at_risk=data["freeze_at_risk"],
+        )
+
+
+def trailing_streak_state(
+    last_date: date | None,
+    last_streak: int,
+    today: date,
+    allowed_skip_days: int,
+    exempt_weekdays: Iterable[int] | None,
+    spent_dates: Collection[date],
+    freeze_count: int,
+    held_earned_on: date | None,
+) -> StreakState:
+    """Display state of a habit from its last counted completion and the trailing gap.
+
+    ``last_date``/``last_streak`` are the last counted log (after the epoch rule) and
+    its effective streak, or None/0 if there is none. Pure: no DB, no clock.
+    """
+    if last_date is None:
+        return StreakState(0, 1, freeze_count, None, False)
+    if last_date >= today:
+        return StreakState(last_streak, last_streak + 1, freeze_count, None, False)
+
+    usable = freeze_usable_predicate(freeze_count, held_earned_on)
+    gap = evaluate_gap(last_date, today, allowed_skip_days, exempt_weekdays, spent_dates, usable)
+    effective_count = freeze_count - 1 if gap.needs_catchup_spend else freeze_count
+    if not gap.outcome.keeps_streak:
+        # Broken; a due spend is still predicted (Duolingo-style), so the count drops.
+        return StreakState(0, 1, effective_count, None, False)
+
+    used_for = gap.covered_date if gap.outcome is GapOutcome.FREEZE_SAVED else None
+    exempt = set(exempt_weekdays or ())
+    allowance = max(0, int(allowed_skip_days or 0))
+    at_risk = (
+        gap.outcome is GapOutcome.CONTINUE
+        and today.isoweekday() not in exempt
+        and len(missed_days(last_date, today, exempt)) == allowance
+        and usable(today)  # today would be the guard day
+    )
+    return StreakState(last_streak, last_streak + 1, effective_count, used_for, at_risk)
+
+
 class StreakService:
     """Service for calculating and managing habit streaks."""
 
     def __init__(self):
         """Initialize StreakService with repositories."""
-        self.habit_log_repo = habit_log_repository
-        self.habit_repo = habit_repository
+        self._refresh_dependencies()
 
     def _refresh_dependencies(self) -> None:
         """Rebind repositories to allow test patching."""
         self.habit_log_repo = habit_log_repository
         self.habit_repo = habit_repository
+        self.freeze_event_repo = habit_freeze_event_repository
 
     @staticmethod
     def streak_epoch(habit) -> date | None:
@@ -155,10 +230,14 @@ class StreakService:
         streak day 1 whatever its stored ``streak_count`` (which may be a pre-reset
         value). The stored value is kept for historical stats.
         """
+        return cls._effective_streak_of(log.last_completed_date, log.streak_count, habit)
+
+    @classmethod
+    def _effective_streak_of(cls, last_completed_date: date, streak_count: int, habit) -> int:
         epoch = cls.streak_epoch(habit)
-        if epoch is not None and log.last_completed_date == epoch:
+        if epoch is not None and last_completed_date == epoch:
             return 1
-        return log.streak_count
+        return streak_count
 
     @staticmethod
     def _is_streak_alive(
@@ -167,39 +246,52 @@ class StreakService:
         allowed_skip_days: int = 0,
         exempt_weekdays: list[int] | None = None,
     ) -> bool:
-        """Return True if the streak is still active (not broken).
-
-        A streak is alive if the last completion was today, yesterday, or within
-        the grace-day/exempt-weekday window.
-
-        Args:
-            last_completed_date: Date of the most recent habit completion.
-            today: Today's date in the user's timezone.
-            allowed_skip_days: Number of non-exempt days the user may skip without breaking.
-            exempt_weekdays: Weekday numbers (1=Mon, 7=Sun) that don't count as missed.
-
-        Returns:
-            True if the streak should still be shown, False if it has been broken.
-        """
-        if exempt_weekdays is None:
-            exempt_weekdays = []
-
+        """True if the gap since ``last_completed_date`` is within the allowance (no freezes)."""
         if last_completed_date >= today:
             return True
+        return len(missed_days(last_completed_date, today, exempt_weekdays)) <= max(0, int(allowed_skip_days or 0))
 
-        yesterday = today - timedelta(days=1)
-        if last_completed_date == yesterday:
-            return True
+    # --- Freeze-aware single-habit helpers --------------------------------------------
 
-        # Gap > 1 day — count non-exempt missed days
-        current = last_completed_date + timedelta(days=1)
-        missed = 0
-        while current < today:
-            if current.isoweekday() not in exempt_weekdays:
-                missed += 1
-            current += timedelta(days=1)
+    async def _freeze_inputs(self, habit) -> tuple[set[date], date | None]:
+        """SPENT covered dates and the held freeze's ``earned_on`` for one habit."""
+        if habit is None:
+            return set(), None
+        spent = await maybe_await(self.freeze_event_repo.get_spent_dates_for_habit(habit.id))
+        held_on = None
+        if habit.freeze_count > 0:
+            held = await maybe_await(self.freeze_event_repo.get_held_earned(habit.id))
+            held_on = held.earned_on if held else None
+        return set(spent), held_on
 
-        return missed <= allowed_skip_days
+    async def _state_for_habit(self, user_id, habit_id, user_timezone: str) -> tuple[StreakState, bool]:
+        """Trailing state of one habit and whether it is completed today.
+
+        A missing habit means strict rules and no freeze.
+        """
+        last_log = await maybe_await(self.habit_log_repo.get_last_log_for_habit(user_id, habit_id))
+        if last_log is None:
+            return StreakState(0, 1, 0, None, False), False
+        habit = await maybe_await(self.habit_repo.get_by_id(habit_id))
+        freeze_count = habit.freeze_count if habit is not None else 0
+        last = self.counted_log(last_log, habit)
+        if last is None:
+            return StreakState(0, 1, freeze_count, None, False), False
+        today = get_user_today(user_timezone)
+        completed_today = last.last_completed_date >= today
+        spent, held_on = (set(), None)
+        if not completed_today:
+            spent, held_on = await self._freeze_inputs(habit)
+        return trailing_streak_state(
+            last.last_completed_date,
+            self.effective_streak(last, habit),
+            today,
+            habit.allowed_skip_days if habit is not None else 0,
+            habit.exempt_weekdays if habit is not None else [],
+            spent,
+            freeze_count,
+            held_on,
+        ), completed_today
 
     def calculate_streak(
         self,
@@ -207,63 +299,17 @@ class StreakService:
         habit_id: str,
         user_timezone: str = 'UTC',
     ) -> int | Awaitable[int]:
-        """Calculate current streak for a specific habit and user with grace days and exempt weekdays support."""
+        """Streak a completion today would get (prediction, same rule as the completion).
+
+        Already completed today: the current streak. Otherwise ``prev + 1`` if the
+        trailing gap keeps the streak (allowance, exempt days, a spent or usable
+        freeze), else 1.
+        """
 
         async def _impl() -> int:
             self._refresh_dependencies()
-            last_log = await maybe_await(
-                self.habit_log_repo.get_last_log_for_habit(user_id, habit_id)
-            )
-
-            if last_log is None:
-                return 1
-
-            # Get habit settings for flexible streak tracking (and the streak epoch)
-            habit = await maybe_await(self.habit_repo.get_by_id(habit_id))
-            if self.counted_log(last_log, habit) is None:
-                return 1
-            prev_streak = self.effective_streak(last_log, habit)
-
-            last_date = last_log.last_completed_date
-            today = get_user_today(user_timezone)
-            yesterday = today - timedelta(days=1)
-
-            # Simple cases: today or yesterday
-            if last_date == today:
-                return prev_streak
-
-            if last_date == yesterday:
-                return prev_streak + 1
-
-            # If habit not found, use strict logic (break streak for gap > 1 day)
-            if not habit:
-                return 1
-
-            # Gap of more than 1 day - check if flexible tracking preserves streak
-            if last_date < yesterday:
-                # Get all dates in the gap (exclusive of both endpoints)
-                current_date = last_date + timedelta(days=1)
-                missed_days = 0
-
-                while current_date < today:
-                    # Get weekday (1=Monday, 7=Sunday)
-                    weekday = current_date.isoweekday()
-
-                    # Only count as missed if not in exempt_weekdays
-                    if weekday not in habit.exempt_weekdays:
-                        missed_days += 1
-
-                    current_date += timedelta(days=1)
-
-                # Check if missed days are within allowed grace days
-                if missed_days <= habit.allowed_skip_days:
-                    # Streak preserved
-                    return prev_streak + 1
-                else:
-                    # Streak broken
-                    return 1
-
-            return 1
+            state, completed_today = await self._state_for_habit(user_id, habit_id, user_timezone)
+            return state.streak if completed_today else state.next_streak
 
         return run_sync_or_async(_impl())
 
@@ -273,85 +319,42 @@ class StreakService:
         habit_id: str,
         target_date: date
     ) -> int | Awaitable[int]:
-        """Calculate streak for a specific target date (for backdated completions).
+        """Streak a completion on ``target_date`` (a backdate) would get.
 
-        This method is used when logging a habit for a past date. It calculates what
-        the streak should be for that specific date, taking into account:
-        - Previous completions before the target date
-        - Grace days and exempt weekdays settings
-        - Whether target date continues an existing streak
-
-        Args:
-            user_id: User primary key
-            habit_id: Habit primary key
-            target_date: The date we're calculating the streak for (past date)
-
-        Returns:
-            Calculated streak count for the target date
+        Uses the gap between the last counted completion before ``target_date`` and
+        ``target_date``, honouring SPENT events and a usable freeze like the completion.
         """
 
         async def _impl() -> int:
             self._refresh_dependencies()
-            # Get the most recent log BEFORE the target date (not just any log)
             last_log = await maybe_await(
                 self.habit_log_repo.get_last_log_before_date(user_id, habit_id, target_date)
             )
-
-            # If no previous log exists, this is the first completion
             if last_log is None:
                 return 1
 
-            # Get habit settings for flexible streak tracking (and the streak epoch)
             habit = await maybe_await(self.habit_repo.get_by_id(habit_id))
-            if self.counted_log(last_log, habit) is None:
+            last = self.counted_log(last_log, habit)
+            if last is None:
                 return 1
-            prev_streak = self.effective_streak(last_log, habit)
-
-            last_date = last_log.last_completed_date
-            day_before_target = target_date - timedelta(days=1)
-
-            # Simple case: target date is consecutive (day after last completion)
-            if last_date == day_before_target:
-                # Target date continues the streak (consecutive day)
-                return prev_streak + 1
-
-            # If habit not found, use strict logic (break streak for gap > 1 day)
-            if not habit:
+            if last.last_completed_date >= target_date:
+                logger.warning(
+                    "Unexpected state in calculate_streak_for_date: last_date=%s >= target_date=%s",
+                    last.last_completed_date,
+                    target_date,
+                )
                 return 1
 
-            # Gap between last completion and day before target
-            if last_date < day_before_target:
-                # Calculate all dates in the gap (exclusive of both endpoints)
-                current_date = last_date + timedelta(days=1)
-                missed_days = 0
-
-                while current_date < target_date:
-                    # Get weekday (1=Monday, 7=Sunday)
-                    weekday = current_date.isoweekday()
-
-                    # Only count as missed if not in exempt_weekdays
-                    if weekday not in habit.exempt_weekdays:
-                        missed_days += 1
-
-                    current_date += timedelta(days=1)
-
-                # Check if missed days are within allowed grace days
-                if missed_days <= habit.allowed_skip_days:
-                    # Streak preserved
-                    return prev_streak + 1
-                else:
-                    # Streak broken
-                    return 1
-
-            # This shouldn't happen (last_date > day_before_target means last_date >= target_date)
-            # But if it does, the target date is same as or before last completion
-            # This means duplicate, which should be caught earlier
-            logger.warning(
-                "Unexpected state in calculate_streak_for_date: last_date=%s >= target_date=%s",
-                last_date,
-                target_date
+            spent, held_on = await self._freeze_inputs(habit)
+            gap = evaluate_gap(
+                last.last_completed_date,
+                target_date,
+                habit.allowed_skip_days if habit is not None else 0,
+                habit.exempt_weekdays if habit is not None else [],
+                spent,
+                freeze_usable_predicate(habit.freeze_count if habit is not None else 0, held_on),
             )
-            return 1
+            return self.effective_streak(last, habit) + 1 if gap.outcome.keeps_streak else 1
 
         return run_sync_or_async(_impl())
 
@@ -376,35 +379,12 @@ class StreakService:
         habit_id: str,
         user_timezone: str = 'UTC',
     ) -> int | Awaitable[int]:
-        """Get the CURRENT streak for a habit (for display purposes).
-
-        Returns 0 if the streak has been broken (last completion is too far in
-        the past, accounting for grace days and exempt weekdays).
-        """
+        """Current streak for display: 0 if broken, freezes (spent or predicted) included."""
 
         async def _impl() -> int:
             self._refresh_dependencies()
-            last_log = await maybe_await(
-                self.habit_log_repo.get_last_log_for_habit(user_id, habit_id)
-            )
-
-            if last_log is None:
-                return 0
-
-            today = get_user_today(user_timezone)
-
-            # Fetch habit settings for grace-day/exempt-weekday validation
-            habit = await maybe_await(self.habit_repo.get_by_id(habit_id))
-            allowed_skip = habit.allowed_skip_days if habit else 0
-            exempt = habit.exempt_weekdays if habit else []
-
-            if self.counted_log(last_log, habit) is None:
-                return 0
-
-            if not self._is_streak_alive(last_log.last_completed_date, today, allowed_skip, exempt):
-                return 0
-
-            return self.effective_streak(last_log, habit)
+            state, _completed_today = await self._state_for_habit(user_id, habit_id, user_timezone)
+            return state.streak
 
         return run_sync_or_async(_impl())
 
@@ -439,8 +419,60 @@ class StreakService:
 
     @staticmethod
     def cache_key(user_id: int | str) -> str:
-        """Return the cache key for a user's validated streak map."""
-        return f'streaks:v2:{user_id}'
+        """Return the cache key for a user's streak states (v3: StreakState dicts)."""
+        return f'streaks:v3:{user_id}'
+
+    def get_streak_states(
+        self,
+        user_id: int | str,
+        habits: list,
+        user_timezone: str = 'UTC',
+    ) -> dict[int, StreakState] | Awaitable[dict[int, StreakState]]:
+        """Batch display state for ``habits`` (feature 0048 §7), cached for 5 minutes.
+
+        Three queries per user: latest log per habit, SPENT dates, held EARNED dates.
+        A cache hit that lacks a requested habit is treated as a miss. The cache is
+        invalidated on commit by every path that writes logs or freeze events.
+        """
+
+        async def _impl() -> dict[int, StreakState]:
+            self._refresh_dependencies()
+
+            key = self.cache_key(user_id)
+            cached = await cache.aget(key)
+            if cached is not None and all(h.id in cached for h in habits):
+                return {h.id: StreakState.from_cache(cached[h.id]) for h in habits}
+
+            today = get_user_today(user_timezone)
+            raw = await self.habit_log_repo.get_latest_streak_counts(user_id)
+            spent_by_habit = await maybe_await(self.freeze_event_repo.get_spent_dates_by_habit(user_id))
+            held_by_habit = await maybe_await(self.freeze_event_repo.get_held_earned_on_by_habit(user_id))
+
+            result: dict[int, StreakState] = {}
+            for habit in habits:
+                last_date, last_streak = None, 0
+                entry = raw.get(habit.id)
+                if entry is not None:
+                    streak_count, completed = entry
+                    epoch = self.streak_epoch(habit)
+                    if epoch is None or completed >= epoch:
+                        last_date = completed
+                        last_streak = self._effective_streak_of(completed, streak_count, habit)
+                result[habit.id] = trailing_streak_state(
+                    last_date,
+                    last_streak,
+                    today,
+                    habit.allowed_skip_days,
+                    habit.exempt_weekdays,
+                    spent_by_habit.get(habit.id, set()),
+                    habit.freeze_count,
+                    held_by_habit.get(habit.id),
+                )
+
+            await cache.aset(key, {hid: s.to_cache() for hid, s in result.items()}, timeout=300)
+            return result
+
+        return run_sync_or_async(_impl())
 
     def get_validated_streak_map(
         self,
@@ -448,61 +480,11 @@ class StreakService:
         habits: list,
         user_timezone: str = 'UTC',
     ) -> dict[int, int] | Awaitable[dict[int, int]]:
-        """Return a validated streak count for each habit in a single batch query.
-
-        Uses one DB query via get_latest_streak_counts(), then applies
-        _is_streak_alive() per habit so broken streaks show as 0.
-        Results are cached for 5 minutes (keyed by user_id) and invalidated
-        whenever a habit completion or revert changes the underlying data.
-
-        Args:
-            user_id: User primary key.
-            habits: List of Habit model instances (must have .id, .allowed_skip_days,
-                    .exempt_weekdays attributes).
-            user_timezone: IANA timezone string for the user.
-
-        Returns:
-            Dict mapping habit_id (int) to validated streak count (0 if broken).
-        """
+        """``{habit_id: current streak}`` (0 if broken), from ``get_streak_states``."""
 
         async def _impl() -> dict[int, int]:
-            self._refresh_dependencies()
-
-            key = self.cache_key(user_id)
-            cached = await cache.aget(key)
-            if cached is not None:
-                return cached
-
-            today = get_user_today(user_timezone)
-
-            # Single DB round-trip: habit_id -> (streak_count, last_completed_date)
-            raw = await self.habit_log_repo.get_latest_streak_counts(user_id)
-
-            # Build a lookup of habit settings keyed by id
-            habit_map = {h.id: h for h in habits}
-
-            result: dict[int, int] = {}
-            for habit in habits:
-                entry = raw.get(habit.id)
-                if entry is None:
-                    result[habit.id] = 0
-                    continue
-
-                streak_count, last_completed_date = entry
-                h = habit_map.get(habit.id)
-                allowed_skip = h.allowed_skip_days if h else 0
-                exempt = h.exempt_weekdays if h else []
-
-                epoch = self.streak_epoch(h)
-                if epoch is not None and last_completed_date < epoch:
-                    result[habit.id] = 0  # only pre-epoch history: streak reset
-                elif self._is_streak_alive(last_completed_date, today, allowed_skip, exempt):
-                    result[habit.id] = 1 if last_completed_date == epoch else streak_count
-                else:
-                    result[habit.id] = 0
-
-            await cache.aset(key, result, timeout=300)
-            return result
+            states = await maybe_await(self.get_streak_states(user_id, habits, user_timezone))
+            return {habit_id: state.streak for habit_id, state in states.items()}
 
         return run_sync_or_async(_impl())
 

@@ -40,9 +40,9 @@ async def dashboard(request):
     completed_habit_ids = {log.habit_id for log in todays_logs}
     log_map = {log.habit_id: log for log in todays_logs}
 
-    # Batch-fetch validated streaks (1 query; returns 0 for broken streaks)
-    streak_map = await maybe_await(
-        streak_service.get_validated_streak_map(user.id, all_habits, tz)
+    # Batch-fetch streak states (streak 0 if broken; freezes spent or predicted)
+    states = await maybe_await(
+        streak_service.get_streak_states(user.id, all_habits, tz)
     )
 
     # Build habit list with streak and completion info
@@ -51,7 +51,8 @@ async def dashboard(request):
     total_points = 0
 
     for habit in all_habits:
-        streak = streak_map.get(habit.id, 0)
+        state = states.get(habit.id)
+        streak = state.streak if state else 0
         is_completed = habit.id in completed_habit_ids
         if is_completed:
             completed_count += 1
@@ -66,7 +67,7 @@ async def dashboard(request):
             reward_chance = round(100 - log.total_weight_applied)
         else:
             # Chance of the next completion (feature 0048: streak only).
-            next_streak = streak + 1 if streak > 0 else 1
+            next_streak = state.next_streak if state else 1
             reward_chance = round(reward_service.calculate_reward_chance(next_streak))
 
         habits.append({
@@ -77,6 +78,9 @@ async def dashboard(request):
             "completedToday": is_completed,
             "rewardChance": reward_chance,
             "todayResult": today_result,
+            "freezeCount": state.freeze_count if state else 0,
+            "freezeUsedFor": state.freeze_used_for.isoformat() if state and state.freeze_used_for else None,
+            "freezeAtRisk": bool(state and state.freeze_at_risk),
         })
 
     # Sort: incomplete first, then completed

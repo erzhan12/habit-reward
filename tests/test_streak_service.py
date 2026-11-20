@@ -14,6 +14,10 @@ def streak_service():
     service = StreakService()
     # Prevent _refresh_dependencies from overriding mocked repos in tests
     service._refresh_dependencies = Mock()
+    # No freeze events by default (feature 0048); tests needing them set these.
+    service.freeze_event_repo = Mock()
+    service.freeze_event_repo.get_spent_dates_for_habit.return_value = set()
+    service.freeze_event_repo.get_held_earned.return_value = None
     return service
 
 
@@ -48,6 +52,7 @@ def create_mock_habit(allowed_skip_days: int = 0, exempt_weekdays: list = None):
     mock_habit.allowed_skip_days = allowed_skip_days
     mock_habit.exempt_weekdays = exempt_weekdays if exempt_weekdays is not None else []
     mock_habit.streak_epoch = None
+    mock_habit.freeze_count = 0
     return mock_habit
 
 

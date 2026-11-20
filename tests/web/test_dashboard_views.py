@@ -5,6 +5,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.services.streak_service import StreakState
 from tests.web.conftest import (
     INERTIA_HEADERS,
     _inertia_props,
@@ -12,6 +13,17 @@ from tests.web.conftest import (
     _mock_habit_log,
     _mock_progress,
 )
+
+
+def _state(streak, **freeze):
+    """StreakState as get_streak_states returns it (streak 0 = broken)."""
+    return StreakState(
+        streak=streak,
+        next_streak=streak + 1 if streak > 0 else 1,
+        freeze_count=freeze.get("freeze_count", 0),
+        freeze_used_for=freeze.get("freeze_used_for"),
+        freeze_at_risk=freeze.get("freeze_at_risk", False),
+    )
 
 
 class TestDashboard:
@@ -23,7 +35,7 @@ class TestDashboard:
     def test_dashboard_returns_200(self, mock_hs, mock_repo, mock_ss, auth_client):
         mock_hs.get_all_active_habits.return_value = []
         mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
-        mock_ss.get_validated_streak_map.return_value = {}
+        mock_ss.get_streak_states.return_value = {}
         response = auth_client.get("/")
         assert response.status_code == 200
 
@@ -34,7 +46,7 @@ class TestDashboard:
         habit = _mock_habit()
         mock_hs.get_all_active_habits.return_value = [habit]
         mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
-        mock_ss.get_validated_streak_map.return_value = {1: 5}
+        mock_ss.get_streak_states.return_value = {1: _state(5)}
         response = auth_client.get("/")
         assert response.status_code == 200
 
@@ -236,7 +248,7 @@ class TestPropStructure:
         mock_hs.get_all_active_habits.return_value = [habit]
         log = _mock_habit_log(habit_id=1)
         mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[log])
-        mock_ss.get_validated_streak_map.return_value = {1: 3}
+        mock_ss.get_streak_states.return_value = {1: _state(3)}
 
         response = auth_client.get("/", **INERTIA_HEADERS)
         component, props = _inertia_props(response)
@@ -262,7 +274,7 @@ class TestPropStructure:
         mock_hs.get_all_active_habits.return_value = [habit]
         log = _mock_habit_log(habit_id=1, got_reward=True, reward_name="Coffee")
         mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[log])
-        mock_ss.get_validated_streak_map.return_value = {1: 3}
+        mock_ss.get_streak_states.return_value = {1: _state(3)}
 
         response = auth_client.get("/", **INERTIA_HEADERS)
         _, props = _inertia_props(response)
@@ -284,7 +296,7 @@ class TestPropStructure:
         Weight and user.no_reward_probability play no part (feature 0048)."""
         mock_hs.get_all_active_habits.return_value = [_mock_habit(id=1, weight=weight)]
         mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
-        mock_ss.get_validated_streak_map.return_value = {1: streak}
+        mock_ss.get_streak_states.return_value = {1: _state(streak)}
 
         _, props = _inertia_props(auth_client.get("/", **INERTIA_HEADERS))
         assert props["habits"][0]["rewardChance"] == expected
@@ -299,10 +311,28 @@ class TestPropStructure:
         mock_hs.get_all_active_habits.return_value = [_mock_habit(id=1)]
         log = _mock_habit_log(habit_id=1, total_weight_applied=13.0)  # pre-deploy log: 87%
         mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[log])
-        mock_ss.get_validated_streak_map.return_value = {1: 1}
+        mock_ss.get_streak_states.return_value = {1: _state(1)}
 
         _, props = _inertia_props(auth_client.get("/", **INERTIA_HEADERS))
         assert props["habits"][0]["rewardChance"] == 87
+
+    @patch("src.web.views.dashboard.streak_service")
+    @patch("src.web.views.dashboard.habit_log_repository")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_dashboard_freeze_props(self, mock_hs, mock_repo, mock_ss, auth_client):
+        """Freeze fields come from get_streak_states (feature 0048 §7)."""
+        mock_hs.get_all_active_habits.return_value = [_mock_habit(id=1), _mock_habit(id=2)]
+        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
+        mock_ss.get_streak_states.return_value = {
+            1: _state(4, freeze_used_for=date(2026, 11, 17)),
+            2: _state(2, freeze_count=1, freeze_at_risk=True),
+        }
+
+        _, props = _inertia_props(auth_client.get("/", **INERTIA_HEADERS))
+        by_id = {h["id"]: h for h in props["habits"]}
+        assert (by_id[1]["freezeCount"], by_id[1]["freezeUsedFor"], by_id[1]["freezeAtRisk"]) == (0, "2026-11-17", False)
+        assert (by_id[2]["freezeCount"], by_id[2]["freezeUsedFor"], by_id[2]["freezeAtRisk"]) == (1, None, True)
+        assert (by_id[1]["rewardChance"], by_id[2]["rewardChance"]) == (36, 29)
 
     @patch("src.web.views.rewards.reward_service")
     def test_rewards_prop_structure(self, mock_rs, auth_client):
@@ -394,7 +424,7 @@ class TestDashboardTimezone:
         mock_today.return_value = fake_date
         mock_hs.get_all_active_habits.return_value = []
         mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
-        mock_ss.get_validated_streak_map.return_value = {}
+        mock_ss.get_streak_states.return_value = {}
 
         user.timezone = tz
         user.save()

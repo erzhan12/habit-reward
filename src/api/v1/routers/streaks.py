@@ -25,6 +25,7 @@ class HabitStreakResponse(BaseModel):
     habit_name: str
     current_streak: int
     last_completed: date | None
+    freeze_count: int = 0  # effective inventory (feature 0048 §7)
 
 
 class HabitStreakDetailResponse(BaseModel):
@@ -34,6 +35,7 @@ class HabitStreakDetailResponse(BaseModel):
     current_streak: int
     longest_streak: int
     last_completed: date | None
+    freeze_count: int = 0  # effective inventory (feature 0048 §7)
 
 
 class StreakListResponse(BaseModel):
@@ -61,12 +63,13 @@ async def get_all_streaks(
     # Get all active habits
     habits = await maybe_await(habit_repository.get_all_active(current_user.id))
 
+    states = await maybe_await(
+        streak_service.get_streak_states(current_user.id, habits, current_user.timezone or "UTC")
+    )
+
     streaks = []
     for habit in habits:
-        # Get current streak
-        current_streak = await maybe_await(
-            streak_service.get_current_streak(current_user.id, habit.id, current_user.timezone or "UTC")
-        )
+        state = states.get(habit.id)
 
         # Get last completed date
         last_completed = await maybe_await(
@@ -76,8 +79,9 @@ async def get_all_streaks(
         streaks.append(HabitStreakResponse(
             habit_id=habit.id,
             habit_name=habit.name,
-            current_streak=current_streak,
-            last_completed=last_completed
+            current_streak=state.streak if state else 0,
+            last_completed=last_completed,
+            freeze_count=state.freeze_count if state else 0,
         ))
 
     return StreakListResponse(streaks=streaks, total=len(streaks))
@@ -113,10 +117,10 @@ async def get_habit_streak(
     if habit.user_id != current_user.id:
         raise ForbiddenException(message="Access denied", code="NOT_OWNER")
 
-    # Get current streak
-    current_streak = await maybe_await(
-        streak_service.get_current_streak(current_user.id, habit_id, current_user.timezone or "UTC")
+    states = await maybe_await(
+        streak_service.get_streak_states(current_user.id, [habit], current_user.timezone or "UTC")
     )
+    state = states.get(habit.id)
 
     # Get last completed date
     last_completed = await maybe_await(
@@ -136,7 +140,8 @@ async def get_habit_streak(
     return HabitStreakDetailResponse(
         habit_id=habit.id,
         habit_name=habit.name,
-        current_streak=current_streak,
+        current_streak=state.streak if state else 0,
         longest_streak=longest_streak,
-        last_completed=last_completed
+        last_completed=last_completed,
+        freeze_count=state.freeze_count if state else 0,
     )

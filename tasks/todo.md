@@ -25,8 +25,8 @@ Branch `feature/0048-streak-freeze`, stacked on PR A. Released together with PR 
   - Gap with no counted predecessor: its SPENT events are left untouched (no streak to protect; avoids returning a freeze won by an undone first completion)
   - Admin `HabitAdmin` settings edits still write directly; routed through `update_habit` in slice 7
 - [x] 5. Burn job + scheduler + `FREEZE_SPENT_NOTICE` (§3): `FreezeService.burn_due_freezes`, `src/bot/freeze_scheduler.py`, registered in webhook init and polling `main`. Notice date format `DD.MM` (language-neutral)
-- [ ] 6. Read paths: `get_streak_states`, prediction, cache v3, dashboard/streaks/API fields
-  - Until then read paths ignore SPENT events (dashboard can show 0 where a completion gives prev + 1)
+- [x] 6. Read paths: `trailing_streak_state` + `get_streak_states` (prediction, cache v3), single-habit streak calls on the gap engine, dashboard (`freezeCount`/`freezeUsedFor`/`freezeAtRisk`), web streaks + `/v1/streaks` (`freezeCount`/`freeze_count`, batched), API completion fields (`reward_chance`, `freeze_won/used/covered_date`), `HabitResponse.freeze_count` (raw)
+  - Local-only audit tests still patched the old async `select_reward`; now patch `select_reward_sync`
 - [ ] 7. UI: bot strings, web flash/❄️/hints, admin grant/remove, read-only `HabitLogAdmin`
   - Bot busy text is English inside `ERROR_GENERAL`; add a translated `ERROR_BUSY`
 - [ ] 8. Docs + manual check on a DB copy

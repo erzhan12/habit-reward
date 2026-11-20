@@ -67,6 +67,7 @@ class TestGetHabit:
         assert data["id"] == mock_habit.id
         assert data["name"] == mock_habit.name
         assert data["weight"] == mock_habit.weight
+        assert data["freeze_count"] == 0
 
     @patch("src.api.v1.routers.habits.habit_repository")
     def test_get_habit_not_found(self, mock_repo, client):
@@ -281,6 +282,28 @@ class TestCompleteHabit:
         assert data["habit_confirmed"] is True
         assert data["habit_name"] == mock_habit.name
         assert data["streak_count"] == 5
+
+    @patch("src.api.v1.routers.habits.habit_service")
+    @patch("src.api.v1.routers.habits.habit_repository")
+    def test_complete_habit_freeze_fields(self, mock_repo, mock_service, client, mock_habit):
+        """Feature 0048 fields come from the real result model."""
+        from datetime import date
+
+        from src.models.habit_completion_result import HabitCompletionResult
+
+        mock_repo.get_by_id = AsyncMock(return_value=mock_habit)
+        mock_service.process_habit_completion = AsyncMock(return_value=HabitCompletionResult(
+            habit_confirmed=True, habit_name=mock_habit.name, streak_count=4,
+            total_weight_applied=64.0, reward_chance=36.0, freeze_won=True,
+            freeze_used=True, freeze_covered_date=date(2026, 11, 17),
+        ))
+
+        response = client.post(f"/v1/habits/{mock_habit.id}/complete", json={})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert (data["reward_chance"], data["total_weight_applied"]) == (36.0, 64.0)
+        assert (data["freeze_won"], data["freeze_used"], data["freeze_covered_date"]) == (True, True, "2026-11-17")
 
     @patch("src.api.v1.routers.habits.habit_service")
     @patch("src.api.v1.routers.habits.habit_repository")

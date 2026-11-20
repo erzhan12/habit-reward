@@ -3,6 +3,12 @@
 from datetime import date
 from unittest.mock import patch, AsyncMock, MagicMock
 
+from src.services.streak_service import StreakState
+
+
+def _state(streak, freeze_count=0):
+    return StreakState(streak, streak + 1 if streak else 1, freeze_count, None, False)
+
 
 class TestGetAllStreaks:
     """Test GET /v1/streaks endpoint."""
@@ -14,7 +20,7 @@ class TestGetAllStreaks:
     ):
         """Test getting streaks for all habits."""
         mock_habit_repo.get_all_active = AsyncMock(return_value=[mock_habit])
-        mock_streak_service.get_current_streak = AsyncMock(return_value=5)
+        mock_streak_service.get_streak_states = AsyncMock(return_value={1: _state(5)})
         mock_streak_service.get_last_completed_date = AsyncMock(
             return_value=date.today()
         )
@@ -59,12 +65,9 @@ class TestGetAllStreaks:
 
         mock_habit_repo.get_all_active = AsyncMock(return_value=[mock_habit, habit2])
 
-        # Different streaks for different habits
-        def get_streak_side_effect(user_id, habit_id, user_timezone="UTC"):
-            return 5 if habit_id == 1 else 10
-
-        mock_streak_service.get_current_streak = AsyncMock(
-            side_effect=get_streak_side_effect
+        # Different streaks for different habits, one batch call
+        mock_streak_service.get_streak_states = AsyncMock(
+            return_value={1: _state(5), 2: _state(10, freeze_count=1)}
         )
         mock_streak_service.get_last_completed_date = AsyncMock(
             return_value=date.today()
@@ -76,6 +79,9 @@ class TestGetAllStreaks:
         data = response.json()
         assert data["total"] == 2
         assert len(data["streaks"]) == 2
+        by_id = {row["habit_id"]: row for row in data["streaks"]}
+        assert (by_id[1]["current_streak"], by_id[1]["freeze_count"]) == (5, 0)
+        assert (by_id[2]["current_streak"], by_id[2]["freeze_count"]) == (10, 1)
 
     @patch("src.api.v1.routers.streaks.streak_service")
     @patch("src.api.v1.routers.streaks.habit_repository")
@@ -84,7 +90,7 @@ class TestGetAllStreaks:
     ):
         """Test getting streaks for habits with no completions."""
         mock_habit_repo.get_all_active = AsyncMock(return_value=[mock_habit])
-        mock_streak_service.get_current_streak = AsyncMock(return_value=0)
+        mock_streak_service.get_streak_states = AsyncMock(return_value={1: _state(0)})
         mock_streak_service.get_last_completed_date = AsyncMock(return_value=None)
 
         response = client.get("/v1/streaks")
@@ -120,7 +126,7 @@ class TestGetHabitStreak:
     ):
         """Test getting detailed streak for a specific habit."""
         mock_habit_repo.get_by_id = AsyncMock(return_value=mock_habit)
-        mock_streak_service.get_current_streak = AsyncMock(return_value=5)
+        mock_streak_service.get_streak_states = AsyncMock(return_value={1: _state(5)})
         mock_streak_service.get_last_completed_date = AsyncMock(
             return_value=date.today()
         )
@@ -176,7 +182,7 @@ class TestGetHabitStreak:
     ):
         """Test getting streak for habit with no completions."""
         mock_habit_repo.get_by_id = AsyncMock(return_value=mock_habit)
-        mock_streak_service.get_current_streak = AsyncMock(return_value=0)
+        mock_streak_service.get_streak_states = AsyncMock(return_value={1: _state(0)})
         mock_streak_service.get_last_completed_date = AsyncMock(return_value=None)
         mock_log_repo.get_logs_by_user = AsyncMock(return_value=[])
 
@@ -196,7 +202,7 @@ class TestGetHabitStreak:
     ):
         """Test that longest streak calculation only considers the specific habit."""
         mock_habit_repo.get_by_id = AsyncMock(return_value=mock_habit)
-        mock_streak_service.get_current_streak = AsyncMock(return_value=3)
+        mock_streak_service.get_streak_states = AsyncMock(return_value={1: _state(3)})
         mock_streak_service.get_last_completed_date = AsyncMock(
             return_value=date.today()
         )
