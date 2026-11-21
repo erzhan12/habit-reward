@@ -87,6 +87,13 @@ const label = computed(() => {
 
 const curve = computed(() => (Array.isArray(props.chance?.curve) ? props.chance.curve : []));
 
+// Cap from the server; if it is missing or not a number, the curve's last
+// value is the level it settles at.
+const cap = computed(() => {
+  const value = props.chance?.cap;
+  return Number.isFinite(value) ? value : curve.value[curve.value.length - 1];
+});
+
 // Chance on streak day `day`, clamping days past the end of the curve.
 function chanceOn(day) {
   const c = curve.value;
@@ -102,12 +109,11 @@ const hint = computed(() => {
   if (props.completed) {
     return `Today's roll was at ${props.rewardChance}%. Next completion ${next}%.`;
   }
-  const cap = props.chance.cap;
-  if (next >= cap) {
-    return `You're at the top: ${cap}% on every completion while the streak holds. ${restart}`;
+  if (next >= cap.value) {
+    return `You're at the top: ${cap.value}% on every completion while the streak holds. ${restart}`;
   }
   const after = chanceOn(props.nextStreak + 1);
-  return `Next completion ${next}%, the one after ${after}%. Levels off near ${cap}%. ${restart}`;
+  return `Next completion ${next}%, the one after ${after}%. Levels off near ${cap.value}%. ${restart}`;
 });
 
 const W = 120;
@@ -117,7 +123,7 @@ const PAD = 3;
 function toPoint(index, value) {
   const c = curve.value;
   const min = c[0];
-  const max = Math.max(props.chance?.cap ?? c[c.length - 1], min + 1);
+  const max = Math.max(cap.value, min + 1);
   const x = PAD + (index / Math.max(c.length - 1, 1)) * (W - 2 * PAD);
   const y = H - PAD - ((value - min) / (max - min)) * (H - 2 * PAD);
   return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };

@@ -69,6 +69,14 @@ describe("OddsChip", () => {
     );
   });
 
+  it("falls back to the curve's last value when the cap is missing", async () => {
+    const wrapper = mountChip({ chance: { curve: CURVE } });
+    await wrapper.get("button").trigger("click");
+    expect(wrapper.get('[data-testid="odds-hint"]').text()).toBe(
+      "Next completion 40%, the one after 42%. Levels off near 50%. If the streak breaks, it starts again at 20%.",
+    );
+  });
+
   it("works without the chance curve", async () => {
     const wrapper = mountChip({ chance: null });
     expect(wrapper.get("button").text()).toBe("🎲 40% next");
