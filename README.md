@@ -1,11 +1,12 @@
 # Habit Reward System
 
-A gamified habit-reward system that tracks habits with per-habit streaks, uses a subtractive reward probability system where habit weights and streaks reduce the no-reward chance, and supports cumulative rewards with lifecycle status tracking.
+A gamified habit-reward system that tracks habits with per-habit streaks, raises the reward chance with the streak (20% up to 50%), lets a habit win a streak freeze that covers one missed day, and supports cumulative rewards with lifecycle status tracking.
 
 ## Features
 
 - **Per-Habit Streak Tracking**: Each habit maintains its own streak independently
-- **Weighted Random Rewards**: Variable ratio reward system with subtractive no-reward probability
+- **Weighted Random Rewards**: Variable ratio reward system; the reward chance grows with the streak
+- **Streak Freeze**: A completion without a prize can win a freeze (❄️) that saves the streak after one missed day
 - **Cumulative Rewards**: Collect pieces toward larger rewards with status tracking (🕒 Pending, ⏳ Achieved, ✅ Completed)
 - **Telegram Bot Interface**: Easy-to-use bot for logging habits and managing rewards
 - **OpenAI NLP Integration**: Natural language processing for habit classification
@@ -146,6 +147,17 @@ Each habit maintains its own streak:
 4. Missed days: reset to 1 (`allowed_skip_days` and `exempt_weekdays` can keep it alive)
 
 **Launch reset (feature 0048).** Every habit that existed when 0048 shipped has a `streak_epoch`: the user-local date of the deploy. Completions before it no longer count toward the current streak, and a completion on that day counts as day 1. No logs were deleted, so "longest streak" stats still show old records. Habits created later have no epoch.
+
+### Streak Freeze
+
+A completion that wins no prize has a 10% chance (`FREEZE_DROP_CHANCE`) to win a streak freeze for that habit. A habit holds at most one (`MAX_FREEZES_PER_HABIT`). The dashboard and `/streaks` show it as ❄️.
+
+- The freeze covers the first missed day that the skip allowance (`allowed_skip_days`, exempt weekdays) does not cover. It is spent automatically after that day ends in the user's timezone: a bot job runs every 15 minutes (`FREEZE_JOB_INTERVAL_SECONDS`) and sends one "freeze covered <date>" message per user. If the job was down, the next completion spends it instead, with the same result.
+- A freeze covers one day only. If more days are missed, it is still spent and the streak starts over.
+- A freeze cannot cover the day it was won on or an earlier day (a backdated completion that wins one cannot rescue its own gap).
+- Undoing the completion that won a freeze removes it if it is still held. Backdating the day a freeze covered returns the freeze.
+- Admins can grant or remove a freeze from the Habit admin. Habit logs are read-only in admin except for the revert action.
+- Reads never spend a freeze: the dashboard predicts a due spend with the same rule the job uses, so it shows the same streak before and after the job runs. Hints on the card warn "skip today and your freeze will be used tonight" and "freeze used for <date>".
 
 ### Reward Probability Formula
 

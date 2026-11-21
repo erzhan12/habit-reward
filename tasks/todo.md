@@ -32,7 +32,11 @@ Branch `feature/0048-streak-freeze`, stacked on PR A. Released together with PR 
   - Admin write denials are scoped to the model's own admin views (`_on_own_view`): a blanket `has_delete_permission=False` would block Habit/User delete cascades
   - `HabitAdmin` exposes no streak settings, so there is nothing to route through `update_habit` there
   - kk freeze strings still need a native-speaker review
-- [ ] 8. Docs + manual check on a DB copy
+- [x] 8. Docs + manual check on a DB copy
+  - [x] Docs: README (intro, Streak Freeze), RULES (Streak Freeze section, cache v3), API field descriptions
+  - [x] Manual check on a DB copy (local dev DB, 0 duplicate logs; 0031-0033 applied): prediction before = after the job, catch-up spend, job notice once (silent for burned), web toast, undo keeps the spend, backdate returns the freeze, admin grant, web/bot ❄️ + legend, HabitLog admin read-only
+  - Production: re-run the duplicate pre-flight before deploying 0033
+  - Found, pre-existing: `format_streaks_message` hardcodes English "days" (RU/KK show "5 days")
 
 ## Follow-ups
 

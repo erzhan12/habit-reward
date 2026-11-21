@@ -622,7 +622,18 @@ select_reward(effective_no_reward_probability = 100 − reward_chance(s))
 - Use `StreakService.counted_log(log, habit)` / `StreakService.effective_streak(log, habit)` whenever reading a predecessor's streak. Never rewrite pre-epoch or epoch-day `streak_count` rows: "longest streak" stats (`Max(streak_count)`) rely on them.
 - `recalculate_streaks_after_backdate` starts at `max(backdate_date, epoch)` and skips the epoch-day log. Call the helpers via the `StreakService` class in `habit_service` (tests replace the `streak_service` instance with a `MagicMock`).
 - Test fixtures that build `Mock()` habits for the streak engine must set `streak_epoch = None`.
-- Streak cache key is `streaks:v2:{user_id}` (the cache is file-based and survives restarts).
+- Streak cache key is `streaks:v3:{user_id}` (the cache is file-based and survives restarts; bump the version whenever the cached shape changes).
+
+## Streak Freeze (feature 0048 PR B, migrations 0032, 0033)
+
+- Data: `Habit.freeze_count` (0..`MAX_FREEZES_PER_HABIT`=1, DB check constraint) and `HabitFreezeEvent` (EARNED with state held/spent/forfeited; SPENT with `covered_date`, unique per habit and day). Invariant: `freeze_count == 1` iff a held EARNED exists or an untracked (admin) freeze is held; at most one held EARNED per habit. `0033` adds `uniq_habitlog_habit_day`; re-run the duplicate pre-flight on the production DB before deploying it.
+- One gap engine in `streak_service`: `missed_days`, `evaluate_gap` (`GapOutcome` CONTINUE / FREEZE_SAVED / FREEZE_BURNED / RESET), `find_due_spend`, `freeze_usable_predicate` (a freeze won on day W covers only days after W; untracked = any day). Do not add another missed-day loop.
+- Writers run as one transaction via `run_in_transaction` / `run_in_transaction_sync` (habit row locked, jittered retry, `ServiceBusyError` after the last try): completion (catch-up spend → streak → roll → freeze roll), revert, settings edits (`update_habit` reconciles), the burn job (`FreezeService.burn_due_freezes`, `src/bot/freeze_scheduler.py`) and admin Grant/Remove. Invalidate the streak cache with `transaction.on_commit`.
+- Readers never write. `StreakService.get_streak_states` returns `StreakState` (streak, next_streak, effective freeze_count, freeze_used_for, freeze_at_risk) and predicts a spend the job has not done yet. `HabitResponse.freeze_count` in the API is the raw DB value; `/v1/streaks` and the web use the effective one.
+- UI: bot strings `FREEZE_*`, `INFO_STREAK_FREEZE_LEGEND`, `ERROR_BUSY` (map busy errors with `format_service_error`, never string-match them); dates are `DD.MM` in the bot (`format_short_date`) and `17 Nov` on the web. Result flags (`freeze_won`, …) are compared with `is True` because tests pass `MagicMock` results.
+- Admin: `HabitLogAdmin` / `HabitFreezeEventAdmin` deny writes only on their own views (`_on_own_view`); a blanket `has_delete_permission=False` blocks Habit/User delete cascades. `HabitAdmin.save_model` must never write `freeze_count`.
+
+**Key files**: `src/services/freeze_service.py`, `src/services/streak_service.py`, `src/services/habit_service.py`, `src/bot/freeze_scheduler.py`, `src/core/admin.py`, tests `tests/test_streak_states.py`, `tests/test_freeze_burn_job.py`, `tests/test_freeze_reconciliation.py`, `tests/test_admin_freeze.py`.
 
 ## Claimed Rewards & `times_claimed` Counter
 

@@ -39,7 +39,10 @@ class HabitResponse(BaseModel):
     active: bool
     # Freezes in the DB inventory (feature 0048). May still include a freeze whose
     # guard day has ended until the burn job runs; /streaks reports the effective count.
-    freeze_count: int = 0
+    freeze_count: int = Field(
+        0, description="Streak freezes in the DB inventory (0-1). Can lag until the burn job runs; "
+        "/v1/streaks reports the effective count."
+    )
 
     class Config:
         from_attributes = True
@@ -84,10 +87,10 @@ class HabitCompletionResponse(BaseModel):
     cumulative_progress: RewardProgressResponse | None = None
     user_timezone: str = "UTC"
     # Feature 0048 (additive). total_weight_applied stays 100 - reward_chance.
-    reward_chance: float = 0.0
-    freeze_won: bool = False
-    freeze_used: bool = False
-    freeze_covered_date: date | None = None
+    reward_chance: float = Field(0.0, description="Reward chance % that applied to this completion")
+    freeze_won: bool = Field(False, description="This completion won a streak freeze")
+    freeze_used: bool = Field(False, description="A freeze covered the missed day and the streak continued")
+    freeze_covered_date: date | None = Field(None, description="The missed day a freeze covered, if any")
 
 
 def _freeze_fields(result) -> dict:

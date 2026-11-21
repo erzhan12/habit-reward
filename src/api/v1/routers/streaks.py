@@ -5,7 +5,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.api.dependencies.auth import get_current_active_user
 from src.api.exceptions import NotFoundException, ForbiddenException
@@ -25,7 +25,7 @@ class HabitStreakResponse(BaseModel):
     habit_name: str
     current_streak: int
     last_completed: date | None
-    freeze_count: int = 0  # effective inventory (feature 0048 §7)
+    freeze_count: int = Field(0, description="Effective streak freezes held (a due spend is already deducted)")
 
 
 class HabitStreakDetailResponse(BaseModel):
@@ -35,7 +35,7 @@ class HabitStreakDetailResponse(BaseModel):
     current_streak: int
     longest_streak: int
     last_completed: date | None
-    freeze_count: int = 0  # effective inventory (feature 0048 §7)
+    freeze_count: int = Field(0, description="Effective streak freezes held (a due spend is already deducted)")
 
 
 class StreakListResponse(BaseModel):
