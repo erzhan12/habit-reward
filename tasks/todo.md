@@ -55,3 +55,33 @@ Raised by claude-review on PR #58 (P2 TESTING). Mount `HabitCard.vue` with `inte
 ### Narrow broad `except Exception` to `telegram.error.TelegramError` in habit_management_handler
 
 Raised by claude-review on PR #64 (P3 QUALITY). The deletion try/except at `src/bot/handlers/habit_management_handler.py:1494` uses a broad `except Exception`. The reviewer notes the change "should be applied consistently across the file, not just in this one location" — i.e. a file-wide refactor of every defensive `except Exception` block that wraps a `python-telegram-bot` API call (importing `from telegram import error` and catching `telegram.error.TelegramError`). Scope is much larger than this PR; deserves its own focused PR that audits all such blocks, decides whether `TelegramError` is genuinely the only expected class (vs. e.g. asyncio cancellation), and updates them uniformly.
+
+### Translate "days" in `/streaks`
+
+Pre-existing, found during the 0048 manual check and raised again by claude-review on PR #108 (P3 DOCS). `format_streaks_message` hardcodes English "days", so RU/KK users see "5 days". Add a `STREAK_DAYS_UNIT` key (with plural forms for ru/kk) to `messages.py` and use it in the formatter.
+
+### Kazakh freeze strings review + kk formatter tests
+
+0048 PR B (claude-review P2 TESTING on PR #108). The kk freeze strings (`FREEZE_*`, `INFO_STREAK_FREEZE_LEGEND`, `ERROR_BUSY`) are unreviewed. After a native-speaker pass, add `language="kk"` cases for `format_habit_completion_message` and `format_streaks_message`.
+
+### Streaks API performance
+
+claude-review on PR #108 (P1 PERFORMANCE, pre-existing on main). `GET /v1/streaks` calls `get_last_completed_date` once per habit (N+1); `GET /v1/streaks/{habit_id}` loads up to 1000 logs to take `max(streak_count)`. Return the last completed date from the `get_streak_states` batch and use `get_longest_streak_in_range` (one `MAX()`).
+
+### Cap batch-complete size and validate exempt weekdays
+
+claude-review on PR #108 (pre-existing on main). `BatchCompletionRequest.completions` is unbounded, and each item is a write transaction; add a `max_length` (API contract change, document it). The habit create/update endpoints accept duplicate `exempt_weekdays` values. `max_backdate_days = 7` is duplicated between `habit_service` and the bot backdate handler; move it to settings.
+
+### Freeze code cleanups (0048 review P2/P3)
+
+From the external review and claude-review on PR #108:
+- Make `HabitService._revert_log_sync` public; the admin calls it directly.
+- Optional `user_id` filter on `HabitLogRepository.get_log_for_habit_on_date_sync`, matching the async twin.
+- Comment why `habit.freeze_count` stays stale in memory after `spend_sync` loses the uniqueness race.
+- `settle_due_spend_sync` could return the last log so `_burn_one_sync` does not re-query it.
+- One helper for the repeated `transaction.on_commit(partial(cache.delete, ...))`.
+- Burn job ignores `user.is_active`; decide whether inactive users should still spend and get notices.
+- Multi-date burn notice repeats the dates (in `{date}` and per habit).
+- `/streaks` mixes uncached `get_all_streaks_for_user` with cached `get_streak_states`; subset calls overwrite the per-user cache key.
+- Tests: direct `roll()` boundary / `should_roll` tests, the `max_daily_claims=1` + freeze-roll regression, job-vs-backdate contention on separate connections.
+- PostgreSQL lock-marker tests in `is_lock_error`, if the app ever moves off SQLite.
