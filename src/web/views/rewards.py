@@ -38,6 +38,11 @@ async def rewards_page(request):
             "isRecurring": reward.is_recurring,
         })
 
+    # Web only (feature 0049): ready-to-claim rewards first, so the actionable
+    # card is on screen. Stable sort keeps the service order (zero-piece,
+    # pending by progress) for the rest; the service and the bot keep theirs.
+    rewards.sort(key=lambda r: r["status"] != "ACHIEVED")
+
     # Get claimed rewards (any reward with times_claimed > 0)
     claimed_list = await maybe_await(
         reward_service.get_claimed_rewards(str(user.id))

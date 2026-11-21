@@ -10,80 +10,75 @@ vi.mock("@inertiajs/vue3", () => ({
 import { router } from "@inertiajs/vue3";
 import Layout from "../src/components/Layout.vue";
 
+function mountLayout() {
+  return mount(Layout, {
+    global: {
+      stubs: {
+        BottomNav: true,
+        FlashMessages: true,
+      },
+    },
+  });
+}
+
+// router.post returns void; Layout drives its state from the onStart/onFinish
+// options, so the tests invoke the captured callbacks directly.
+function lastPostOptions() {
+  const calls = router.post.mock.calls;
+  return calls[calls.length - 1][2];
+}
+
 describe("Layout.vue", () => {
   afterEach(() => {
     vi.clearAllMocks();
   });
 
   it("calls logout endpoint when logout button is clicked", async () => {
-    const wrapper = mount(Layout, {
-      global: {
-        stubs: {
-          BottomNav: true,
-          FlashMessages: true,
-        },
-      },
-    });
+    const wrapper = mountLayout();
 
     const logoutButton = wrapper.find('button[aria-label="Log out of your account"]');
     expect(logoutButton.exists()).toBe(true);
 
     await logoutButton.trigger("click");
 
-    expect(router.post).toHaveBeenCalledWith("/auth/logout/");
+    expect(router.post).toHaveBeenCalledWith("/auth/logout/", {}, expect.any(Object));
   });
 
-  it("logs error and re-enables button when logout fails", async () => {
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    router.post.mockRejectedValue(new Error("Network failure"));
-
-    const wrapper = mount(Layout, {
-      global: {
-        stubs: {
-          BottomNav: true,
-          FlashMessages: true,
-        },
-      },
-    });
-
+  it("disables logout buttons while logging out", async () => {
+    const wrapper = mountLayout();
     const logoutButton = wrapper.find('button[aria-label="Log out of your account"]');
-    await logoutButton.trigger("click");
-    await vi.waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith("Logout failed:", expect.any(Error));
-    });
-
-    // Button should be re-enabled after error
-    expect(logoutButton.attributes("disabled")).toBeUndefined();
-    expect(wrapper.text()).toContain("Logout");
-
-    // Should show error message to user
-    expect(wrapper.text()).toContain("Logout failed");
-
-    consoleSpy.mockRestore();
-  });
-
-  it("disables logout button while logging out", async () => {
-    // Make router.post return a pending promise so isLoggingOut stays true
-    router.post.mockReturnValue(new Promise(() => {}));
-
-    const wrapper = mount(Layout, {
-      global: {
-        stubs: {
-          BottomNav: true,
-          FlashMessages: true,
-        },
-      },
-    });
-
-    const logoutButton = wrapper.find('button[aria-label="Log out of your account"]');
-
     expect(logoutButton.attributes("disabled")).toBeUndefined();
 
-    // Click should set loading state
     await logoutButton.trigger("click");
+    lastPostOptions().onStart();
     await wrapper.vm.$nextTick();
 
-    // Button text should change
     expect(wrapper.text()).toContain("Logging out");
+    for (const btn of wrapper.findAll('button[aria-label="Log out of your account"]')) {
+      expect(btn.attributes("disabled")).toBeDefined();
+      expect(btn.attributes("aria-busy")).toBe("true");
+    }
+  });
+
+  it("re-enables the button when the request finishes", async () => {
+    const wrapper = mountLayout();
+    const logoutButton = wrapper.find('button[aria-label="Log out of your account"]');
+
+    await logoutButton.trigger("click");
+    const opts = lastPostOptions();
+    opts.onStart();
+    await wrapper.vm.$nextTick();
+    opts.onFinish();
+    await wrapper.vm.$nextTick();
+
+    expect(logoutButton.attributes("disabled")).toBeUndefined();
+    expect(wrapper.text()).not.toContain("Logging out");
+    expect(wrapper.text()).toContain("Logout");
+  });
+
+  it("renders a logout button for mobile widths", () => {
+    const wrapper = mountLayout();
+    // sidebar (desktop) + mobile top bar
+    expect(wrapper.findAll('button[aria-label="Log out of your account"]').length).toBe(2);
   });
 });

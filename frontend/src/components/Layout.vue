@@ -20,15 +20,36 @@
         </Link>
       </nav>
       <!-- Desktop logout -->
-      <Link
-        href="/auth/logout/"
-        method="post"
-        as="button"
-        class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 text-text-secondary hover:text-text-primary hover:bg-bg-card-hover shrink-0"
+      <button
+        type="button"
+        aria-label="Log out of your account"
+        :aria-busy="isLoggingOut"
+        :disabled="isLoggingOut"
+        class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 text-text-secondary hover:text-text-primary hover:bg-bg-card-hover shrink-0 disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
+        @click="logout"
       >
-        <span>↩</span>
-        Logout
-      </Link>
+        <span aria-hidden="true">↩</span>
+        {{ logoutLabel }}
+      </button>
+    </header>
+
+    <!-- Mobile top bar: app name + logout (the bottom nav has no room) -->
+    <header
+      class="lg:hidden flex items-center justify-between px-4 py-2 border-b"
+      :class="sidebarClass"
+    >
+      <span class="text-base font-bold text-accent">Habit Reward</span>
+      <button
+        type="button"
+        aria-label="Log out of your account"
+        :aria-busy="isLoggingOut"
+        :disabled="isLoggingOut"
+        class="flex items-center gap-2 px-3 min-h-11 rounded-lg text-sm font-medium transition-colors duration-150 text-text-secondary hover:text-text-primary hover:bg-bg-card-hover disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
+        @click="logout"
+      >
+        <span aria-hidden="true">↩</span>
+        {{ logoutLabel }}
+      </button>
     </header>
 
     <!-- Flash messages -->
@@ -67,17 +88,38 @@
       </nav>
       <!-- Sidebar logout at bottom -->
       <div class="px-3 pb-4">
-        <Link
-          href="/auth/logout/"
-          method="post"
-          as="button"
-          class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150 w-full text-text-secondary hover:text-text-primary hover:bg-bg-card-hover"
+        <button
+          type="button"
+          aria-label="Log out of your account"
+          :aria-busy="isLoggingOut"
+          :disabled="isLoggingOut"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150 w-full text-text-secondary hover:text-text-primary hover:bg-bg-card-hover disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
+          @click="logout"
         >
-          <span class="text-lg">↩</span>
-          Logout
-        </Link>
+          <span class="text-lg" aria-hidden="true">↩</span>
+          {{ logoutLabel }}
+        </button>
       </div>
     </aside>
+
+    <!-- Mobile top bar: app name + logout (the bottom nav has no room) -->
+    <header
+      class="lg:hidden flex items-center justify-between px-4 py-2 border-b"
+      :class="sidebarClass"
+    >
+      <span class="text-base font-bold text-accent">Habit Reward</span>
+      <button
+        type="button"
+        aria-label="Log out of your account"
+        :aria-busy="isLoggingOut"
+        :disabled="isLoggingOut"
+        class="flex items-center gap-2 px-3 min-h-11 rounded-lg text-sm font-medium transition-colors duration-150 text-text-secondary hover:text-text-primary hover:bg-bg-card-hover disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
+        @click="logout"
+      >
+        <span aria-hidden="true">↩</span>
+        {{ logoutLabel }}
+      </button>
+    </header>
 
     <!-- Flash messages -->
     <FlashMessages :messages="flash" />
@@ -93,8 +135,8 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
-import { Link, usePage } from "@inertiajs/vue3";
+import { computed, ref } from "vue";
+import { Link, router, usePage } from "@inertiajs/vue3";
 import BottomNav from "./BottomNav.vue";
 import FlashMessages from "./FlashMessages.vue";
 import { useTheme } from "../composables/useTheme.js";
@@ -106,6 +148,24 @@ useDayChange();
 const flash = computed(() => page.props.flash || []);
 
 const { themeConfig } = useTheme();
+
+// One logout handler for the sidebar, topbar and mobile buttons.
+// router.post returns void: onStart/onFinish are the only reliable signals
+// (onError fires for validation errors only, which logout never returns).
+const isLoggingOut = ref(false);
+const logoutLabel = computed(() => (isLoggingOut.value ? "Logging out…" : "Logout"));
+
+function logout() {
+  if (isLoggingOut.value) return;
+  router.post("/auth/logout/", {}, {
+    onStart: () => {
+      isLoggingOut.value = true;
+    },
+    onFinish: () => {
+      isLoggingOut.value = false;
+    },
+  });
+}
 
 const navItems = [
   { href: "/", icon: "✔", label: "Today" },
@@ -127,13 +187,13 @@ const sidebarClass = computed(() => {
   if (themeConfig.value.navStyle === "frosted") {
     return "bg-bg-card/70 backdrop-blur-xl border-white/10";
   }
-  return "bg-bg-card border-gray-800";
+  return "bg-bg-card border-border";
 });
 
 function sidebarIconClass(href) {
-  // Today's ✔ icon reads green when inactive — signals "mark complete"
-  // before the user navigates in, instead of inheriting muted gray.
-  if (href === "/" && !isActive(href)) return "text-emerald-500";
+  // Today's ✔ icon uses the theme accent when inactive — signals "mark
+  // complete" before the user navigates in, instead of inheriting muted gray.
+  if (href === "/" && !isActive(href)) return "text-accent";
   return "";
 }
 
@@ -167,7 +227,7 @@ const topbarHeaderClass = computed(() => {
   if (themeConfig.value.navStyle === "frosted") {
     return "bg-bg-card/60 backdrop-blur-xl border-white/10 sticky top-0 z-40";
   }
-  return "bg-bg-card border-gray-800";
+  return "bg-bg-card border-border";
 });
 
 function topbarNavItemClass(href) {

@@ -1,4 +1,6 @@
 <template>
+  <!-- The live region must persist across v-if toggles to be announced. -->
+  <div aria-live="polite">
   <Transition
     enter-active-class="transition-all duration-300 ease-out"
     enter-from-class="translate-y-full opacity-0"
@@ -13,7 +15,7 @@
     >
       <div
         class="p-4 shadow-lg border flex items-center justify-between"
-        :class="[tc.card.rounded, tc.card.bg, tc.card.border || 'border-gray-700', tc.card.extra]"
+        :class="[tc.card.rounded, tc.card.bg, tc.card.border || 'border-border', tc.card.extra]"
       >
         <span class="text-sm text-text-primary">{{ message }}</span>
         <button
@@ -26,6 +28,7 @@
       </div>
     </div>
   </Transition>
+  </div>
 </template>
 
 <script setup>

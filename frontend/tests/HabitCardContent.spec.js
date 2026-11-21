@@ -4,7 +4,7 @@ import HabitCardContent from "../src/components/HabitCardContent.vue";
 
 vi.mock("../src/composables/useTheme.js", () => ({
   useTheme: () => ({
-    themeConfig: { value: { habitCard: { showOdds: true, showOutcome: false } } },
+    themeConfig: { value: { habitCard: { oddsStyle: "badge", showOutcome: false } } },
   }),
 }));
 
@@ -84,6 +84,33 @@ describe("HabitCardContent", () => {
     expect(wrapper.text()).not.toContain("day streak");
   });
 
+  it("puts the odds chip on the meta line, also with no streak", () => {
+    const wrapper = mountComponent({ streak: 0, rewardChance: 20 });
+    expect(wrapper.find("h3").text()).toBe("Morning walk");
+    expect(wrapper.get('[data-testid="odds-chip"]').text()).toBe("🎲 20% next");
+  });
+
+  it("shows the outcome on its own line under the title", async () => {
+    vi.resetModules();
+    vi.doMock("../src/composables/useTheme.js", () => ({
+      useTheme: () => ({ themeConfig: { value: { habitCard: { oddsStyle: "chip", showOutcome: true } } } }),
+    }));
+    const { default: Card } = await import("../src/components/HabitCardContent.vue");
+    const wrapper = mount(Card, {
+      props: {
+        habit: {
+          ...baseHabit,
+          completedToday: true,
+          todayResult: { gotReward: true, rewardName: "Sushi dinner" },
+        },
+        tc: { badge: { base: "" } },
+      },
+    });
+    expect(wrapper.find("h3").text()).toBe("Morning walk");
+    expect(wrapper.find('[data-testid="outcome"]').text()).toBe("🎁 piece won — Sushi dinner");
+    vi.doUnmock("../src/composables/useTheme.js");
+  });
+
   it("renders without stray empty class tokens when streakClass is empty", () => {
     const wrapper = mountComponent({}, { streakClass: "" });
     const { emoji, text } = findStreakElements(wrapper);
@@ -106,16 +133,21 @@ describe("HabitCardContent", () => {
     expect(wrapper.text()).not.toContain("day streak");
   });
 
-  it("shows the freeze chip when the theme hides odds", async () => {
+  it.each([
+    ["badge", "🎲 50% next"],
+    ["chip", "🎲 50% next"],
+    ["stub", "ODDS 50%"],
+    ["drop", "drop: 50%"],
+  ])("shows the chance next to the freeze chip in %s style", async (oddsStyle, label) => {
     vi.resetModules();
     vi.doMock("../src/composables/useTheme.js", () => ({
-      useTheme: () => ({ themeConfig: { value: { habitCard: { showOdds: false } } } }),
+      useTheme: () => ({ themeConfig: { value: { habitCard: { oddsStyle, showOutcome: true } } } }),
     }));
     const { default: Card } = await import("../src/components/HabitCardContent.vue");
     const wrapper = mount(Card, {
       props: { habit: { ...baseHabit, freezeCount: 1 }, tc: { badge: { base: "" } } },
     });
-    expect(wrapper.text()).not.toContain("50%");
+    expect(wrapper.get('[data-testid="odds-chip"]').text()).toBe(label);
     expect(wrapper.find('[data-testid="freeze-chip"]').exists()).toBe(true);
     vi.doUnmock("../src/composables/useTheme.js");
   });

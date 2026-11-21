@@ -43,7 +43,8 @@ createInertiaApp({
     if (!page) {
       throw new Error(`Page not found: ${name}`);
     }
-    page.default.layout = page.default.layout || Layout;
+    // `layout: null` (Login) means "no layout"; only an unset layout gets the default.
+    page.default.layout = page.default.layout === undefined ? Layout : page.default.layout;
     return page;
   },
   setup({ el, App, props, plugin }) {

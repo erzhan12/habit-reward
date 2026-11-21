@@ -28,7 +28,7 @@
         :style="getCardEntranceStyle(1)"
       >
         <h1 class="text-2xl font-bold text-text-primary mb-3">Analytics</h1>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center">
           <div>
             <p class="text-2xl font-bold text-accent">{{ formatPercent(summary.avgCompletionRate) }}</p>
             <p class="text-xs text-text-secondary">Avg completion</p>
@@ -37,17 +37,14 @@
             <p class="text-2xl font-bold text-text-primary">{{ summary.totalCompletions }}</p>
             <p class="text-xs text-text-secondary">Total completions</p>
           </div>
-          <div>
-            <p class="text-2xl font-bold text-accent truncate" :title="summary.bestHabit?.name">
+          <!-- full width on phones so the name has room; wraps instead of truncating -->
+          <div class="col-span-2 sm:col-span-1 min-w-0">
+            <p class="text-2xl font-bold text-accent leading-tight break-words line-clamp-2" :title="summary.bestHabit?.name">
               {{ summary.bestHabit?.name || 'N/A' }}
             </p>
             <p class="text-xs text-text-secondary">
               Best habit {{ summary.bestHabit ? `(${formatPercent(summary.bestHabit.rate)})` : '' }}
             </p>
-          </div>
-          <div>
-            <p class="text-2xl font-bold text-text-primary">{{ summary.totalAvailableDays }}</p>
-            <p class="text-xs text-text-secondary">Available days</p>
           </div>
         </div>
       </div>

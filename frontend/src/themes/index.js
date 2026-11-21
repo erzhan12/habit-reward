@@ -58,6 +58,11 @@ export const VALID_HEADER_STYLES = new Set([
   'plain', 'ring', 'punches', 'xp',
 ]);
 
+// How the habit card shows the reward chance (feature 0049).
+export const VALID_ODDS_STYLES = new Set([
+  'badge', 'chip', 'stub', 'drop',
+]);
+
 // ── Default values for all extended config keys ─────────────────────
 export const DEFAULTS = {
   font: {
@@ -86,9 +91,9 @@ export const DEFAULTS = {
     headerStyle: 'plain',
   },
   habitCard: {
-    showOdds: true,
     showOutcome: false,
     buttonLabel: 'Done',
+    oddsStyle: 'badge',
   },
 };
 
@@ -129,11 +134,13 @@ export const themes = {
       '--color-bg-card-hover': '#f1f5f9',
       '--color-text-primary': '#0f172a',
       '--color-text-secondary': '#64748b',
-      '--color-text-muted': '#7c8798',
+      '--color-text-muted': '#687180',
       '--color-accent': '#6366f1',
       '--color-accent-hover': '#4f46e5',
       '--color-danger': '#ef4444',
       '--color-streak-fire': '#f97316',
+      '--color-border': '#e2e8f0',
+      '--color-track': '#e2e8f0',
     },
     classes: {
       card: {
@@ -198,11 +205,13 @@ export const themes = {
       '--color-bg-card-hover': '#111650',
       '--color-text-primary': '#e2e8f0',
       '--color-text-secondary': '#94a3b8',
-      '--color-text-muted': '#6f7c91',
+      '--color-text-muted': '#768397',
       '--color-accent': '#06b6d4',
       '--color-accent-hover': '#22d3ee',
       '--color-danger': '#f43f5e',
       '--color-streak-fire': '#ec4899',
+      '--color-border': '#14304f',
+      '--color-track': '#111650',
     },
     classes: {
       card: {
@@ -266,11 +275,13 @@ export const themes = {
       '--color-bg-card-hover': '#3a3532',
       '--color-text-primary': '#d6d3d1',
       '--color-text-secondary': '#a8a29e',
-      '--color-text-muted': '#7f7772',
+      '--color-text-muted': '#938d89',
       '--color-accent': '#f59e0b',
       '--color-accent-hover': '#fbbf24',
       '--color-danger': '#ef4444',
       '--color-streak-fire': '#fb923c',
+      '--color-border': '#44403c',
+      '--color-track': '#3a3532',
     },
     classes: {
       card: {
@@ -335,11 +346,13 @@ export const themes = {
       '--color-bg-card-hover': 'rgba(255,255,255,0.12)',
       '--color-text-primary': '#f2f2f7',
       '--color-text-secondary': '#aeaeb2',
-      '--color-text-muted': '#7d7d87',
+      '--color-text-muted': '#96969e',
       '--color-accent': '#007aff',
       '--color-accent-hover': '#3395ff',
       '--color-danger': '#ff3b30',
       '--color-streak-fire': '#ff9500',
+      '--color-border': 'rgba(255,255,255,0.10)',
+      '--color-track': 'rgba(255,255,255,0.12)',
     },
     classes: {
       card: {
@@ -409,6 +422,8 @@ export const themes = {
       '--color-accent-hover': '#34d399',
       '--color-danger': '#ef4444',
       '--color-streak-fire': '#f97316',
+      '--color-border': '#1f2937',
+      '--color-track': '#1f2937',
     },
     classes: {
       card: {
@@ -474,11 +489,13 @@ export const themes = {
       '--color-text-primary': '#00ff41',
       '--color-text-secondary': '#00cc33',
       // Desaturated green (not gray) to match terminal aesthetic
-      '--color-text-muted': '#66806b',
+      '--color-text-muted': '#6c8571',
       '--color-accent': '#00ff41',
       '--color-accent-hover': '#33ff66',
       '--color-danger': '#ff1744',
       '--color-streak-fire': '#ffab00',
+      '--color-border': '#0f3d1c',
+      '--color-track': '#1a1a1a',
     },
     classes: {
       card: {
@@ -543,11 +560,13 @@ export const themes = {
       '--color-bg-card-hover': '#243824',
       '--color-text-primary': '#d4e7d4',
       '--color-text-secondary': '#8faa8f',
-      '--color-text-muted': '#718971',
+      '--color-text-muted': '#829782',
       '--color-accent': '#4ade80',
       '--color-accent-hover': '#22c55e',
       '--color-danger': '#f87171',
       '--color-streak-fire': '#fb923c',
+      '--color-border': '#1f3a22',
+      '--color-track': '#243824',
     },
     classes: {
       card: {
@@ -617,6 +636,8 @@ export const themes = {
       '--color-accent-hover': '#374151',
       '--color-danger': '#dc2626',
       '--color-streak-fire': '#d97706',
+      '--color-border': '#e5e7eb',
+      '--color-track': '#e5e7eb',
     },
     classes: {
       card: {
@@ -681,11 +702,13 @@ export const themes = {
       '--color-bg-card-hover': '#1c1f2b',
       '--color-text-primary': '#eef0f6',
       '--color-text-secondary': '#9aa1b5',
-      '--color-text-muted': '#6f7688',
+      '--color-text-muted': '#7c8293',
       '--color-accent': '#e9b953',
       '--color-accent-hover': '#f3d27e',
       '--color-danger': '#ef4444',
       '--color-streak-fire': '#f97316',
+      '--color-border': '#232636',
+      '--color-track': '#232636',
     },
     classes: {
       card: {
@@ -740,9 +763,9 @@ export const themes = {
       headerStyle: 'ring',
     },
     habitCard: {
-      showOdds: false,
       showOutcome: true,
       buttonLabel: '✓ Done',
+      oddsStyle: 'chip',
     },
   },
 
@@ -756,11 +779,13 @@ export const themes = {
       '--color-bg-card-hover': '#fdf8ee',
       '--color-text-primary': '#2a2620',
       '--color-text-secondary': '#6b6354',
-      '--color-text-muted': '#9a9080',
+      '--color-text-muted': '#746c60',
       '--color-accent': '#d95d39',
       '--color-accent-hover': '#e5714e',
       '--color-danger': '#c0392b',
       '--color-streak-fire': '#e07b39',
+      '--color-border': '#ded5c2',
+      '--color-track': '#efe9dc',
     },
     classes: {
       card: {
@@ -815,9 +840,9 @@ export const themes = {
       headerStyle: 'punches',
     },
     habitCard: {
-      showOdds: false,
       showOutcome: true,
       buttonLabel: 'Punch',
+      oddsStyle: 'stub',
     },
   },
 
@@ -831,11 +856,13 @@ export const themes = {
       '--color-bg-card-hover': '#16241c',
       '--color-text-primary': '#eef5f0',
       '--color-text-secondary': '#7d8f84',
-      '--color-text-muted': '#546158',
+      '--color-text-muted': '#7b857e',
       '--color-accent': '#56c288',
       '--color-accent-hover': '#7ad3a3',
       '--color-danger': '#e05d5d',
       '--color-streak-fire': '#e07b39',
+      '--color-border': '#1e2c23',
+      '--color-track': '#16241c',
     },
     classes: {
       card: {
@@ -890,9 +917,9 @@ export const themes = {
       headerStyle: 'xp',
     },
     habitCard: {
-      showOdds: false,
       showOutcome: true,
       buttonLabel: '[ done ]',
+      oddsStyle: 'drop',
     },
   },
 };

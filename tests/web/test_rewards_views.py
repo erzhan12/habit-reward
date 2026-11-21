@@ -2,7 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from tests.web.conftest import _mock_progress
+from tests.web.conftest import INERTIA_HEADERS, _inertia_props, _mock_progress
 
 
 class TestRewards:
@@ -32,6 +32,20 @@ class TestRewards:
         response = auth_client.get("/rewards/")
         assert response.status_code == 200
         progress.get_status.assert_called()
+
+    @patch("src.web.views.rewards.reward_service")
+    def test_achieved_rewards_come_first(self, mock_rs, auth_client):
+        """Feature 0049: ready rewards lead on the web page; the rest keep the service order."""
+        mock_rs.get_user_reward_progress.return_value = [
+            _mock_progress(reward_id=1, name="Zero", pieces_earned=0, status_name="PENDING"),
+            _mock_progress(reward_id=2, name="Half", pieces_earned=2, pieces_required=4, status_name="PENDING"),
+            _mock_progress(reward_id=3, name="Ready", pieces_earned=4, pieces_required=4, status_name="ACHIEVED"),
+            _mock_progress(reward_id=4, name="Instant", pieces_earned=0, pieces_required=0, status_name="ACHIEVED"),
+        ]
+        mock_rs.get_claimed_rewards.return_value = []
+
+        _, props = _inertia_props(auth_client.get("/rewards/", **INERTIA_HEADERS))
+        assert [r["name"] for r in props["rewards"]] == ["Ready", "Instant", "Zero", "Half"]
 
     @patch("src.web.views.rewards.reward_repository")
     @patch("src.web.views.rewards.reward_service")

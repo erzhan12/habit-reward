@@ -2,12 +2,12 @@
 
 ## Theme System (Feature 0037: Advanced Theme Engine)
 
-The web UI supports 8 theme personalities with full layout/interaction/animation control, persisted on the User model. Each theme is a distinct experience: different layouts, interaction patterns, animations, fonts, and reward celebrations.
+The web UI supports 11 theme personalities with full layout/interaction/animation control, persisted on the User model. Each theme is a distinct experience: different layouts, interaction patterns, animations, fonts, and reward celebrations.
 
-**8 Theme IDs**: `clean_modern` (default), `gamified_arcade`, `cozy_warm`, `minimalist_zen`, `ios_native`, `dark_focus`, `retro_terminal`, `nature_forest`.
+**11 Theme IDs**: `clean_modern` (default), `gamified_arcade`, `cozy_warm`, `minimalist_zen`, `ios_native`, `dark_focus`, `retro_terminal`, `nature_forest`, `night_arcade`, `ticket_stub`, `quest_log`.
 
 **Architecture**:
-- `User.theme` (CharField, default `'clean_modern'`) — stored in DB, 8 choices defined in `User.THEME_CHOICES`
+- `User.theme` (CharField, default `'clean_modern'`) — stored in DB, 11 choices defined in `User.THEME_CHOICES`
 - `InertiaFlashMiddleware` in `src/web/middleware.py` shares `userTheme` as a global Inertia prop
 - `frontend/src/themes/index.js` — theme configs with extended schema (cssVars, classes, font, interactions, animations, reward, pageLayout) + `DEFAULTS` object + `resolveTheme()` deep-merge + backward-compat aliases for old theme IDs
 - `frontend/src/composables/useTheme.js` — reads `page.props.userTheme`, applies CSS vars via View Transitions API (falls back to opacity cross-fade), loads theme fonts async. Exposes `applyTheme(id)` for live preview in Theme.vue.
@@ -16,7 +16,7 @@ The web UI supports 8 theme personalities with full layout/interaction/animation
 - `frontend/src/composables/useThemeAnimation.js` — card entrance styles, streak fire classes, hover micro-interactions, completion celebrations
 - `frontend/src/utils/particles.js` — lightweight canvas-based particle burst (no deps)
 - `frontend/src/animations.css` — keyframes for fade/slide/pulse/flicker/bounce + hover utility classes
-- `frontend/src/app.css` — `@theme` default variables (clean_modern) + 7 `[data-theme="..."]` override blocks + `--font-family` + body font rule
+- `frontend/src/app.css` — `@theme` default variables (clean_modern) + 10 `[data-theme="..."]` override blocks + `--font-family` + body font rule
 
 **Extended config keys per theme**:
 - `font`: `{ family, import (Google Fonts URL|null), weight, size }`
@@ -29,7 +29,7 @@ The web UI supports 8 theme personalities with full layout/interaction/animation
 - `HabitDoneButton.vue` — standard button with `position` prop (left/right/bottom)
 - `HabitDoneCheckbox.vue` — styled checkbox (used by `minimalist_zen`)
 - `HabitDoneToggle.vue` — iOS-style toggle switch (used by `ios_native`)
-- `HabitDoneSwipe.vue` — swipe-to-reveal with 100px threshold (used by `gamified_arcade` on touch devices)
+- `HabitDoneSwipe.vue` — swipe-to-reveal with 100px threshold (no theme uses it at the moment)
 
 **HabitCard.vue**: Uses `<component :is>` dynamic slot via `useThemeInteraction`. Swipe mode wraps entire card in `HabitDoneSwipe`. Standard mode places interaction component at configured position. Shared content extracted to `HabitCardContent.vue`.
 
@@ -53,6 +53,8 @@ The web UI supports 8 theme personalities with full layout/interaction/animation
 2. Add theme definition to `frontend/src/themes/index.js` (any missing extended keys auto-filled by `resolveTheme()` via `DEFAULTS`)
 3. Add `[data-theme="..."]` CSS var override block to `frontend/src/app.css`
 4. If using external font: CSP already allows `fonts.googleapis.com` and `fonts.gstatic.com`
+
+**Colour tokens** (`--color-*`) are declared in three places that must agree: `app.css` `@theme` (clean_modern defaults), each `[data-theme]` block in `app.css` (pre-hydration paint), and each theme's `cssVars` in `themes/index.js`. `themes.spec.js` enforces this (drift test, whitespace-insensitive) plus a contrast floor: `--color-text-muted` and `--color-text-secondary` reach 4.5:1 on both `--color-bg-card` and `--color-bg-primary` in every theme. `--color-border` (cards, nav, toasts) and `--color-track` (progress-bar tracks) replace hardcoded Tailwind greys — never use `gray-*` / `emerald-*` / `red-*` in components; light themes break.
 
 **Theme class tokens** used by components: `card.{rounded,shadow,border,bg,hoverBg,extra}`, `button.{rounded,padding,primary,secondary}`, `input.base`, `badge.base`, `select.base`.
 
@@ -85,11 +87,21 @@ The web UI supports 8 theme personalities with full layout/interaction/animation
 - Tailwind dynamic classes (e.g. `space-y-${n}`) don't work with JIT — use explicit static class strings in if/else branches
 - Theme picker live preview must revert on `onUnmounted` if the user navigates away without saving
 - Theme.vue preview helpers must use `getTheme(id)` (safe fallback) not `themes[id]` (crashes on unknown ID)
-- No `--color-border` CSS var exists — use `--color-accent` with hex opacity suffix (e.g. `+ '30'`) for preview borders
+- Theme preview borders in `Theme.vue` still use `--color-accent` with a hex opacity suffix (e.g. `+ '30'`); app chrome uses `--color-border`
 - `HabitDoneToggle` uses inline style `var(--color-bg-card-hover)` for inactive track — `bg-bg-card-hover` Tailwind class may not be generated (only `hover:bg-bg-card-hover` is scanned)
 - `HabitDoneSwipe` has NO `position` prop (unlike Button/Toggle/Checkbox) — it wraps the entire card
 - Touch handlers in `HabitDoneSwipe` must guard `e.touches?.length` before accessing `e.touches[0]`
 - Inertia does a full page reload on POST redirects (`redirect("/")`) — module-level state, sessionStorage hacks, and `preserveState: true` do NOT survive. Cannot delay UI changes across the reload boundary
+
+## Web UI conventions (feature 0049)
+
+- **Reward chance on the card**: every theme shows it via `OddsChip.vue`; `habitCard.oddsStyle` picks the look (`badge` default, `chip` night_arcade, `stub` ticket_stub, `drop` quest_log; validated by `VALID_ODDS_STYLES`). `showOdds` is gone. The chip toggles an inline hint (curve + copy); it stops touch/pointer propagation so a swipe wrapper is not triggered.
+- **Chance data**: the dashboard view sends page-level `chance = {curve: [round(p(1)) … round(p(30))], cap}` and per-habit `nextStreak`; the frontend never duplicates the formula and clamps days past 30 to the last entry. Rounded values: p(7)=40, p(21)=49, 50 from day 24.
+- **Card layout**: title row holds only the title; meta row (streak, freeze, odds — chip last so its hint wraps under the row) uses spacing, never "·" (a spec forbids it); outcome has its own line. Completed cards are dimmed by text colour, not whole-card `opacity` (entrance animations with `fill-mode: both` override it).
+- **Logout**: one handler in `Layout.vue` (`router.post("/auth/logout/", {}, { onStart, onFinish })`). Inertia's `router.post` returns void and `onError` fires only for validation errors, so there is no "failed" state. Mobile has a top bar with logout (`lg:hidden`); the bottom nav is full at 6 items.
+- **Layouts**: `main.js` applies the default `Layout` only when a page leaves `layout` undefined; `layout: null` (Login) renders the bare page.
+- **Rewards page order**: the view lifts ACHIEVED rewards to the top (web only). `reward_service.get_user_reward_progress` keeps its own order (ACHIEVED last), pinned by `tests/test_reward_filtering.py` and used by the bot.
+- **Live regions** must be on an element that persists (`FlashMessages` container, wrapper around `UndoToast`'s `v-if`). Entrance animations honour `prefers-reduced-motion` in `cardEntranceStyle`; hover micro-interactions are wrapped in `@media (hover: hover)`.
 
 ## User Validation Pattern
 

@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   themes,
   defaultTheme,
@@ -13,6 +15,7 @@ import {
   VALID_DISPLAY_MODES,
   VALID_HABIT_LAYOUTS,
   VALID_DENSITIES,
+  VALID_ODDS_STYLES,
 } from "../src/themes/index.js";
 
 describe("Theme config schema", () => {
@@ -27,6 +30,8 @@ describe("Theme config schema", () => {
     "--color-accent-hover",
     "--color-danger",
     "--color-streak-fire",
+    "--color-border",
+    "--color-track",
   ];
 
   const REQUIRED_CLASS_GROUPS = ["card", "button", "input", "badge", "select"];
@@ -170,5 +175,87 @@ describe("DEFAULTS", () => {
     expect(DEFAULTS.reward.displayMode).toBe("expand-from-card");
     expect(DEFAULTS.pageLayout.habitList).toBe("list");
     expect(DEFAULTS.pageLayout.density).toBe("normal");
+  });
+});
+
+// ── Contrast floor (WCAG AA 4.5:1) ─────────────────────────────────
+function parseColor(value, base) {
+  const v = value.replace(/\s+/g, "");
+  if (v.startsWith("#")) {
+    const h = v.slice(1);
+    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  }
+  const m = v.match(/[\d.]+/g).map(Number);
+  const alpha = m.length > 3 ? m[3] : 1;
+  return [0, 1, 2].map((i) => m[i] * alpha + base[i] * (1 - alpha));
+}
+
+function luminance(rgb) {
+  const [r, g, b] = rgb.map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrast(a, b) {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+describe("Theme text contrast", () => {
+  for (const [id, raw] of Object.entries(themes)) {
+    it(`${id}: muted and secondary text reach 4.5:1 on card and page`, () => {
+      const v = raw.cssVars;
+      const page = parseColor(v["--color-bg-primary"], [0, 0, 0]);
+      // Translucent cards (ios_native) are composited over the page colour.
+      const card = parseColor(v["--color-bg-card"], page);
+      for (const key of ["--color-text-muted", "--color-text-secondary"]) {
+        const fg = parseColor(v[key], page);
+        expect(contrast(fg, card), `${key} on card`).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(fg, page), `${key} on page`).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+  }
+});
+
+// ── app.css mirrors cssVars (pre-hydration paint) ───────────────────
+describe("app.css theme blocks match themes/index.js cssVars", () => {
+  const css = readFileSync(resolve(__dirname, "../src/app.css"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  const norm = (value) => value.replace(/\s+/g, "").toLowerCase();
+
+  function cssBlockVars(selector) {
+    const start = css.indexOf(selector);
+    expect(start, `missing ${selector} in app.css`).toBeGreaterThanOrEqual(0);
+    const body = css.slice(css.indexOf("{", start) + 1, css.indexOf("}", start));
+    const vars = {};
+    for (const m of body.matchAll(/(--color-[\w-]+)\s*:\s*([^;]+);/g)) vars[m[1]] = norm(m[2]);
+    return vars;
+  }
+
+  for (const [id, raw] of Object.entries(themes)) {
+    it(`${id}: every --color-* value is mirrored`, () => {
+      const selector = id === defaultTheme ? "@theme" : `[data-theme="${id}"]`;
+      const cssVars = cssBlockVars(selector);
+      for (const [key, value] of Object.entries(raw.cssVars)) {
+        expect(cssVars[key], `${id} ${key}`).toBe(norm(value));
+      }
+    });
+  }
+});
+
+describe("habitCard.oddsStyle", () => {
+  for (const id of Object.keys(themes)) {
+    it(`${id}: resolves to a valid odds style`, () => {
+      expect(VALID_ODDS_STYLES.has(getTheme(id).habitCard.oddsStyle)).toBe(true);
+    });
+  }
+
+  it("gives the three reward-economy themes their own odds style", () => {
+    expect(getTheme("night_arcade").habitCard.oddsStyle).toBe("chip");
+    expect(getTheme("ticket_stub").habitCard.oddsStyle).toBe("stub");
+    expect(getTheme("quest_log").habitCard.oddsStyle).toBe("drop");
+    expect(getTheme("clean_modern").habitCard.oddsStyle).toBe("badge");
   });
 });

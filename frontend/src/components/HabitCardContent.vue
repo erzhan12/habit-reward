@@ -1,34 +1,16 @@
 <template>
   <div class="flex-1 min-w-0">
-    <div class="flex items-center gap-2">
-      <h3
-        class="font-medium truncate"
-        :class="habit.completedToday ? 'line-through text-text-secondary' : 'text-text-primary'"
-      >
-        {{ habit.name }}
-      </h3>
+    <!-- title row: the title alone, so it only truncates on genuinely long names -->
+    <h3
+      class="font-medium truncate"
+      :class="habit.completedToday ? 'line-through text-text-secondary' : 'text-text-primary'"
+    >
+      {{ habit.name }}
+    </h3>
 
-      <!-- odds badge: hidden by themes that keep the dashboard reward-free.
-           Shows the chance only; weight no longer affects it (feature 0048). -->
-      <span v-if="hc.showOdds" class="text-xs px-1.5 py-0.5 shrink-0" :class="tc.badge.base">
-        {{ habit.rewardChance }}%
-      </span>
-
-      <!-- outcome chip: only on completed habits, only when the theme opts in -->
-      <span
-        v-if="hc.showOutcome && habit.completedToday && habit.todayResult"
-        class="text-xs px-1.5 py-0.5 shrink-0 font-medium rounded"
-        :class="habit.todayResult.gotReward ? 'text-accent' : 'text-text-muted'"
-      >
-        <template v-if="habit.todayResult.gotReward">
-          🎁 piece won<template v-if="habit.todayResult.rewardName"> — {{ habit.todayResult.rewardName }}</template>
-        </template>
-        <template v-else>no reward this time</template>
-      </span>
-    </div>
-
-    <div v-if="habit.streak > 0 || freezeCount > 0" class="flex items-center gap-1 mt-1">
-      <template v-if="habit.streak > 0">
+    <!-- meta line: streak, freeze, odds. Spacing only — no "·" separators. -->
+    <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
+      <div v-if="habit.streak > 0" class="inline-flex items-center gap-1">
         <span
           class="text-sm"
           :class="[streakColorClasses, { 'streak-emoji-muted': habit.completedToday }]"
@@ -38,18 +20,42 @@
         <span class="text-xs font-medium" :class="streakColorClasses">
           {{ habit.streak }}-day streak
         </span>
-      </template>
-      <!-- freeze inventory: shown whatever the theme's showOdds (feature 0048) -->
+      </div>
+
+      <!-- freeze inventory: shown whatever the theme's odds setting (feature 0048) -->
       <span
         v-if="freezeCount > 0"
         class="text-xs text-text-secondary"
-        :class="{ 'ml-1': habit.streak > 0 }"
         :title="freezeCount === 1 ? '1 streak freeze in reserve' : `${freezeCount} streak freezes in reserve`"
         data-testid="freeze-chip"
       >
         ❄️<template v-if="freezeCount > 1">×{{ freezeCount }}</template>
       </span>
+      <!-- reward chance (feature 0048: depends on the streak only), styled per
+           theme; it comes last so its hint wraps under the whole row. Shown in every theme (0049). -->
+      <OddsChip
+        :reward-chance="Number(habit.rewardChance) || 0"
+        :completed="!!habit.completedToday"
+        :next-streak="Number(habit.nextStreak) || 1"
+        :chance="chance"
+        :odds-style="hc.oddsStyle"
+        :badge-class="tc.badge?.base || ''"
+      />
+
     </div>
+
+    <!-- outcome: own line under the meta line, may wrap (long reward names) -->
+    <p
+      v-if="hc.showOutcome && habit.completedToday && habit.todayResult"
+      class="text-xs font-medium mt-1"
+      :class="habit.todayResult.gotReward ? 'text-accent' : 'text-text-secondary'"
+      data-testid="outcome"
+    >
+      <template v-if="habit.todayResult.gotReward">
+        🎁 piece won<template v-if="habit.todayResult.rewardName"> — {{ habit.todayResult.rewardName }}</template>
+      </template>
+      <template v-else>no reward this time</template>
+    </p>
 
     <p v-if="freezeHint" class="text-xs text-text-secondary mt-1" data-testid="freeze-hint">
       {{ freezeHint }}
@@ -60,20 +66,23 @@
 <script setup>
 import { computed } from "vue";
 import { useTheme } from "../composables/useTheme.js";
+import OddsChip from "./OddsChip.vue";
 
 const props = defineProps({
   habit: { type: Object, required: true },
   tc: { type: Object, required: true },
   streakClass: { type: String, default: "" },
+  // { curve, cap } from the dashboard view (feature 0049); null hides the curve
+  chance: { type: Object, default: null },
 });
 
 const { themeConfig } = useTheme();
 
 // habitCard theme config with safe defaults (matches DEFAULTS in themes/index.js)
 const hc = computed(() => ({
-  showOdds: true,
   showOutcome: false,
   buttonLabel: "Done",
+  oddsStyle: "badge",
   ...(themeConfig.value.habitCard || {}),
 }));
 

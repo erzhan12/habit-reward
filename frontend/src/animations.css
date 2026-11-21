@@ -85,21 +85,29 @@
 .hover-micro-scale {
   transition: transform 0.15s ease-out;
 }
-.hover-micro-scale:hover {
-  transform: scale(1.02);
+@media (hover: hover) {
+  .hover-micro-scale:hover {
+    transform: scale(1.02);
+  }
 }
 
 .hover-micro-shadow-lift {
   transition: box-shadow 0.15s ease-out, transform 0.15s ease-out;
 }
-.hover-micro-shadow-lift:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transform: translateY(-1px);
+@media (hover: hover) {
+  .hover-micro-shadow-lift:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
+  }
 }
 
 .hover-micro-glow-border {
   transition: box-shadow 0.15s ease-out;
 }
-.hover-micro-glow-border:hover {
-  box-shadow: 0 0 0 2px var(--color-accent), 0 0 12px rgba(99, 102, 241, 0.15);
+@media (hover: hover) {
+  .hover-micro-glow-border:hover {
+    box-shadow:
+      0 0 0 2px var(--color-accent),
+      0 0 12px color-mix(in srgb, var(--color-accent) 15%, transparent);
+  }
 }
