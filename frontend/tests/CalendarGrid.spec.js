@@ -35,6 +35,15 @@ describe("CalendarGrid day buttons", () => {
     expect(dayButton(wrapper, 19).attributes("aria-expanded")).toBe("false");
   });
 
+  it("omits the disclosure attributes when there is no detail panel", () => {
+    const wrapper = mountGrid({ selectedDate: "2026-11-20" });
+    for (const day of [19, 20]) {
+      const button = dayButton(wrapper, day);
+      expect(button.attributes("aria-expanded")).toBeUndefined();
+      expect(button.attributes("aria-controls")).toBeUndefined();
+    }
+  });
+
   it("labels each day with its completion count", () => {
     const wrapper = mountGrid();
     expect(dayButton(wrapper, 20).attributes("aria-label")).toBe("20 November, 2 habits completed");

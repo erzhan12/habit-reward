@@ -46,7 +46,7 @@
         class="aspect-square flex flex-col items-center justify-center text-sm relative cursor-pointer"
         :class="[themeConfig.classes.card.rounded, dayClass(day)]"
         :aria-label="dayLabel(day)"
-        :aria-expanded="formatDate(day) === selectedDate"
+        :aria-expanded="detailId ? formatDate(day) === selectedDate : undefined"
         :aria-controls="detailId || undefined"
         @click="$emit('selectDay', formatDate(day))"
       >
