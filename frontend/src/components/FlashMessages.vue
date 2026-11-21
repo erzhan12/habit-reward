@@ -9,8 +9,8 @@
       leave-to-class="opacity-0 translate-y-[-8px]"
     >
       <div
-        v-for="(msg, i) in visible"
-        :key="i"
+        v-for="msg in visible"
+        :key="msg.id"
         class="flash px-4 py-3 text-sm shadow-lg border"
         :class="[themeConfig.classes.card.rounded, badgeClass(msg.type)]"
         :role="msg.type === 'error' ? 'alert' : undefined"
@@ -22,7 +22,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from "vue";
+import { ref, watch, onMounted, onUnmounted } from "vue";
 import { useTheme } from "../composables/useTheme.js";
 
 const props = defineProps({
@@ -32,10 +32,17 @@ const props = defineProps({
 const { themeConfig } = useTheme();
 const visible = ref([]);
 
+// Each shown message gets its own id so a new batch renders (and animates)
+// as new nodes instead of patching the old ones by position.
+let nextId = 0;
+let hideTimer = null;
+
 function show(msgs) {
   if (!msgs || !msgs.length) return;
-  visible.value = [...msgs];
-  setTimeout(() => {
+  visible.value = msgs.map((msg) => ({ ...msg, id: ++nextId }));
+  // A newer batch restarts the clock; the older batch's timer must not hide it.
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
     visible.value = [];
   }, 4000);
 }
@@ -48,6 +55,7 @@ function badgeClass(type) {
 }
 
 onMounted(() => show(props.messages));
+onUnmounted(() => clearTimeout(hideTimer));
 watch(() => props.messages, show);
 </script>
 

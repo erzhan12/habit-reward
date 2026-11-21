@@ -46,7 +46,8 @@
         class="aspect-square flex flex-col items-center justify-center text-sm relative cursor-pointer"
         :class="[themeConfig.classes.card.rounded, dayClass(day)]"
         :aria-label="dayLabel(day)"
-        :aria-pressed="formatDate(day) === selectedDate"
+        :aria-expanded="formatDate(day) === selectedDate"
+        :aria-controls="detailId || undefined"
         @click="$emit('selectDay', formatDate(day))"
       >
         <span>{{ day }}</span>
@@ -77,6 +78,8 @@ const props = defineProps({
   // one habit selected in History: show a dot instead of a count
   filtered: { type: Boolean, default: false },
   selectedDate: { type: String, default: null },
+  // id of the day-detail panel the day buttons open and close
+  detailId: { type: String, default: null },
 });
 
 defineEmits(["navigate", "selectDay"]);

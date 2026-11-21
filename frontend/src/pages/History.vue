@@ -29,6 +29,7 @@
         :userToday="userToday"
         :filtered="!!selectedHabit"
         :selectedDate="selectedDay"
+        detailId="history-day-detail"
         @navigate="navigateMonth"
         @selectDay="selectDay"
       />
@@ -37,6 +38,7 @@
     <!-- Day detail -->
     <div
       v-if="selectedDay"
+      id="history-day-detail"
       class="mt-4 p-4"
       :class="[tc.card.rounded, tc.card.border, tc.card.bg, tc.card.extra]"
       data-testid="day-detail"

@@ -2,7 +2,14 @@
 
 <!-- Track current work as checkable items. Validate plan before implementing. -->
 
-## In progress: Feature 0049 UI upgrade (reward chance visibility + design fixes)
+## In progress: 0050 review P2 follow-ups (PR #110)
+
+Branch `feature/0050-review-p2` (worktree `.claude/worktrees/0050-review-p2`).
+
+- [x] FlashMessages: stable per-message ids as keys; one hide timer, so a newer batch is not cleared by the older batch's timer (`FlashMessages.spec.js`)
+- [x] CalendarGrid day buttons: `aria-expanded` + `aria-controls` for the History day detail instead of `aria-pressed` (`CalendarGrid.spec.js`)
+
+## Done: Feature 0049 UI upgrade (reward chance visibility + design fixes)
 
 Plan: `docs/features/0049_PLAN.md`. Branch `feature/0049-ui-upgrade` (worktree `.claude/worktrees/0049-ui-upgrade`).
 
