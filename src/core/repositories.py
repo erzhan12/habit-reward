@@ -289,7 +289,8 @@ class HabitRepository:
         Every freeze-touching transaction takes this lock first. On SQLite
         ``select_for_update`` is a no-op and serialisation comes from SQLite itself.
         """
-        return Habit.objects.select_for_update().get(pk=int(habit_id))
+        # of=("self",): lock only the habit row, not the joined user (PostgreSQL).
+        return Habit.objects.select_for_update(of=("self",)).select_related("user").get(pk=int(habit_id))
 
     def try_consume_freeze_sync(self, habit_id: int | str) -> bool:
         """Compare-and-set: decrement ``freeze_count`` if it is above 0."""

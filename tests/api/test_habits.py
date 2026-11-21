@@ -305,6 +305,7 @@ class TestCompleteHabit:
         assert (data["reward_chance"], data["total_weight_applied"]) == (36.0, 64.0)
         assert (data["freeze_won"], data["freeze_used"], data["freeze_covered_date"]) == (True, True, "2026-11-17")
         assert data["freeze_count"] == 1
+        assert data["freeze_burned"] is False
 
     @patch("src.api.v1.routers.habits.habit_service")
     @patch("src.api.v1.routers.habits.habit_repository")

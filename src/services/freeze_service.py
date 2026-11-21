@@ -150,7 +150,7 @@ class FreezeService:
     def revoke_won_sync(self, habit: Habit, habit_log_id: int) -> bool:
         """Undo of a winning completion: revoke its freeze only if that freeze is still held."""
         earned = self.event_repo.get_earned_for_log_sync(habit_log_id)
-        if earned is None or earned.state != "held":
+        if earned is None or earned.state != HabitFreezeEvent.State.HELD:
             return False
         if not self.habit_repo.try_consume_freeze_sync(habit.id):
             logger.error("Held freeze event %s but habit %s has no freeze", earned.id, habit.id)

@@ -90,6 +90,7 @@ class HabitCompletionResponse(BaseModel):
     reward_chance: float = Field(0.0, description="Reward chance % that applied to this completion")
     freeze_won: bool = Field(False, description="This completion won a streak freeze")
     freeze_used: bool = Field(False, description="A freeze covered the missed day and the streak continued")
+    freeze_burned: bool = Field(False, description="A freeze was spent but more days were missed; the streak reset")
     freeze_covered_date: date | None = Field(None, description="The missed day a freeze covered, if any")
     freeze_count: int = Field(0, description="Freezes the habit holds after this completion (raw inventory)")
 
@@ -101,6 +102,7 @@ def _freeze_fields(result) -> dict:
         "reward_chance": float(result.reward_chance or 0.0),
         "freeze_won": result.freeze_won is True,
         "freeze_used": result.freeze_used is True,
+        "freeze_burned": result.freeze_burned is True,
         "freeze_covered_date": covered if isinstance(covered, date) else None,
         "freeze_count": result.freeze_count if isinstance(result.freeze_count, int) else 0,
     }
