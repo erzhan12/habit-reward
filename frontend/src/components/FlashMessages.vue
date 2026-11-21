@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed top-4 right-4 z-50 space-y-2 max-w-sm">
+  <div class="fixed top-4 right-4 z-50 space-y-2 max-w-sm" aria-live="polite">
     <TransitionGroup
       enter-active-class="transition duration-200 ease-out"
       enter-from-class="opacity-0 translate-y-[-8px]"
@@ -11,8 +11,9 @@
       <div
         v-for="(msg, i) in visible"
         :key="i"
-        class="px-4 py-3 text-sm shadow-lg"
+        class="flash px-4 py-3 text-sm shadow-lg border"
         :class="[themeConfig.classes.card.rounded, badgeClass(msg.type)]"
+        :role="msg.type === 'error' ? 'alert' : undefined"
       >
         {{ msg.text }}
       </div>
@@ -39,12 +40,33 @@ function show(msgs) {
   }, 4000);
 }
 
+// Tones come from theme tokens so toasts read on light and dark themes alike.
 function badgeClass(type) {
-  if (type === "error") return "bg-red-900/80 text-red-200 border border-red-700";
-  if (type === "success") return "bg-emerald-900/80 text-emerald-200 border border-emerald-700";
-  return "bg-gray-800/80 text-gray-200 border border-gray-600";
+  if (type === "error") return "flash-error";
+  if (type === "success") return "flash-success";
+  return "flash-info";
 }
 
 onMounted(() => show(props.messages));
 watch(() => props.messages, show);
 </script>
+
+<style scoped>
+/* Mixed over the page colour: it is opaque in every theme, while the card
+   colour is translucent in ios_native. */
+.flash {
+  color: var(--color-text-primary);
+}
+.flash-error {
+  background-color: color-mix(in srgb, var(--color-danger) 15%, var(--color-bg-primary));
+  border-color: var(--color-danger);
+}
+.flash-success {
+  background-color: color-mix(in srgb, var(--color-accent) 15%, var(--color-bg-primary));
+  border-color: var(--color-accent);
+}
+.flash-info {
+  background-color: color-mix(in srgb, var(--color-border) 40%, var(--color-bg-primary));
+  border-color: var(--color-border);
+}
+</style>

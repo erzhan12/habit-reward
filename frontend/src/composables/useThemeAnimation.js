@@ -19,6 +19,10 @@ import { useTheme } from "./useTheme.js";
  * @returns {object} CSS style object
  */
 export function cardEntranceStyle(index, type) {
+  // Respect the OS reduced-motion setting (jsdom/SSR have no matchMedia).
+  if (typeof window !== 'undefined' && (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false)) {
+    return {};
+  }
   switch (type) {
     case 'fade-in':
       return {

@@ -2,6 +2,30 @@
 
 <!-- Track current work as checkable items. Validate plan before implementing. -->
 
+## In progress: Feature 0049 UI upgrade (reward chance visibility + design fixes)
+
+Plan: `docs/features/0049_PLAN.md`. Branch `feature/0049-ui-upgrade` (worktree `.claude/worktrees/0049-ui-upgrade`).
+
+- [x] 0 Worktree setup, `npm ci`, `uv sync`; vitest baseline 3 failing (Layout.spec)
+- [x] 1 Login without app nav, logout button contract, mobile logout bar
+- [x] 2 `--color-border` / `--color-track` tokens, muted contrast, contrast + drift tests
+- [x] 3 Palette tokens: RewardCard, FlashMessages, BottomNav
+- [x] 4 Palette tokens: Layout, UndoToast, animations.css
+- [x] 5 Habit card layout (outcome line, meta line, no whole-card opacity)
+- [x] 6 Backend `chance` curve + `nextStreak`
+- [x] 7 `oddsStyle` theme config (additive)
+- [x] 8 `OddsChip` component + spec
+- [x] 9 Card uses `OddsChip`; retire `showOdds`
+- [x] 10 Pass `chance` Dashboard → HabitCard → content
+- [x] 11 Rewards: ACHIEVED first (web only), Claim size
+- [x] 12 Streaks: "No streak right now" section
+- [x] 13a Day-completion helper + spec
+- [x] 13b History day detail, calendar buttons, counts
+- [x] 14 Analytics: drop "Available days"
+- [x] 15 Reduced motion + tap sizes
+- [x] 16 RULES.md + project.md
+- [ ] Owner review in the browser; commit / PR only on explicit instruction
+
 ## In progress: Feature 0048 PR A (formula + launch reset)
 
 Plan: `docs/features/0048_PLAN.md`. Branch `feature/0048-streak-chance-formula`. Ships together with PR B (freeze); never merge alone.

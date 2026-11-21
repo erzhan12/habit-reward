@@ -14,11 +14,10 @@
         densityPadding,
         tc.card.bg,
         tc.card.extra,
-        habit.completedToday ? 'opacity-60' : '',
       ]"
       :style="entranceStyle"
     >
-      <HabitCardContent :habit="habit" :tc="tc" :streakClass="streakClass" />
+      <HabitCardContent :habit="habit" :tc="tc" :streakClass="streakClass" :chance="chance" />
     </div>
   </HabitDoneSwipe>
 
@@ -34,7 +33,7 @@
       tc.card.border,
       tc.card.bg,
       tc.card.extra,
-      habit.completedToday ? 'opacity-60' : tc.card.hoverBg,
+      habit.completedToday ? '' : tc.card.hoverBg,
       habit.completedToday ? '' : hoverClass,
     ]"
     :style="entranceStyle"
@@ -51,7 +50,7 @@
         @revert="$emit('revert', $event)"
       />
 
-      <HabitCardContent :habit="habit" :tc="tc" :streakClass="streakClass" />
+      <HabitCardContent :habit="habit" :tc="tc" :streakClass="streakClass" :chance="chance" />
 
       <!-- Right interaction (button, toggle) -->
       <component
@@ -79,6 +78,8 @@ const props = defineProps({
   habit: { type: Object, required: true },
   loading: { type: Boolean, default: false },
   index: { type: Number, default: 0 },
+  // { curve, cap } reward-chance curve from the dashboard view (feature 0049)
+  chance: { type: Object, default: null },
 });
 
 defineEmits(["complete", "revert"]);

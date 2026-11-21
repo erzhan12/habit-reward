@@ -3,17 +3,21 @@
     <!-- Month navigation -->
     <div class="flex items-center justify-between mb-4">
       <button
+        type="button"
+        aria-label="Previous month"
         @click="$emit('navigate', prevMonth)"
-        class="p-2 text-text-secondary transition-colors"
+        class="min-w-11 min-h-11 grid place-items-center text-text-secondary transition-colors"
         :class="[themeConfig.classes.card.rounded, 'hover:bg-bg-card-hover']"
       >
         &larr;
       </button>
       <h2 class="text-lg font-medium text-text-primary">{{ monthLabel }}</h2>
       <button
+        type="button"
+        aria-label="Next month"
         @click="$emit('navigate', nextMonth)"
         :disabled="isCurrentMonth"
-        class="p-2 text-text-secondary transition-colors disabled:opacity-30"
+        class="min-w-11 min-h-11 grid place-items-center text-text-secondary transition-colors disabled:opacity-30"
         :class="[themeConfig.classes.card.rounded, 'hover:bg-bg-card-hover']"
       >
         &rarr;
@@ -35,26 +39,29 @@
     <div class="grid grid-cols-7 gap-1">
       <div v-for="n in startOffset" :key="'empty-' + n" />
 
-      <div
+      <button
         v-for="day in daysInMonth"
         :key="day"
-        class="aspect-square flex flex-col items-center justify-center text-sm relative"
+        type="button"
+        class="aspect-square flex flex-col items-center justify-center text-sm relative cursor-pointer"
         :class="[themeConfig.classes.card.rounded, dayClass(day)]"
+        :aria-label="dayLabel(day)"
+        :aria-pressed="formatDate(day) === selectedDate"
         @click="$emit('selectDay', formatDate(day))"
       >
         <span>{{ day }}</span>
-        <div v-if="getDayCompletions(day).length > 0" class="flex gap-0.5 mt-0.5">
-          <span
-            v-for="(_, i) in getDayCompletions(day).slice(0, 4)"
-            :key="i"
-            class="w-1 h-1 rounded-full bg-accent"
-          />
-          <span
-            v-if="getDayCompletions(day).length > 4"
-            class="w-1 h-1 rounded-full bg-accent/50"
-          />
-        </div>
-      </div>
+        <!-- unfiltered: how many habits were done; filtered: done or not -->
+        <span
+          v-if="getDayCompletions(day).length > 0 && !filtered"
+          class="text-[10px] leading-none font-semibold text-accent mt-0.5"
+          aria-hidden="true"
+        >{{ getDayCompletions(day).length }}</span>
+        <span
+          v-else-if="getDayCompletions(day).length > 0"
+          class="w-1.5 h-1.5 rounded-full bg-accent mt-1"
+          aria-hidden="true"
+        />
+      </button>
     </div>
   </div>
 </template>
@@ -67,6 +74,9 @@ const props = defineProps({
   currentMonth: { type: String, required: true },
   completions: { type: Object, default: () => ({}) },
   userToday: { type: String, default: null },
+  // one habit selected in History: show a dot instead of a count
+  filtered: { type: Boolean, default: false },
+  selectedDate: { type: String, default: null },
 });
 
 defineEmits(["navigate", "selectDay"]);
@@ -141,8 +151,20 @@ function getDayCompletions(day) {
   return completionsByDate.value[formatDate(day)] || [];
 }
 
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
+function dayLabel(day) {
+  const n = getDayCompletions(day).length;
+  const done = props.filtered
+    ? (n > 0 ? "completed" : "not completed")
+    : `${n} ${n === 1 ? "habit" : "habits"} completed`;
+  return `${day} ${MONTH_NAMES[month.value - 1]}, ${done}`;
+}
+
 function dayClass(day) {
   const classes = [];
+  if (formatDate(day) === props.selectedDate) classes.push("ring-2 ring-accent");
   if (day === today.value) {
     classes.push("bg-accent/20 text-accent font-bold");
   } else if (getDayCompletions(day).length > 0) {

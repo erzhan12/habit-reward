@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   animateSinkBounce,
+  cardEntranceStyle,
   triggerCompletionCelebration,
 } from "../src/composables/useThemeAnimation.js";
 
@@ -161,5 +162,25 @@ describe("triggerCompletionCelebration", () => {
     resolveSink();
     await p;
     expect(resolved).toBe(true);
+  });
+});
+
+describe("cardEntranceStyle reduced motion", () => {
+  it("returns the entrance animation when motion is allowed", () => {
+    expect(cardEntranceStyle(2, "stagger-fade")).toEqual({
+      animation: "fadeIn 0.3s ease-out both",
+      animationDelay: "120ms",
+    });
+  });
+
+  it("returns no animation when the user prefers reduced motion", () => {
+    window.matchMedia = vi.fn().mockReturnValue({ matches: true });
+    expect(cardEntranceStyle(2, "stagger-fade")).toEqual({});
+    expect(cardEntranceStyle(0, "slide-up")).toEqual({});
+  });
+
+  it("keeps the animation when matchMedia is unavailable", () => {
+    delete window.matchMedia;
+    expect(cardEntranceStyle(0, "fade-in")).toEqual({ animation: "fadeIn 0.3s ease-out both" });
   });
 });

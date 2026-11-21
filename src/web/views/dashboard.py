@@ -22,6 +22,24 @@ from src.utils.async_compat import maybe_await
 
 logger = logging.getLogger(__name__)
 
+# Days of the chance curve sent to the web UI (feature 0049). The curve is flat
+# at the cap well before this; the frontend clamps later days to the last entry.
+CHANCE_CURVE_DAYS = 30
+
+
+def _chance_curve() -> dict:
+    """Rounded reward chance per streak day (index i = day i + 1) and the cap.
+
+    Computed with the service formula so the frontend never duplicates it.
+    """
+    return {
+        "curve": [
+            round(reward_service.calculate_reward_chance(day))
+            for day in range(1, CHANCE_CURVE_DAYS + 1)
+        ],
+        "cap": round(settings.REWARD_CHANCE_CAP),
+    }
+
 
 async def dashboard(request):
     """Main screen: list of today's habits with completion status."""
@@ -66,6 +84,7 @@ async def dashboard(request):
             today_result = {"gotReward": log.got_reward, "rewardName": reward_name}
             # The chance that actually applied: the stored no-reward % snapshot.
             reward_chance = round(100 - log.total_weight_applied)
+            next_streak = streak + 1
         else:
             # Chance of the next completion (feature 0048: streak only).
             next_streak = state.next_streak if state else 1
@@ -78,6 +97,7 @@ async def dashboard(request):
             "streak": streak,
             "completedToday": is_completed,
             "rewardChance": reward_chance,
+            "nextStreak": next_streak,
             "todayResult": today_result,
             "freezeCount": state.freeze_count if state else 0,
             "freezeUsedFor": state.freeze_used_for.isoformat() if state and state.freeze_used_for else None,
@@ -97,6 +117,7 @@ async def dashboard(request):
             "totalPointsToday": total_points,
         },
         "completionFlash": completion_flash,
+        "chance": _chance_curve(),
     })
 
 

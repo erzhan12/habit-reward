@@ -499,3 +499,41 @@ class TestDashboardTimezone:
         mock_repo.get_todays_logs_by_user.assert_called_once_with(
             ANY, target_date=fake_date
         )
+
+
+class TestChanceProps:
+    """Feature 0049: chance curve + nextStreak for the odds chip hint."""
+
+    @patch("src.web.views.dashboard.streak_service")
+    @patch("src.web.views.dashboard.habit_log_repository")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_chance_curve_prop(self, mock_hs, mock_repo, mock_ss, auth_client):
+        mock_hs.get_all_active_habits.return_value = []
+        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[])
+        mock_ss.get_streak_states.return_value = {}
+
+        _, props = _inertia_props(auth_client.get("/", **INERTIA_HEADERS))
+        curve = props["chance"]["curve"]
+        assert len(curve) == 30
+        assert curve[0] == 20  # day 1
+        assert curve[6] == 40  # day 7
+        assert curve[-1] == 50
+        assert curve == sorted(curve)
+        assert props["chance"]["cap"] == 50
+
+    @patch("src.web.views.dashboard.streak_service")
+    @patch("src.web.views.dashboard.habit_log_repository")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_next_streak_per_habit(self, mock_hs, mock_repo, mock_ss, auth_client):
+        mock_hs.get_all_active_habits.return_value = [
+            _mock_habit(id=1), _mock_habit(id=2), _mock_habit(id=3), _mock_habit(id=4),
+        ]
+        mock_repo.get_todays_logs_by_user = AsyncMock(return_value=[_mock_habit_log(habit_id=3)])
+        mock_ss.get_streak_states.return_value = {1: _state(6), 2: _state(0), 3: _state(4)}
+
+        _, props = _inertia_props(auth_client.get("/", **INERTIA_HEADERS))
+        by_id = {h["id"]: h["nextStreak"] for h in props["habits"]}
+        assert by_id[1] == 7  # unfinished, alive: state.next_streak
+        assert by_id[2] == 1  # unfinished, broken
+        assert by_id[3] == 5  # completed today: streak + 1
+        assert by_id[4] == 1  # no state

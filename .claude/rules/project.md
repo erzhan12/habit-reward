@@ -18,7 +18,7 @@ These are non-obvious conventions that can't be inferred from code alone.
 
 **Telegram bot**: All user-facing strings via `msg()` from `src/bot/messages.py`. HTML formatting only (never Markdown). User validation required in all handlers.
 
-**Themes**: 8 theme personalities. Config in `frontend/src/themes/index.js`, applied via `useTheme.js` composable.
+**Themes**: 11 theme personalities. Config in `frontend/src/themes/index.js`, applied via `useTheme.js` composable.
 
 ## Environment Variables
 - `DJANGO_SECRET_KEY`, `DATABASE_PATH`, `DEBUG`

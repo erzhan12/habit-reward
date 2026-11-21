@@ -34,7 +34,7 @@ const navClass = computed(() => {
   if (props.navStyle === "frosted") {
     return "bg-bg-card/70 backdrop-blur-xl border-white/10";
   }
-  return "bg-bg-card border-gray-800";
+  return "bg-bg-card border-border";
 });
 
 function itemClass(href) {

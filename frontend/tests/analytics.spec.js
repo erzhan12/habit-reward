@@ -81,7 +81,8 @@ describe("Analytics page", () => {
     expect(text).toContain("70%");
     expect(text).toContain("42");
     expect(text).toContain("Running");
-    expect(text).toContain("60");
+    // "Available days" was dropped in feature 0049: it told users nothing.
+    expect(text).not.toContain("Available days");
   });
 
   it("renders completion rate bars", () => {

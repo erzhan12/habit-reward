@@ -11,6 +11,7 @@
         :habit="habit"
         :loading="loadingId === habit.id"
         :index="idx"
+        :chance="chance"
         @complete="completeHabit"
         @revert="revertHabit"
       />
@@ -54,6 +55,7 @@ defineProps({
   habits: { type: Array, default: () => [] },
   stats: { type: Object, default: () => ({}) },
   completionFlash: { type: Object, default: null },
+  chance: { type: Object, default: null },
 });
 
 const { themeConfig } = useTheme();

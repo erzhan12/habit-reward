@@ -59,10 +59,34 @@
         </div>
       </div>
 
-      <div v-if="activeHabits.length === 0" class="text-center py-12">
+      <div v-if="activeHabits.length === 0 && idleHabits.length === 0" class="text-center py-12">
         <p class="text-text-secondary">No active streaks. Complete a habit to start one!</p>
       </div>
     </div>
+
+    <!-- Habits without a streak: listed so the list matches the summary count -->
+    <section v-if="idleHabits.length > 0" class="mt-6" aria-labelledby="idle-heading">
+      <h2 id="idle-heading" class="text-sm font-medium text-text-secondary mb-2">
+        No streak right now
+      </h2>
+      <div class="space-y-2">
+        <div
+          v-for="habit in idleHabits"
+          :key="habit.id"
+          class="px-4 py-3 flex items-center justify-between gap-3"
+          :class="[tc.card.rounded, tc.card.border, tc.card.bg, tc.card.extra]"
+        >
+          <div class="min-w-0">
+            <h3 class="text-sm font-medium text-text-primary truncate">{{ habit.name }}</h3>
+            <div class="flex items-center gap-3 mt-0.5">
+              <span class="text-xs text-text-secondary">Best: {{ habit.longestStreak }}</span>
+              <span class="text-xs text-text-secondary">This week: {{ habit.completionsThisWeek }}</span>
+            </div>
+          </div>
+          <span class="text-sm text-text-secondary shrink-0">0</span>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -89,4 +113,5 @@ const tc = computed(() => themeConfig.value.classes);
 const { getCardEntranceStyle, getStreakFireClass, hoverClass } = useThemeAnimation();
 
 const activeHabits = computed(() => props.habits.filter((h) => h.currentStreak > 0));
+const idleHabits = computed(() => props.habits.filter((h) => !(h.currentStreak > 0)));
 </script>
