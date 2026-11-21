@@ -117,6 +117,18 @@ async def test_backdate_onto_covered_day_returns_freeze():
 
 
 @pytest.mark.asyncio
+async def test_backdate_returned_freeze_respent_on_trailing_gap_is_not_reported_returned():
+    user, habit = await S(_setup)()
+    await S(lambda: _win(user, habit, _log(user, habit, d(0), 5)))()
+    assert await S(_job)(habit, d(2)) == d(1)       # Wed: job spends for Tue
+    r = await complete(user, d(3), target=d(1))     # Thu: backdate Tue; Wed is now the missed guard day
+    snap = await S(snapshot)(habit)
+    assert snap["count"] == 0
+    assert ("spent", None, None, d(2), d(0)) in snap["events"]
+    assert r.freeze_returned is False
+
+
+@pytest.mark.asyncio
 async def test_backdate_splitting_gap_moves_spend_to_new_guard_day():
     # A=1: Mon, miss Tue Wed Thu, Fri. Guard day Wed (spent). Backdate Tue -> gap Tue..Fri, guard Thu.
     user, habit = await S(_setup)(allowed_skip_days=1)

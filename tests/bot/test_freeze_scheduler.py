@@ -85,3 +85,13 @@ def test_notice_translated(lang):
     text = msg("FREEZE_SPENT_NOTICE", lang, date="17.11", habits="Walk")
     assert not text.startswith("[Missing message")
     assert "17.11" in text and "Walk" in text
+
+
+@pytest.mark.asyncio
+async def test_one_message_per_user_when_covered_days_differ():
+    """Exempt weekdays can give habits different covered days; still one message."""
+    send = await _run([_spend(habit="Walk", habit_id=1, covered=date(2026, 11, 17)),
+                       _spend(habit="Read", habit_id=2, covered=date(2026, 11, 16))])
+    assert send.await_count == 1
+    text = send.await_args.kwargs["text"]
+    assert "Walk (17.11)" in text and "Read (16.11)" in text

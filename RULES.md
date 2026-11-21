@@ -253,14 +253,14 @@ NLP gracefully degrades when `LLM_API_KEY` not configured — returns empty list
 Three methods + one helper:
 1. **`calculate_streak(user_id, habit_id)`** — For LOGGING: returns next streak value
 2. **`get_current_streak(user_id, habit_id, user_timezone)`** — For DISPLAYING: validates freshness, returns 0 if broken
-3. **`get_validated_streak_map(user_id, habits, user_timezone)`** — Batch display: one DB query, validates all
-4. **`_is_streak_alive()`** — Static helper shared by #2 and #3
+3. **`get_validated_streak_map(user_id, habits, user_timezone)`** — Batch display: streak projection of `get_streak_states`
+4. **`trailing_streak_state()`** — Pure function behind #2 and #3 (gap engine + freeze prediction, see Streak Freeze). `_is_streak_alive()` ignores freezes and has no production caller.
 
 **Critical Pitfall**: `get_latest_streak_counts()` returns raw stored values without freshness validation. Always use `streak_service.get_validated_streak_map()` (batch) or `get_current_streak()` (single).
 
 ### Streak Map Caching
 
-Cached 5 min per user (`streaks:<user_id>`) via Django cache. Invalidated on: habit completion, revert (both variants). Cache key centralized in `StreakService.cache_key(user_id)`. Uses async cache API (`cache.aget()`, `cache.aset()`, `cache.adelete()`).
+Cached 5 min per user (`streaks:v3:<user_id>`, `StreakState` dicts from `get_streak_states`) via Django cache. Invalidated on commit by every path that writes logs or freeze events. Cache key centralized in `StreakService.cache_key(user_id)`. Uses async cache API (`cache.aget()`, `cache.aset()`, `cache.adelete()`).
 
 ### Flexible Streak Tracking (Feature 0017)
 

@@ -209,3 +209,27 @@ async def test_spend_carries_notice_fields():
     with today_by_tz({"UTC": d(2)}):
         (s,) = await FreezeService().burn_due_freezes()
     assert (s.telegram_id, s.language, s.habit_name) == (u.telegram_id, "ru", "Read")
+
+
+@pytest.mark.asyncio
+async def test_habit_deleted_mid_sweep_is_skipped_and_earlier_spends_kept():
+    from src.services import freeze_service as fs_module
+
+    def _prep():
+        u = _user()
+        h1, h2 = _habit(u, name="A"), _habit(u, name="B")
+        _log(u, h1, d(0))
+        _log(u, h2, d(0))
+        return h1, h2
+
+    h1, h2 = await S(_prep)()
+    real = fs_module.run_in_transaction
+
+    async def delete_second(fn, habit_id, *a, **kw):
+        if habit_id == h2.id:
+            await S(Habit.objects.filter(pk=h2.id).delete)()
+        return await real(fn, habit_id, *a, **kw)
+
+    with today_by_tz({"UTC": d(2)}), patch.object(fs_module, "run_in_transaction", side_effect=delete_second):
+        spends = await FreezeService().burn_due_freezes()
+    assert [s.habit_id for s in spends] == [h1.id]

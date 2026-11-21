@@ -212,7 +212,9 @@ class RewardService:
             logger.info("Selected reward: %s", selected.name)
         return selected
 
-    def select_reward_sync(self, effective_no_reward_probability: float, user_id, target_date: date):
+    def select_reward_sync(
+        self, effective_no_reward_probability: float, user_id: int | str, target_date: date
+    ) -> Reward | None:
         """Sync twin of ``select_reward`` for the single-transaction completion (0048 §4).
 
         Same filters and draw; reads through the repositories' sync methods so it can

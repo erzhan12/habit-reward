@@ -45,19 +45,27 @@ async def burn_due_freezes_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     if not spends:
         return
 
-    # One message per user and covered day, listing every habit spent in this run.
-    grouped: dict[tuple[str, str, object], list[str]] = defaultdict(list)
+    # One message per user, listing every habit spent in this run. Exempt weekdays can give
+    # habits different covered days; then each habit carries its own date.
+    grouped: dict[tuple[str, str], list] = defaultdict(list)
     for spend in spends:
         if not spend.notify or not spend.telegram_id:
             continue
-        grouped[(spend.telegram_id, spend.language, spend.covered_date)].append(spend.habit_name)
+        grouped[(spend.telegram_id, spend.language)].append(spend)
 
-    for (telegram_id, language, covered_date), habit_names in grouped.items():
+    for (telegram_id, language), user_spends in grouped.items():
+        dates = sorted({s.covered_date for s in user_spends})
+        if len(dates) == 1:
+            habits = ", ".join(html.escape(s.habit_name) for s in user_spends)
+        else:
+            habits = ", ".join(
+                f"{html.escape(s.habit_name)} ({format_short_date(s.covered_date)})" for s in user_spends
+            )
         text = msg(
             "FREEZE_SPENT_NOTICE",
             language,
-            date=format_short_date(covered_date),
-            habits=", ".join(html.escape(name) for name in habit_names),
+            date=", ".join(format_short_date(day) for day in dates),
+            habits=habits,
         )
         try:
             await context.bot.send_message(chat_id=telegram_id, text=text, parse_mode="HTML")

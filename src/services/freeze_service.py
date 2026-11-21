@@ -22,7 +22,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
 
-from src.core.models import Habit, HabitLog
+from src.core.models import Habit, HabitFreezeEvent, HabitLog
 from src.core.repositories import (
     habit_freeze_event_repository,
     habit_log_repository,
@@ -122,7 +122,7 @@ class FreezeService:
             return covered
         return None
 
-    def return_spend_sync(self, habit: Habit, spend) -> bool:
+    def return_spend_sync(self, habit: Habit, spend: HabitFreezeEvent) -> bool:
         """Undo a spend (plan §5 "returning a freeze"). True if the freeze is back in inventory.
 
         If the habit already holds a freeze the return is dropped and the spend's own
@@ -140,7 +140,7 @@ class FreezeService:
         )
         return granted
 
-    def move_spend_sync(self, spend, covered_date: date) -> None:
+    def move_spend_sync(self, spend: HabitFreezeEvent, covered_date: date) -> None:
         self.event_repo.update_covered_date_sync(spend.id, covered_date)
         spend.covered_date = covered_date
 
@@ -239,6 +239,11 @@ class FreezeService:
                 spend = await run_in_transaction(self._burn_one_sync, habit_id)
             except ServiceBusyError:
                 logger.warning("Freeze burn skipped for busy habit %s", habit_id)
+                continue
+            except Habit.DoesNotExist:  # deleted after the candidate read
+                continue
+            except Exception:  # one bad habit must not drop the notices for earlier spends
+                logger.exception("Freeze burn failed for habit %s", habit_id)
                 continue
             if spend is not None:
                 spends.append(spend)

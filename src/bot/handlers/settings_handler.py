@@ -546,6 +546,18 @@ async def no_reward_prob_deprecated_callback(update: Update, context: ContextTyp
     logger.info(f"🖱️ User {telegram_id} tapped deprecated No Reward Probability button")
 
     lang = await get_message_language_async(telegram_id, None)
+
+    # Also a conversation entry point, so validate like the other entries.
+    user = await maybe_await(user_repository.get_by_telegram_id(telegram_id))
+    if not user:
+        logger.warning(f"⚠️ User {telegram_id} not found in database")
+        await query.edit_message_text(msg('ERROR_USER_NOT_FOUND', lang))
+        return ConversationHandler.END
+    if not user.is_active:
+        logger.warning(f"⚠️ User {telegram_id} is inactive")
+        await query.edit_message_text(msg('ERROR_USER_INACTIVE', lang))
+        return ConversationHandler.END
+
     await query.edit_message_text(
         text=msg('NO_REWARD_PROB_DEPRECATED', lang) + "\n\n" + msg('SETTINGS_MENU', lang),
         reply_markup=build_settings_keyboard(lang),

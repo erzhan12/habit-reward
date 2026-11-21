@@ -437,7 +437,9 @@ class HabitService:
             prev = closing
 
         # The trailing gap may now be due (e.g. after an undo): do what the job would do.
-        fs.settle_due_spend_sync(habit, today)
+        # A freeze returned above and spent again here is not back in inventory.
+        if fs.settle_due_spend_sync(habit, today) is not None and returned:
+            returned -= 1
         return returned
 
     def _reconcile_gap_sync(self, habit, prev_date: date, end_date: date, events: list) -> tuple[bool, int]:
@@ -501,7 +503,9 @@ class HabitService:
 
     STREAK_SETTINGS = frozenset({"allowed_skip_days", "exempt_weekdays"})
 
-    def update_habit(self, habit_id, updates: dict, user_timezone: str = "UTC"):
+    def update_habit(
+        self, habit_id: int | str, updates: dict, user_timezone: str = "UTC"
+    ) -> Habit | Awaitable[Habit]:
         """Update habit fields; streak settings go through freeze reconciliation (plan §4)."""
 
         async def _impl():
