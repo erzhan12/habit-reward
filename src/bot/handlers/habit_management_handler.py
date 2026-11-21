@@ -24,6 +24,7 @@ from src.bot.keyboards import (
     build_cancel_only_keyboard,
     build_skip_cancel_keyboard
 )
+from src.bot.formatters import format_service_error
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async
 from src.bot.message_utils import schedule_message_delete
@@ -588,7 +589,7 @@ async def habit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except Exception as e:
         logger.error(f"❌ Error creating habit for user {telegram_id}: {str(e)}")
         await query.edit_message_text(
-            msg('ERROR_GENERAL', lang, error=str(e)),
+            format_service_error(e, lang),
             parse_mode="HTML"
         )
         logger.info(f"📤 Sent error message to {telegram_id}")
@@ -1384,7 +1385,7 @@ async def habit_edit_confirmed(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         logger.error(f"❌ Error updating habit for user {telegram_id}: {str(e)}")
         await query.edit_message_text(
-            msg('ERROR_GENERAL', lang, error=str(e)),
+            format_service_error(e, lang),
             parse_mode="HTML"
         )
         logger.info(f"📤 Sent error message to {telegram_id}")
@@ -1660,7 +1661,7 @@ async def habit_remove_confirmed(update: Update, context: ContextTypes.DEFAULT_T
     except Exception as e:
         logger.error(f"❌ Error removing habit for user {telegram_id}: {str(e)}")
         await query.edit_message_text(
-            msg('ERROR_GENERAL', lang, error=str(e)),
+            format_service_error(e, lang),
             parse_mode="HTML"
         )
         logger.info(f"📤 Sent error message to {telegram_id}")

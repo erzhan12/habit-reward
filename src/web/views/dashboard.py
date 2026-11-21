@@ -1,6 +1,7 @@
 """Dashboard view — Today's habits with completion status."""
 
 import logging
+from datetime import date
 
 from django.conf import settings
 from django.contrib import messages
@@ -110,6 +111,37 @@ def _dashboard_action_ratelimited(request):  # Sync helper for cache access from
     )
 
 
+def _web_date(day) -> str:
+    """Short web date label, e.g. "17 Nov"."""
+    return f"{day.day} {day.strftime('%b')}"
+
+
+def _freeze_flash(result) -> tuple[dict, str]:
+    """Freeze fields and text lines for the completion flash (feature 0048).
+
+    Compares with ``is True``: tests pass Mock results whose attributes are truthy
+    and not JSON-serialisable, and the session must stay JSON.
+    """
+    covered = result.freeze_covered_date
+    covered = covered if isinstance(covered, date) else None
+    fields = {
+        "freeze_won": result.freeze_won is True,
+        "freeze_used": result.freeze_used is True and covered is not None,
+        "freeze_burned": result.freeze_burned is True and covered is not None,
+        "freeze_covered_date": covered.isoformat() if covered else None,
+    }
+    lines = []
+    if fields["freeze_used"]:
+        lines.append(f"❄️ Freeze covered {_web_date(covered)} — streak saved.")
+    elif fields["freeze_burned"]:
+        lines.append(f"❄️ Freeze was used for {_web_date(covered)}, but you missed more days — streak reset.")
+    if fields["freeze_won"]:
+        lines.append("❄️ You earned a streak freeze!")
+    if result.freeze_returned is True:
+        lines.append("❄️ Freeze returned.")
+    return fields, "".join(f" {line}" for line in lines)
+
+
 @require_POST
 async def complete_habit(request, habit_id):
     """Mark a habit as completed for today."""
@@ -137,6 +169,7 @@ async def complete_habit(request, habit_id):
             habit_name=habit.name,
             user_timezone=user.timezone or "UTC",
         ))
+        freeze_fields, freeze_text = _freeze_flash(result)
         if result.got_reward and result.reward:
             reward_message = f"Reward: {result.reward.name}"
             pieces_earned = None
@@ -154,7 +187,7 @@ async def complete_habit(request, habit_id):
                     )
 
             flash_data = {
-                "text": f"Habit completed. {reward_message}",
+                "text": f"Habit completed. {reward_message}{freeze_text}",
                 "got_reward": True,
                 "reward_name": result.reward.name,
             }
@@ -162,11 +195,12 @@ async def complete_habit(request, habit_id):
                 flash_data["pieces_earned"] = pieces_earned
             if pieces_required is not None:
                 flash_data["pieces_required"] = pieces_required
-            request.session["_completion_flash"] = flash_data
+            request.session["_completion_flash"] = {**flash_data, **freeze_fields}
         else:
             request.session["_completion_flash"] = {
-                "text": "Habit completed. No reward this time.",
+                "text": f"Habit completed. No reward this time.{freeze_text}",
                 "got_reward": False,
+                **freeze_fields,
             }
     except ValueError as e:
         logger.warning("Habit completion failed: %s", e)
@@ -204,6 +238,7 @@ async def revert_habit(request, habit_id):
             user_telegram_id=user.telegram_id,
             habit_id=habit_id,
         ))
+        revoked_text = " Earned freeze removed." if result.freeze_revoked is True else ""
         if result.reward_reverted:
             reward_message = f"Habit undone. Reward removed: {result.reward_name or 'Unknown'}"
             if result.reward_progress:
@@ -217,9 +252,9 @@ async def revert_habit(request, habit_id):
                     reward_message = (
                         f"{reward_message} ({pieces_earned}/{pieces_required})"
                     )
-            messages.info(request, reward_message)
+            messages.info(request, f"{reward_message}{revoked_text}")
         else:
-            messages.success(request, "Habit undone.")
+            messages.success(request, f"Habit undone.{revoked_text}")
     except ValueError as e:
         logger.warning("Habit revert failed: %s", e)
         messages.error(request, str(e))

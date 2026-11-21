@@ -22,7 +22,7 @@ from src.bot.keyboards import (
     build_date_picker_keyboard,
     build_backdate_confirmation_keyboard,
 )
-from src.bot.formatters import format_habit_completion_message
+from src.bot.formatters import format_habit_completion_message, format_service_error
 from src.core.repositories import user_repository
 from src.bot.messages import msg
 from src.bot.language import (
@@ -271,7 +271,7 @@ async def habit_custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     except (ValueError, ServiceBusyError) as e:
         logger.error(f"❌ Error processing habit completion for user {telegram_id}: {str(e)}")
         await update.message.reply_text(
-            msg('ERROR_GENERAL', lang, error=str(e)),
+            format_service_error(e, lang),
             reply_markup=build_back_to_menu_keyboard(lang)
         )
         logger.info(f"📤 Sent error message to {telegram_id}")
@@ -329,7 +329,7 @@ async def handle_today_selection(
     except (ValueError, ServiceBusyError) as e:
         logger.error(f"❌ Error processing habit completion for user {telegram_id}: {str(e)}")
         await query.edit_message_text(
-            msg('ERROR_GENERAL', lang, error=str(e)),
+            format_service_error(e, lang),
             reply_markup=build_back_to_menu_keyboard(lang),
             parse_mode="HTML"
         )
@@ -618,7 +618,7 @@ async def handle_backdate_confirmation(
         elif "before habit was created" in error_msg.lower():
             user_message = msg('ERROR_BACKDATE_BEFORE_CREATED', lang, date=error_msg.split()[-1])
         else:
-            user_message = msg('ERROR_GENERAL', lang, error=error_msg)
+            user_message = format_service_error(e, lang)
 
         await query.edit_message_text(
             user_message,

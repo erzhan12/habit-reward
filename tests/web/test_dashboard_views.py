@@ -98,6 +98,69 @@ class TestDashboard:
         assert "No reward this time." in flash["text"]
 
     @patch("src.web.views.dashboard.habit_service")
+    def test_complete_habit_freeze_flash(self, mock_hs, auth_client):
+        """Feature 0048: freeze fields are JSON-safe and the text names the covered day."""
+        from datetime import date
+
+        from src.models.habit_completion_result import HabitCompletionResult
+
+        mock_hs.get_habit_by_id.return_value = _mock_habit()
+        mock_hs.process_habit_completion.return_value = HabitCompletionResult(
+            habit_confirmed=True, habit_name="Walk", streak_count=4, total_weight_applied=70.0,
+            freeze_used=True, freeze_won=True, freeze_covered_date=date(2026, 11, 17),
+        )
+        auth_client.post("/habits/1/complete/")
+
+        flash = auth_client.session.get("_completion_flash")
+        assert flash["freeze_used"] is True and flash["freeze_won"] is True
+        assert flash["freeze_burned"] is False
+        assert flash["freeze_covered_date"] == "2026-11-17"
+        assert "Freeze covered 17 Nov" in flash["text"]
+        assert "You earned a streak freeze!" in flash["text"]
+
+    @patch("src.web.views.dashboard.habit_service")
+    def test_complete_habit_freeze_burned_flash(self, mock_hs, auth_client):
+        from datetime import date
+
+        from src.models.habit_completion_result import HabitCompletionResult
+
+        mock_hs.get_habit_by_id.return_value = _mock_habit()
+        mock_hs.process_habit_completion.return_value = HabitCompletionResult(
+            habit_confirmed=True, habit_name="Walk", streak_count=1, total_weight_applied=80.0,
+            freeze_burned=True, freeze_covered_date=date(2026, 11, 17),
+        )
+        auth_client.post("/habits/1/complete/")
+
+        flash = auth_client.session.get("_completion_flash")
+        assert flash["freeze_burned"] is True
+        assert "used for 17 Nov" in flash["text"] and "streak reset" in flash["text"]
+
+    @patch("src.web.views.dashboard.habit_service")
+    def test_complete_habit_mock_result_has_no_freeze_text(self, mock_hs, auth_client):
+        mock_hs.get_habit_by_id.return_value = _mock_habit()
+        mock_hs.process_habit_completion.return_value = MagicMock(
+            got_reward=False, reward=None, cumulative_progress=None
+        )
+        auth_client.post("/habits/1/complete/")
+
+        flash = auth_client.session.get("_completion_flash")
+        assert "❄️" not in flash["text"]
+        assert flash["freeze_won"] is False and flash["freeze_covered_date"] is None
+
+    @patch("src.web.views.dashboard.messages")
+    @patch("src.web.views.dashboard.habit_service")
+    def test_revert_habit_mentions_revoked_freeze(self, mock_hs, mock_messages, auth_client):
+        from src.models.habit_revert_result import HabitRevertResult
+
+        mock_hs.get_habit_by_id.return_value = _mock_habit()
+        mock_hs.revert_habit_completion.return_value = HabitRevertResult(
+            habit_id=1, habit_name="Walk", freeze_revoked=True
+        )
+        auth_client.post("/habits/1/revert/")
+
+        assert "Habit undone. Earned freeze removed." in str(mock_messages.success.call_args)
+
+    @patch("src.web.views.dashboard.habit_service")
     def test_complete_nonexistent_habit_redirects(self, mock_hs, auth_client):
         mock_hs.get_habit_by_id.return_value = None
         response = auth_client.post("/habits/99999/complete/")

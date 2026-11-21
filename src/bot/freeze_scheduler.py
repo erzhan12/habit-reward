@@ -14,6 +14,7 @@ from django.conf import settings
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from src.bot.formatters import format_short_date
 from src.bot.messages import msg
 from src.services.freeze_service import freeze_service
 
@@ -55,7 +56,7 @@ async def burn_due_freezes_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         text = msg(
             "FREEZE_SPENT_NOTICE",
             language,
-            date=covered_date.strftime("%d.%m"),
+            date=format_short_date(covered_date),
             habits=", ".join(html.escape(name) for name in habit_names),
         )
         try:

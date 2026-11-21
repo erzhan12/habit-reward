@@ -61,12 +61,14 @@ async def streaks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Get habit names, skipping habits with broken streaks (streak_count == 0)
     habits_with_names = {}
+    shown_habits = []
     for habit_id, streak_count in streaks_dict.items():
         if streak_count == 0:
             continue
         habit = await maybe_await(habit_repository.get_by_id(habit_id))
         if habit:
             habits_with_names[habit_id] = (habit.name, streak_count)
+            shown_habits.append(habit)
             logger.info(f"🔥 User {telegram_id} - Habit '{habit.name}': {streak_count} day streak")
 
     if not habits_with_names:
@@ -79,7 +81,12 @@ async def streaks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Format and send message
-    message = format_streaks_message(habits_with_names, lang)
+    # Effective freeze inventory (a due spend the job has not run yet is already deducted)
+    states = await maybe_await(
+        streak_service.get_streak_states(user.id, shown_habits, user.timezone or 'UTC')
+    )
+    freeze_counts = {habit_id: state.freeze_count for habit_id, state in states.items()}
+    message = format_streaks_message(habits_with_names, lang, freeze_counts)
     logger.info(f"✅ Sending streak information for {len(habits_with_names)} habits to user {telegram_id}")
     await update.message.reply_text(
         message,

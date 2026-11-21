@@ -23,12 +23,15 @@ Branch `feature/0048-streak-freeze`, stacked on PR A. Released together with PR 
 - [x] 3. Transaction functions + completion (§4): lock, retry/`ServiceBusyError`, settle-first, catch-up, freeze roll. Backdate recalculation runs inside the transaction but is still streak-only (no returns/relocation) until slice 4
 - [x] 4. Backdate/undo/settings reconciliation (§5, §6), shared revert helper (`_revert_log_sync`, also used by the admin action), `HabitService.update_habit` for API/bot edits, UTC-default callers fixed. Retry backoff now jittered (lockstep retries livelocked)
   - Gap with no counted predecessor: its SPENT events are left untouched (no streak to protect; avoids returning a freeze won by an undone first completion)
-  - Admin `HabitAdmin` settings edits still write directly; routed through `update_habit` in slice 7
+  - Admin `HabitAdmin` has no streak-settings fields, so nothing there needs routing through `update_habit` (checked in slice 7)
 - [x] 5. Burn job + scheduler + `FREEZE_SPENT_NOTICE` (§3): `FreezeService.burn_due_freezes`, `src/bot/freeze_scheduler.py`, registered in webhook init and polling `main`. Notice date format `DD.MM` (language-neutral)
 - [x] 6. Read paths: `trailing_streak_state` + `get_streak_states` (prediction, cache v3), single-habit streak calls on the gap engine, dashboard (`freezeCount`/`freezeUsedFor`/`freezeAtRisk`), web streaks + `/v1/streaks` (`freezeCount`/`freeze_count`, batched), API completion fields (`reward_chance`, `freeze_won/used/covered_date`), `HabitResponse.freeze_count` (raw)
   - Local-only audit tests still patched the old async `select_reward`; now patch `select_reward_sync`
-- [ ] 7. UI: bot strings, web flash/❄️/hints, admin grant/remove, read-only `HabitLogAdmin`
-  - Bot busy text is English inside `ERROR_GENERAL`; add a translated `ERROR_BUSY`
+- [x] 7. UI: bot strings, web flash/❄️/hints, admin grant/remove, read-only `HabitLogAdmin`
+  - `ERROR_BUSY` via `format_service_error` in every bot `except (ValueError, ServiceBusyError)` block and the habit create/update/remove `except Exception` blocks
+  - Admin write denials are scoped to the model's own admin views (`_on_own_view`): a blanket `has_delete_permission=False` would block Habit/User delete cascades
+  - `HabitAdmin` exposes no streak settings, so there is nothing to route through `update_habit` there
+  - kk freeze strings still need a native-speaker review
 - [ ] 8. Docs + manual check on a DB copy
 
 ## Follow-ups

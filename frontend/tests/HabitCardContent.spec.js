@@ -93,4 +93,45 @@ describe("HabitCardContent", () => {
     expect(emoji.classes()).not.toContain("");
     expect(text.classes()).not.toContain("");
   });
+
+  it("shows the freeze chip only when a freeze is held", () => {
+    expect(mountComponent({ freezeCount: 1 }).find('[data-testid="freeze-chip"]').text()).toBe("❄️");
+    expect(mountComponent({ freezeCount: 2 }).find('[data-testid="freeze-chip"]').text()).toBe("❄️×2");
+    expect(mountComponent({ freezeCount: 0 }).find('[data-testid="freeze-chip"]').exists()).toBe(false);
+  });
+
+  it("shows the freeze chip with no streak", () => {
+    const wrapper = mountComponent({ streak: 0, freezeCount: 1 });
+    expect(wrapper.find('[data-testid="freeze-chip"]').exists()).toBe(true);
+    expect(wrapper.text()).not.toContain("day streak");
+  });
+
+  it("shows the freeze chip when the theme hides odds", async () => {
+    vi.resetModules();
+    vi.doMock("../src/composables/useTheme.js", () => ({
+      useTheme: () => ({ themeConfig: { value: { habitCard: { showOdds: false } } } }),
+    }));
+    const { default: Card } = await import("../src/components/HabitCardContent.vue");
+    const wrapper = mount(Card, {
+      props: { habit: { ...baseHabit, freezeCount: 1 }, tc: { badge: { base: "" } } },
+    });
+    expect(wrapper.text()).not.toContain("50%");
+    expect(wrapper.find('[data-testid="freeze-chip"]').exists()).toBe(true);
+    vi.doUnmock("../src/composables/useTheme.js");
+  });
+
+  it("hints the covered day without a timezone shift", () => {
+    const hint = mountComponent({ freezeUsedFor: "2026-11-01" }).find('[data-testid="freeze-hint"]');
+    expect(hint.text()).toContain("Freeze used for 1 Nov");
+  });
+
+  it("hints an at-risk freeze", () => {
+    const hint = mountComponent({ freezeCount: 1, freezeAtRisk: true }).find('[data-testid="freeze-hint"]');
+    expect(hint.text()).toContain("Skip today and your freeze will be used tonight.");
+  });
+
+  it("hides freeze hints once completed today", () => {
+    const wrapper = mountComponent({ completedToday: true, freezeAtRisk: true, freezeUsedFor: "2026-11-17" });
+    expect(wrapper.find('[data-testid="freeze-hint"]').exists()).toBe(false);
+  });
 });

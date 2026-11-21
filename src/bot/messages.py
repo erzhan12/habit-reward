@@ -165,6 +165,13 @@ The longer your streak, the higher your reward chance: from 20% up to 50%. Missi
     HELP_ADD_HABIT_WEIGHT_PROMPT = "Select the weight for this habit (0-30).\n\nWeight only counts toward daily points; it no longer affects reward chance:"
     FREEZE_SPENT_NOTICE = "❄️ A streak freeze covered {date} for: <b>{habits}</b>. Complete today to keep your streak."
     NO_REWARD_PROB_DEPRECATED = "ℹ️ This setting is no longer used. Reward chance now depends only on your streak (20% → 50%)."
+    FREEZE_WON = "❄️ <b>Streak freeze earned!</b> It will cover one missed day of this habit automatically."
+    FREEZE_USED = "❄️ <b>Freeze used</b> for {date}. Your streak is safe."
+    FREEZE_BURNED = "❄️ The freeze covered {date}, but more days were missed, so the streak starts over."
+    FREEZE_RETURNED = "❄️ Freeze returned to this habit."
+    FREEZE_REVOKED = "❄️ The freeze earned with this completion was removed."
+    INFO_STREAK_FREEZE_LEGEND = "❄️ = freeze in reserve"
+    ERROR_BUSY = "⏳ Busy right now. Please try again in a moment."
     HELP_ADD_HABIT_CATEGORY_PROMPT = "Select a category for this habit:"
     HELP_ADD_HABIT_GRACE_DAYS_PROMPT = "How many grace days for this habit?\n\n<b>Grace days</b> allow you to skip days without breaking your streak.\n\nExample: With 1 grace day, you can miss one day and still maintain your streak."
     HELP_ADD_HABIT_EXEMPT_DAYS_PROMPT = "Select days that don't count against your streak:\n\n<b>Exempt days</b> are days of the week (like weekends) that won't break your streak if you don't complete the habit."
@@ -487,6 +494,13 @@ Use this key in your app with the header:
             'HELP_ADD_HABIT_WEIGHT_PROMPT': "Выберите вес привычки (0-30).\n\nВес идёт только в очки за день, на шанс награды он больше не влияет:",
             'FREEZE_SPENT_NOTICE': "❄️ Заморозка прикрыла {date}: <b>{habits}</b>. Выполните сегодня, чтобы сохранить серию.",
             'NO_REWARD_PROB_DEPRECATED': "ℹ️ Эта настройка больше не работает. Шанс награды теперь зависит только от серии, от 20% до 50%.",
+            'FREEZE_WON': "❄️ <b>Вы получили заморозку!</b> Она сама прикроет один пропущенный день этой привычки.",
+            'FREEZE_USED': "❄️ <b>Заморозка потрачена</b> на {date}. Серия сохранена.",
+            'FREEZE_BURNED': "❄️ Заморозка ушла на {date}, но пропущено больше дней, поэтому серия начинается заново.",
+            'FREEZE_RETURNED': "❄️ Заморозка вернулась к привычке.",
+            'FREEZE_REVOKED': "❄️ Заморозка за это выполнение отменена.",
+            'INFO_STREAK_FREEZE_LEGEND': "❄️ заморозка в запасе",
+            'ERROR_BUSY': "⏳ Сервер занят. Попробуйте ещё раз чуть позже.",
             'HELP_ADD_HABIT_CATEGORY_PROMPT': "Выберите категорию для этой привычки:",
             'HELP_ADD_HABIT_GRACE_DAYS_PROMPT': "Сколько дней отсрочки (grace days) для этой привычки?\n\n<b>Дни отсрочки</b> позволяют пропускать дни без потери серии.\n\nПример: С 1 днём отсрочки вы можете пропустить один день и сохранить серию.",
             'HELP_ADD_HABIT_EXEMPT_DAYS_PROMPT': "Выберите дни, которые не учитываются в серии:\n\n<b>Исключённые дни</b> — это дни недели (например, выходные), которые не прервут вашу серию, если вы не выполните привычку.",
@@ -806,6 +820,13 @@ Use this key in your app with the header:
             'HELP_ADD_HABIT_WEIGHT_PROMPT': "Осы әдет үшін салмақты таңдаңыз (0-30).\n\nСалмақ тек күндік ұпайларға әсер етеді, сыйлық мүмкіндігіне енді әсер етпейді:",
             'FREEZE_SPENT_NOTICE': "❄️ Мұздату {date} күнін жапты: <b>{habits}</b>. Серияны сақтау үшін бүгін орындаңыз.",
             'NO_REWARD_PROB_DEPRECATED': "ℹ️ Бұл баптау енді қолданылмайды. Сыйлық мүмкіндігі енді тек серияға байланысты (20% → 50%).",
+            'FREEZE_WON': "❄️ <b>Мұздату ұтып алдыңыз!</b> Ол осы әдеттің бір өткізілген күнін автоматты түрде жабады.",
+            'FREEZE_USED': "❄️ <b>Мұздату жұмсалды</b> ({date}). Серия сақталды.",
+            'FREEZE_BURNED': "❄️ Мұздату {date} күніне жұмсалды, бірақ көбірек күн өткізілді, сондықтан серия қайта басталады.",
+            'FREEZE_RETURNED': "❄️ Мұздату қайтарылды.",
+            'FREEZE_REVOKED': "❄️ Осы орындау үшін алынған мұздату жойылды.",
+            'INFO_STREAK_FREEZE_LEGEND': "❄️ — қордағы мұздату",
+            'ERROR_BUSY': "⏳ Қазір бос емес. Сәлден кейін қайталап көріңіз.",
             'HELP_ADD_HABIT_CATEGORY_PROMPT': "Осы әдет үшін санатты таңдаңыз:",
             'HELP_ADD_HABIT_GRACE_DAYS_PROMPT': "Бұл әдет үшін қанша күн шегерім (grace days) керек?\n\n<b>Шегерім күндері</b> серияны үзбей күндерді өткізіп жіберуге мүмкіндік береді.\n\nМысалы: 1 шегерім күнімен сіз бір күнді өткізіп жіберіп, серияны сақтай аласыз.",
             'HELP_ADD_HABIT_EXEMPT_DAYS_PROMPT': "Серияға әсер етпейтін күндерді таңдаңыз:\n\n<b>Ерекше күндер</b> — бұл әдетті орындамасаңыз да серияңызды үзбейтін апта күндері (мысалы, демалыс күндері).",

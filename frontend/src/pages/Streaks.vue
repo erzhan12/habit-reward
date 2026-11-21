@@ -50,6 +50,11 @@
             <span class="text-xl font-bold" :class="[habit.currentStreak > 0 ? 'text-streak-fire' : 'text-text-secondary', getStreakFireClass(habit.currentStreak)]">
               {{ habit.currentStreak }}
             </span>
+            <span
+              v-if="habit.freezeCount > 0"
+              class="text-sm text-text-secondary"
+              :title="habit.freezeCount === 1 ? '1 streak freeze in reserve' : `${habit.freezeCount} streak freezes in reserve`"
+            >❄️<template v-if="habit.freezeCount > 1">×{{ habit.freezeCount }}</template></span>
           </div>
         </div>
       </div>

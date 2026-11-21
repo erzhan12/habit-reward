@@ -18,7 +18,7 @@ from src.bot.keyboards import (
     build_backdate_confirmation_keyboard,
     build_back_to_menu_keyboard,
 )
-from src.bot.formatters import format_habit_completion_message
+from src.bot.formatters import format_habit_completion_message, format_service_error
 from src.core.repositories import user_repository
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async
@@ -317,7 +317,7 @@ async def confirm_backdate_completion(
             # Extract creation date from error if possible
             user_message = msg('ERROR_BACKDATE_BEFORE_CREATED', lang, date=error_msg.split()[-1])
         else:
-            user_message = msg('ERROR_GENERAL', lang, error=error_msg)
+            user_message = format_service_error(e, lang)
 
         await query.edit_message_text(
             user_message,

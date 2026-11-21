@@ -8,8 +8,21 @@ from src.models.reward import Reward
 from src.models.habit_log import HabitLog
 from src.config import settings
 from src.bot.messages import msg
+from src.services.transactions import ServiceBusyError
 
 logger = logging.getLogger(__name__)
+
+
+def format_service_error(exc: Exception, language: str = 'en') -> str:
+    """User text for a failed service call: translated busy text, else the generic error."""
+    if isinstance(exc, ServiceBusyError):
+        return msg('ERROR_BUSY', language)
+    return msg('ERROR_GENERAL', language, error=str(exc))
+
+
+def format_short_date(day) -> str:
+    """Language-neutral day.month label used in freeze messages (e.g. 17.11)."""
+    return day.strftime("%d.%m")
 
 
 def format_habit_completion_message(result: HabitCompletionResult, language: str = 'en') -> str:
@@ -32,6 +45,13 @@ def format_habit_completion_message(result: HabitCompletionResult, language: str
     fire_emoji = "🔥" * min(result.streak_count, 5)
     message_parts.append(f"{fire_emoji} " + msg('FORMAT_STREAK', language, streak_count=result.streak_count))
 
+    # Freeze spent on the gap before this completion (feature 0048 §4)
+    covered = result.freeze_covered_date
+    if result.freeze_used is True and covered is not None:
+        message_parts.append(msg('FREEZE_USED', language, date=format_short_date(covered)))
+    elif result.freeze_burned is True and covered is not None:
+        message_parts.append(msg('FREEZE_BURNED', language, date=format_short_date(covered)))
+
     # Reward result - all rewards now show progress
     # got_reward=True means they won a reward (reward is not None)
     if result.got_reward and result.reward:
@@ -51,6 +71,11 @@ def format_habit_completion_message(result: HabitCompletionResult, language: str
                 message_parts.append(msg('INFO_REWARD_ACTIONABLE', language))
     else:
         message_parts.append("\n" + msg('INFO_NO_REWARD', language))
+
+    if result.freeze_won is True:
+        message_parts.append(msg('FREEZE_WON', language))
+    if result.freeze_returned is True:
+        message_parts.append(msg('FREEZE_RETURNED', language))
 
     # Motivational quote (if present)
     if result.motivational_quote:
@@ -84,13 +109,19 @@ def format_reward_progress_message(progress: RewardProgress, reward: Reward, lan
     return message
 
 
-def format_streaks_message(streaks: dict[str, tuple[str, int]], language: str = 'en') -> str:
+def format_streaks_message(
+    streaks: dict[str, tuple[str, int]],
+    language: str = 'en',
+    freeze_counts: dict | None = None,
+) -> str:
     """
     Format streaks dictionary into a message.
 
     Args:
         streaks: Dictionary mapping habit_id to (habit_name, streak_count)
         language: Language code for translations
+        freeze_counts: Optional habit_id -> effective freezes held; a habit with
+            one or more gets a ❄️ mark, and a legend line is added
 
     Returns:
         Formatted message string
@@ -109,7 +140,11 @@ def format_streaks_message(streaks: dict[str, tuple[str, int]], language: str = 
 
     for habit_id, (habit_name, streak_count) in sorted_streaks:
         fire_emoji = "🔥" * min(streak_count, 5)
-        message_parts.append(f"{fire_emoji} <b>{habit_name}:</b> {streak_count} days")
+        freeze_mark = " ❄️" if (freeze_counts or {}).get(habit_id, 0) > 0 else ""
+        message_parts.append(f"{fire_emoji} <b>{habit_name}:</b> {streak_count} days{freeze_mark}")
+
+    if any((freeze_counts or {}).get(habit_id, 0) > 0 for habit_id in streaks):
+        message_parts.append("\n" + msg('INFO_STREAK_FREEZE_LEGEND', language))
 
     return "\n".join(message_parts)
 

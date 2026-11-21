@@ -27,17 +27,33 @@
       </span>
     </div>
 
-    <div v-if="habit.streak > 0" class="flex items-center gap-1 mt-1">
+    <div v-if="habit.streak > 0 || freezeCount > 0" class="flex items-center gap-1 mt-1">
+      <template v-if="habit.streak > 0">
+        <span
+          class="text-sm"
+          :class="[streakColorClasses, { 'streak-emoji-muted': habit.completedToday }]"
+        >
+          🔥
+        </span>
+        <span class="text-xs font-medium" :class="streakColorClasses">
+          {{ habit.streak }}-day streak
+        </span>
+      </template>
+      <!-- freeze inventory: shown whatever the theme's showOdds (feature 0048) -->
       <span
-        class="text-sm"
-        :class="[streakColorClasses, { 'streak-emoji-muted': habit.completedToday }]"
+        v-if="freezeCount > 0"
+        class="text-xs text-text-secondary"
+        :class="{ 'ml-1': habit.streak > 0 }"
+        :title="freezeCount === 1 ? '1 streak freeze in reserve' : `${freezeCount} streak freezes in reserve`"
+        data-testid="freeze-chip"
       >
-        🔥
-      </span>
-      <span class="text-xs font-medium" :class="streakColorClasses">
-        {{ habit.streak }}-day streak
+        ❄️<template v-if="freezeCount > 1">×{{ freezeCount }}</template>
       </span>
     </div>
+
+    <p v-if="freezeHint" class="text-xs text-text-secondary mt-1" data-testid="freeze-hint">
+      {{ freezeHint }}
+    </p>
   </div>
 </template>
 
@@ -60,6 +76,26 @@ const hc = computed(() => ({
   buttonLabel: "Done",
   ...(themeConfig.value.habitCard || {}),
 }));
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// "2026-11-17" -> "17 Nov". Split the ISO string: new Date() would shift the day in
+// negative-offset timezones.
+function shortDate(iso) {
+  const [, month, day] = String(iso).split("-").map(Number);
+  return month && day ? `${day} ${MONTHS[month - 1]}` : String(iso);
+}
+
+const freezeCount = computed(() => Number(props.habit.freezeCount) || 0);
+
+const freezeHint = computed(() => {
+  if (props.habit.completedToday) return "";
+  if (props.habit.freezeUsedFor) {
+    return `❄️ Freeze used for ${shortDate(props.habit.freezeUsedFor)} — complete today to keep the streak.`;
+  }
+  if (props.habit.freezeAtRisk) return "❄️ Skip today and your freeze will be used tonight.";
+  return "";
+});
 
 const streakColorClasses = computed(() => [
   props.habit.completedToday ? "text-text-muted" : "text-streak-fire",

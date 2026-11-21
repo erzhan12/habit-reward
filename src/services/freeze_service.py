@@ -170,6 +170,32 @@ class FreezeService:
         logger.info("Freeze won: habit=%s earned_on=%s", habit.id, earned_on)
         return True
 
+    # --- Admin actions (plan "Repositories and admin"; run inside run_in_transaction_sync) --
+
+    def admin_grant_sync(self, habit_id) -> bool:
+        """Grant an untracked freeze (no EARNED event). False if the inventory is full."""
+        habit = self.habit_repo.lock_for_update_sync(habit_id)
+        if not self.habit_repo.try_grant_freeze_sync(habit.id, settings.MAX_FREEZES_PER_HABIT):
+            return False
+        self._invalidate_streak_cache(habit.user_id)
+        logger.info("Admin granted a freeze: habit=%s", habit.id)
+        return True
+
+    def admin_remove_sync(self, habit_id) -> bool:
+        """Remove the held freeze; a tracked one is marked forfeited. False if none is held."""
+        habit = self.habit_repo.lock_for_update_sync(habit_id)
+        held = self.event_repo.get_held_earned_sync(habit.id)
+        if not self.habit_repo.try_consume_freeze_sync(habit.id):
+            return False
+        if held is not None:
+            self.event_repo.set_state_sync(held.id, "forfeited")
+        self._invalidate_streak_cache(habit.user_id)
+        logger.info("Admin removed a freeze: habit=%s tracked=%s", habit.id, held is not None)
+        return True
+
+    @staticmethod
+    def _invalidate_streak_cache(user_id) -> None:
+        transaction.on_commit(partial(cache.delete, StreakService.cache_key(user_id)), robust=True)
 
     # --- Periodic burn job (plan §3) ----------------------------------------------------
 

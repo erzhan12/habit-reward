@@ -3,12 +3,26 @@
 import logging
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from src.core.models import User, Habit, Reward, RewardProgress, HabitLog, BotAuditLog, APIKey
+from src.core.models import User, Habit, Reward, RewardProgress, HabitLog, HabitFreezeEvent, BotAuditLog, APIKey
 from src.bot.timezone_utils import get_user_today
+from src.services.freeze_service import freeze_service
 from src.services.habit_service import habit_service
-from src.services.transactions import run_in_transaction_sync
+from src.services.transactions import ServiceBusyError, run_in_transaction_sync
 
 logger = logging.getLogger(__name__)
+
+
+def _on_own_view(model_admin, request) -> bool:
+    """True when the request is one of this ModelAdmin's own admin views.
+
+    Write permissions are denied only there: Django also asks a related model's admin
+    for delete permission when a Habit or User delete cascades to it, and that
+    cascade must keep working (feature 0048).
+    """
+    match = getattr(request, "resolver_match", None)
+    opts = model_admin.model._meta
+    prefix = f"{opts.app_label}_{opts.model_name}_"
+    return bool(match and match.url_name and match.url_name.startswith(prefix))
 
 
 @admin.register(User)
@@ -61,22 +75,80 @@ class UserAdmin(BaseUserAdmin):
 class HabitAdmin(admin.ModelAdmin):
     """Admin interface for Habit model."""
 
-    list_display = ['name', 'user', 'weight', 'category', 'active', 'created_at']
+    list_display = ['name', 'user', 'weight', 'category', 'active', 'freeze_count', 'created_at']
     list_filter = ['active', 'category', 'created_at', 'user']
     search_fields = ['name', 'category', 'user__name', 'user__telegram_id']
-    readonly_fields = ['id', 'created_at', 'updated_at']
+    # freeze_count changes only through the Grant/Remove actions (habit row locked).
+    readonly_fields = ['id', 'freeze_count', 'created_at', 'updated_at']
     ordering = ['user', 'name']
     autocomplete_fields = ['user']
+    actions = ['grant_freeze', 'remove_freeze']
 
     fieldsets = (
         ('Habit Information', {
-            'fields': ('id', 'user', 'name', 'weight', 'category', 'active')
+            'fields': ('id', 'user', 'name', 'weight', 'category', 'active', 'freeze_count')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
             'classes': ('collapse',)
         }),
     )
+
+    def save_model(self, request, obj, form, change):
+        """Save only the edited form fields, never ``freeze_count``.
+
+        A full save would write back the freeze count loaded with the form and
+        undo a spend the burn job made meanwhile.
+        """
+        if not change:
+            return super().save_model(request, obj, form, change)
+        fields = [name for name in form.changed_data if name != 'freeze_count']
+        if fields:
+            obj.save(update_fields=[*fields, 'updated_at'])
+
+    def _freeze_action(self, request, queryset, fn, verb):
+        done, skipped, busy = [], [], []
+        for habit in queryset:
+            try:
+                (done if run_in_transaction_sync(fn, habit.id) else skipped).append(habit.name)
+            except ServiceBusyError:
+                busy.append(habit.name)
+        if done:
+            self.message_user(request, f"Freeze {verb}: {', '.join(done)}", messages.SUCCESS)
+        if skipped:
+            reason = "inventory full" if verb == "granted" else "no freeze held"
+            self.message_user(request, f"Skipped ({reason}): {', '.join(skipped)}", messages.WARNING)
+        if busy:
+            self.message_user(request, f"Database busy, try again: {', '.join(busy)}", messages.ERROR)
+
+    @admin.action(description='Grant a streak freeze')
+    def grant_freeze(self, request, queryset):
+        self._freeze_action(request, queryset, freeze_service.admin_grant_sync, "granted")
+
+    @admin.action(description='Remove the streak freeze')
+    def remove_freeze(self, request, queryset):
+        self._freeze_action(request, queryset, freeze_service.admin_remove_sync, "removed")
+
+
+@admin.register(HabitFreezeEvent)
+class HabitFreezeEventAdmin(admin.ModelAdmin):
+    """Read-only history of freezes won and spent (feature 0048)."""
+
+    list_display = ['habit', 'user', 'event_type', 'state', 'earned_on', 'covered_date', 'created_at']
+    list_filter = ['event_type', 'state']
+    search_fields = ['habit__name', 'user__name', 'user__telegram_id']
+    ordering = ['-created_at']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        if _on_own_view(self, request):
+            return False
+        return super().has_delete_permission(request, obj)
 
 
 @admin.register(Reward)
@@ -173,6 +245,24 @@ class HabitLogAdmin(admin.ModelAdmin):
         """Alias for timestamp (for consistency)."""
         return obj.timestamp
     created_at.short_description = 'Created At'
+
+    # Read-only except for the revert action (feature 0048): creating, re-dating or
+    # deleting a log here would skip freeze settlement and reconciliation.
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        if _on_own_view(self, request):
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop('delete_selected', None)
+        return actions
 
     @admin.action(description='Revert selected habit logs (and reward progress)')
     def revert_selected_logs(self, request, queryset):

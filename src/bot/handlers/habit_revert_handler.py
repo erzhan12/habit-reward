@@ -15,6 +15,7 @@ from src.bot.keyboards import (
     build_habits_menu_keyboard,
 )
 from src.bot.language import get_message_language_async
+from src.bot.formatters import format_service_error
 from src.bot.messages import msg
 from src.bot.navigation import get_current_navigation, pop_navigation
 from src.core.repositories import user_repository
@@ -128,7 +129,7 @@ async def habit_revert_selected_callback(update: Update, context: ContextTypes.D
         elif "Habit" in error_message and "not found" in error_message:
             text = msg('ERROR_HABIT_NOT_FOUND', lang)
         else:
-            text = msg('ERROR_GENERAL', lang, error=error_message)
+            text = format_service_error(exc, lang)
 
         await query.edit_message_text(
             text,
@@ -150,6 +151,9 @@ async def habit_revert_selected_callback(update: Update, context: ContextTypes.D
                 pieces_required=pieces_required
             )
         )
+
+    if result.freeze_revoked is True:
+        message_lines.append(msg('FREEZE_REVOKED', lang))
 
     message_text = "\n\n".join(message_lines)
 

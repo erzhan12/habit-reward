@@ -4,6 +4,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes, CallbackQueryHandler
 
+from src.bot.formatters import format_service_error
 from src.bot.messages import msg
 from src.bot.language import get_message_language_async, set_user_language
 from src.bot.keyboards import (
@@ -532,7 +533,7 @@ async def simple_habit_selected_callback(update: Update, context: ContextTypes.D
                 date_display = today.strftime("%d %b %Y")  # Format: 09 Dec 2025
                 user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, habit_name=habit.name, date=date_display)
             else:
-                user_message = msg('ERROR_GENERAL', lang, error=error_msg)
+                user_message = format_service_error(e, lang)
 
             await query.edit_message_text(
                 user_message,
@@ -651,7 +652,7 @@ async def menu_habit_today_callback(update: Update, context: ContextTypes.DEFAUL
             date_display = today.strftime("%d %b %Y")  # Format: 09 Dec 2025
             user_message = msg('ERROR_BACKDATE_DUPLICATE', lang, habit_name=habit_name, date=date_display)
         else:
-            user_message = msg('ERROR_GENERAL', lang, error=error_msg)
+            user_message = format_service_error(e, lang)
 
         await query.edit_message_text(
             user_message,
@@ -908,7 +909,7 @@ async def menu_backdate_confirm_callback(update: Update, context: ContextTypes.D
         elif "before habit was created" in error_msg.lower():
             user_message = msg('ERROR_BACKDATE_BEFORE_CREATED', lang, date=error_msg.split()[-1])
         else:
-            user_message = msg('ERROR_GENERAL', lang, error=error_msg)
+            user_message = format_service_error(e, lang)
 
         await query.edit_message_text(
             user_message,
