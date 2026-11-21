@@ -654,6 +654,9 @@ async def batch_complete_habits(
                 )
             )
 
+        except ServiceBusyError:
+            logger.warning("Batch completion busy for user %s on habit %s", current_user.id, item.habit_id)
+            errors.append(BatchCompletionError(habit_id=item.habit_id, error="SERVICE_BUSY"))
         except Exception as e:
             error_msg = str(e)
             logger.warning("Batch completion error for user %s on habit %s: %s", current_user.id, item.habit_id, error_msg)

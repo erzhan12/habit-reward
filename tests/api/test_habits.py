@@ -452,3 +452,27 @@ class TestBatchCompleteHabits:
         assert len(data["results"]) == 1  # One success
         assert len(data["errors"]) == 1  # One error
         assert data["errors"][0]["habit_id"] == 999
+
+    @patch("src.api.v1.routers.habits.habit_service")
+    @patch("src.api.v1.routers.habits.habit_repository")
+    def test_batch_complete_busy_item_reports_service_busy(
+        self, mock_repo, mock_service, client, mock_habit
+    ):
+        """A busy item gets the SERVICE_BUSY code; the other items still complete."""
+        from src.models.habit_completion_result import HabitCompletionResult
+        from src.services.transactions import ServiceBusyError
+
+        mock_repo.get_by_id = AsyncMock(return_value=mock_habit)
+        ok = HabitCompletionResult(habit_confirmed=True, habit_name=mock_habit.name, streak_count=2,
+                                   total_weight_applied=80.0)
+        mock_service.process_habit_completion = AsyncMock(side_effect=[ok, ServiceBusyError("busy")])
+
+        response = client.post(
+            "/v1/habits/batch-complete",
+            json={"completions": [{"habit_id": 1}, {"habit_id": 2}]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert data["errors"] == [{"habit_id": 2, "error": "SERVICE_BUSY"}]
