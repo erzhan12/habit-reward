@@ -13,7 +13,7 @@ from src.services.streak_service import StreakService
 class AdminFreezeTests(TestCase):
     def setUp(self):
         self.admin_user = User.objects.create_superuser(
-            username="admin_0048", password="test-pass-0048", telegram_id="9900480", name="Admin"
+            username="admin_0048", password=None, telegram_id="9900480", name="Admin"
         )
         self.client.force_login(self.admin_user)
         self.owner = User.objects.create_user(
