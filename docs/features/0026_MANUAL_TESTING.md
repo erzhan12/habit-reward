@@ -248,7 +248,7 @@ sqlite3 db.sqlite3 "select id, user_id, name, is_active, created_at, last_used_a
 ```bash
 .venv/bin/python - <<'PY'
 import hashlib
-raw_key = "hrk_1ImsL27xacD5U7YvCWCQ6iEL3q0AkOLWVFZS-v-tuEU"
+raw_key = "hrk_YOUR_KEY_HERE"
 print(hashlib.sha256(raw_key.encode()).hexdigest())
 PY
 ```
@@ -259,7 +259,7 @@ Compare the printed hash to `api_keys.key_hash`. Do not paste your real key into
 **Action:**
 ```bash
 curl -X GET http://localhost:8000/v1/users/me \
-  -H "X-API-Key: hrk_1ImsL27xacD5U7YvCWCQ6iEL3q0AkOLWVFZS-v-tuEU" \
+  -H "X-API-Key: hrk_YOUR_KEY_HERE" \
   -H "Content-Type: application/json"
 ```
 
@@ -294,7 +294,7 @@ If you get `401`:
 **Action:**
 ```bash
 curl -X POST http://localhost:8000/v1/habits/31/complete \
-  -H "X-API-Key: hrk_1ImsL27xacD5U7YvCWCQ6iEL3q0AkOLWVFZS-v-tuEU" \
+  -H "X-API-Key: hrk_YOUR_KEY_HERE" \
   -H "Content-Type: application/json" \
   -d '{"target_date": "2026-01-02"}'
 ```
