@@ -17,7 +17,9 @@ def _on_own_view(model_admin, request) -> bool:
 
     Write permissions are denied only there: Django also asks a related model's admin
     for delete permission when a Habit or User delete cascades to it, and that
-    cascade must keep working (feature 0048).
+    cascade must keep working (feature 0048). Relies on Django admin's standard URL
+    names (``{app_label}_{model_name}_*``); a custom view with another name falls
+    through to the default permission and would allow deletes.
     """
     match = getattr(request, "resolver_match", None)
     opts = model_admin.model._meta

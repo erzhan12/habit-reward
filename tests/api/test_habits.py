@@ -295,7 +295,7 @@ class TestCompleteHabit:
         mock_service.process_habit_completion = AsyncMock(return_value=HabitCompletionResult(
             habit_confirmed=True, habit_name=mock_habit.name, streak_count=4,
             total_weight_applied=64.0, reward_chance=36.0, freeze_won=True,
-            freeze_used=True, freeze_covered_date=date(2026, 11, 17),
+            freeze_used=True, freeze_covered_date=date(2026, 11, 17), freeze_count=1,
         ))
 
         response = client.post(f"/v1/habits/{mock_habit.id}/complete", json={})
@@ -304,6 +304,7 @@ class TestCompleteHabit:
         data = response.json()
         assert (data["reward_chance"], data["total_weight_applied"]) == (36.0, 64.0)
         assert (data["freeze_won"], data["freeze_used"], data["freeze_covered_date"]) == (True, True, "2026-11-17")
+        assert data["freeze_count"] == 1
 
     @patch("src.api.v1.routers.habits.habit_service")
     @patch("src.api.v1.routers.habits.habit_repository")

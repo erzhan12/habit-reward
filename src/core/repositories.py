@@ -1305,7 +1305,7 @@ class HabitFreezeEventRepository:
             .order_by("covered_date")
         )
 
-    def set_state_sync(self, event_id: int, state: str) -> None:
+    def set_state_sync(self, event_id: int, state: HabitFreezeEvent.State) -> None:
         HabitFreezeEvent.objects.filter(pk=event_id).update(state=state)
 
     def update_covered_date_sync(self, event_id: int, covered_date: date) -> None:

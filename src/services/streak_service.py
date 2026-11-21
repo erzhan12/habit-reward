@@ -444,7 +444,7 @@ class StreakService:
                 return {h.id: StreakState.from_cache(cached[h.id]) for h in habits}
 
             today = get_user_today(user_timezone)
-            raw = await self.habit_log_repo.get_latest_streak_counts(user_id)
+            raw = await maybe_await(self.habit_log_repo.get_latest_streak_counts(user_id))
             spent_by_habit = await maybe_await(self.freeze_event_repo.get_spent_dates_by_habit(user_id))
             held_by_habit = await maybe_await(self.freeze_event_repo.get_held_earned_on_by_habit(user_id))
 

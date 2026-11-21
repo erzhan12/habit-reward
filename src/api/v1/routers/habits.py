@@ -91,6 +91,7 @@ class HabitCompletionResponse(BaseModel):
     freeze_won: bool = Field(False, description="This completion won a streak freeze")
     freeze_used: bool = Field(False, description="A freeze covered the missed day and the streak continued")
     freeze_covered_date: date | None = Field(None, description="The missed day a freeze covered, if any")
+    freeze_count: int = Field(0, description="Freezes the habit holds after this completion (raw inventory)")
 
 
 def _freeze_fields(result) -> dict:
@@ -101,6 +102,7 @@ def _freeze_fields(result) -> dict:
         "freeze_won": result.freeze_won is True,
         "freeze_used": result.freeze_used is True,
         "freeze_covered_date": covered if isinstance(covered, date) else None,
+        "freeze_count": result.freeze_count if isinstance(result.freeze_count, int) else 0,
     }
 
 

@@ -56,6 +56,8 @@ class ServiceBusyError(RuntimeError):
 
 
 def is_lock_error(exc: BaseException) -> bool:
+    # Substring match on driver messages. The SQLite markers are verified with Django 6.1 +
+    # sqlite3; the PostgreSQL ones are untested. Re-check after a Django or database change.
     message = str(exc).lower()
     return any(marker in message for marker in _LOCK_ERROR_MARKERS)
 

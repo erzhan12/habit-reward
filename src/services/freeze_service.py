@@ -89,7 +89,7 @@ class FreezeService:
                 if not self.habit_repo.try_consume_freeze_sync(habit.id):
                     return False
                 if held is not None:
-                    self.event_repo.set_state_sync(held.id, "spent")
+                    self.event_repo.set_state_sync(held.id, HabitFreezeEvent.State.SPENT)
                 self.event_repo.create_spent_sync(habit, covered_date, held)
         except IntegrityError:
             logger.info("Freeze spend for habit %s on %s already exists", habit.id, covered_date)
@@ -130,7 +130,10 @@ class FreezeService:
         """
         granted = self.habit_repo.try_grant_freeze_sync(habit.id, settings.MAX_FREEZES_PER_HABIT)
         if spend.earned_event_id:
-            self.event_repo.set_state_sync(spend.earned_event_id, "held" if granted else "forfeited")
+            self.event_repo.set_state_sync(
+                spend.earned_event_id,
+                HabitFreezeEvent.State.HELD if granted else HabitFreezeEvent.State.FORFEITED,
+            )
         self.event_repo.delete_sync(spend.id)
         if granted:
             habit.freeze_count = min(settings.MAX_FREEZES_PER_HABIT, habit.freeze_count + 1)
@@ -188,7 +191,7 @@ class FreezeService:
         if not self.habit_repo.try_consume_freeze_sync(habit.id):
             return False
         if held is not None:
-            self.event_repo.set_state_sync(held.id, "forfeited")
+            self.event_repo.set_state_sync(held.id, HabitFreezeEvent.State.FORFEITED)
         self._invalidate_streak_cache(habit.user_id)
         logger.info("Admin removed a freeze: habit=%s tracked=%s", habit.id, held is not None)
         return True
