@@ -33,24 +33,7 @@
       </button>
     </header>
 
-    <!-- Mobile top bar: app name + logout (the bottom nav has no room) -->
-    <header
-      class="lg:hidden flex items-center justify-between px-4 py-2 border-b"
-      :class="sidebarClass"
-    >
-      <span class="text-base font-bold text-accent">Habit Reward</span>
-      <button
-        type="button"
-        aria-label="Log out of your account"
-        :aria-busy="isLoggingOut"
-        :disabled="isLoggingOut"
-        class="flex items-center gap-2 px-3 min-h-11 rounded-lg text-sm font-medium transition-colors duration-150 text-text-secondary hover:text-text-primary hover:bg-bg-card-hover disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
-        @click="logout"
-      >
-        <span aria-hidden="true">↩</span>
-        {{ logoutLabel }}
-      </button>
-    </header>
+    <MobileTopBar :header-class="sidebarClass" :label="logoutLabel" :busy="isLoggingOut" @logout="logout" />
 
     <!-- Flash messages -->
     <FlashMessages :messages="flash" />
@@ -102,24 +85,7 @@
       </div>
     </aside>
 
-    <!-- Mobile top bar: app name + logout (the bottom nav has no room) -->
-    <header
-      class="lg:hidden flex items-center justify-between px-4 py-2 border-b"
-      :class="sidebarClass"
-    >
-      <span class="text-base font-bold text-accent">Habit Reward</span>
-      <button
-        type="button"
-        aria-label="Log out of your account"
-        :aria-busy="isLoggingOut"
-        :disabled="isLoggingOut"
-        class="flex items-center gap-2 px-3 min-h-11 rounded-lg text-sm font-medium transition-colors duration-150 text-text-secondary hover:text-text-primary hover:bg-bg-card-hover disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
-        @click="logout"
-      >
-        <span aria-hidden="true">↩</span>
-        {{ logoutLabel }}
-      </button>
-    </header>
+    <MobileTopBar :header-class="sidebarClass" :label="logoutLabel" :busy="isLoggingOut" @logout="logout" />
 
     <!-- Flash messages -->
     <FlashMessages :messages="flash" />
@@ -139,6 +105,7 @@ import { computed, ref } from "vue";
 import { Link, router, usePage } from "@inertiajs/vue3";
 import BottomNav from "./BottomNav.vue";
 import FlashMessages from "./FlashMessages.vue";
+import MobileTopBar from "./MobileTopBar.vue";
 import { useTheme } from "../composables/useTheme.js";
 import { useDayChange } from "../composables/useDayChange.js";
 

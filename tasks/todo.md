@@ -2,7 +2,16 @@
 
 <!-- Track current work as checkable items. Validate plan before implementing. -->
 
-## In progress: 0051 review nits (PR #111)
+## In progress: 0052 review cosmetics
+
+Branch `feature/0052-review-cosmetics` (worktree `.claude/worktrees/0052-review-cosmetics`).
+
+- [x] `MobileTopBar.vue` replaces the mobile bar duplicated in both `Layout.vue` branches
+- [x] Shared `MONTH_NAMES` (`utils/months.js`) for CalendarGrid and History
+- [x] FlashMessages: one `watch(..., { immediate: true })` instead of `onMounted` + `watch`
+- [x] CalendarGrid spec: drop the comment on `dayButton`; todo header below names the right PR
+
+## Done: 0051 review nits from PR #111 (shipped as PR #112)
 
 Branch `feature/0051-review-nits` (worktree `.claude/worktrees/0051-review-nits`).
 

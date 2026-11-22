@@ -73,6 +73,7 @@ import { ref, watch, computed } from "vue";
 import { router } from "@inertiajs/vue3";
 import CalendarGrid from "../components/CalendarGrid.vue";
 import { dayCompletions } from "../utils/dayCompletions.js";
+import { MONTH_NAMES } from "../utils/months.js";
 import { useTheme } from "../composables/useTheme.js";
 import { useThemeAnimation } from "../composables/useThemeAnimation.js";
 
@@ -105,13 +106,10 @@ const dayDetail = computed(() =>
   selectedDay.value ? dayCompletions(props.completions, props.habits, selectedDay.value) : null,
 );
 
-const MONTHS = ["January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"];
-
 const selectedDayLabel = computed(() => {
   if (!selectedDay.value) return "";
   const [, m, d] = selectedDay.value.split("-").map(Number);
-  return `${d} ${MONTHS[m - 1]}`;
+  return `${d} ${MONTH_NAMES[m - 1]}`;
 });
 
 const { themeConfig } = useTheme();

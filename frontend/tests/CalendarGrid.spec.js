@@ -19,7 +19,6 @@ function mountGrid(props = {}) {
   });
 }
 
-// Fails with a readable message instead of a TypeError when the day is missing.
 function dayButton(wrapper, day) {
   const button = wrapper.findAll("button").find((b) => b.attributes("aria-label")?.startsWith(`${day} November`));
   if (!button) throw new Error(`No day button for ${day} November`);

@@ -22,7 +22,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from "vue";
+import { ref, watch, onUnmounted } from "vue";
 import { useTheme } from "../composables/useTheme.js";
 
 const props = defineProps({
@@ -54,9 +54,8 @@ function badgeClass(type) {
   return "flash-info";
 }
 
-onMounted(() => show(props.messages));
+watch(() => props.messages, show, { immediate: true });
 onUnmounted(() => clearTimeout(hideTimer));
-watch(() => props.messages, show);
 </script>
 
 <style scoped>

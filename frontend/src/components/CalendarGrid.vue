@@ -70,6 +70,7 @@
 <script setup>
 import { computed } from "vue";
 import { useTheme } from "../composables/useTheme.js";
+import { MONTH_NAMES } from "../utils/months.js";
 
 const props = defineProps({
   currentMonth: { type: String, required: true },
@@ -153,9 +154,6 @@ const completionsByDate = computed(() => {
 function getDayCompletions(day) {
   return completionsByDate.value[formatDate(day)] || [];
 }
-
-const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"];
 
 function dayLabel(day) {
   const n = getDayCompletions(day).length;
