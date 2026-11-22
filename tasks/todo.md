@@ -2,7 +2,15 @@
 
 <!-- Track current work as checkable items. Validate plan before implementing. -->
 
-## In progress: 0050 review P2 follow-ups (PR #110)
+## In progress: 0051 review nits (PR #111)
+
+Branch `feature/0051-review-nits` (worktree `.claude/worktrees/0051-review-nits`).
+
+- [x] CalendarGrid: `aria-controls` only on the selected day (the panel is not in the DOM otherwise)
+- [x] FlashMessages spec: hide timer is cleared on unmount
+- [x] CalendarGrid spec: `dayButton` helper throws a readable error when the day is missing
+
+## Done: 0050 review P2 follow-ups (PR #110)
 
 Branch `feature/0050-review-p2` (worktree `.claude/worktrees/0050-review-p2`).
 

@@ -19,8 +19,11 @@ function mountGrid(props = {}) {
   });
 }
 
+// Fails with a readable message instead of a TypeError when the day is missing.
 function dayButton(wrapper, day) {
-  return wrapper.findAll("button").find((b) => b.attributes("aria-label")?.startsWith(`${day} November`));
+  const button = wrapper.findAll("button").find((b) => b.attributes("aria-label")?.startsWith(`${day} November`));
+  if (!button) throw new Error(`No day button for ${day} November`);
+  return button;
 }
 
 describe("CalendarGrid day buttons", () => {
@@ -32,7 +35,19 @@ describe("CalendarGrid day buttons", () => {
     expect(selected.attributes("aria-controls")).toBe("day-detail");
     expect(selected.attributes("aria-pressed")).toBeUndefined();
 
-    expect(dayButton(wrapper, 19).attributes("aria-expanded")).toBe("false");
+    const other = dayButton(wrapper, 19);
+    expect(other.attributes("aria-expanded")).toBe("false");
+    // Only the open day points at the panel; it is not in the DOM otherwise.
+    expect(other.attributes("aria-controls")).toBeUndefined();
+  });
+
+  it("points no day at the panel while nothing is selected", () => {
+    const wrapper = mountGrid({ detailId: "day-detail" });
+    for (const day of [19, 20]) {
+      const button = dayButton(wrapper, day);
+      expect(button.attributes("aria-expanded")).toBe("false");
+      expect(button.attributes("aria-controls")).toBeUndefined();
+    }
   });
 
   it("omits the disclosure attributes when there is no detail panel", () => {

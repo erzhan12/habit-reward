@@ -46,6 +46,14 @@ describe("FlashMessages", () => {
     expect(wrapper.find(".flash").exists()).toBe(false);
   });
 
+  it("clears its pending hide timer on unmount", async () => {
+    const wrapper = await mountFlash([{ type: "success", text: "Saved" }]);
+    expect(vi.getTimerCount()).toBe(1);
+
+    wrapper.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("marks errors as alerts inside a persistent live region", async () => {
     const wrapper = await mountFlash([{ type: "error", text: "Nope" }, { type: "info", text: "FYI" }]);
     expect(wrapper.attributes("aria-live")).toBe("polite");

@@ -47,7 +47,7 @@
         :class="[themeConfig.classes.card.rounded, dayClass(day)]"
         :aria-label="dayLabel(day)"
         :aria-expanded="detailId ? formatDate(day) === selectedDate : undefined"
-        :aria-controls="detailId || undefined"
+        :aria-controls="detailId && formatDate(day) === selectedDate ? detailId : undefined"
         @click="$emit('selectDay', formatDate(day))"
       >
         <span>{{ day }}</span>
